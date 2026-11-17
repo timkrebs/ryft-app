@@ -8,17 +8,19 @@ import UIKit
 /// `make orbit-shots` runs it. The images are for the design note, not a golden-file test.
 @MainActor
 @Suite struct OrbitGaugeShotsTests {
-    private func write<V: View>(_ name: String, scheme: ColorScheme, dir: String, @ViewBuilder _ content: () -> V) {
+    private func write<V: View>(_ name: String, scheme: ColorScheme, dir: String,
+                                typeSize: DynamicTypeSize = .large, @ViewBuilder _ content: () -> V) {
         let view = content()
             .padding(20)
             .background(Theme.background)
             .environment(\.colorScheme, scheme)
+            .environment(\.dynamicTypeSize, typeSize)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 3
         guard let image = renderer.uiImage, let data = image.pngData() else { return }
         try? data.write(to: URL(fileURLWithPath: "\(dir)/\(name)-\(scheme == .dark ? "dark" : "light").png"))
         // Colour-vision simulation (Machado et al. 2009, severity 1.0) of the shots that show the three orbits.
-        if name == "large" || name == "sizes" {
+        if name == "large" || name == "sizes" || name == "board-260" {
             for (kind, m) in Self.deficiencies {
                 if let out = Self.simulate(image, matrix: m)?.pngData() {
                     try? out.write(to: URL(fileURLWithPath: "\(dir)/\(name)-\(kind)-\(scheme == .dark ? "dark" : "light").png"))
@@ -68,6 +70,36 @@ import UIKit
                 }
             }
             write("large", scheme: scheme, dir: dir) { OrbitGauge(mode: .scored(.previewScored), size: .large) }
+            // Gauge v3 (Nocturne PR 3): the Today board at 260 with its values, at L and AX3, and the preview board's parts.
+            for (suffix, typeSize) in [("", DynamicTypeSize.large), ("-ax3", .accessibility3)] {
+                write("board-260\(suffix)", scheme: scheme, dir: dir, typeSize: typeSize) {
+                    OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard, caption: .previewBoard, animatesFill: false,
+                               breathes: false)
+                }
+                for (name, part) in [("v3-sizes", OrbitGaugePreviewBoard.Part.sizes), ("v3-states", .states),
+                                     ("v3-calibrating-pending", .calibratingAndPending), ("v3-numeral", .numeral)] {
+                    write("\(name)\(suffix)", scheme: scheme, dir: dir, typeSize: typeSize) {
+                        OrbitGaugePreviewBoard(parts: [part]).frame(width: 350)
+                    }
+                }
+            }
+            // Pending beside the scored gauge it should look like, only dimmer (the outer ticks under the strain arc, review
+            // PR 3 row 20): the board at 260 and Today's `.large`.
+            for (name, size) in [("260", OrbitGaugeSize.previewBoard), ("large", .large)] {
+                for (state, mode) in [("pending", OrbitGaugeMode.pending(previous: .previewBoard)), ("scored", .scored(.previewBoard))] {
+                    write("v3-\(state)-\(name)", scheme: scheme, dir: dir) {
+                        OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false)
+                    }
+                }
+            }
+            // The widget's dials, as the shared drawing it uses (the widget sets its own number in the system face).
+            write("v3-widget", scheme: scheme, dir: dir) {
+                HStack(alignment: .center, spacing: 16) {
+                    ForEach([143, 60, 44] as [CGFloat], id: \.self) { dial in
+                        OrbitGaugeDrawing(mode: .scored(.previewBoard), size: .custom(dial: dial))
+                    }
+                }
+            }
             write("states", scheme: scheme, dir: dir) {
                 HStack(spacing: 8) {
                     VStack { OrbitGauge(mode: .scored(OrbitGaugeValues()), size: .medium); caption("all missing") }

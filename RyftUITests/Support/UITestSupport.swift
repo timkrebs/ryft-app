@@ -3,6 +3,8 @@ import XCTest
 /// What the My Day UI tests share: demo-mode launch, the broad identifier queries, day strings.
 extension XCTestCase {
     /// Demo mode (`-demoMode YES`: no server, no HealthKit) on Today, English, dark, coach marks done.
+    /// A launch with arguments (this one, and every UI test's) skips the launch sequence (ADR 0017); only
+    /// `-RyftLaunchSequence play` plays it.
     /// `openMyDayDaysBack`: `-RyftOpenMyDay <n>` pushes the full My Day screen on that day once Today has loaded (Debug).
     /// `extra`: more launch arguments, e.g. a flag override.
     func launchDemo(openMyDayDaysBack: Int? = nil, extra: [String] = []) -> XCUIApplication {

@@ -631,7 +631,15 @@ private struct LaterButton: View {
 struct InviteCodeView: View {
     let model: OnboardingCoordinator
     @Environment(AuthService.self) private var auth
+    /// The launch sequence plays over the root: no keyboard over its arcs, no keystrokes into a field nobody sees.
+    @Environment(\.launchCoversRoot) private var launchCovers
     @FocusState private var focused: Bool
+
+    /// The field takes the keyboard by itself only when it can be seen and holds nothing yet: on appear when nothing
+    /// covers it, else at the launch's hand-off (ADR 0017).
+    static func shouldFocus(inviteCodeEmpty: Bool, covered: Bool) -> Bool {
+        inviteCodeEmpty && !covered
+    }
 
     var body: some View {
         OnboardingScreen(symbol: "envelope.open",
@@ -678,7 +686,12 @@ struct InviteCodeView: View {
                 .foregroundStyle(Theme.textSecondary)
             PrimaryButton(title: "Use another account", style: .secondary) { await auth.signOut() }
         }
-        .onAppear { if model.inviteCode.isEmpty { focused = true } }
+        .onAppear {
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: launchCovers) { focused = true }
+        }
+        .onChange(of: launchCovers) { _, covers in
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: covers) { focused = true }
+        }
     }
 }
 

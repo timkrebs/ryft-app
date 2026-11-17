@@ -18,16 +18,22 @@ struct OrbitGaugeBandRenderTests {
         let width: Int, height: Int, scale: CGFloat, frame: CGFloat, dial: CGFloat
         let bytes: [UInt8]
 
+        /// The pixel that contains a point of the frame.
         func pixel(_ p: CGPoint) -> RGB {
-            let x = min(max(Int((p.x * scale).rounded()), 0), width - 1)
-            let y = min(max(Int((p.y * scale).rounded()), 0), height - 1)
+            let x = min(max(Int((p.x * scale).rounded(.down)), 0), width - 1)
+            let y = min(max(Int((p.y * scale).rounded(.down)), 0), height - 1)
             let i = (y * width + x) * 4
             return RGB(r: Double(bytes[i]) / 255, g: Double(bytes[i + 1]) / 255, b: Double(bytes[i + 2]) / 255)
         }
 
+        /// A point on an orbit of the board (S = 260: strain 118, the rail 109.5), scaled to this frame.
         func onOrbit(_ referenceRadius: CGFloat, degrees: Double) -> CGPoint {
-            let c = CGPoint(x: frame / 2, y: frame / 2)
-            return G.point(centre: c, radius: referenceRadius * dial / G.referenceDial, degrees: degrees)
+            at(radius: referenceRadius * frame / G.referenceSide, degrees: degrees)
+        }
+
+        /// A point at a radius in points, unscaled: for the shapes drawn on their own.
+        func at(radius: CGFloat, degrees: Double) -> CGPoint {
+            G.point(centre: CGPoint(x: frame / 2, y: frame / 2), radius: radius, degrees: degrees)
         }
     }
 
@@ -177,15 +183,15 @@ struct OrbitGaugeBandRenderTests {
             let none = try #require(render(.scored(.previewScored), .large, scheme))
             let background = rgb(Theme.background, style)
             let rail = blend(rgb(Theme.metricStrain, style), background, G.bandRailOpacity)
-            let at = banded.onOrbit(69.5, degrees: mid)
+            let at = banded.onOrbit(109.5, degrees: mid)
             #expect(distance(banded.pixel(at), rail) < 0.06, "rail colour, \(schemeName)")
             #expect(distance(none.pixel(at), background) < 0.03, "no rail without a band, \(schemeName)")
             // Along the rail, and not beyond its ends.
             for degrees in [mid - 40, mid + 40] {
-                #expect(distance(banded.pixel(banded.onOrbit(69.5, degrees: degrees)), rail) < 0.06, "\(degrees), \(schemeName)")
+                #expect(distance(banded.pixel(banded.onOrbit(109.5, degrees: degrees)), rail) < 0.06, "\(degrees), \(schemeName)")
             }
             for degrees in [120.0, 240.0] {
-                #expect(distance(banded.pixel(banded.onOrbit(69.5, degrees: degrees)), background) < 0.03,
+                #expect(distance(banded.pixel(banded.onOrbit(109.5, degrees: degrees)), background) < 0.03,
                         "outside the band at \(degrees), \(schemeName)")
             }
         }
@@ -197,16 +203,16 @@ struct OrbitGaugeBandRenderTests {
             let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
             // 16.5 of 21 ends at 282.86 deg; the band ends at 222.86.
             for degrees in [235.0, 250.0, 270.0] {
-                #expect(distance(past.pixel(past.onOrbit(77, degrees: degrees)), alert) < 0.06, "past, \(degrees), \(schemeName)")
+                #expect(distance(past.pixel(past.onOrbit(118, degrees: degrees)), alert) < 0.06, "past, \(degrees), \(schemeName)")
             }
             for degrees in [20.0, 100.0, 180.0, 215.0] {
-                #expect(distance(past.pixel(past.onOrbit(77, degrees: degrees)), strain) < 0.06, "inside, \(degrees), \(schemeName)")
+                #expect(distance(past.pixel(past.onOrbit(118, degrees: degrees)), strain) < 0.06, "inside, \(degrees), \(schemeName)")
             }
             // The dot at the head is alert too.
-            #expect(distance(past.pixel(past.onOrbit(77, degrees: 282.86)), alert) < 0.06, "dot, \(schemeName)")
+            #expect(distance(past.pixel(past.onOrbit(118, degrees: 282.86)), alert) < 0.06, "dot, \(schemeName)")
             // Without a band the same strain is strain-coloured all the way.
             let none = try #require(render(.scored(values(strain: 16.5, band: nil)), .large, scheme))
-            #expect(distance(none.pixel(none.onOrbit(77, degrees: 250)), strain) < 0.06, "no band, \(schemeName)")
+            #expect(distance(none.pixel(none.onOrbit(118, degrees: 250)), strain) < 0.06, "no band, \(schemeName)")
         }
     }
 
@@ -215,7 +221,7 @@ struct OrbitGaugeBandRenderTests {
             let shot = try #require(render(.scored(.previewBanded(strain: 13)), .large, scheme))
             let strain = rgb(Theme.metricStrain, style)
             for degrees in [100.0, 180.0, 215.0] {
-                #expect(distance(shot.pixel(shot.onOrbit(77, degrees: degrees)), strain) < 0.06, "\(degrees), \(schemeName)")
+                #expect(distance(shot.pixel(shot.onOrbit(118, degrees: degrees)), strain) < 0.06, "\(degrees), \(schemeName)")
             }
         }
     }
@@ -223,8 +229,8 @@ struct OrbitGaugeBandRenderTests {
     @Test func theShiftShowsAtSmallWithoutARail() throws {
         for (schemeName, scheme, style) in Self.schemes {
             let shot = try #require(render(.scored(.previewBanded(strain: 16.5)), .small, scheme))
-            #expect(distance(shot.pixel(shot.onOrbit(77, degrees: 260)), rgb(Theme.alert, style)) < 0.08, "arc, \(schemeName)")
-            #expect(distance(shot.pixel(shot.onOrbit(69.5, degrees: 180)), rgb(Theme.background, style)) < 0.03,
+            #expect(distance(shot.pixel(shot.onOrbit(118, degrees: 260)), rgb(Theme.alert, style)) < 0.08, "arc, \(schemeName)")
+            #expect(distance(shot.pixel(shot.onOrbit(109.5, degrees: 180)), rgb(Theme.background, style)) < 0.03,
                     "no rail, \(schemeName)")
         }
     }
@@ -235,7 +241,7 @@ struct OrbitGaugeBandRenderTests {
             let shot = try #require(render(.calibrating(OrbitGaugeCalibration(nights: 3)), .large, scheme))
             let background = rgb(Theme.background, style)
             for degrees in [150.0, 180.0, 210.0] {
-                #expect(distance(shot.pixel(shot.onOrbit(69.5, degrees: degrees)), background) < 0.03,
+                #expect(distance(shot.pixel(shot.onOrbit(109.5, degrees: degrees)), background) < 0.03,
                         "\(degrees), \(schemeName)")
             }
         }
@@ -257,7 +263,7 @@ struct OrbitGaugeBandRenderTests {
             let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
             var sampled = 0, sampledPast = 0
             for degrees in stride(from: 12.0, to: head - 6, by: 6.0) {
-                let p = shot.pixel(shot.onOrbit(77, degrees: degrees))
+                let p = shot.pixel(shot.onOrbit(118, degrees: degrees))
                 if degrees < split - 4 {
                     sampled += 1
                     #expect(distance(p, strain) < 0.08, "\(degrees) deg at t \(t) is strain, \(schemeName)")
@@ -336,11 +342,11 @@ struct OrbitGaugeBandRenderTests {
             let after = try #require(shot(ZStack { arc }.frame(width: 172, height: 172), frame: 172, dial: 160, scheme))
             arc.animatableData = 150
             let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
-            #expect(distance(before.pixel(before.onOrbit(77, degrees: 140)), strain) < 0.08, "\(schemeName)")
-            #expect(distance(before.pixel(before.onOrbit(77, degrees: 250)), alert) > 0.15, "no past layer below the split")
-            #expect(distance(after.pixel(after.onOrbit(77, degrees: 140)), strain) < 0.08)
-            #expect(distance(after.pixel(after.onOrbit(77, degrees: 215)), strain) < 0.08, "behind the line")
-            #expect(distance(after.pixel(after.onOrbit(77, degrees: 250)), alert) < 0.08, "past the line once swept")
+            #expect(distance(before.pixel(before.at(radius: 77, degrees: 140)), strain) < 0.08, "\(schemeName)")
+            #expect(distance(before.pixel(before.at(radius: 77, degrees: 250)), alert) > 0.15, "no past layer below the split")
+            #expect(distance(after.pixel(after.at(radius: 77, degrees: 140)), strain) < 0.08)
+            #expect(distance(after.pixel(after.at(radius: 77, degrees: 215)), strain) < 0.08, "behind the line")
+            #expect(distance(after.pixel(after.at(radius: 77, degrees: 250)), alert) < 0.08, "past the line once swept")
         }
     }
 
@@ -353,7 +359,7 @@ struct OrbitGaugeBandRenderTests {
             let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
             func centre(_ dot: OrbitStrainDot) throws -> RGB {
                 let s = try #require(shot(ZStack { dot }.frame(width: 172, height: 172), frame: 172, dial: 160, scheme))
-                return s.pixel(s.onOrbit(77, degrees: dot.sweep))
+                return s.pixel(s.at(radius: 77, degrees: dot.sweep))
             }
             dot.animatableData = split - 0.5
             #expect(distance(try centre(dot), strain) < 0.08, "just before, \(schemeName)")

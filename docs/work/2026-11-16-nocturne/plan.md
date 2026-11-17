@@ -99,11 +99,98 @@ before PRs 4 and 5.
 
 Verify: ui-validator (the catalog and previews against the measurements, AX3, Reduce Transparency) and code-reviewer.
 
-### PR 3 — `design: orbit gauge v3 and launch`
+### PR 3 — `design: orbit gauge v3 and launch` (branch `feat/nocturne-gauge`)
 §3 rendering without model changes. ios-architect design note first, because the launch sequence is a state
 machine plus timing at cold start. §5 launch from `RyftMarkGeometry`, played once per cold start, with a static
 mark and cross-fade under Reduce Motion. The gauge and mark tests are re-pinned. performance-profiler checks
 launch, because the sequence is on the cold start path.
+
+| Ticket | Owner | Output |
+|---|---|---|
+| T3.0 Launch design note: where the sequence lives, its states, what skips it, the hand-off, seams for tests, the cold-start budget | ios-architect | `launch-design.md` (+ ADR 0017 if it decides something lasting) |
+| T3.1 Visual spec: gauge v3 geometry and states; the launch timeline mapped to SwiftUI; Reduce Motion; accessibility | ui-designer | `design.md` "PR 3" |
+| T3.2 Gauge v3 rendering, previews, catalog; re-pinned gauge tests | ios-developer | `OrbitGauge.swift` and its tests |
+| T3.3 Launch sequence per T3.0 and T3.1 | ios-developer | new `Design/` or `App/` files, `RyftApp.swift` wiring |
+| T3.4 Tests from the criteria | test-engineer | `RyftTests/`, `RyftUITests/` if needed |
+
+T3.0 and T3.1 run in parallel (docs only, separate files); T3.2 → T3.3 → T3.4 in one worktree. Carried over: the
+widget's `Brand` hexes are checked against the asset catalog (PR 1 review row 13).
+
+**Measurements from the Today board** (gauge 260 × 260, centre 130; angles 0° = 3 o'clock, clockwise):
+
+| Ring | Radius | Track | Arc |
+|---|---|---|---|
+| Outer, strain | 118 | tick ring: ticks 1.2 wide, 6 long, pitch 5.8 (1.2 + 4.6), `textPrimary` 16 % | 3.5 round, `metricStrain`, from −90° clockwise; 12.4 of 21 = 59 % ends at 122.6° |
+| Middle, recovery and sleep | 88 | full ring 3.5 wide, `textPrimary` 7 % | 3.5 round. Split at the vertical as today: recovery from −96° counter-clockwise, sleep from −84° clockwise, each over at most 160° (14° short of the bottom). Recovery 82 % ends at −227° (133°); sleep 94 % ends at 66° |
+| Inner, readiness | 58 | 60 ticks, 1.3 wide, 7 long, `textPrimary` 13 % | ticks up to the value in `textPrimary` (84 → 50 ticks, ending at −147.6°); a Volt dot r 5 with a 2.5 `background` ring at the value |
+
+Arc end dots: r 7 in the metric colour with a 3 pt `background` ring, and a halo r 15 in the metric colour at 16 %.
+Centre: `DotNumeral` (glyph gap 8) or Light digits at 52 pt. The "Readiness · High" line and the ruler under the gauge
+are Today's layout (PR 4), not part of the gauge.
+
+**Measurements from the Launch board** (5.2 s; the mark is 184 pt in the 100 box of `RyftMarkGeometry`, centred and
+40 pt above the middle):
+- Tracks: r 44 / 25.6 / 7.6, stroke 3.16, `textPrimary` 10 %. Dots: r 6. Easing `cubic-bezier(.45, 0, .15, 1)`.
+- Timeline: brief §5. The colours are the metric colours until 76 %, then `textPrimary` by 86 %. The tracks are in from 6 %
+  and gone at 74 %.
+- Wordmark: "RYFT" 22 pt Light, 28 pt under the mark; tracking 0.9 em → 0.32 em from 74 % to 86 %, easing
+  `cubic-bezier(.2, 0, 0, 1)`.
+- Tagline: "Engineered for peak." 13 pt at 55 %, 64 pt above the bottom, fades in from 80 % to 88 %.
+- VoiceOver: a status "Loading RYFT". The board's fade-out at 94–100 % belongs to its loop only.
+
+**Lead decisions**
+- **L1:** The launch never blocks the app. Startup work (auth restore, sync, Today's data) runs while it plays. A tap
+  anywhere skips to the hand-off.
+- **L2:** It plays only on a cold start into the foreground. It does not play on a background launch (HealthKit
+  delivery, BG task), a return from the background, UI tests, screenshot runs, or `-RyftScreen` launch arguments.
+  Demo mode plays it, so the user can see it.
+- **L3 (designer Q1):** `OrbitGaugeSize` stays as it is in PR 3 (`.large` = 172). Previews and the catalog show 260 through
+  `.custom`. The hero size comes with Today's layout in PR 4, because PR 3 changes rendering, not layout.
+- **L4 (Q2):** The widget draws v3 through `Shared/`. Its catalog gets a `TextPrimary` colorset (D6: same tokens), and
+  `check-shared-types.py` covers it. This also closes PR 1 review row 13 (the widget `Brand` hexes).
+- **L5 (Q3):** The dots ride the arc end plus the mark's clear air (14.02° outer, 24.22° middle), as on the board, so
+  the hold frame matches the board and the dots land in the mark's gaps.
+- **L6 (Q4):** PR 3 hands off with a cross-fade; the logo's flight into the header comes with PR 4's header.
+- **L7 (Q5):** The gauge gets an additive `numeral: .dots | .light` parameter (default `.dots`) in PR 3. PR 4 wires
+  Today's switch to it.
+- **L8 (Q7–Q9):** `Wordmark` gets an additive `tracking` parameter. `RyftMarkShape`'s arc and dot path builders become
+  shared statics on `RyftMarkGeometry`, so the launch uses the same geometry. The wordmark is 28 pt below the 184 pt box.
+- **L9 (architect O1):** The launch also skips when the app went to the background less than 10 minutes ago
+  (`launch.lastBackgroundAt`). iOS often evicts a suspended app, and a reopen that feels like a return must not
+  play 5.2 s; this is §5's intent.
+- **L10 (O2):** Confirmed: launches with a purpose (URL, user activity, shortcut, notification), an open workout, root
+  presentations, system UI and late activation skip or hand off at once; VoiceOver users get the reduced variant.
+- **L11:** The reduced (Reduce Motion / VoiceOver) frame is the t = 1 frame: mark, wordmark and tagline.
+- **L12:** Plain Xcode runs play the sequence (a tap skips); the shared scheme stays unchanged.
+- To PR 4: the splash as the launch's last frame; whether only the mark or the whole lock-up moves into the header; and
+  whether the gauge entrance starts with the move or after it lands (`launch-design.md` §14, questions 5–7).
+- **L13 (user, 2026-11-16):** RYFT has one tagline, "Engineered for peak.". `BrandLockup` (Welcome, About) says it
+  instead of "Your whole health.", which leaves the catalog and the README.
+
+**Acceptance criteria**
+1. **Gauge v3 renders the table above** for any `OrbitGauge` input, with the model unchanged. The tick rings scale with the
+   side (`RyftMarkGeometry`-style metrics), and the tests that pin the gauge are re-pinned with the new numbers:
+   - arc end angles for the board's values;
+   - tick counts;
+   - colours, with Volt only on the readiness dot;
+   - contrast: arcs and dots ≥ 3:1 on `background`.
+2. **The gauge keeps its VoiceOver sentence and its entrance** (`OrbitGaugeEntrance`), which now starts at the
+   launch hand-off. Reduce Motion behaves as today.
+3. **The launch follows §5's timeline within one frame of the keyframes**, from `RyftMarkGeometry` with no second
+   geometry, and ends on the exact static mark.
+   - A test samples the timeline at 0, 26, 50, 76, 86 and 100 % (angles, lengths, colours).
+   - Under Reduce Motion it shows the static mark and wordmark, then cross-fades.
+4. **It plays once per cold start and never in the cases in L2**, and a tap skips it. A unit test covers the state
+   machine; a UI test proves that UI tests skip it.
+5. **Cold start:** performance-profiler measures time to the first frame and to an interactive Today, with and
+   without the sequence. The sequence adds no main-thread work before the first frame, and no dropped frames on
+   an iPhone 17 Pro simulator.
+6. **Hygiene:** dark `#Preview`s and catalog entries for gauge v3 and the launch at a scrubbed time. Zero warnings;
+   Unit plan, `make lint` and `make style` green. New strings ("Engineered for peak.", "Loading RYFT") go
+   into the catalog.
+
+Verify: code-reviewer; ui-validator (the gauge against the board; the launch filmed or sampled frame by frame;
+AX3; Reduce Motion); performance-profiler (criterion 5). The widget `Brand` check is part of code-review.
 
 ### PR 4 — `today and sleep in nocturne`; PR 5 — `strain, insights, profile in nocturne`
 The §4 screens; the new tab bar is in PR 5. Missing data (the Insights hint, among others) comes from MockData
@@ -117,7 +204,9 @@ Carried over from the PR 2 review (`review.md` rows 4, 9–13 and 17):
 - The heart-rate zone block (five `TickRow`s) keeps one tick column: measure the longest label and stack all rows
   together if it is wider than 74 pt. `TickRow` has no hook for that yet: PR 5 adds one (e.g. `stacked: Bool` or an
   environment value), because each row's own `ViewThatFits` picks one line whenever that row fits. At AX3 the stacked ticks stay 177 pt wide, left-aligned: decide whether they span the width.
-- The glow edge brightness (P2-D1) is open for the user: the PR 2 body shows the alternative.
+- **The glow edge is as bright as the board (user, 2026-11-16).** PR 4 switches `GlowTileSpec` to the board's ellipse
+  (about 70 % metric colour in the 2-up corners) and sets labels in recovery glow tiles in full `textPrimary` instead of
+  78 %, so §6's 4.5:1 still holds; the contrast tests are re-pinned. P2-D1 is superseded.
 
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on

@@ -75,11 +75,12 @@ struct WidgetOrbitGauge: View {
         return AnyShapeStyle(dimmed ? Brand.ink.opacity(0.4) : Brand.ink)
     }
 
-    /// The app's colours in full colour. Tinted, clear and lock-screen renderings turn every colour into one ink
-    /// whose opacity is all that's left: an opaque track would outshine the arcs, so it becomes faint.
+    /// The app's colours in full colour, the v3 tracks included. Tinted, clear and lock-screen renderings turn every
+    /// colour into one ink whose opacity is all that's left: there the tracks are one faint white (as before v3), so the
+    /// 7 % middle ring doesn't vanish and no track outshines the arcs.
     private var palette: OrbitGaugePalette {
         var p = OrbitGaugePalette.assets
-        if renderingMode != .fullColor { p.track = Color.white.opacity(0.25) }
+        if renderingMode != .fullColor { p.flatTrack = Color.white.opacity(0.25) }
         return p
     }
 }

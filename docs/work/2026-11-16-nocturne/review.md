@@ -69,3 +69,87 @@ recovery tile (worst case), at L; ≥ 7.65 at AX3. The Unit plan stays at 2806 g
 Accepted as is: in the Light fallback (AX1+) the pending "–:––" is wider than "7:48" (231 vs 174 pt at AX3), because an
 en dash is wider than a digit; only the dot grid keeps the width. A figure dash (U+2012) would fix it if Satoshi has
 the glyph: follow-up, not PR 2.
+
+## PR 3 — gauge v3 and launch
+
+**Code review of gauge v3 (code-reviewer, 9953a8e..79bcfd8).** No blockers. Checked fine: geometry (code angle = board
++ 90°, ±6° / 160°, lit-tick rounding over 0–100, tiers, omitted ticks at the board values), the cut scoping per ring,
+every contrast number recomputed, `Shared/` compiling for the widget, the API additive, the widget `Brand` hexes against
+the app catalog (PR 1 row 13: no drift; `check-shared-types.py` now checks them in `make lint`).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 1 | Should fix: the halo-not-clipped test samples at 212.6°, inside the frame square, so a `.clipped()` would pass. | Render strain 10.5 or 21, sample 2 pt outside the frame on the axis, rect guard. | test-engineer |
+| 2 | Should fix: "entrance last frame = static" renders at `end`, which takes the settled branch; the choreography is never drawn. | Render at `end − 1e-4`, plus a pure scene test at `end` and at 0.4 s (no Volt yet, halo = flight). | test-engineer |
+| 3 | Should fix: `design.md` lags the code (centre weight, the "–" placeholder, layer order, caption, entrance Volt fade, `<=`, removals). | P3-10 rows 20–29 and the P3-1 text. | lead |
+| 4 | Nit: pending strain contrast is pinned over the 7 % ring, a pairing never drawn. | Pin 2.34 over the 16 % ticks. | test-engineer |
+| 5 | Nit: by centre distance a whole tick reaches 0.59 pt into a dot's cleared ring (strain 20.3). | Omit by rect distance; sweep test (P3-8 case 7). | ios-developer |
+| 6 | Nit: dead code (`Tracks`/`Marks` inits, palette band colours, `stroke(of:)`'s argument). | Delete. | ios-developer |
+| 7 | Nit: the Light numeral rolls on `quick` while the arcs move on `slow`. | Scope `quick` to the dots. | ios-developer |
+| 8 | Nit: `colorset_rgba` misreads integer components; `without_comments` cuts `"ryft://…"`. | Handle both; re-prove with planted drift. | ios-developer |
+| 9 | Heads-up: dots by size alone would draw "100" over the inner ticks. | Size gate AND width check (row 20). | ios-developer |
+| 10 | Heads-up: the widget track override must not go through `ink`, which the lit ticks use. | A separate optional track colour. | ios-developer |
+
+For PR 4: `GlowTile` clips its content, so a gauge inside one needs ≥ 3 pt inset for the halo.
+
+**Code review of the launch and the gauge fixes (code-reviewer, 79bcfd8..9f8d8b6).** No blockers. Checked fine: nothing
+new gates startup (two `UserDefaults` reads, a pure decision and a background fill before the first frame; bootstrap,
+`afterFirstFrame`, sync and auth run unchanged beneath); no ticking after done; signposts balanced on every path but
+row 15; no double play (process-scoped model); the string catalog diff is two targeted keys; `RyftMark` unchanged
+(`mark-svg --check` passes); the gauge fixes (rows 5–10) as decided. Every stated deviation is accepted except the
+strain head (row 14).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 11 | Should fix: `InviteCodeView` focuses its field on appear, so under a playing launch the keyboard slides over the arcs and keystrokes go into a hidden field (invite-gated first run, cold reopen > 10 min). | Focus only when not covered; focus on `launchCoversRoot` → false. The only root auto-focus in the app. | ios-developer |
+| 12 | Should fix: no `CHANGELOG.md` line. | Two lines under Changed (gauge, launch). | lead |
+| 13 | Should fix: `design.md` and `launch-design.md` lag the accepted deviations (reduced timing, Low Power Mode, identifier and traits, catalog Play, the frame API, L9's row, `lateActivation` focus, the `.launch` offset). | P3-5/6/7/9, P3-10 rows 30–34; an "as built" list in `launch-design.md`; ADR 0017 §5 on `play` vs L9. | lead |
+| 14 | Nit: the launch re-derives the strain head (`360 × fraction`) beside the gauge's mapping. | Use `OrbitGaugeGeometry`'s `headDegrees(for:)` (122.565°, 0.006° off). | ios-developer |
+| 15 | Nit: if the natural-end deadline runs ≥ 0.4 s late, `playing → done` skips the `launch-handoff` signpost (M2's end). | Emit it on `playing → done` too, except when backgrounded. | ios-developer |
+| 16 | Nit: XCUITest traps: the overlay is a Button; tap-to-gone measured 1.56 s (idle wait); hidden children are still listed. | Passed to test-engineer for T3.4. | test-engineer |
+| 17 | Nit: the tick-sweep oracle uses the code's own formula (independently verified correct). | Optional: corners of the transformed tick path. | test-engineer |
+
+Not verifiable by reading: whether `.accessibilityHidden` on the covered root reaches the UIKit-hosted tabs (Accessibility
+Inspector or VoiceOver on a device), taps on the tab bar while covered, hitches (performance-profiler), device-only
+launch paths (SpringBoard, HealthKit/BG, real purpose launches).
+
+**ui-validator (9f8d8b6, iPhone 17 Pro simulator, dark, English).** No blocker, no should-fix. The gauge at 260 measures
+118.0 / 88.0 / 58.0, ticks 1.20 × 6.0 and 1.30 × 7.0, dots within 0.1° of the spec, the "84" grid 74.0 × 47.0 centred, the
+tracks' colours exact; Today's `.large` gauge is v3 with a Light centre and its entrance after the hand-off. The launch
+fits the sample table at RMS 0.84°, layout within 0.7 pt, reduced 1.25 s, a tap ends it 0.252 s later (log), the AX3
+tagline scales on one line. Contrast from pixels equals P3-3.
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 18 | Nit: the sequence clock starts at `.active`, about 0.15 s before the first `TimelineView` draw, so in Debug the first frame is t ≈ 0.03 at 77 % group opacity: a pop instead of a fade (P3-10 row 5). | Anchor the start to the first drawn frame. | ios-developer |
+| 19 | Nit: Release simulator, a ~3-frame freeze at the start (group opacity 0.2 → 0.85), plus 1–2 frame repeats in the draw-in. | performance-profiler measures hitches on a quiet machine (M4); fix if it is ours. | performance-profiler |
+| 20 | Nit: pending dims the marks to 0.6 over full-strength 16 % ticks, so the ticks show through the strain arc as a ladder; Today shows pending every morning. | Cut the outer ticks under the strain arc while pending (as scored hides them). | ios-developer |
+| 21 | Nit: the overlay is a Button "Loading RYFT" (`launch.sequence`). | Accepted (P3-10 row 32). | — |
+
+The system launch screen reads `#090C0B` in screenshots against the overlay's `#0A0C0B`: one level of red, no visible
+flash. Not checked: VoiceOver itself, frame pacing on a device, Low Power Mode, the widget on the Lock Screen.
+
+**Fix round (d92ebe7…84bccc8).** Rows 11, 14, 15, 18 and 20 are fixed as decided, plus the tagline inset (the stage read
+the safe area inside `.ignoresSafeArea()`, so a > 40 pt inset was ignored; test-engineer pinned it as a known issue,
+now a plain pass) and L13 (one tagline: `BrandLockup` says "Engineered for peak.", the two old keys left the catalog by
+targeted edits). Row 18's evidence: the first drawn frame is t = 0 with group opacity 0 in 5 of 5 Debug launches (was
+t ≈ 0.03 at 77 %); Debug stalls of 60–280 ms in the first 0.3 s can still swallow part of the 0.25 s fade, which is
+performance-profiler's (row 19). Row 20: the scored shots are byte-identical; only pending shots change. Unit 3010
+passed + 2 skipped, UISmoke 41 + 1 skipped, zero warnings, `make lint` and `make style` green.
+
+**performance-profiler (84bccc8, Release, iPhone 17 Pro simulator, 60 Hz, demo mode; A = skip, B = play, C = reduced; n = 12
+each, medians).** Criterion 5: the sequence adds nothing to the critical path. App.init → `first-screen` 442.4 ms (A) vs
+447.6 ms (B), bootstrap CI of the difference [−7.7, +14.0] ms; Today's first reads and stores start at the same time
+underneath; the only new work before the first frame is §9.1's list, 3.3 ms; `.active` → first frame 6.1 ms; first frame →
+hand-off 5214 ms; nothing ticks after done. The overlay costs 0.06 ms per frame to build and draw (`LaunchFrame` 0.009 ms,
+`drawMark` 0.045 ms p50).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 22 | "No dropped frames" fails: about 14 frames per run, 10 of them in the first 0.3 s (longest gap 123 ms), 3 in the draw-in, 1–2 at the hand-off. The same main-thread stalls happen **without** the sequence (A: 11 dropped in the first 312 ms): the demo refresh encodes JSON and writes SwiftData on the main actor right after `.active` (`Repository.store(scores:/detail:/user:/trend:/activities:)`, `publishWidget`, `TrainStore.save`), then Today re-renders. The sequence makes the existing stall visible as a jumpy fade-in. | Not a PR 3 defect; PR 3 merges. Follow-up PR "persistence writes off the main actor" (ios-architect note first, then sync-engineer): encode and upsert on a `@ModelActor`. It also helps every launch without the sequence. The interim mitigation E1 (start the clock after 4 steady frames: 10 → 2 drops in the fade-in, +245 ms to the hand-off) is not taken: it only moves the start, and with real data the stores land mid-animation anyway. | follow-up |
+| 23 | The hand-off stall (40–50 ms): the uncovered gauge is built a second time (ADR 0017's accepted cost). | Follow-up with the persistence work: build the entrance gauge armed under the cover, flip it at the hand-off. | follow-up |
+| 24 | Nit: the hand-off event fires 14 ms late (p90 23) and the reduced variant stays 1.262 s (spec ≤ 1.25), from `Task.sleep`'s default tolerance; the fade itself is on time (timeline dates). | Follow-up: a tolerance parameter on `AppClock.sleep`. | follow-up |
+
+Device-only: absolute numbers, 120 Hz (stall frame counts double, per-frame cost holds), signed-in launches with real data
+(stores land mid-animation), Animation Hitches (not supported on the simulator; main-thread vsync and `TimelineView` tick
+gaps used instead).

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import Ryft
 
@@ -5,17 +6,19 @@ import Testing
     typealias G = OrbitGaugeGeometry
 
     @Test func recoveryRunsCounterClockwiseAndSleepClockwiseFromTheTop() {
-        #expect(G.Orbit.recovery.headDegrees(for: 0.5) == -90)
-        #expect(G.Orbit.sleep.headDegrees(for: 0.5) == 90)
+        // Gauge v3: each half starts 6 deg from the top and runs 160 deg, so 50 % is -(6 + 80) and +(6 + 80).
+        #expect(G.Orbit.recovery.headDegrees(for: 0.5) == -86)
+        #expect(G.Orbit.sleep.headDegrees(for: 0.5) == 86)
         #expect(G.Orbit.recovery.sweep(for: 0.2) < 0)
         #expect(G.Orbit.sleep.sweep(for: 0.2) > 0)
     }
 
     @Test func innerHalvesStopShortOfEachOtherByTheInset() {
         let r = G.Orbit.recovery.headDegrees(for: 1), s = G.Orbit.sleep.headDegrees(for: 1)
-        #expect(s == 180 - G.innerInset)
-        #expect(r == -(180 - G.innerInset))
-        // On the 54 pt orbit the two dots at 100 % keep a dot's diameter and 4 pt of air between them.
+        #expect(s == G.innerInset + G.innerSpan)
+        #expect(r == -(G.innerInset + G.innerSpan))
+        // On the middle orbit (58.2 pt at `.large`) the two dots at 100 % keep a dot's diameter and 4 pt of air
+        // between them.
         let m = G.metrics(forDial: 160)
         let a = G.point(centre: .zero, radius: m.innerRadius, degrees: r)
         let b = G.point(centre: .zero, radius: m.innerRadius, degrees: s)
@@ -23,10 +26,18 @@ import Testing
     }
 
     @Test func startDotsOfTheInnerOrbitDoNotOverlap() {
-        let m = G.metrics(forDial: 160)
-        let a = G.point(centre: .zero, radius: m.innerRadius, degrees: G.Orbit.recovery.startDegrees)
-        let b = G.point(centre: .zero, radius: m.innerRadius, degrees: G.Orbit.sleep.startDegrees)
-        #expect(abs(a.x - b.x) >= 2 * m.dotRadius + 4)
+        func apart(_ m: G.Metrics) -> CGFloat {
+            let a = G.point(centre: .zero, radius: m.innerRadius, degrees: G.Orbit.recovery.startDegrees)
+            let b = G.point(centre: .zero, radius: m.innerRadius, degrees: G.Orbit.sleep.startDegrees)
+            return abs(a.x - b.x)
+        }
+        // At the board's 260 a dot's diameter and 4 pt of air (18.4 pt); at every size down to 56 never touching.
+        let board = G.metrics(forSide: 260)
+        #expect(apart(board) >= 2 * board.dotRadius + 4)
+        for side in stride(from: CGFloat(56), through: 260, by: 2) {
+            let m = G.metrics(forSide: side)
+            #expect(apart(m) >= 2 * m.dotRadius, "at S \(side)")
+        }
     }
 
     @Test func strainTwentyOneIsAWholeTurn() {

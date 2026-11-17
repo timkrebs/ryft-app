@@ -267,7 +267,10 @@ graph of `await`s and a `TaskGroup`:
   display refresh after Today's first frame was committed (with or without cached data).
   The same signal for any screen but the splash is the launch barrier optional startup
   work (flags, push, Train, the gate re-check) waits behind. Instruments shows them under Points of Interest;
-  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too.
+  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too. The launch sequence (§6)
+  adds `first-screen` (the barrier opening), `launch-decision` (`play-full`, `play-reduced`, `skip-<reason>`), the
+  `launch-sequence` interval (first `.active` to the overlay's removal, ending with how it ended) and
+  `launch-handoff` (the root becomes interactive).
 - **Scoring, by the platform's word** (no clock comparison): after an upload the
   pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`
   (while the next wait runs) until `pending_days` no longer holds the touched days,
@@ -390,6 +393,29 @@ nothing springs.
   `-coachMarks.today.done YES`, and `.preview(coachMarks: true)` shows them.
 - `HealthIllustration` is a 2 s loop on the Health permission screen. With Reduce
   Motion on it is a still image.
+
+**Launch sequence** (ADR 0017; `docs/work/2026-11-16-nocturne/launch-design.md`). The 5.2 s brand moment on a cold
+start: the rings draw the board's reading, the dots move into the orbit mark, "RYFT" and the tagline arrive. It is the
+one exception to the 250 ms rule and never gates startup.
+- **Where it lives.** `LaunchHost(model:) { RootView() }` is the `WindowGroup`'s view; `LaunchOverlay` sits in its
+  overlay. `RootView` and every startup hook are built beneath it as without it. The model, `LaunchSequenceModel`, is
+  `@State` on `RyftApp`, so it lives for the process and never plays twice. It wraps the pure `LaunchSequence`
+  (phases `armed → playing → handingOff → done`, or `skipped`; all functions of a date) and refreshes on events and
+  `AppClock` deadlines. The overlay draws `LaunchFrame(t:palette:side:)`, a pure function of t from
+  `RyftMarkGeometry`, in a `TimelineView`; t = 1 is the static mark. Armed, it is only `Theme.background`, the launch
+  screen's colour.
+- **When it plays** (`LaunchPolicy.decide`, from the top): `-RyftLaunchSequence skip` → skip; a background launch →
+  skip; any launch argument (every UI test, `scripts/screenshots.sh`, `-RyftScreen`) unless `-RyftLaunchSequence play`
+  → skip; an open workout → skip; back within 10 minutes of the last `.background` (`launch.lastBackgroundAt`, L9)
+  unless `play` → skip; Reduce Motion, Low Power Mode or VoiceOver → the reduced variant (the last frame for 1 s, then
+  a 0.25 s cross-fade); otherwise the full sequence, demo mode included. After init, a link, notification, quick action
+  or Handoff at connect (`QuickActionSceneDelegate` → `LaunchInterruptions`), a root sheet or cover
+  (`RootView.presentsSomething`: a new root presentation joins that list), system UI (`.inactive`), the background and
+  a first `.active` later than 5 s skip it or hand off at once. A tap, or VoiceOver's activate or "Skip", hands off.
+- **The seam.** `launchCoversRoot` (environment) is true while armed or playing: anything that plays once when first
+  seen treats it like the background. Today's gauge is built static under it and plays its entrance at the hand-off.
+  PR 4's matched move into Today's header uses the `.launch` coordinate space, `LaunchStage(frame:markRect:)` and
+  `LaunchSequence.handOff(at:)`.
 
 ## 7. Push notifications and routes
 

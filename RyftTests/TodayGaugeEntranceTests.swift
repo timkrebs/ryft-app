@@ -162,6 +162,10 @@ struct TodayGaugeEntranceTests {
         /// The data changes: whether the mode has something to show. A change makes a new gauge instance, which
         /// appears in the current phase.
         case data(showable: Bool)
+        /// The launch sequence covers Today (`launchCoversRoot`) or uncovers it at the hand-off. Covered counts as the
+        /// background (the phase is seen as `.background`) and builds the gauge without its entrance, as `TodayView` and
+        /// `GaugeEntranceConsumer` do (`!launchCovers`, `seen(_:)`, `onChange(of: launchCovers)`).
+        case cover(Bool)
     }
 
     private struct Run: Equatable {
@@ -197,12 +201,12 @@ struct TodayGaugeEntranceTests {
     private func simulate(showable start: Bool, _ steps: [Step]) -> (run: Run, trace: Trace) {
         var run = Run()
         var trace = Trace()
-        var showable = start, unseen = false, placeholderSeen = false, phase = ScenePhase.inactive
+        var showable = start, unseen = false, placeholderSeen = false, phase = ScenePhase.inactive, covered = false
         var latched = OrbitGauge.Entrance.none
         var built = false
         func apply(_ event: Entrance.Event) {
-            let outcome = Entrance.decide(flag: run.flag, showable: showable, phase: phase, event: event,
-                                          playedUnseen: unseen)
+            let outcome = Entrance.decide(flag: run.flag, showable: showable, phase: covered ? .background : phase,
+                                          event: event, playedUnseen: unseen)
             unseen = outcome.playedUnseen
             if outcome.placeholderSeen { placeholderSeen = true }
             if outcome.rebuild {
@@ -218,7 +222,7 @@ struct TodayGaugeEntranceTests {
         func appear() {
             built = true
             let mode: OrbitGaugeMode = showable ? .scored(OrbitGaugeValues(readiness: 71, strain: 9.6)) : .scored(.empty)
-            latched = Entrance.entrance(flag: run.flag, mode: mode, placeholderSeen: placeholderSeen)
+            latched = Entrance.entrance(flag: run.flag && !covered, mode: mode, placeholderSeen: placeholderSeen)
             trace.entrances.append(latched)
             if latched.plays { run.assemblingInstances += 1 }
             apply(.appeared)
@@ -230,6 +234,10 @@ struct TodayGaugeEntranceTests {
                 if built { apply(.appeared) } else { appear() }
             case .phase(let p):
                 phase = p
+                apply(.phaseChanged)
+            case .cover(let now):
+                guard now != covered else { continue }
+                covered = now
                 apply(.phaseChanged)
             case .data(let now):
                 let before = Entrance.identityShowable(flag: run.flag, showable: showable)
@@ -382,5 +390,45 @@ struct TodayGaugeEntranceTests {
         let run = simulate(showable: false, fromEmpty)
         #expect(run.trace == Trace(entrances: [.none, .assembleOverTracks]), "one new instance, at the first data")
         #expect(run.run.consumed == 1)
+    }
+
+    // MARK: covered by the launch sequence (ADR 0017, launch-design.md section 7.3)
+
+    @Test func coveredAtTheFirstAppearanceBuildsWithoutAnEntranceAndPlaysAtTheHandOff() {
+        let steps: [Step] = [.cover(true), .appear(.inactive), .phase(.active), .cover(false)]
+        #expect(trace(showable: true, steps) == Trace(entrances: [.none, .assemble]), "static under the launch, then it plays")
+        let run = play(showable: true, steps)
+        #expect(run == Run(flag: false, consumed: 1, rebuilds: 1, consumedOnAnAssemblingGauge: true, assemblingInstances: 1))
+    }
+
+    @Test func coveredNeverConsumesAndNeverRebuildsWhileTheLaunchPlays() {
+        let run = play(showable: true, [.cover(true), .appear(.inactive), .phase(.active), .appear(.active), .phase(.inactive),
+                                        .phase(.active)])
+        #expect(run.flag && run.consumed == 0 && run.rebuilds == 0 && run.assemblingInstances == 0)
+        #expect(trace(showable: true, [.cover(true), .appear(.active)]) == Trace(entrances: [.none]))
+    }
+
+    @Test func uncoveringWhileTheSceneIsInactiveWaitsForActive() {
+        let run = play(showable: true, [.cover(true), .appear(.inactive), .cover(false), .phase(.active)])
+        #expect(run == Run(flag: false, consumed: 1, rebuilds: 1, consumedOnAnAssemblingGauge: true, assemblingInstances: 1))
+    }
+
+    @Test func coveredThenBackgroundedThenUncoveredPlaysOnce() {
+        let run = play(showable: true, [.cover(true), .appear(.active), .phase(.background), .phase(.active), .cover(false)])
+        #expect(run == Run(flag: false, consumed: 1, rebuilds: 1, consumedOnAnAssemblingGauge: true, assemblingInstances: 1))
+    }
+
+    @Test func aLaunchThatNeverCoversBehavesAsBefore() {
+        let plain = [Step.appear(.inactive), .phase(.active)]
+        #expect(play(showable: true, plain) == Run(flag: false, consumed: 1, consumedOnAnAssemblingGauge: true,
+                                                   assemblingInstances: 1))
+        // Uncovering with nothing covered is no event.
+        #expect(play(showable: true, [.cover(false)] + plain) == play(showable: true, plain))
+    }
+
+    @Test func aPlaceholderUnderTheLaunchIsNotCountedAsSeen() {
+        // Covered, the empty orbit is as unseen as in the background: the data's gauge draws its tracks in.
+        let steps: [Step] = [.cover(true), .appear(.active), .data(showable: true), .cover(false)]
+        #expect(trace(showable: false, steps) == Trace(entrances: [.none, .none, .assemble]))
     }
 }

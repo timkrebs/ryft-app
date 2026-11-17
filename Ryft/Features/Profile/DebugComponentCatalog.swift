@@ -25,7 +25,8 @@ struct DebugComponentCatalog: View {
             controls
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
-                    section("OrbitGauge") { orbits }
+                    section("Nocturne · gauge") { OrbitGaugePreviewBoard() }
+                    section("Nocturne · launch") { LaunchCatalogEntry() }
                     section("MetricGauge") { gauges }
                     section("RangeBar") { rangeBars }
                     section("DeltaLabel") { deltas }
@@ -75,38 +76,6 @@ struct DebugComponentCatalog: View {
     }
 
     // MARK: sections
-
-    /// Today's gauge in its modes and sizes (synthetic values). Calibrating (the count fills the segments) and pending (the previous day, dimmed).
-    private var orbits: some View {
-        let scored = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
-        return VStack(alignment: .leading, spacing: 18) {
-            OrbitGauge(mode: .scored(scored), size: .large,
-                       caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"),
-                                                   delta: MetricDelta(current: 71, reference: 67)))
-            HStack(alignment: .top, spacing: 12) {
-                OrbitGauge(mode: .scored(scored), size: .medium)
-                // A watch without HRV, no sleep yet: Recovery from what was scored, Sleep a hollow dot.
-                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)), size: .medium)
-            }
-            HStack(spacing: 12) {
-                OrbitGauge(mode: .scored(scored), size: .small)
-                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .small)
-                OrbitGauge(mode: .scored(.empty), size: .small)
-            }
-            HStack(spacing: 12) {
-                OrbitGauge(mode: .scored(scored), size: .custom(dial: 44))
-                OrbitGauge(mode: .pending(previous: nil), size: .small)
-                OrbitGauge(mode: .pending(previous: scored), size: .small)
-            }
-            // Calibrating: the nights counted of seven; the segments step in when it appears.
-            HStack(alignment: .top, spacing: 12) {
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium)
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 0)), size: .small)
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 7)), size: .small)
-                OrbitGauge(mode: .pending(previous: scored), size: .medium)
-            }
-        }
-    }
 
     private var gauges: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -407,6 +376,83 @@ struct DebugComponentCatalog: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: label).ryftGlowLabelStyle()
             Text(verbatim: value).font(.ryft(.metric))
+        }
+    }
+}
+
+/// The launch at 60 % (design.md §P3-7): scrub t, jump to a keyframe, the reduced variant, and Play, which replays the
+/// sequence from a local `LaunchSequence` (not the process's model) with its hand-off; a tap on the stage skips it.
+private struct LaunchCatalogEntry: View {
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.self) private var environment
+    @State private var t = 1.0
+    @State private var reduced = false
+    /// A replay in progress.
+    @State private var run: LaunchSequence?
+
+    private static let scale: CGFloat = 0.6
+    private static let keyframes: [Double] = [0, 0.26, 0.5, 0.76, 1]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            stage
+                .frame(width: 390, height: 844)
+                .scaleEffect(Self.scale, anchor: .topLeading)
+                .frame(width: 390 * Self.scale, height: 844 * Self.scale, alignment: .topLeading)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .onTapGesture { run?.send(.tap, at: env.clock.now()) }
+            Slider(value: $t, in: 0...1) { Text(verbatim: "t") }
+                .disabled(reduced || run != nil)
+            Text(verbatim: String(format: "t = %.3f · %.2f s", reduced ? 1 : t, (reduced ? 1 : t) * LaunchFrame.duration))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(Theme.textTertiary)
+            HStack(spacing: 8) {
+                ForEach(Self.keyframes, id: \.self) { value in
+                    Button { t = value } label: { Text(verbatim: String(format: "%.2f", value)) }
+                        .buttonStyle(.bordered)
+                        .disabled(reduced || run != nil)
+                }
+            }
+            Toggle(isOn: $reduced) { Text(verbatim: "Reduce Motion (the t = 1 frame, faded)") }
+            Button {
+                let now = env.clock.now()
+                var sequence = LaunchSequence(decision: .play(reduced ? .reduced : .full), createdAt: now)
+                sequence.send(.scene(.active), at: now)
+                t = 1
+                run = sequence
+            } label: { Text(verbatim: run == nil ? "Play" : "Playing… tap the stage to skip") }
+                .buttonStyle(.borderedProminent)
+                .disabled(run != nil)
+        }
+        // The replay's end: back to the scrubbed (last) frame.
+        .task(id: run?.doneAt) {
+            guard let done = run?.doneAt else { return }
+            let wait = done.timeIntervalSince(env.clock.now())
+            if wait > 0 { try? await env.clock.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            run = nil
+        }
+    }
+
+    @ViewBuilder
+    private var stage: some View {
+        let palette = LaunchFrame.Palette.resolved(in: environment)
+        if let playing = run {
+            TimelineView(.animation) { context in
+                ZStack {
+                    Theme.background
+                    LaunchStage(frame: LaunchFrame(t: playing.frameProgress(at: context.date), palette: palette))
+                        .opacity(playing.contentOpacity(at: context.date))
+                }
+                .opacity(1 - playing.handOff(at: context.date))
+            }
+            // As `LaunchOverlay`: t = 0 is the first frame on screen.
+            .onAppear { run?.send(.firstFrame, at: env.clock.now()) }
+        } else {
+            ZStack {
+                Theme.background
+                LaunchStage(frame: LaunchFrame(t: reduced ? 1 : t, palette: palette))
+            }
         }
     }
 }
