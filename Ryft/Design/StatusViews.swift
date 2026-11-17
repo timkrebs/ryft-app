@@ -453,7 +453,21 @@ extension RefreshIssue.Reason {
     /// What the message's button does (ui.md §3), on Today's card and Sleep's failed night: Sign in when signed out;
     /// none for an outdated app until the platform says how to tell (no store link to guess); else Try again. Trying
     /// again fixes neither of the first two.
-    enum Action: Equatable, Sendable { case retry, signIn, noButton }
+    enum Action: Equatable, Sendable {
+        case retry, signIn, noButton
+
+        /// The button's title: "Sign in", else "Try again" (unused without a button).
+        var title: LocalizedStringKey { self == .signIn ? "Sign in" : "Try again" }
+
+        /// The button's action from the caller's two: `retry`, `signIn`, or none for `noButton`.
+        func button(retry: (() async -> Void)?, signIn: (() async -> Void)?) -> (() async -> Void)? {
+            switch self {
+            case .retry: return retry
+            case .signIn: return signIn
+            case .noButton: return nil
+            }
+        }
+    }
 
     var action: Action {
         switch self {
@@ -487,22 +501,13 @@ struct RefreshIssueCard: View {
 
     var body: some View {
         InlineMessage(message: issue.reason.message, systemImage: issue.reason.systemImage,
-                      retryTitle: issue.reason.action == .signIn ? "Sign in" : "Try again",
-                      retry: action, caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
+                      retryTitle: issue.reason.action.title, retry: issue.reason.action.button(retry: retry, signIn: signIn),
+                      caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
             .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
-    }
-
-    /// `RefreshIssue.Reason.action`'s.
-    private var action: (() async -> Void)? {
-        switch issue.reason.action {
-        case .signIn: return signIn
-        case .noButton: return nil
-        case .retry: return retry
-        }
     }
 
     private var age: String? {

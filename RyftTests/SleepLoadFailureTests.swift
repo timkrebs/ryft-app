@@ -44,6 +44,22 @@ struct SleepLoadFailureTests {
         #expect(SleepLoadFailure(APIError.signedOut, isOnline: false, at: at).action == .retry, "offline: No connection, Try again")
     }
 
+    /// N3: one wiring for Today's card and Sleep's failed night: the title and the action come from the reason's action.
+    @Test func theButtonsWiringIsOne() async {
+        typealias Action = RefreshIssue.Reason.Action
+        #expect(Action.signIn.title == LocalizedStringKey("Sign in"))
+        #expect(Action.retry.title == LocalizedStringKey("Try again"))
+        final class Taps { var log: [String] = [] }
+        let taps = Taps()
+        let retry: () async -> Void = { taps.log.append("retry") }
+        let signIn: () async -> Void = { taps.log.append("signIn") }
+        await Action.retry.button(retry: retry, signIn: signIn)?()
+        await Action.signIn.button(retry: retry, signIn: signIn)?()
+        #expect(Action.noButton.button(retry: retry, signIn: signIn) == nil)
+        #expect(taps.log == ["retry", "signIn"])
+        #expect(Action.signIn.button(retry: retry, signIn: nil) == nil, "no sign-in action: no button")
+    }
+
     @Test func aFailedBoardHasAnEmptyCaption() {
         let board = SleepBoard(sleep: nil, score: nil, error: noConnection)
         #expect(board.look == .failed(noConnection) && board.caption.isEmpty && board.numeralLabel == nil)

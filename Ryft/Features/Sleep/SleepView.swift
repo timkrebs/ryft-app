@@ -256,15 +256,6 @@ struct SleepDay: View {
             .accessibilityHidden(board.spokenCaption == nil)
     }
 
-    /// What the failed night's button does: Try again, Sign in (signed out), or nothing (an outdated app).
-    private var failureAction: (() async -> Void)? {
-        switch failure?.action ?? .retry {
-        case .retry: return retry
-        case .signIn: return signIn
-        case .noButton: return nil
-        }
-    }
-
     /// The glow tile with a night; an outline while there is none; the message and Try again after a failed load.
     @ViewBuilder private var hypnogram: some View {
         switch board.look {
@@ -273,9 +264,11 @@ struct SleepDay: View {
                 SleepHypnogramTile(content: content, reduceTransparency: reduceTransparency)
             }
         case .failed(let message):
+            // The button as on Today's card (`RefreshIssue.Reason.Action`): Try again, Sign in, or none.
+            let action = failure?.action ?? .retry
             InlineMessage(message: message, systemImage: failure?.systemImage ?? "wifi.exclamationmark",
-                          retryTitle: failure?.action == .signIn ? "Sign in" : "Try again",
-                          details: failure?.details, retry: failureAction, identifier: "sleep.failure")
+                          retryTitle: action.title, details: failure?.details,
+                          retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.failure")
         case .loading, .noSleep, .pending, .awaitingNight:
             SleepHypnogramOutline()
         }
