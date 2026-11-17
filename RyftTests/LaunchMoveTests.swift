@@ -270,6 +270,28 @@ struct LaunchMoveTests {
         #expect(!gone.movesMark, "the target left before the hand-off")
     }
 
+    /// CR6: only the natural end and a tap move the mark. System UI and an interruption take the screen: a cross-fade,
+    /// even with the mark formed and a target there.
+    @Test(arguments: [LaunchSequence.Event.scene(.inactive), .interrupted(.presentation), .interrupted(.purposeLaunch)])
+    func anInterruptionAfterTheMarkHasFormedCrossFades(_ event: LaunchSequence.Event) {
+        var sequence = playing()
+        sequence.send(event, at: at(0.1 + 5.2 * LaunchSequence.markFormed + e))
+        #expect(sequence.phase(at: at(0.1 + 5.2 * LaunchSequence.markFormed + 2 * e)) == .handingOff)
+        #expect(!sequence.movesMark, "\(event) hands off without the move")
+        #expect(sequence.handOffDuration == LaunchSequence.Timing.full.quickHandOff, "its own quick fade")
+        var tapped = playing()
+        tapped.send(.tap, at: at(0.1 + 5.2 * LaunchSequence.markFormed + e))
+        #expect(tapped.movesMark, "a tap at the same moment moves it")
+    }
+
+    @Test func theEndingsThatMoveTheMark() {
+        #expect(LaunchSequence.endingMovesMark(nil) && LaunchSequence.endingMovesMark(.finished)
+            && LaunchSequence.endingMovesMark(.tapped))
+        #expect(!LaunchSequence.endingMovesMark(.systemUI) && !LaunchSequence.endingMovesMark(.backgrounded))
+        #expect(!LaunchSequence.endingMovesMark(.interrupted(.presentation))
+            && !LaunchSequence.endingMovesMark(.interrupted(.purposeLaunch)))
+    }
+
     @Test func theDecisionIsTakenOnceAtTheHandOff() throws {
         var sequence = playing()
         let handOff = try #require(sequence.handOffStart)

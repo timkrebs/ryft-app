@@ -340,11 +340,21 @@ struct LaunchSequence: Equatable, Sendable {
     static let markFormed = LaunchFrame.Key.wordmarkTo
 
     /// The mark and "RYFT" fly into Today's header lock-up instead of fading: the full variant, a `.mark` target on
-    /// screen, and the mark formed when the hand-off starts. Anything else (the reduced variant, a skip before 0.86,
-    /// another root) keeps the cross-fade. Fixed from the hand-off on (`setMarkTarget`).
+    /// screen, the mark formed when the hand-off starts, and a hand-off the person chose or the timeline's end (a tap or
+    /// the natural end). Anything else (the reduced variant, a skip before 0.86, another root, system UI or an
+    /// interruption, which take the screen) keeps the cross-fade. Fixed from the hand-off on (`setMarkTarget`).
     var movesMark: Bool {
-        guard variant == .full, hasMarkTarget, let start = handOffStart else { return false }
+        guard variant == .full, hasMarkTarget, Self.endingMovesMark(recordedEnding), let start = handOffStart else { return false }
         return progress(at: start) >= Self.markFormed
+    }
+
+    /// The natural end (no event, or `.finished` once backgrounded in its hand-off) and a tap may move the mark; system
+    /// UI, an interruption and the background don't (CR6).
+    static func endingMovesMark(_ ending: Ending?) -> Bool {
+        switch ending {
+        case nil, .finished, .tapped: return true
+        case .systemUI, .backgrounded, .interrupted, .skipped: return false
+        }
     }
 
     /// 0...1 of the hand-off's duration, linear; 0 before it, 1 after.
