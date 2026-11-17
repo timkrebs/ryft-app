@@ -71,8 +71,9 @@ enum TwoUpHost {
     @Test func theCaptionShrinksBeforeItLeavesTheValuesLine() {
         // 137 of content in a 169 tile: a 60 pt value leaves 69 beside it (8 apart).
         #expect(TodayTwoUpValueRow.arrangement(width: 137, value: 60, caption: 69) == .beside)
-        #expect(TodayTwoUpValueRow.arrangement(width: 137, value: 60, caption: 86) == .besideScaled, "86 × 0.8 = 68.8")
-        #expect(TodayTwoUpValueRow.arrangement(width: 137, value: 60, caption: 87) == .above)
+        // Scaled with 1 pt of slack (R2-N4): 85 × 0.8 + 1 = 69 fits, 86 × 0.8 + 1 = 69.8 doesn't.
+        #expect(TodayTwoUpValueRow.arrangement(width: 137, value: 60, caption: 85) == .besideScaled, "85 × 0.8 + 1 = 69")
+        #expect(TodayTwoUpValueRow.arrangement(width: 137, value: 60, caption: 86) == .above, "86 × 0.8 + 1 = 69.8")
         #expect(TodayTwoUpValueRow.minimumScale >= 0.8)
     }
 
@@ -105,6 +106,62 @@ enum TwoUpHost {
             #expect(abs(f.value.maxY - scored.value.maxY) < 0.5, "\(name): the value's line ends at \(f.value.maxY), scored \(scored.value.maxY)")
             // On the bottom padding: 12 above the tile's bottom.
             #expect(abs(f.tile.height - f.value.maxY - 12) < 0.5, "\(name): \(f.value) in \(f.tile)")
+        }
+    }
+
+    // MARK: the value's baseline (R2-N4)
+
+    /// The value sits by its baseline at the row's bottom less the line's deeper descent: a caption that hangs deeper
+    /// than the value (here a 40 pt "g" beside a 12 pt "7") stays inside the row, on the value's baseline.
+    @Test func aDeeperCaptionStaysInsideTheRow() async throws {
+        let frames = TwoUpFrames()
+        let row = TodayTwoUpValueRow {
+            Text(verbatim: "7").font(.system(size: 12))
+            Text(verbatim: "gy").font(.system(size: 40))
+        }
+        .frame(width: 200)
+        .reportFrame("row", to: frames)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        try await HostedWindow.run(width: 390, height: 400, row) { w in
+            try await w.wait("the row") { frames.byName["row"] != nil && w.node("gy", exactly: true) != nil }
+            try await w.settle()
+            let bounds = try #require(frames.byName["row"])
+            let caption = try #require(w.node("gy", exactly: true)).frame
+            let value = try #require(w.node("7", exactly: true)).frame
+            #expect(caption.maxY <= bounds.maxY + 0.5, "the caption \(caption) hangs out of the row \(bounds)")
+            #expect(value.maxY < bounds.maxY - 3, "the value's baseline is lifted by the caption's descent: \(value) in \(bounds)")
+        }
+    }
+
+    // MARK: no caption cut (R2-N4)
+
+    /// The caption's one-line width at `typeSize`, as the tile styles it.
+    private func idealWidth(_ caption: String, typeSize: DynamicTypeSize) -> CGFloat {
+        let host = UIHostingController(rootView: Text(verbatim: caption).ryftGlowLabelStyle().fixedSize()
+            .environment(\.dynamicTypeSize, typeSize))
+        return host.sizeThatFits(in: CGSize(width: 2_000, height: 2_000)).width
+    }
+
+    /// A cut caption ("calibrat…") keeps its whole string as its VoiceOver label, so the label can't show the cut; its
+    /// frame can: shrunk at most to 0.8, a caption is never narrower than 0.8 of its one-line width.
+    @Test("No caption is cut", arguments: [(CGFloat(390), DynamicTypeSize.large), (402, .large), (390, .xxxLarge)])
+    func noCaptionIsCut(_ c: (width: CGFloat, typeSize: DynamicTypeSize)) async throws {
+        let category: UIContentSizeCategory = c.typeSize == .large ? .large : .extraExtraExtraLarge
+        for tile in TwoUpCase.all + [TwoUpCase(name: "earlier day", title: "Sleep", value: "7:10", unit: "h", caption: "Sat, Nov 14")] {
+            guard let caption = tile.caption else { continue }
+            let frames = TwoUpFrames()
+            try await HostedWindow.run(width: c.width, height: 600, typeSize: c.typeSize, category: category,
+                                       TwoUpHost.pair(tile, tile, frames: frames)) { w in
+                try await w.wait("the tiles") { frames.byName["a"] != nil && w.node(caption, exactly: true) != nil }
+                try await w.settle()
+                let a = try #require(frames.byName["a"])
+                let node = try #require(w.nodes().first {
+                    $0.label == caption && a.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY))
+                })
+                let ideal = idealWidth(caption, typeSize: c.typeSize)
+                #expect(node.frame.width >= ideal * TodayTwoUpValueRow.minimumScale - 0.5,
+                        "\(tile) at \(c.width), \(c.typeSize): '\(caption)' \(node.frame.width) wide, one line \(ideal)")
+            }
         }
     }
 

@@ -390,10 +390,21 @@ struct TodayTwoUpValueRow: Layout {
     enum Arrangement: Equatable { case beside, besideScaled, above }
 
     /// Where the caption goes for a row `width` wide, a value `value` wide and a caption `caption` wide on one line.
+    /// Scaled, it keeps 1 pt of slack over `minimumScale`: a text that only just fits at 0.8 can still be cut by
+    /// rounding ("calibrat…"), so such a caption goes above.
     static func arrangement(width: CGFloat, value: CGFloat, caption: CGFloat) -> Arrangement {
         let room = width - value - TodayLayout.tileRowGap
         if caption <= room { return .beside }
-        return caption * minimumScale <= room ? .besideScaled : .above
+        return caption * minimumScale + 1 <= room ? .besideScaled : .above
+    }
+
+    /// The row's depth under the value's baseline: the deeper descent of the line's texts (the value's, 34 pt against
+    /// 13, in practice), or the value's alone with the caption above it.
+    private static func below(value: LayoutSubview, caption: LayoutSubview?, arrangement: Arrangement?) -> CGFloat {
+        let valueDescent = value.dimensions(in: .unspecified).height - value.dimensions(in: .unspecified)[.firstTextBaseline]
+        guard let caption, arrangement != .above else { return valueDescent }
+        let line = caption.dimensions(in: .unspecified)
+        return max(valueDescent, line.height - line[.firstTextBaseline])
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -403,11 +414,11 @@ struct TodayTwoUpValueRow: Layout {
         guard subviews.count > 1 else { return CGSize(width: width, height: valueSize.height) }
         let caption = subviews[1]
         let line = caption.sizeThatFits(.unspecified)
-        switch Self.arrangement(width: width, value: valueSize.width, caption: line.width) {
+        let arrangement = Self.arrangement(width: width, value: valueSize.width, caption: line.width)
+        switch arrangement {
         case .beside, .besideScaled:
-            // On the value's baseline: the value's line box is the taller one (34 pt against 13).
-            let below = max(valueSize.height - value.dimensions(in: .unspecified)[.firstTextBaseline],
-                            line.height - caption.dimensions(in: .unspecified)[.firstTextBaseline])
+            // On the value's baseline: as high as the taller ascent and the deeper descent.
+            let below = Self.below(value: value, caption: caption, arrangement: arrangement)
             let above = max(value.dimensions(in: .unspecified)[.firstTextBaseline],
                             caption.dimensions(in: .unspecified)[.firstTextBaseline])
             return CGSize(width: width, height: above + below)
@@ -420,13 +431,18 @@ struct TodayTwoUpValueRow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         guard let value = subviews.first else { return }
         let valueDimensions = value.dimensions(in: .unspecified)
-        // The value's line at the bottom of the row, always.
-        let valueTop = bounds.maxY - valueDimensions.height
+        let caption = subviews.count > 1 ? subviews[1] : nil
+        let line = caption?.sizeThatFits(.unspecified) ?? .zero
+        let arrangement = caption.map { _ in
+            Self.arrangement(width: bounds.width, value: valueDimensions.width, caption: line.width)
+        }
+        // The value's baseline sits `below` over the row's bottom: no descent hangs out of the row, and with the value's
+        // the deeper one (always, at these sizes) its line ends on the bottom padding in every arrangement.
+        let below = Self.below(value: value, caption: caption, arrangement: arrangement)
+        let valueTop = bounds.maxY - below - valueDimensions[.firstTextBaseline]
         value.place(at: CGPoint(x: bounds.minX, y: valueTop), proposal: .unspecified)
-        guard subviews.count > 1 else { return }
-        let caption = subviews[1]
-        let line = caption.sizeThatFits(.unspecified)
-        switch Self.arrangement(width: bounds.width, value: valueDimensions.width, caption: line.width) {
+        guard let caption, let arrangement else { return }
+        switch arrangement {
         case .beside, .besideScaled:
             let room = bounds.width - valueDimensions.width - TodayLayout.tileRowGap
             let offer = ProposedViewSize(width: min(line.width, room), height: line.height)
