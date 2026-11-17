@@ -60,7 +60,10 @@ final class CalibrationNoteUITests: XCTestCase {
         // The orbit names what's missing ("Overall readiness, no data. Recovery, not scored, …"), the note after it.
         XCTAssertTrue(value.localizedCaseInsensitiveContains("no data") && value.contains("Garmin Connect"),
                       "the empty gauge names it: \(value)")
-        XCTAssertTrue(app.staticTexts["No readiness yet today. It appears once last night has synced."].exists)
+        // The sentence ends the sub-line, read with the greeting as one header element.
+        let intro = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "No readiness yet today. It appears once last night has synced.")).firstMatch
+        XCTAssertTrue(intro.exists, "the sentence, in the intro")
         XCTAssertTrue(app.buttons["today.gaugeNote.link"].exists)
     }
 
