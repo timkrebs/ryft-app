@@ -128,7 +128,6 @@ enum ReadModelWrite: Sendable {
     case forgetActivity(UUID, strip: [String], hint: String?)
     case markTrendsStale
     case compact(dayCutoff: Date, month: Date, week: Date)
-    case clear                                              // the demo switch
     var kinds: Set<ReadModelKind> { get }
 }
 
@@ -152,7 +151,7 @@ actor ReadModelWriter {
     /// Made and awaited only inside `ReadModelDrain` (F8, decision 8): never made on, nor awaited from, the main actor.
     static func make(_ container: ModelContainer) async -> ReadModelWriter
     /// `MainThread.assertOff` in Debug. Autosave off. Applies `ops` in order; saves once, inside
-    /// `epoch.ifCurrent(batchEpoch)`; on a mismatch rolls back and returns `dropped`. Signpost "write" (`Signposts.reads`).
+    /// `epoch.ifCurrent(batchEpoch)`; on a mismatch drops the batch and its writer (no rollback: on iOS 17.0 a rollback of a change to existing rows traps; decision 11) and returns `dropped`. Signpost "write" (`Signposts.reads`).
     func apply(_ ops: [ReadModelWrite], batchEpoch: Int, epoch: StoreEpoch, now: Date) -> WriteReceipt
 }
 
@@ -250,7 +249,7 @@ sequenceDiagram
 | Two answers for one key: the later one wins | The queue runs in submit order (F11 makes the actor alone insufficient) |
 | `markTrendsStale` after the readiness-week write | Submitted after it in `refreshTrends`; the queue is FIFO |
 | `store(activity:)` before the coordinator's `refreshActivities` for that day | Submitted first, synchronously, in the follow-up |
-| `clear()` (demo switch) after the old side's pending writes | FIFO, and each op carries its own store |
+| The demo switch after the old side's pending writes | `Repository.reset()` retires the old store: its epoch advances, so its queued writes drop (decision 12) |
 | `refreshHistory` vs `refreshDay` | **No order exists today.** `AppState.refresh` and `refreshDays` run them in one task group, and `score(_:)` prefers the detail's score over the list's. The queue keeps landing order, which is today's order. |
 | Upload, anchors, the pipeline's stages | Untouched (§2). Each refresh stage still ends after its rows are written. |
 
@@ -274,14 +273,14 @@ is nonisolated and takes its context as a parameter. Check: a one-off command-li
 | Race | Today | After | Guard |
 |---|---|---|---|
 | An answer lands after the account changed | Dropped in `attempts`, with no await before the store | Same: submit is in that step | ReadScheduler |
-| A write is queued when the wipe runs | n/a (synchronous) | The batch's epoch is old, so the writer rolls back and drops it | `StoreEpoch` |
+| A write is queued when the wipe runs | n/a (synchronous) | The batch's epoch is old, so the drain drops it and its writer | `StoreEpoch` |
 | The writer is saving while the wipe starts | n/a | `advance()` waits for the save (one lock), then the wipe's deletes remove those rows | `StoreEpoch` |
 | The wipe runs between the writer's check and its save | n/a | Impossible: check and save are one critical section | `StoreEpoch` |
 | The writer's context holds rows the wipe deleted | n/a | `wipe` retires the writer; the next op `make`s a new one | `Persistence.readModelWriter()` |
 | The read context holds deleted rows | (mainContext) | `invalidate()` replaces it | Repository |
-| A demo switch with writes pending | n/a | Each op writes its own store; `clear()` follows FIFO | queue |
+| A demo switch with writes pending | n/a | Each op writes its own store; the old store's epoch advances at the switch, so its writes drop | `StoreEpoch` |
 | Two contexts write one row | n/a | The ownership table (§5.1); `seed` asserts the queue is idle | review, Debug |
-| The widget file is written after sign-out (privacy) | `clear()` is synchronous | P2: the file write is inside `epoch.ifCurrent`, and `clear()` runs after `advance()` | `StoreEpoch` |
+| The widget file is written after sign-out (privacy) | The wipe is synchronous | P2: the file write is inside `epoch.ifCurrent`, and the snapshot is cleared after `advance()` | `StoreEpoch` |
 
 The lock is held on main only for `advance()`, which waits for at most one writer save. It is never held across an
 `await`. `TrainStore.wipe` calls `epoch.advance()` as its first step, where `epoch += 1` is today. A failed main wipe
@@ -437,7 +436,7 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
 | F8: the writer runs on main | The work doesn't move, or main blocks behind a job | The drain makes and awaits the writer inside its own isolation, and it is `private` there (no main-actor path to it); Debug `assertOff` at creation and in every job; the off-main test through `Repository`, passing on iOS 17.0 and 27.2; AC1 |
 | F9/F10 differ on iOS 17 (stale reads, demo store not shared) | Wrong or empty screens | Read context replaced at each commit; T0.2 and T0.3 on the oldest runtime (Q3); fallback B |
 | The wipe resurrects an account's rows | Privacy | `StoreEpoch` critical sections, retiring the writer, two race tests, the stress test |
-| The widget file outlives sign-out (P2) | Privacy, on the lock screen | The file write inside `ifCurrent`; `clear()` after `advance()`; a test |
+| The widget file outlives sign-out (P2) | Privacy, on the lock screen | The file write inside `ifCurrent`; the snapshot cleared after `advance()`; a test |
 | The gate reads a stale user | An upload after a withdrawal (ADR 0008) | Write-through for `.user`; the same-step gate test |
 | Background completions before the commit | The widget or Today behind after a push or BG run | Flights await commits (P1); `settled()` before completions (P2) |
 | Two writers to one row | Failed saves, lost writes | §5.1 table, a review check, `seed` assertion |
@@ -480,7 +479,7 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
 11. **iOS 17.0: only the newest container of the schema takes inserts (T0.6).** Once the demo's container exists, a
     save of new rows into the account's older container fails (NSCocoaErrorDomain 134020) until a relaunch, on `main`
     too. On `main` the read models still showed in that session (unsaved in `mainContext`) and Train or activity rows
-    were lost at relaunch; with P1 the writer rolls back, so Today shows nothing new. The path is "try the demo, then
+    were lost at relaunch. With P1 a refused batch is dropped together with its writer, never rolled back (on iOS 17.0 a rollback of a change to existing rows traps; that crash was P1's and is fixed in 9ecc6cd), so Today shows nothing new. The path is "try the demo, then
     sign in", which every new user may take. **Decision: P1b**, in this PR: when the demo ends, the app releases the
     demo's container and reopens the account's, before the account's first write, on every OS (one code path; harmless
     on 27.2). One container with two configurations is not taken: an entity belongs to one configuration, and both
@@ -505,7 +504,22 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
     - **System completions wait at most 2 s** (`settledBeforeCompletion()` on `env.clock`, ended at once by expiry or
       cancellation), and **the HealthKit delivery's completion doesn't wait at all** (§5.7).
     - User answers are stored as of their request (`userChange()` / `askedAt`): a PATCH or `/me` answer that the
-      sign-out, the demo switch or a later local change overtook is dropped. `Repository.replaceScores` is gone.
+      sign-out, the demo switch or a later local change overtook is dropped. `UserChange.began` is a count of stored
+      changes (not a time, so two changes in one clock tick can't tie). An answer begun before a newer change is
+      dropped, doesn't count as a change, and triggers a `.changed(since:)` re-read. The withdrawal writes through its
+      own `storeConsentWithdrawn`, and its `/v1/me/sync` re-check doesn't join a read asked before it.
+      `Repository.replaceScores`, `Repository.clear()` and the `.clear` op are gone.
+    - **The withdrawal is also kept outside SwiftData** (round 2): `ConsentState.withdrawnAt`, per account in
+      `env.defaults`, counted as a consent signal, plus a `consent_required` refusal. It ends at `agree()`, or when a
+      `/me` asked after it shows consent to the latest policy. So a withdrawal holds even when the store refuses the
+      save (iOS 17 after a demo session, decision 11) and across an offline relaunch or a background launch.
+    - **At the 2 s bound or on cancel in the background the drain pauses:** no new batch starts, and the completion
+      awaits only the batch in progress, so no save is open when iOS suspends the app (0xdead10cc on the App Group
+      store). Writes resume at the next `.active` or after 10 s of the app running. No pause in the foreground.
+      `compact()` waits 2 s at most, and the compaction task has an expiration handler.
+    - **A refused or dropped batch is never rolled back:** the drain drops its writer, and the next batch gets a fresh
+      context (9ecc6cd). A retired store needs no separate set: `retire(_:)` advances its epoch, and nothing can name
+      the store afterwards, so the epoch alone drops its writes and its writer (4f1ef67).
 
 1. **Accept the split criterion?** This work gates on AC1–AC5. "Every gap ≤ 33 ms after `.active`" moves to the Today
    first-data render follow-up, together with row 23.
