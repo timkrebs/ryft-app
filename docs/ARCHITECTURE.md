@@ -191,8 +191,9 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - `Repository.store…` submits in the same main-actor step as the read pipeline's account
   check and returns a `WriteTicket`. `ReadModelDrain` applies the queue in submit order,
   one batch at a time, on the store's `ReadModelWriter` (a `@ModelActor`, private to the
-  drain's file, so no main-actor code can await it). A batch never spans a store, an epoch
-  or a seed, and it saves once.
+  drain's file, so no main-actor code can make or await it). The drain does both on its own
+  executor: iOS 17 runs a model actor's jobs on the thread that made it, iOS 27 on the
+  thread that awaits it. A batch never spans a store, an epoch or a seed, and it saves once.
 - At the commit the Repository replaces its read context (one per store, never written),
   bumps each written kind's revision once, and publishes the widget. `committed()` resolves
   after that: a refresh's flight awaits it, so a refresh, and each sync stage, returns with
@@ -210,8 +211,9 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   completion, the end of the background time after leaving the app, a silent push's
   handler and a HealthKit delivery's `completion()` wait for it: iOS may suspend the app
   there.
-- Debug asserts every writer job runs off main (`ReadModelOffMainTests` proves it through
-  the real path); `OSSignposter` interval `write` on `reads` covers each batch.
+- Debug asserts that each writer is made off main and that every job of it runs off main
+  (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
+  `OSSignposter` interval `write` on `reads` covers each batch.
 
 **Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
 

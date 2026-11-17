@@ -52,8 +52,10 @@ private final class TicketBox: Sendable {
 ///
 /// - **Submit order**: Swift actors run jobs by priority, not first in, first out, so the order lives in this queue.
 /// - **Batches** never span a store, an epoch or a seed: one save each, and one revision bump per kind.
-/// - **Off the main actor, by structure**: the writer is private to this file, and only this actor awaits it. A
-///   `@ModelActor`'s job runs on the thread that awaits it (T0.1, iOS 27.2), so no main-actor code can reach one.
+/// - **Off the main actor, by structure**: the writer is private to this file, and only this actor makes it and awaits
+///   it, both on its own executor. Which of the two decides a `@ModelActor` job's thread depends on the OS (T0.1): the
+///   thread that made the actor on iOS 17.0, the thread that awaits it on iOS 27.2. Made and awaited off main, its jobs
+///   run off main on both, and no main-actor code can reach one.
 /// - **The wipe**: a batch whose epoch is over is dropped; the writer saves inside `StoreEpoch.ifCurrent`; a new epoch or
 ///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed.
 actor ReadModelDrain {
@@ -74,8 +76,9 @@ actor ReadModelDrain {
         var insideSave: (@Sendable () -> Void)?
         /// After each save the store took.
         var saved: (@Sendable () -> Void)?
-        /// Each new writer (the first write to a store, the first after a wipe or a seed).
-        var writerMade: (@Sendable () -> Void)?
+        /// Each new writer (the first write to a store, the first after a wipe or a seed), with whether it was made on
+        /// the main thread.
+        var writerMade: (@Sendable (_ onMainThread: Bool) -> Void)?
     }
 
     /// The Repository's commit on the main actor: a new read context for the store, the receipt's kinds forgotten.
@@ -173,10 +176,12 @@ actor ReadModelDrain {
         if let cached = writers[first.target.store], cached.key == key {
             writer = cached.writer
         } else {
-            // The first write, a wipe or a seed: a context that holds nothing from before.
+            // The first write, a wipe or a seed: a context that holds nothing from before. Made here, on this actor's
+            // executor: on iOS 17 the thread that makes a model actor runs its jobs (T0.1).
+            queue.withLock { $0.hooks }.writerMade?(MainThread.isCurrent)
+            MainThread.assertOff("Making a read-model writer")
             writer = ReadModelWriter(modelContainer: first.target.container)
             writers[first.target.store] = (key, writer)
-            queue.withLock { $0.hooks }.writerMade?()
         }
         let hooks = queue.withLock { $0.hooks }
         return await writer.apply(batch.map { ReadModelWriteItem(op: $0.op, now: $0.now) }, batchEpoch: first.epoch,
@@ -190,7 +195,8 @@ private struct ReadModelWriteItem: Sendable {
 }
 
 /// The store's one writer of the read models (ADR 0018): a `@ModelActor` on its own container, never a second container.
-/// Private to this file: only `ReadModelDrain` awaits it, from its own executor, so its jobs run off the main thread.
+/// Private to this file: only `ReadModelDrain` makes it and awaits it, both from its own executor, so its jobs run off
+/// the main thread whichever of the two the OS goes by (T0.1).
 @ModelActor
 private actor ReadModelWriter {
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "reads")

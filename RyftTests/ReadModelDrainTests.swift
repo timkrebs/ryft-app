@@ -65,41 +65,47 @@ private func detail(_ day: String, strain: Double) -> DayDetail {
 /// The rows a fresh context finds (what the store holds, not a memo or a context's registered objects).
 @MainActor
 private func cachedDays(in store: any Persistence) throws -> [CachedDay] {
-    try ModelContext(store.container).fetch(FetchDescriptor<CachedDay>(sortBy: [SortDescriptor(\.day)]))
+    try ModelContext(store.container).fetch(FetchDescriptor<CachedDay>()).sorted { $0.day < $1.day }
 }
 
 @Suite("Read-model writes: off the main thread")
 @MainActor
 struct ReadModelOffMainTests {
     /// The proof the design rests on (T0.1, decision 8): a write submitted from the main actor, through the Repository,
-    /// runs its SwiftData job on another thread, and the main actor only awaits a continuation.
+    /// gets a writer made off the main thread and runs its SwiftData job off it, and the main actor only awaits a
+    /// continuation. Both halves, because the OS decides by the maker on iOS 17.0 and by the awaiter on 27.2.
     @Test func aWriteSubmittedFromTheMainActorRunsOffIt() async {
         let repo = Repository(env: .test())
-        let jobs = Recorded<Bool>()
-        repo.writeHooks.job = { jobs.append($0) }
+        let made = Recorded<Bool>(), jobs = Recorded<Bool>()
+        repo.writeHooks = .init(job: { jobs.append($0) }, writerMade: { made.append($0) })
         #expect(MainThread.isCurrent)
 
         let receipt = await repo.store(detail: detail(DayFormat.string(from: .now), strain: 7)).committed()
 
         #expect(receipt.saved && !receipt.dropped)
+        #expect(made.all == [false])
         #expect(jobs.all == [false])
     }
 
-    /// The paths the app writes through: a refresh's flight store, `AppState.patchUser`, the trends stage.
+    /// The paths the app writes through: a refresh's flight store, `AppState.patchUser`, the trends stage; and the
+    /// writer a sign-out's wipe replaces.
     @Test func everyWriterOfTheAppWritesOffTheMainThread() async throws {
         let clock = TestClock(now: ReadModelReaderTests.morning)
         let env = AppEnvironment.test(api: MockPlatformAPI(screens: HeldDayAnswers(detail: [12], list: 4)), clock: clock)
         let state = AppState(env: env)
-        let jobs = Recorded<Bool>()
-        state.repository.writeHooks.job = { jobs.append($0) }
+        let made = Recorded<Bool>(), jobs = Recorded<Bool>()
+        state.repository.writeHooks = .init(job: { jobs.append($0) }, writerMade: { made.append($0) })
 
         try await state.repository.refreshDay(clock.now())
         try await state.repository.refreshHistory(from: DayFormat.shift(clock.now(), days: -4), to: clock.now())
         try await state.patchUser(UserPatch(birthYear: 1990))
         await state.repository.markTrendsStale().committed()
+        env.persistence.wipe() // the store's wipe, as a sign-out runs it
+        await state.repository.store(scores: [DailyScore(day: DayFormat.string(from: clock.now()), strain: 3)]).committed()
 
-        #expect(jobs.count >= 4)
+        #expect(jobs.count >= 5)
         #expect(jobs.all.allSatisfy { !$0 })
+        #expect(made.all == [false, false]) // the first writer, and the one after the wipe
     }
 }
 
@@ -209,7 +215,7 @@ struct ReadModelQueueTests {
         let env = AppEnvironment.preview() // demo on
         let repo = Repository(env: env)
         let hold = WriterHold(), writers = Recorded<Bool>()
-        repo.writeHooks = .init(job: { _ in hold.pass() }, writerMade: { writers.append(true) })
+        repo.writeHooks = .init(job: { _ in hold.pass() }, writerMade: { _ in writers.append(true) })
         let a = "2026-11-01", b = "2026-11-02", c = "2026-11-03"
         repo.store(detail: detail("2026-10-01", strain: 1))
         #expect(await eventually { hold.entered == 1 })
@@ -235,7 +241,7 @@ struct ReadModelQueueTests {
         var misuses: [String] = []
         repo.onMisuse = { misuses.append($0) }
         let hold = WriterHold(), writers = Recorded<Bool>()
-        repo.writeHooks = .init(job: { _ in hold.pass() }, writerMade: { writers.append(true) })
+        repo.writeHooks = .init(job: { _ in hold.pass() }, writerMade: { _ in writers.append(true) })
         let key = DayFormat.string(from: .now)
         let held = repo.store(detail: detail(key, strain: 4))
         #expect(await eventually { hold.entered == 1 })
@@ -338,7 +344,7 @@ struct ReadModelWipeRaceTests {
     @Test func aWriteAfterTheWipeGoesToANewWriter() async throws {
         let h = WipeHarness()
         let writers = Recorded<Bool>()
-        h.repository.writeHooks.writerMade = { writers.append(true) }
+        h.repository.writeHooks.writerMade = { _ in writers.append(true) }
         await h.repository.store(detail: detail(h.today, strain: 12)).committed()
         await h.repository.store(user: MockData.user).committed()
         #expect(writers.count == 1)
@@ -364,27 +370,27 @@ struct ReadModelWipeRaceTests {
         let start = h.clock.now()
         let epoch = h.persistence.epoch.current
         let log = SubmitLog()
-        await withTaskGroup(of: Void.self) { group in
-            for writer in 0..<10 {
-                group.addTask { @MainActor in
-                    for i in 0..<20 {
-                        while i >= 15, h.persistence.epoch.current == epoch { await Task.yield() }
-                        let n = writer * 20 + i
-                        let day = DayFormat.string(from: DayFormat.shift(start, days: -n))
-                        let ticket = n % 3 == 0
-                            ? h.repository.store(detail: detail(day, strain: Double(n % 21)))
-                            : h.repository.store(scores: [DailyScore(day: day, strain: Double(n % 21))])
-                        log.submitted.append((day, h.persistence.epoch.current != epoch))
-                        log.tickets.append(ticket)
-                        if (i + round) % 4 == 0 { await Task.yield() }
-                    }
+        // Main-actor tasks (this suite is `@MainActor`), interleaved at their awaits.
+        var tasks = (0..<10).map { writer in
+            Task {
+                for i in 0..<20 {
+                    while i >= 15, h.persistence.epoch.current == epoch { await Task.yield() }
+                    let n = writer * 20 + i
+                    let day = DayFormat.string(from: DayFormat.shift(start, days: -n))
+                    let ticket = n % 3 == 0
+                        ? h.repository.store(detail: detail(day, strain: Double(n % 21)))
+                        : h.repository.store(scores: [DailyScore(day: day, strain: Double(n % 21))])
+                    log.submitted.append((day, h.persistence.epoch.current != epoch))
+                    log.tickets.append(ticket)
+                    if (i + round) % 4 == 0 { await Task.yield() }
                 }
             }
-            group.addTask { @MainActor in
-                while log.submitted.count < 30 + round * 25 { await Task.yield() }
-                await h.auth.signOut()
-            }
         }
+        tasks.append(Task {
+            while log.submitted.count < 30 + round * 25 { await Task.yield() }
+            await h.auth.signOut()
+        })
+        for task in tasks { await task.value }
         for ticket in log.tickets { await ticket.committed() }
 
         let expected = Set(log.submitted.filter(\.afterWipe).map(\.day))
