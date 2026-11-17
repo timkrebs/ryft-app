@@ -1537,6 +1537,7 @@
     "Dismiss" : {
       "comment" : "Training import: hide a finished import's row."
     },
+    "Display" : {},
     "distance %@" : {
       "comment" : "VoiceOver: a set's stored distance, e.g. distance 5.0 km."
     },
@@ -1545,6 +1546,9 @@
     },
     "done" : {
       "comment" : "Exercise strip, VoiceOver: all of an exercise's working sets are checked."
+    },
+    "Dots" : {
+      "comment" : "Profile → Display → Hero numbers: large numbers drawn as a grid of dots."
     },
     "Duration %@" : {
       "comment" : "Add activity: the time between start and end."
@@ -1713,6 +1717,9 @@
     },
     "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts." : {},
     "Here's your workout." : {},
+    "Hero numbers" : {
+      "comment" : "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn."
+    },
     "History only" : {
       "comment" : "Training import, step 4: the exercise is only in the workouts."
     },
@@ -1837,6 +1844,9 @@
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {},
     "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
       "comment" : "Training import, step 5: the offline duplicate check."
+    },
+    "Large numbers on Today, Sleep and Strain." : {
+      "comment" : "Footer under Profile → Display → Hero numbers: where the dots or thin digits show."
     },
     "Last time" : {
       "comment" : "Heading of the last-time card in a workout, without a date."
@@ -1979,6 +1989,9 @@
     },
     "Plus 15" : {
       "comment" : "Voice Control name of the rest bar's +15 button."
+    },
+    "Thin" : {
+      "comment" : "Profile → Display → Hero numbers: large numbers in thin digits."
     },
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise."
