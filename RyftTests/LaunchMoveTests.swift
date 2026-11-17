@@ -5,8 +5,8 @@ import UIKit
 @testable import Ryft
 
 /// The launch's matched move into Today's header (design.md §P4-7, tests 37–45; L15, L25): the mark and "RYFT" fly from
-/// the launch layout into the header's lock-up instead of fading. Pure first: the rect interpolation, the safe-area
-/// conversion, the move's timing and decision on `LaunchSequence`, the clearance in flight; then the model on a test clock
+/// the launch layout into the header's lock-up instead of fading. Pure first: the rect interpolation, the conversion
+/// from the window's space into the stage's, the move's timing and decision on `LaunchSequence`, the clearance in flight; then the model on a test clock
 /// (the reveal, the hidden lock-up) and one render of the landing against `RyftMark()`.
 @MainActor
 @Suite("Launch: the matched move")
@@ -19,7 +19,8 @@ struct LaunchMoveTests {
 
     private func close(_ a: Double, _ b: Double, _ tolerance: Double = 1e-3) -> Bool { abs(a - b) <= tolerance }
 
-    /// The board's launch layout on a 390 × 844 screen and the header mark under a 59 pt top inset.
+    /// The board's launch layout on a 390 × 844 screen and the header mark under a 59 pt top inset, in the window's space,
+    /// where the stage sits at the origin.
     private let start = CGRect(x: 103, y: 290, width: 184, height: 184)
     private let target = CGRect(x: 20, y: 66, width: 26, height: 26)
 
@@ -52,27 +53,32 @@ struct LaunchMoveTests {
         #expect(close(half.minX, 37.3, 0.05) && close(half.minY, 112.8, 0.05) && close(half.width, 59.0, 0.05))
     }
 
-    // MARK: 38. the safe-area conversion
+    // MARK: 38. one space for the target and the drawing (VB1)
 
-    @Test func aLaunchSpaceFrameMovesByTheLeadingAndTopInsets() {
-        let header = CGRect(x: 20, y: 7, width: 26, height: 26)
-        let insets = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
-        #expect(LaunchStage.overlayRect(fromLaunch: header, safeArea: insets) == target)
-        #expect(LaunchStage.overlayRect(fromLaunch: header, safeArea: EdgeInsets()) == header, "no insets: the identity")
-        let landscape = EdgeInsets(top: 0, leading: 47, bottom: 21, trailing: 47)
-        #expect(LaunchStage.overlayRect(fromLaunch: header, safeArea: landscape) == header.offsetBy(dx: 47, dy: 0))
+    /// The header reports its lock-up in the window's space and the stage converts by its own origin there, never by the
+    /// safe areas. The header sits in the `TabView`'s own hosting view, where `LaunchHost`'s named space was not found and
+    /// its frames came in the window's space (the lock-up at (20.9, 69.9) on an iPhone 17 Pro); adding the top inset
+    /// again landed the mark 62 pt low (VB1). `LaunchLandingHostedTests` holds the same in a real window.
+    @Test func aWindowFrameMovesByTheStagesOriginInTheWindow() {
+        let header = CGRect(x: 20.9, y: 69.9, width: 26, height: 26)
+        #expect(LaunchStage.overlayRect(fromWindow: header, stageOrigin: .zero) == header,
+                "the app: the stage ignores the safe areas and sits at the window's origin, so the identity")
+        #expect(LaunchStage.overlayRect(fromWindow: header, stageOrigin: CGPoint(x: 0, y: 59)) == header.offsetBy(dx: 0, dy: -59),
+                "a stage further down the window takes its own offset off")
+        #expect(LaunchStage.overlayRect(fromWindow: header, stageOrigin: CGPoint(x: 47, y: 0)) == header.offsetBy(dx: -47, dy: 0),
+                "and across")
     }
 
     @Test func theLayoutStartsAtTheLaunchAndLandsOnTheHeader() {
         let screen = CGSize(width: 390, height: 844)
-        let insets = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
-        let wordmark = CGRect(x: 56, y: 9.875, width: 52, height: 20.25)
+        // The header's lock-up in the window's space.
+        let wordmark = CGRect(x: 56, y: 68.875, width: 52, height: 20.25)
         let palette = LaunchFrame.Palette(strain: .init(r: 0, g: 0, b: 1), sleep: .init(r: 1, g: 0, b: 1),
                                           recovery: .init(r: 0, g: 1, b: 0), ink: .init(r: 1, g: 1, b: 1))
         func layout(_ time: Double) -> LaunchStage.MoveLayout {
-            LaunchStage.moveLayout(LaunchStage.Move(mark: CGRect(x: 20, y: 7, width: 26, height: 26), wordmark: wordmark,
-                                                    time: time, taglineOpacity: 1, palette: palette),
-                                   screen: screen, safeArea: insets)
+            LaunchStage.moveLayout(LaunchStage.Move(mark: target, wordmark: wordmark, time: time, taglineOpacity: 1,
+                                                    palette: palette),
+                                   screen: screen, stageOrigin: .zero)
         }
         #expect(layout(0).mark == LaunchStage.markRect(in: screen) && layout(0).mark == start)
         #expect(layout(0).wordmarkCentre == LaunchStage.wordmarkCentre(in: screen) && layout(0).wordmarkSize == 22)
@@ -141,15 +147,13 @@ struct LaunchMoveTests {
 
     @Test func theWordmarkNeverComesWithin4ptOfTheMark() {
         let screen = CGSize(width: 390, height: 844)
-        let insets = EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
-        let move = { (time: Double) in
-            LaunchStage.Move(mark: CGRect(x: 20, y: 7, width: 26, height: 26), wordmark: nil, time: time,
-                             taglineOpacity: 1, palette: Self.palette)
+        let move = { [target] (time: Double) in
+            LaunchStage.Move(mark: target, wordmark: nil, time: time, taglineOpacity: 1, palette: Self.palette)
         }
         var least = Double.infinity
         for step in 0...50 {
             let time = Double(step) / 50
-            let layout = LaunchStage.moveLayout(move(time), screen: screen, safeArea: insets)
+            let layout = LaunchStage.moveLayout(move(time), screen: screen, stageOrigin: .zero)
             let side = Double(layout.mark.width)
             let metrics = G.metrics(forSide: side)
             // The mark's outer ink from its centre: the outer ring (44 % of the side) plus a dot's radius.

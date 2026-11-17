@@ -23,9 +23,6 @@ struct LaunchHost<Root: View>: View {
             .overlay {
                 if model.isOnScreen { LaunchOverlay(model: model) }
             }
-            // The matched move: Today's header reports its lock-up's frames in this space; the overlay ignores the safe
-            // areas, so `LaunchStage.overlayRect(fromLaunch:safeArea:)` converts them.
-            .coordinateSpace(.launch)
             // A re-created scene sends an `.active` the terminal sequence ignores: nothing plays twice.
             .onChange(of: scenePhase, initial: true) { _, phase in model.send(.scene(phase)) }
             .onChange(of: model.coversRoot) { covered, covers in
@@ -37,9 +34,10 @@ struct LaunchHost<Root: View>: View {
     }
 }
 
-extension CoordinateSpaceProtocol where Self == NamedCoordinateSpace {
-    /// `LaunchHost`'s space: the root and the launch overlay share it.
-    static var launch: NamedCoordinateSpace { .named("launch") }
+extension EnvironmentValues {
+    /// Tests: `LaunchOverlay` draws this moment of the sequence instead of its timeline's frame dates, so a hosted window
+    /// can hold the matched move at its landing (`LaunchLandingHostedTests`). Always nil in the app.
+    @Entry var launchOverlayMoment: Date?
 }
 
 /// What covers the root. Armed: the launch screen's colour and nothing else (no timeline, canvas, text or font before
@@ -50,6 +48,8 @@ extension CoordinateSpaceProtocol where Self == NamedCoordinateSpace {
 struct LaunchOverlay: View {
     let model: LaunchSequenceModel
     @Environment(\.self) private var environment
+    /// Tests: one moment of the sequence instead of the timeline's (nil in the app).
+    @Environment(\.launchOverlayMoment) private var pinnedMoment
 
     /// The UI tests' handle (`LaunchSequenceUITests`).
     static let identifier = "launch.sequence"
@@ -78,12 +78,13 @@ struct LaunchOverlay: View {
         } else {
             let palette = LaunchFrame.Palette.resolved(in: environment)
             TimelineView(.animation(paused: !model.isAnimating)) { context in
+                let date = pinnedMoment ?? context.date
                 let sequence = model.sequence
-                let frame = LaunchFrame(t: sequence.frameProgress(at: context.date), palette: palette)
-                if let move = Self.move(sequence, targets: model.targets, at: context.date, frame: frame, palette: palette) {
+                let frame = LaunchFrame(t: sequence.frameProgress(at: date), palette: palette)
+                if let move = Self.move(sequence, targets: model.targets, at: date, frame: frame, palette: palette) {
                     // The matched move: the mark and the wordmark stay at full ink until `done`; the background and the
                     // tagline are gone 0.25 s in, so Today shows around the lock-up in flight.
-                    let fade = sequence.moveFade(at: context.date)
+                    let fade = sequence.moveFade(at: date)
                     ZStack {
                         Theme.background.opacity(fade)
                         LaunchStage(frame: frame, safeAreaBottom: safeAreaBottom, move: move)
@@ -92,9 +93,9 @@ struct LaunchOverlay: View {
                     ZStack {
                         Theme.background
                         LaunchStage(frame: frame, safeAreaBottom: safeAreaBottom)
-                            .opacity(sequence.contentOpacity(at: context.date))
+                            .opacity(sequence.contentOpacity(at: date))
                     }
-                    .opacity(1 - sequence.handOff(at: context.date))
+                    .opacity(1 - sequence.handOff(at: date))
                 }
             }
             // The timeline starts at its first frame on screen, not at the scene's `.active` (up to 0.15 s earlier in
@@ -117,15 +118,13 @@ extension LaunchOverlay {
 }
 
 /// The whole screen for the launch overlay: `content` is laid out ignoring the safe areas and gets the bottom inset it
-/// ignores, read here, outside `.ignoresSafeArea()`, where it is still the screen's (inside, a geometry reads 0). All four
-/// insets go down as `launchSafeArea`, for the matched move's conversion.
+/// ignores, read here, outside `.ignoresSafeArea()`, where it is still the screen's (inside, a geometry reads 0).
 struct LaunchFullScreen<Content: View>: View {
     @ViewBuilder var content: (_ safeAreaBottom: CGFloat) -> Content
 
     var body: some View {
         GeometryReader { proxy in
             content(proxy.safeAreaInsets.bottom)
-                .environment(\.launchSafeArea, proxy.safeAreaInsets)
                 .ignoresSafeArea()
         }
     }

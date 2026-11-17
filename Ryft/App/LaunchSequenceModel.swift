@@ -27,7 +27,7 @@ final class LaunchSequenceModel {
 
     // MARK: the matched move (design.md §P4-7, launch-design.md §7.5)
 
-    /// Today's header lock-up in the `.launch` space, as its targets report it (`launchHandOffTarget`) while the launch
+    /// Today's header lock-up in the window's space, as its targets report it (`launchHandOffTarget`) while the launch
     /// is on screen. During a move a target that goes keeps its last frame, so the lock-up still lands somewhere.
     private(set) var targets: [LaunchHandOffRole: CGRect] = [:]
 

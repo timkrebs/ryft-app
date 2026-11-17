@@ -19,7 +19,7 @@ struct LaunchStage: View {
 
     /// One moment of the matched move: where the lock-up is, how far the move is, and what the mark is drawn in.
     struct Move: Equatable {
-        /// The header's mark and wordmark in the `.launch` space, as their targets report them. Without a wordmark target
+        /// The header's mark and wordmark in the window's space, as their targets report them. Without a wordmark target
         /// the wordmark lands beside the mark, as `WordmarkLockup` lays it out.
         var mark: CGRect
         var wordmark: CGRect?
@@ -65,10 +65,14 @@ struct LaunchStage: View {
 
     // MARK: the matched move (design.md §P4-7)
 
-    /// A frame in the `.launch` space (`LaunchHost`'s, the root's: inside the safe area) in the overlay's, which ignores
-    /// the safe areas: moved by the leading and top insets. (20, 7) under a 59 pt top inset is (20, 66).
-    static func overlayRect(fromLaunch rect: CGRect, safeArea: EdgeInsets) -> CGRect {
-        rect.offsetBy(dx: safeArea.leading, dy: safeArea.top)
+    /// A frame in the window's space (`.global`) in the stage's own: moved by the stage's origin in the window, which
+    /// the stage measures (`body`). Target and drawing are measured in the one space every view of the window shares,
+    /// and nothing assumes where a root or its safe area starts. A named space would not do: Today sits in the
+    /// `TabView`'s own hosting view, where `LaunchHost`'s name is not found and SwiftUI falls back to the window's space,
+    /// while the overlay found the name 62 pt lower (VB1). The stage ignores the safe areas, so it sits at (0, 0) and the
+    /// header's (20.9, 69.9) is drawn at (20.9, 69.9).
+    static func overlayRect(fromWindow rect: CGRect, stageOrigin: CGPoint) -> CGRect {
+        rect.offsetBy(dx: -stageOrigin.x, dy: -stageOrigin.y)
     }
 
     /// The wordmark's line box at `size` (Satoshi Light: 29.7 at 22, 20.25 at 15), which its centre is placed by.
@@ -90,12 +94,12 @@ struct LaunchStage: View {
 
     /// The lock-up at one moment: the mark's box lerped from the launch layout's to the header's by E1 of the move's time,
     /// the wordmark's centre and size by the delayed E1 (`LaunchFrame.wordmarkMoveProgress`).
-    static func moveLayout(_ move: Move, screen: CGSize, safeArea: EdgeInsets) -> MoveLayout {
+    static func moveLayout(_ move: Move, screen: CGSize, stageOrigin: CGPoint) -> MoveLayout {
         let start = markRect(in: screen)
-        let target = overlayRect(fromLaunch: move.mark, safeArea: safeArea)
+        let target = overlayRect(fromWindow: move.mark, stageOrigin: stageOrigin)
         let mark = LaunchFrame.rect(from: start, to: target, progress: LaunchFrame.markMoveProgress(move.time))
         let landing: CGPoint
-        if let wordmark = move.wordmark.map({ overlayRect(fromLaunch: $0, safeArea: safeArea) }) {
+        if let wordmark = move.wordmark.map({ overlayRect(fromWindow: $0, stageOrigin: stageOrigin) }) {
             landing = CGPoint(x: wordmark.midX, y: wordmark.midY)
         } else {
             // `WordmarkLockup`: 10 pt of air per 26 pt of mark, the wordmark centred on the mark's middle.
@@ -108,12 +112,10 @@ struct LaunchStage: View {
                           wordmarkSize: CGFloat(LaunchFrame.wordmarkMoveSize(move.time, from: Double(wordmarkSize))))
     }
 
-    /// The screen's safe areas, from `LaunchFullScreen` (the move converts the header's frames with them).
-    @Environment(\.launchSafeArea) private var safeArea
-
     var body: some View {
         GeometryReader { proxy in
-            let layout = move.map { Self.moveLayout($0, screen: proxy.size, safeArea: safeArea) }
+            // Where the stage is in the window, the space the header's frames come in: one space for target and drawing.
+            let layout = move.map { Self.moveLayout($0, screen: proxy.size, stageOrigin: proxy.frame(in: .global).origin) }
             // In flight the mark is the last frame at its current side (stroke and dots follow it), never interpolated.
             let drawn = move.map { LaunchFrame(t: 1, palette: $0.palette, side: Double(layout?.mark.width ?? Self.markSide)) }
                 ?? frame
@@ -176,11 +178,6 @@ struct LaunchStage: View {
             context.fill(g.dotPath(radius: radius, degrees: orbit.dot, in: placement), with: .color(Color(orbit.colour)))
         }
     }
-}
-
-extension EnvironmentValues {
-    /// The screen's safe-area insets, which `LaunchFullScreen` reads outside its `.ignoresSafeArea()` and passes down.
-    @Entry var launchSafeArea = EdgeInsets()
 }
 
 extension LaunchFrame.Palette {

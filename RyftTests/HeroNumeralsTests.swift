@@ -202,21 +202,23 @@ struct NocturneSharedHostedTests {
             .padding(.leading, 20)
             .padding(.top, 7)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .coordinateSpace(.launch)
             .environment(\.launchHandOffRegistrar, LaunchHandOffRegistrar { role, frame in
                 frames.byRole[role] = frame
                 frames.reports += 1
             })
     }
 
-    @Test("WordmarkLockup(handOff: true) registers the mark (26 × 26) and the wordmark in the launch space")
+    @Test("WordmarkLockup(handOff: true) registers the mark (26 × 26) and the wordmark in the window's space")
     func handOffRegisters() async throws {
         let frames = Frames()
         try await HostedWindow.run(width: 390, height: 300, lockUp(handOff: true, frames: frames)) { w in
             try await w.settle()
             try await w.wait("the mark registered") { frames.byRole[.mark] != nil }
             let mark = try #require(frames.byRole[.mark].flatMap { $0 })
-            #expect(near(mark.minX, 20) && near(mark.minY, 7) && near(mark.width, 26) && near(mark.height, 26), "\(mark)")
+            // The window's space (VB1): the 7 pt sit under the window's top inset.
+            let top = w.window.safeAreaInsets.top
+            #expect(near(mark.minX, 20) && near(mark.minY, top + 7) && near(mark.width, 26) && near(mark.height, 26),
+                    "\(mark) under a \(top) pt inset")
             let wordmark = try #require(frames.byRole[.wordmark].flatMap { $0 })
             #expect(near(wordmark.minX, 56), "10 pt after the mark: \(wordmark)")
             #expect(near(wordmark.midY, mark.midY, 1))

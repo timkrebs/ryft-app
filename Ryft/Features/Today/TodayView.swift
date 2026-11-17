@@ -1044,10 +1044,17 @@ private func namelessState() -> AppState {
 #Preview("Today · My Day · AX3") { TodayPreview(state: .preview(flags: [.todayMyDay: true]), ax3: true) }
 
 /// The matched move over the Today layout at one moment (design.md §P4-7): the header's lock-up hidden, the gauge's slot
-/// empty, the background and tagline fading by elapsed time; τ 1 is the landing (the overlay is gone after it).
+/// empty, the background and tagline fading by elapsed time; τ 1 is the landing (the overlay is gone after it). The
+/// targets are the header's own, as it reports them to `LaunchHost` in the app.
 private struct TodayHandOffPreview: View {
     var time: Double
     @Environment(\.self) private var environment
+    @State private var targets = Targets()
+
+    @MainActor @Observable final class Targets {
+        var mark: CGRect?
+        var wordmark: CGRect?
+    }
 
     var body: some View {
         let palette = LaunchFrame.Palette.resolved(in: environment)
@@ -1057,14 +1064,19 @@ private struct TodayHandOffPreview: View {
             TodayView()
                 .environment(\.launchRevealsRoot, time < 1)
                 .environment(\.launchHidesHandOffTargets, time < 1)
-            if time < 1 {
+                .environment(\.launchHandOffRegistrar, LaunchHandOffRegistrar { [targets] role, frame in
+                    switch role {
+                    case .mark: targets.mark = frame
+                    case .wordmark: targets.wordmark = frame
+                    }
+                })
+            if time < 1, let mark = targets.mark {
                 LaunchFullScreen { bottom in
                     ZStack {
                         Theme.background.opacity(fade)
-                        // The header's mark as Today reports it in the `.launch` space: the 20 pt inset, centred in 40.
                         LaunchStage(frame: LaunchFrame(t: 1, palette: palette), safeAreaBottom: bottom,
-                                    move: LaunchStage.Move(mark: CGRect(x: 20, y: 7, width: 26, height: 26), wordmark: nil,
-                                                           time: time, taglineOpacity: fade, palette: palette))
+                                    move: LaunchStage.Move(mark: mark, wordmark: targets.wordmark, time: time,
+                                                           taglineOpacity: fade, palette: palette))
                     }
                 }
                 .allowsHitTesting(false)
