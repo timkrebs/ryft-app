@@ -90,16 +90,19 @@ final class NocturneTodaySleepUITests: XCTestCase {
 
     // MARK: the launch
 
-    /// The launch plays (`-RyftLaunchSequence play`) and, without a tap, ends with the mark moved into Today's header: the
-    /// overlay is gone and the lock-up is there. The sequence lasts 5.2 s and the move 0.5 s on top.
+    /// The launch is asked to play (`-RyftLaunchSequence play`) and, without a tap, ends with the mark moved into Today's
+    /// header: the overlay is gone and the lock-up is there. The sequence lasts 5.2 s and the move 0.5 s on top. That it
+    /// played is not asserted: on a loaded runner `launch()` returned after the whole sequence (seen in a full UISmoke run, three
+    /// times in a row), so a wait for the overlay failed the test for a launch that had played. That the sequence plays and ends on
+    /// a tap is `LaunchSequenceUITests.testATapSkipsIt`'s; the move's numbers are `LaunchMoveTests`'; this is the landing.
     @MainActor
     func testTheLaunchEndsWithTheLockUpInTheHeader() throws {
         let app = launchDemo(extra: ["-RyftLaunchSequence", "play"])
-        let overlay = element(app, "launch.sequence")
-        XCTAssertTrue(overlay.waitForExistence(timeout: 10), "the launch plays")
-        waitForAbsence(of: overlay, timeout: 30, "the launch ends by itself")
+        waitForAbsence(of: element(app, "launch.sequence"), timeout: 30, "the launch ends by itself")
         XCTAssertTrue(lockUp(in: app).waitForExistence(timeout: 5), "the lock-up in Today's header")
-        XCTAssertTrue(element(app, "today.readinessGauge").waitForExistence(timeout: 10), "the gauge, after the move")
+        let gauge = element(app, "today.readinessGauge")
+        XCTAssertTrue(gauge.waitForExistence(timeout: 10), "the gauge, after the move")
+        XCTAssertTrue(gauge.isHittable, "nothing covers Today")
         XCTAssertTrue(app.buttons["today.header.calendar"].exists)
     }
 }
