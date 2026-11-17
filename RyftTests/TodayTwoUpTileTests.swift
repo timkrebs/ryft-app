@@ -153,10 +153,12 @@ enum TwoUpHost {
         return host.sizeThatFits(in: CGSize(width: 2_000, height: 2_000)).width
     }
 
-    /// A cut caption ("calibrat…") keeps its whole string as its VoiceOver label, so the label can't show the cut; its
-    /// frame can: shrunk at most to 0.8, a caption is never narrower than 0.8 of its one-line width.
-    @Test("No caption is cut", arguments: [(CGFloat(390), DynamicTypeSize.large), (402, .large), (390, .xxxLarge)])
-    func noCaptionIsCut(_ c: (width: CGFloat, typeSize: DynamicTypeSize)) async throws {
+    /// Shrunk at most to 0.8: no caption is given less than 0.8 of its one-line width. What this can't show is a cut
+    /// at that floor ("calibrat…"): a text cut at its `minimumScaleFactor` still fills the width it was given, and its
+    /// VoiceOver label keeps the whole string (N5). The boundary that cut it is `aCaptionThatOnlyJustFitsAt80PercentGoesAbove`.
+    @Test("No caption is squeezed below 80 % of its one line",
+          arguments: [(CGFloat(390), DynamicTypeSize.large), (402, .large), (390, .xxxLarge)])
+    func noCaptionIsSqueezedBelow80Percent(_ c: (width: CGFloat, typeSize: DynamicTypeSize)) async throws {
         let category: UIContentSizeCategory = c.typeSize == .large ? .large : .extraExtraExtraLarge
         for tile in TwoUpCase.all + [TwoUpCase(name: "earlier day", title: "Sleep", value: "7:10", unit: "h", caption: "Sat, Nov 14")] {
             guard let caption = tile.caption else { continue }
@@ -173,6 +175,44 @@ enum TwoUpHost {
                 #expect(node.frame.width >= ideal * TodayTwoUpValueRow.minimumScale - 0.5,
                         "\(tile) at \(c.width), \(c.typeSize): '\(caption)' \(node.frame.width) wide, one line \(ideal)")
             }
+        }
+    }
+
+    /// The value row's own width for a tile `window` wide, as `TodayTiles` lays the pair: half of the window less the
+    /// screen padding and the gap, less the tile's 16 a side.
+    private static func rowWidth(window: CGFloat) -> CGFloat {
+        (window - 2 * Theme.Metrics.screenPadding - TodayLayout.tileGap) / 2 - 32
+    }
+
+    /// The value and its unit, one line, as the row measures them.
+    private func valueWidth(_ c: TwoUpCase) -> CGFloat {
+        UIHostingController(rootView: TodayTwoUpValue(value: c.value, unit: c.unit))
+            .sizeThatFits(in: CGSize(width: 2_000, height: 2_000)).width
+    }
+
+    /// R2-N4's boundary (N5): beside "7:11 h" there is room for "calibrating" at 80 % with half a point to spare. Shrunk
+    /// that far, rounding cut it ("calibrat…"); with the point of slack it goes above the value instead. Without the
+    /// slack it would sit beside, scaled: this fails.
+    @Test func aCaptionThatOnlyJustFitsAt80PercentGoesAbove() async throws {
+        let tile = TwoUpCase.calibrating
+        let caption = try #require(tile.caption)
+        let ideal = idealWidth(caption, typeSize: .large), value = valueWidth(tile)
+        // A window whose row leaves the caption 80 % of its line and half a point.
+        let room = ideal * TodayTwoUpValueRow.minimumScale + 0.5
+        let window = 2 * (room + value + TodayLayout.tileRowGap + 32) + 2 * Theme.Metrics.screenPadding + TodayLayout.tileGap
+        let row = Self.rowWidth(window: window)
+        #expect(abs(row - value - TodayLayout.tileRowGap - room) < 0.01, "the room beside the value: \(room)")
+        #expect(TodayTwoUpValueRow.arrangement(width: row, value: value, caption: ideal) == .above)
+        let frames = TwoUpFrames()
+        try await HostedWindow.run(width: window, height: 600, TwoUpHost.pair(tile, tile, frames: frames)) { w in
+            try await w.wait("the tiles") { frames.byName["a"] != nil && w.node(caption, exactly: true) != nil }
+            try await w.settle()
+            let a = try #require(frames.byName["a"])
+            #expect(abs(a.width - row - 32) < 0.5, "the tile as computed: \(a.width), row \(row)")
+            let inside = w.nodes().filter { a.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+            let shown = try #require(inside.first { $0.label == caption }).frame
+            let number = try #require(inside.first { $0.label == tile.value }).frame
+            #expect(shown.maxY <= number.minY + 0.5, "'\(caption)' \(shown) above the value \(number), in \(window)")
         }
     }
 
@@ -232,6 +272,8 @@ enum TwoUpHost {
         let width: CGFloat
         let typeSize: DynamicTypeSize
         let category: UIContentSizeCategory
+        /// Where both captions sit (measured): beside or above.
+        let expected: Placement
         var description: String { "\(name) at \(width), \(typeSize)" }
 
         /// Both tiles with `caption`; without a recovery, Recovery's "–" beside Sleep's "7:11 h".
@@ -246,29 +288,33 @@ enum TwoUpHost {
         private static let xxxLarge = (DynamicTypeSize.xxxLarge, UIContentSizeCategory.extraExtraExtraLarge)
 
         private init(_ name: String, _ recovery: Int?, _ caption: String, _ width: CGFloat,
-                     _ size: (DynamicTypeSize, UIContentSizeCategory)) {
+                     _ size: (DynamicTypeSize, UIContentSizeCategory), _ expected: Placement) {
             self.name = name
             self.recovery = recovery
             self.caption = caption
             self.width = width
             typeSize = size.0
             category = size.1
+            self.expected = expected
         }
 
         static let all = [
-            // The validator's: "calibrating" beside Recovery's "–", above Sleep's "7:11 h".
-            PairCase("calibrating", nil, "calibrating", 390, large),
-            PairCase("calibrating", nil, "calibrating", 402, large),
-            PairCase("calibrating", nil, "calibrating", 390, xxxLarge),
-            // And "Yesterday" at xxxLarge: beside "75 %", above "7:10 h".
-            PairCase("yesterday", 75, "Yesterday", 390, xxxLarge),
-            PairCase("an earlier day", 75, "Sat, Nov 14", 390, large),
-            PairCase("an earlier day", 75, "Sat, Nov 14", 390, xxxLarge),
+            // The validator's: "calibrating" beside Recovery's "–", above Sleep's "7:11 h": both above.
+            PairCase("calibrating", nil, "calibrating", 390, large, .above),
+            PairCase("calibrating", nil, "calibrating", 402, large, .above),
+            PairCase("calibrating", nil, "calibrating", 390, xxxLarge, .above),
+            // "Yesterday" at xxxLarge: beside "75 %", above "7:10 h": both above.
+            PairCase("yesterday", 75, "Yesterday", 390, xxxLarge, .above),
+            // A caption short enough for both lines stays beside in both (the pin can tell the two apart).
+            PairCase("high", 75, "High", 390, large, .beside),
+            PairCase("high", 75, "High", 390, xxxLarge, .beside),
+            PairCase("an earlier day", 75, "Sat, Nov 14", 390, large, .above),
+            PairCase("an earlier day", 75, "Sat, Nov 14", 390, xxxLarge, .above),
         ]
     }
 
     /// Where a tile's caption sits: above the value (its line ends over the value's top), or beside it.
-    private enum Placement { case beside, above }
+    enum Placement: Sendable { case beside, above }
 
     /// When one tile's caption goes above its value, the other's does too: the pair reads alike.
     @Test("The pair's captions sit alike, above in both when either needs it", arguments: PairCase.all)
@@ -293,6 +339,7 @@ enum TwoUpHost {
                 }
             }
             #expect(placements[0] == placements[1], "\(c): Recovery's caption \(placements[0]), Sleep's \(placements[1])")
+            #expect(placements == [c.expected, c.expected], "\(c): \(placements), expected \(c.expected) in both")
         }
     }
 
