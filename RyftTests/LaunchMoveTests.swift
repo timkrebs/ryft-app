@@ -193,8 +193,14 @@ struct LaunchMoveTests {
     /// `LaunchStageTests` (case 31), a `Canvas` fill of the parts and a `Shape` fill of one union path antialias the curves'
     /// edges differently, so "within 2/255" is held per pixel against the reference's 3 × 3 neighbourhood (geometry to one
     /// device pixel), and most pixels match outright.
+    ///
+    /// R3-A: in one parallel run on a loaded Mac the landing's render came back with nothing drawn: all 6084 pixels off,
+    /// the first at (0, 0), which is background in both, and not one within 2/255, after 2.1 s where the test takes
+    /// 0.03 (antialiasing differs on the curves' edges only). So a render whose opaque background is missing (the
+    /// corner's alpha under 255) is not a drawing of the mark: it is drawn again, up to three times, and only a render
+    /// with its background is compared. A drawing that differs still fails; three empty renders fail as such.
     @Test func theLandingRendersAsTheHeaderMark() throws {
-        func pixels(_ view: some View) throws -> [UInt8] {
+        func render(_ view: some View) throws -> [UInt8] {
             let renderer = ImageRenderer(content: view.frame(width: 26, height: 26).background(Theme.background)
                 .environment(\.colorScheme, .dark))
             renderer.scale = 3
@@ -206,6 +212,14 @@ struct LaunchMoveTests {
                                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.draw(image, in: CGRect(x: 0, y: 0, width: 78, height: 78))
             return data
+        }
+        func pixels(_ view: some View) throws -> [UInt8] {
+            for _ in 1...3 {
+                let data = try render(view)
+                if data[3] == 255 { return data }
+            }
+            Issue.record("the renderer drew nothing, not even the background, three times")
+            return try render(view)
         }
         let landing = try pixels(LandingMark())
         let header = try pixels(RyftMark().foregroundStyle(Theme.textPrimary))
