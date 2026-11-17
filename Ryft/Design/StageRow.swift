@@ -28,7 +28,7 @@ struct StageRow: View {
 }
 
 #Preview("StageRow", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 14) {
             ForEach(MockData.todayDetail.sleep?.displayStages ?? []) { StageRow(share: $0) }
         }

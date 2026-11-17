@@ -236,8 +236,6 @@ struct RulerScale: View {
     }
 }
 
-/// Ticks at the given indices, centred vertically on `midY`, their left edge snapped to the device pixel. Not clipped:
-/// the outer ticks overhang the edges by half their width.
 /// The graphic at the top, the labels (if any) at `labelTop`, overflowing the box; as tall as
 /// `RulerScale.layoutHeight(size:labelsHeight:followingGap:)`.
 private struct RulerStack: Layout {
@@ -260,6 +258,8 @@ private struct RulerStack: Layout {
     }
 }
 
+/// Ticks at the given indices, centred vertically on `midY`, their left edge snapped to the device pixel. Not clipped:
+/// the outer ticks overhang the edges by half their width.
 private struct RulerTicks: Shape {
     let count: Int
     let indices: [Int]
