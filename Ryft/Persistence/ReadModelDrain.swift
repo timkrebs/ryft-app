@@ -144,7 +144,7 @@ actor ReadModelDrain {
         var draining = false
         var last: TicketBox?
         var hooks = Hooks()
-        /// Stores the Repository let go of (`retire(store:)`): their writes drop. Never reused (`StoreID`).
+        /// Stores the Repository let go of (`retire(_:)`): their writes drop. Never reused (`StoreID`).
         var retired: Set<StoreID> = []
     }
 
@@ -191,10 +191,13 @@ actor ReadModelDrain {
         Task(priority: .userInitiated) { await self.retireWipedWriters() }
     }
 
-    /// `store` is gone (the Repository let go of demo data's): a write for it still queued drops, and its writer and
-    /// container go too.
-    nonisolated func retire(store: StoreID) {
-        queue.withLock { _ = $0.retired.insert(store) }
+    /// The store of `epoch` is gone (the Repository let go of demo data's): its epoch moves on, so a batch in its writer
+    /// doesn't save (or, saved, commits as not current: no widget, no second try), a write still queued for it drops,
+    /// and its writer and container go too. On the main actor this waits for a save of that store in progress (an
+    /// in-memory one: milliseconds), as a wipe's `advance()` does.
+    nonisolated func retire(_ epoch: StoreEpoch) {
+        epoch.advance()
+        queue.withLock { _ = $0.retired.insert(epoch.store) }
         Task(priority: .userInitiated) { await self.retireWipedWriters() }
     }
 

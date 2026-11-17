@@ -37,8 +37,6 @@ enum ReadModelWrite: Sendable {
     /// Nightly: days before `dayCutoff`, workouts unopened since `month`, series older than `week`, and the
     /// activities of the days that go. Train's documents are the main context's (`Repository.compact`).
     case compact(dayCutoff: Date, month: Date, week: Date)
-    /// Every read model (the demo switch; a sign-out wipes the whole store instead).
-    case clear
 }
 
 /// What a batch of writes did.
@@ -164,16 +162,6 @@ enum ReadModelWrites {
         case .compact(let cutoffDay, let month, let week):
             receipt.removed += compact(before: cutoffDay, month: month, week: week, in: context)
             receipt.kinds.formUnion([.days, .trends, .workouts, .activities])
-        case .clear:
-            deleteAll(CachedDay.self, in: context)
-            deleteAll(CachedTrend.self, in: context)
-            deleteAll(CachedInsight.self, in: context)
-            deleteAll(CachedUser.self, in: context)
-            deleteAll(CachedSleepRange.self, in: context)
-            deleteAll(CachedWorkout.self, in: context)
-            let prefix = Repository.activitiesPrefix
-            deleteAll(CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) }, in: context)
-            receipt.kinds.formUnion(ReadModelKind.allCases)
         }
     }
 

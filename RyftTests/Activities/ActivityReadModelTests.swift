@@ -227,11 +227,8 @@ struct ActivityReadModelTests {
         #expect(g.repo.activities(day: g.day(-30)).count == 1)
     }
 
-    @Test func clearAndTheSignOutWipeDropThem() async {
+    @Test func theSignOutWipeDropsThem() async {
         let g = graph()
-        g.repo.store(activities: [run(at: g.at(7), track: false)], day: g.day())
-        await g.repo.clear().committed()
-        #expect(g.repo.activities(day: g.day()).isEmpty && g.document(g.day()) == nil)
         await g.repo.store(activities: [run(at: g.at(7), track: false)], day: g.day()).committed()
         #expect(g.repo.activities(day: g.day()).count == 1)
         g.env.persistence.wipe()

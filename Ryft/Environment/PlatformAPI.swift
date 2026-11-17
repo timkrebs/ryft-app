@@ -544,7 +544,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func workouts(from: Date, to: Date) async throws -> [Workout] {
         try enter("workouts"); return try await screens.workouts(from: from, to: to)
     }
-    func workout(id: UUID) async throws -> WorkoutDetail { try enter("workout"); return try await screens.workout(id: id) }
+    /// Runs before each `GET /v1/workouts/{id}` answers (tests switch demo data meanwhile).
+    var beforeWorkout: (@Sendable () async -> Void)?
+
+    func workout(id: UUID) async throws -> WorkoutDetail {
+        try enter("workout")
+        let detail = try await screens.workout(id: id)
+        await beforeWorkout?()
+        return detail
+    }
     func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries {
         try enter("trends"); return try await screens.trends(metric: metric, range: range)
     }

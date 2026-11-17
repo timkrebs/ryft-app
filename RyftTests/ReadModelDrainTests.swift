@@ -172,29 +172,6 @@ struct ReadModelQueueTests {
         #expect(repo.insights().map(\.id) == MockData.insights.map(\.id))
     }
 
-    /// A clear (the demo switch) behind writes of the same batch: their unsaved rows go too, none is saved after it.
-    @Test func aClearRemovesWhatItsBatchInsertedBeforeIt() async throws {
-        let h = WipeHarness()
-        let hold = WriterHold()
-        h.repository.writeHooks.job = { _ in hold.pass() }
-        h.repository.store(detail: detail(DayFormat.string(from: DayFormat.shift(h.clock.now(), days: -9)), strain: 1))
-        #expect(await eventually { hold.entered == 1 })
-
-        h.repository.store(detail: detail(h.today, strain: 12))
-        h.repository.store(insights: MockData.insights)
-        h.repository.store(user: MockData.user)
-        h.repository.store(trend: MockData.trend(.hrv, range: .week), metric: .hrv, range: .week)
-        h.repository.store(sleepRange: MockData.sleepRange(.week))
-        h.repository.store(workout: MockData.workoutDetail(MockData.todayDetail.workouts[0]))
-        h.repository.store(activities: [], day: h.today)
-        let cleared = h.repository.clear()
-        hold.open()
-
-        #expect(await cleared.committed().saved)
-        #expect(hold.entered == 2)
-        #expect(try h.rowCount() == 0)
-    }
-
     /// One batch, one context: the later write for a day finds the row the earlier one inserted, unsaved.
     @Test func twoWritesForOneDayInOneBatchTheLaterWins() async throws {
         let env = AppEnvironment.test()
@@ -660,7 +637,8 @@ struct ReadModelDemoSwitchTests {
         #expect(repo.storeID != old)
         hold.open()
 
-        #expect(!(await held.committed()).dropped) // in the writer already: saved into the old store
+        // In the writer already, before its save: the old store's epoch moved on, so it isn't saved either.
+        #expect(await held.committed().dropped)
         #expect(await queued.committed().dropped)
         #expect(hold.entered == 1)
         #expect(await repo.writerEpochs()[old] == nil)

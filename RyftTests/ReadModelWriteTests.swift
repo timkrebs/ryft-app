@@ -395,6 +395,46 @@ extension ReadModelReaderTests {
 
         #expect(try await refresh.value?.score.strain == 19)
     }
+
+    /// A refresh answered for the account, then Demo data on before the caller resumed: the answer is nobody's there,
+    /// even with demo data's store empty for that day.
+    @Test func aRefreshAnsweredAcrossTheDemoSwitchReturnsNothing() async throws {
+        let h = WipeHarness(demo: true)
+        h.env.settings.demoMode = false
+        let changed = h.repository.onDaysChanged
+        // In the commit of the refresh's write, before its flight resolves.
+        h.repository.onDaysChanged = {
+            changed?()
+            h.env.settings.demoMode = true
+        }
+
+        let detail = try await h.repository.refreshDay(h.clock.now())
+
+        #expect(detail == nil)
+        #expect(h.repository.day(h.today) == nil) // demo data's store
+    }
+
+    /// A workout's detail fetched for the account and answered after Demo data went on: not written into demo data's
+    /// store.
+    @Test func aWorkoutFetchedAcrossTheDemoSwitchIsntWrittenIntoDemoDatas() async throws {
+        let h = WipeHarness(demo: true)
+        h.env.settings.demoMode = false
+        let api = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let id = MockData.todayDetail.workouts[0].id
+        let hold = RequestHold()
+        api.beforeWorkout = { await hold.wait() }
+        let fetch = Task { try await h.repository.refreshWorkout(id, force: true) }
+        #expect(await eventually(timeout: .seconds(5)) { hold.waiting == 1 })
+
+        h.env.settings.demoMode = true
+        hold.release()
+        try await fetch.value
+        await h.repository.settled()
+
+        #expect(h.repository.workout(id) == nil)
+        h.env.settings.demoMode = false
+        #expect(h.repository.workout(id) == nil)
+    }
 }
 
 extension ReadModelWipeTests {

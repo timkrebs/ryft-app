@@ -284,7 +284,8 @@ struct LegacyCacheMigrationTests {
         #expect(defaults.bool(forKey: LegacyCacheMigration.doneKey))
 
         // A second launch doesn't touch anything.
-        await repo.clear().committed()
+        env.persistence.wipe()
+        repo.invalidate()
         LegacyCacheMigration.runOnce(into: repo, train: store, defaults: defaults, directory: dir)
         #expect(repo.user() == nil)
     }

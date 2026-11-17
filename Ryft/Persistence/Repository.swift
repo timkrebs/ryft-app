@@ -308,13 +308,13 @@ final class Repository {
 
     // MARK: refresh (network → store)
 
-    /// Runs `fetch` unless offline; drops the answer if the account changed meanwhile. For reads the
-    /// pipeline doesn't schedule yet (a workout's detail).
+    /// Runs `fetch` unless offline; drops the answer if the account or the Demo data switch changed meanwhile (it
+    /// would go into the other store). For reads the pipeline doesn't schedule yet (a workout's detail).
     private func fetching<T>(_ fetch: () async throws -> T) async throws -> T? {
         guard canFetch else { return nil }
-        let account = env.auth.accountID
+        let binding = AccountBinding(env)
         let value = try await fetch()
-        guard env.auth.accountID == account else { return nil }
+        guard binding.isCurrent(in: env) else { return nil }
         return value
     }
 
@@ -336,12 +336,15 @@ final class Repository {
         let key = DayFormat.string(from: date)
         if mode == .ifStale, isDetailFresh(key) { return day(key) }
         let resource: ReadResource = key == DayFormat.string(from: now) ? .today : .day
+        let binding = AccountBinding(env)
         do {
             let fetched = try await scheduled(ReadKey(resource, id: key), mode: mode, userInitiated: userInitiated,
                                               fetch: { [env] in try await env.api.day(date) },
                                               store: { [weak self] in await self?.store(detail: $0).committed() })
-            // What the store has: the flight resolved for this account only (`ReadScheduler.start`). The answer
-            // itself only if the store refused the save.
+            // The flight resolved for this account (`ReadScheduler.start`), but a sign-out or the Demo data switch may
+            // have come before this caller resumed: then the answer is nobody's here.
+            guard binding.isCurrent(in: env) else { return nil }
+            // What the store has; the answer itself only if the store refused the save.
             return day(key) ?? fetched
         } catch {
             if let cached = day(key) { return cached }
@@ -476,7 +479,7 @@ final class Repository {
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.workout) { return }
         }
         guard let w = try await fetching({ try await env.api.workout(id: id) }) else { return }
-        // `fetching` checked the account; no await since.
+        // `fetching` checked the account and the Demo data switch; no await since.
         await store(workout: w).committed()
     }
 
@@ -584,15 +587,8 @@ final class Repository {
         }
         // The writer may hold rows this context changed: the next write gets a new one.
         seeds[id, default: 0] += 1
-        // The seeded user is the newest, written through as `store(user:)` writes it (a user written before is older);
-        // a seeded clear leaves none.
-        for op in ops {
-            switch op {
-            case .user(let user): writtenThroughUser = (id, user)
-            case .clear: writtenThroughUser = nil
-            default: break
-            }
-        }
+        // The seeded user is the newest, written through as `store(user:)` writes it (a user written before is older).
+        for case .user(let user) in ops { writtenThroughUser = (id, user) }
         committed(receipt, store: id)
     }
 
@@ -827,19 +823,9 @@ final class Repository {
             demoStoreInstance = nil
             readContexts[demo.epoch.store] = nil
             seeds[demo.epoch.store] = nil
-            drain.retire(store: demo.epoch.store)
+            drain.retire(demo.epoch)
         }
         invalidate()
-    }
-
-    /// Every read model of the current store, as one write after those queued (sign-out wipes the whole store via
-    /// `Persistence.wipe`, the Demo data switch replaces demo's: `reset()`). Nothing decoded before it is read again
-    /// from here on; the store is empty at the commit.
-    @discardableResult
-    func clear() -> WriteTicket {
-        let ticket = submit(.clear)
-        invalidate()
-        return ticket
     }
 
     /// Runs `body` against the account's store, whatever the Demo data switch says (its `seed`s land there).
