@@ -111,7 +111,8 @@ struct SleepPreviewScene {
                            previousDebt: Self.score(DayFormat.shift(date, days: -1))?.sleepDebtMin,
                            weekConsistency: week,
                            scoring: SleepBoard.NightScoring(score?.scoringState, isToday: date == today,
-                                                            hasNight: detail?.sleep != nil),
+                                                            hasNight: detail?.sleep != nil,
+                                                            dayIsScored: score.map(TodayStates.isScored)),
                            isLoading: isLoading, error: failure?.message, rawNight: rawNight)
         sleep = detail?.sleep
         self.failure = failure

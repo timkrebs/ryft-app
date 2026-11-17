@@ -71,9 +71,22 @@ final class SleepViewModel {
     /// The night's scoring state beside its title (`DayMarker`); the cached 90 days when the
     /// detail isn't loaded.
     var marker: DayMarker.Kind? { DayMarker.kind(for: score ?? state.score(for: date)) }
-    /// What the platform says about the night (the day's `scoring_state`, three-way): what the board says without one.
+    /// The night's day as the platform last sent it: the loaded detail's, else the cached 90 days'.
+    private var row: DailyScore? { score ?? state.score(for: date) }
+    /// The day's scoring state. Today's is Today's and the widget's (`ScoringWord.state`, architecture §D3b's one owner):
+    /// this phone's word since its last write or push, then `GET /v1/me/sync`'s when it's about today, then the row. So
+    /// right after the night uploads Sleep says what Today says, though the row still waits for sleep (S1). Another
+    /// day's is its row's. Read in the board, so a new word or status redraws it (both are observed).
+    var scoringState: ScoringState? {
+        guard isToday else { return row?.scoringState }
+        let key = DayFormat.string(from: date)
+        return ScoringWord.state(day: key, word: state.repository.scoringLedger()[key], status: state.syncStatus?.today,
+                                 row: row)
+    }
+    /// What the platform says about the night (`scoringState`, three-way): what the board says without one.
     var nightScoring: SleepBoard.NightScoring {
-        SleepBoard.NightScoring((score ?? state.score(for: date))?.scoringState, isToday: isToday, hasNight: sleep != nil)
+        SleepBoard.NightScoring(scoringState, isToday: isToday, hasNight: sleep != nil,
+                                dayIsScored: row.map(TodayStates.isScored))
     }
     var hasNoHealthData: Bool { state.hasNoHealthData }
 
@@ -327,23 +340,35 @@ struct SleepBoard: Equatable {
     }
 
     /// What the platform says about the night shown, from its day's `scoring_state` (`DayMarker` keeps the dot, which
-    /// doesn't tell these apart).
+    /// doesn't tell these apart). Today's reads as Today's gauge does (`TodayPresentation.decide`).
     enum NightScoring: Equatable, Sendable {
-        /// Scored, or no word: the day's values are the night's.
+        /// Scored: the day's values are the night's.
         case scored
         /// `pending`: the night is in and being scored.
         case scoring
         /// `waiting_for_sleep`, or `stale` for today without a night: nothing of last night has arrived.
         case awaitingNight
 
-        /// `stale` (no new data for over 20 h) is the platform's word for today only (API.md): without a night, last night
-        /// hasn't arrived; with one, the day's score stands, as on another day.
-        init(_ state: ScoringState?, isToday: Bool, hasNight: Bool) {
+        /// - `stale` (no new data for over 20 h) is the platform's word for today only (API.md): without a night, last
+        ///   night hasn't arrived; with one, the day's score stands, as on another day.
+        /// - `scored` while today's row isn't, or isn't here (`dayIsScored`, `TodayStates.isScored`): a push's or the
+        ///   status's word before the row, which Today reads as being scored.
+        /// - No word (`nil`: a value this app doesn't know, which decoding drops) is never read as scored on its own
+        ///   (N1): a scored day is; today, unscored or without a row, waits for its night, as on Today; another day's
+        ///   unscored row is being scored, the only other word the platform has for a past day. A past day without a
+        ///   row (`dayIsScored` nil) has no night: as before.
+        init(_ state: ScoringState?, isToday: Bool, hasNight: Bool, dayIsScored: Bool?) {
             switch state {
             case .pending: self = .scoring
             case .waitingForSleep: self = .awaitingNight
             case .stale: self = isToday && !hasNight ? .awaitingNight : .scored
-            case .scored, nil: self = .scored
+            case .scored: self = isToday && dayIsScored != true ? .scoring : .scored
+            case nil:
+                switch dayIsScored {
+                case true?: self = .scored
+                case false?: self = isToday ? .awaitingNight : .scoring
+                case nil: self = isToday ? .awaitingNight : .scored
+                }
             }
         }
     }
