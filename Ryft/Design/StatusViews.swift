@@ -426,12 +426,21 @@ extension RefreshIssue.Reason {
     /// ui.md §3.3: one plain sentence per class.
     var message: String {
         switch self {
-        case .busy: return String(localized: "RYFT is busy right now. Your data is safe; try again in a moment.")
+        case .busy:
+            return String(localized: "RYFT is busy right now. Your data is safe; try again in a moment.",
+                          comment: "Error card on Today and Sleep → Day's failed night. Server busy or failing (429, 5xx, 408) after retries. Try again.")
         case .unreachable:
-            return String(localized: "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side.")
-        case .unexpected: return String(localized: "Part of your data couldn't be loaded. The details help us find out why.")
-        case .signedOut: return String(localized: "You're signed out, so new data can't load.")
-        case .appTooOld: return String(localized: "This version of RYFT is too old to load new data. Update it to continue.")
+            return String(localized: "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side.",
+                          comment: "Error card on Today and Sleep → Day's failed night. No HTTP response. Try again. Offline, Sleep shows No connection.")
+        case .unexpected:
+            return String(localized: "Part of your data couldn't be loaded. The details help us find out why.",
+                          comment: "Error card on Today and Sleep → Day's failed night. Any other failure. Try again.")
+        case .signedOut:
+            return String(localized: "You're signed out, so new data can't load.",
+                          comment: "Error card on Today (Sign in) and Sleep → Day's failed night (Try again). The session ended; new data can't load.")
+        case .appTooOld:
+            return String(localized: "This version of RYFT is too old to load new data. Update it to continue.",
+                          comment: "Error card on Today (no button) and Sleep → Day's failed night (Try again). App too old for the server; an update helps.")
         }
     }
 
