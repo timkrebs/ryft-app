@@ -563,6 +563,34 @@ struct ConsentRecordTests {
 @Suite("Consent gates: the writers (T3)")
 @MainActor
 struct ConsentWriterTests {
+    /// ADR 0008: `withdrawConsent()` writes the user without the consent, and uploads stop in that same main-actor
+    /// step, before anything is awaited (the read models' writes run off the main actor since ADR 0018: `.user` is
+    /// written through).
+    @Test func withdrawingConsentClosesTheUploadGateInTheSameStep() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        #expect(h.onboarding.uploadGate(for: .activities) == nil)
+        var withdrawn = try #require(h.state.user)
+        withdrawn.consent = nil
+
+        h.state.user = withdrawn // the write `withdrawConsent()` makes
+
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.onboarding.uploadGate(for: .activities) == .gate(.consentRequired))
+    }
+
+    @Test func withdrawingConsentHoldsTheSyncAfterItReturns() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        #expect(await h.onboarding.withdrawConsent())
+        #expect(h.state.user?.consent == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+
     @Test func theConsentGateIsKeptEnforcedOrWarnedAndEndsWhenResolved() {
         let h = ConsentHarness()
         h.status.observe([.consentRequired], enforced: true)
