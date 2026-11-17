@@ -1,6 +1,6 @@
 # 0018 — Read-model writes run off the main actor, in order, through one writer per store
 
-- Status: proposed (2026-11-17, `docs/work/2026-11-17-persistence-off-main/design.md`; Nocturne PR 3 review row 22)
+- Status: accepted (2026-11-17, `docs/work/2026-11-17-persistence-off-main/design.md`; Nocturne PR 3 review row 22)
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer builds it
 - Applies to: `Ryft/Persistence/` (`Repository`, `ReadModels.swift`, `ReadModelWrite.swift`, `ReadModelWriter.swift`,
   `StoreEpoch.swift`), `Ryft/Environment/Seams.swift` (`Persistence`), `Ryft/Train/Model/TrainStore.swift` (`epoch`,
@@ -27,8 +27,9 @@
      container.
    - **No main-actor code can reach the writer.** It is `private` to a plain `actor ReadModelDrain`. Main-actor
      callers submit synchronously and await only a `WriteTicket`, never the writer. On iOS 27.2 a `@ModelActor` job runs
-     on the thread that awaits it, and blocks a waiting main thread, wherever the actor was made (T0.1). Debug asserts
-     that every writer job runs off main.
+     on the thread that awaits it, and blocks a waiting main thread, wherever the actor was made; on iOS 17.0 the thread
+     that made it decides (T0.1). So the drain both makes and awaits the writer inside its own isolation. Debug asserts
+     off main at creation and in every job, and a test through `Repository` proves it on iOS 17.0 and 27.2.
    - Each store has one writer, so the account's and demo's are two instances. Writers are not split by kind.
 2. **The writer owns its rows.** These are `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`, `CachedSleepRange`,
    `CachedWorkout`, and the `CachedDocument` keys `activities.*`.

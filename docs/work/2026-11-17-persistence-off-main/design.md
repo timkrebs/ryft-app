@@ -1,6 +1,6 @@
 # Read-model writes off the main actor
 
-**Status:** accepted by the lead (§10), not built. ios-architect, 2026-11-17, against `origin/main` 1b8549d. ADR draft:
+**Status:** accepted by the lead (§10); P1 built on `perf/persistence-off-main`, P1b in progress. ios-architect, 2026-11-17, against `origin/main` 1b8549d. ADR draft:
 `docs/adr/0018-read-model-writes-run-off-the-main-actor.md`.
 
 **Follow-up to** Nocturne PR 3 (#114) review rows 22–24 (`docs/work/2026-11-16-nocturne/review.md` on
@@ -66,7 +66,7 @@ Today re-render itself. §7.3 explains why the re-render decides whether "≤ 33
 | F5 | The Repository writes 7 tables plus the `CachedDocument` keys `activities.*`. Every other `CachedDocument` key (`reads.state`, `config.*`, `consent.*`, `journal.*`, `push.*`, `devices.*`, `feedback.queue`, `train.*`, `content.trackers`) is written through `Persistence.saveDocument*` on main. | Read |
 | F6 | Production code writes the store synchronously through setters in 7 places: `state.user =` (Notification settings, Onboarding ×4; the one in `ProfileView` is a preview), and `repository.store(activity:)` / `forget(activity:)` in the uploader's follow-ups. Previews and about 16 test files seed through the same setters. | Read |
 | F7 | `cachedDay(ofActivity:)` reads the store to decide a write (which other day an activity was cached under). | Read |
-| F8 | **Measured (T0.1, iOS 27.2):** a `@ModelActor`'s jobs run synchronously on the thread that awaits them, under the context's queue, wherever the actor was made. Awaited from the main actor they run on main, and a main-actor await while a job runs elsewhere blocks main (180 ms of a 200 ms job). Awaited from a `@concurrent` function or another actor they run off main. | Measured; iOS 17 pending |
+| F8 | **Measured (T0.1), and the two OSes disagree.** iOS 27.2: a `@ModelActor`'s jobs run synchronously on the thread that *awaits* them, under the context's queue, wherever the actor was made; a main-actor await while a job runs elsewhere blocks main (180 ms of a 200 ms job). iOS 17.0: the thread that *made* the actor decides; made on main, it runs on main even when awaited from a `@concurrent` function. Only "made off main and awaited off main" runs off main on both. | Measured on 17.0 and 27.2; 18–26 not measured |
 | F9 | A fresh `ModelContext` on the same container sees rows saved by another context. A context that already fetched a row may keep the old values. | Assumed, T0.2 and T0.3 |
 | F10 | Two contexts on one in-memory container share its store (the demo store). | Assumed, T0.2 |
 | F11 | Swift actors run jobs by priority, not first in, first out. Two `await writer.apply(…)` calls from different tasks can run in either order. | Language |
@@ -149,7 +149,7 @@ enum ReadModelWrites {
 // Persistence/ReadModelWriter.swift
 @ModelActor
 actor ReadModelWriter {
-    /// Reachable only from `ReadModelDrain` (F8, decision 8): never awaited from the main actor.
+    /// Made and awaited only inside `ReadModelDrain` (F8, decision 8): never made on, nor awaited from, the main actor.
     static func make(_ container: ModelContainer) async -> ReadModelWriter
     /// `MainThread.assertOff` in Debug. Autosave off. Applies `ops` in order; saves once, inside
     /// `epoch.ifCurrent(batchEpoch)`; on a mismatch rolls back and returns `dropped`. Signpost "write" (`Signposts.reads`).
@@ -432,7 +432,7 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
 
 | Risk | Impact | Mitigation and detection |
 |---|---|---|
-| F8: the writer runs on main | The work doesn't move, or main blocks behind a job | The writer is `private` to `ReadModelDrain` (no main-actor path to it); Debug `assertOff` in every job; a test that a write submitted from main runs off main; AC1 |
+| F8: the writer runs on main | The work doesn't move, or main blocks behind a job | The drain makes and awaits the writer inside its own isolation, and it is `private` there (no main-actor path to it); Debug `assertOff` at creation and in every job; the off-main test through `Repository`, passing on iOS 17.0 and 27.2; AC1 |
 | F9/F10 differ on iOS 17 (stale reads, demo store not shared) | Wrong or empty screens | Read context replaced at each commit; T0.2 and T0.3 on the oldest runtime (Q3); fallback B |
 | The wipe resurrects an account's rows | Privacy | `StoreEpoch` critical sections, retiring the writer, two race tests, the stress test |
 | The widget file outlives sign-out (P2) | Privacy, on the lock screen | The file write inside `ifCurrent`; `clear()` after `advance()`; a test |
@@ -467,11 +467,23 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
    await the writer, and the rule is a property of the code, not a review check. Debug `MainThread.assertOff` in
    every writer job, plus a test that a write submitted from the main actor runs off main (the real path, not the
    probe). Option B is not taken: the upserts are most of the stall, not the encoding.
+   **Amended after T0 on iOS 17.0:** there the thread that makes the actor decides, so the drain also *makes* the
+   writer inside its own isolation, with Debug `assertOff` at creation. Both conditions hold by structure; the gate
+   test passes on 17.0 and 27.2 (`ReadModelOffMainTests`).
 9. **The completion edits** (`AppDelegate`, `ScheduledWork`, the HealthKit observer) are in P1, as the brief says,
    because P1's flights await the commit.
 10. **The other gaps the implementer found** belong to P1: `AppState.patchUser` and the onboarding's `.me` flight store
     are user writers too (write-through), `CountingPersistence` implements the new members, and
     `TrainImportUploader.generation` reads `TrainStore.epoch`.
+11. **iOS 17.0: only the newest container of the schema takes inserts (T0.6).** Once the demo's container exists, a
+    save of new rows into the account's older container fails (NSCocoaErrorDomain 134020) until a relaunch, on `main`
+    too. On `main` the read models still showed in that session (unsaved in `mainContext`) and Train or activity rows
+    were lost at relaunch; with P1 the writer rolls back, so Today shows nothing new. The path is "try the demo, then
+    sign in", which every new user may take. **Decision: P1b**, in this PR: when the demo ends, the app releases the
+    demo's container and reopens the account's, before the account's first write, on every OS (one code path; harmless
+    on 27.2). One container with two configurations is not taken: an entity belongs to one configuration, and both
+    stores hold every entity. Gate: on iOS 17.0, demo → sign in → a Train row and a read-model write land and read back
+    without a relaunch. 17.1–17.6 are not measured.
 
 1. **Accept the split criterion?** This work gates on AC1–AC5. "Every gap ≤ 33 ms after `.active`" moves to the Today
    first-data render follow-up, together with row 23.
