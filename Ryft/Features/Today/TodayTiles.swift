@@ -713,6 +713,13 @@ private enum TodayTilesPreview {
     DarkPreview { TodayTilesPreview.all() }
 }
 
+/// xxxLarge at 390 (`DarkPreview`'s width), the largest size the pair stays side by side: the series under the label in
+/// both tiles, and where a caption goes above its value the other tile's too (B, C): yesterday's and calibrating's
+/// captions are above in both; the board's "High" stays beside.
+#Preview("Today tiles · xxxLarge, the pair arranged alike") {
+    DarkPreview { TodayTilesPreview.all().environment(\.dynamicTypeSize, .xxxLarge) }
+}
+
 #Preview("Today tiles · AX3") {
     DarkPreview { TodayTilesPreview.all().environment(\.dynamicTypeSize, .accessibility3) }
 }
