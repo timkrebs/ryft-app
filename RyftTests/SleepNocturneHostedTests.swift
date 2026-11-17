@@ -55,7 +55,9 @@ import UIKit
             // The ruler's element reaches 2/3 pt past the column on each side (its end ticks' half stroke, T4.0).
             #expect(abs(ruler.midX - Self.width / 2) < 0.5 && abs(ruler.width - 350) < 1.5, "ruler \(ruler)")
             let hypnogram = try frame(w, "sleep.hypnogram")
-            #expect(abs(hypnogram.minY - ruler.maxY - SleepLayout.hypnogramGap) < 1, "ruler→tile \(hypnogram.minY - ruler.maxY)")
+            // From the ruler's 36 pt box, which its labels overflow (VF1); the element's frame takes the labels in.
+            #expect(abs(hypnogram.minY - ruler.minY - RulerScale.Size.regular.height - SleepLayout.hypnogramGap) < 1,
+                    "ruler→tile \(hypnogram.minY - ruler.minY)")
             #expect(abs(hypnogram.height - 168) < 0.5 && abs(hypnogram.width - 350) < 0.5, "hypnogram \(hypnogram.size)")
             let tiles = try ["consistency", "debt", "efficiency", "restorative"].map { try frame(w, "sleep.tile.\($0)") }
             #expect(abs(tiles[0].minY - hypnogram.maxY - SleepLayout.tilesGap) < 0.5, "tile→grid \(tiles[0].minY - hypnogram.maxY)")

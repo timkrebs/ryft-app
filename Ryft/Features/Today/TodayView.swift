@@ -319,12 +319,13 @@ struct TodayView: View {
     }
 
     /// Row 9: 0–100, the high band marked (not "the current band"), the needle at the readiness. No zone and only the
-    /// ends labelled where the number isn't placed in a band; no needle without a number.
+    /// ends labelled where the number isn't placed in a band; no needle without a number. The next block is measured
+    /// from its 36 pt box; the labels overflow it (VF1).
     private func ruler(_ day: TodayContent) -> some View {
         RulerScale(range: 0...100, value: day.rulerValue, zone: day.rulerZone, zoneStyle: .standard,
                    tickCount: RulerScale.Ticks.today, labels: day.rulerLabels, size: .regular,
                    accessibilityLabel: Text("Readiness scale", comment: "VoiceOver label of Today's readiness ruler (0 to 100)."),
-                   accessibilityValue: Text(verbatim: day.rulerSpoken))
+                   accessibilityValue: Text(verbatim: day.rulerSpoken), followingGap: belowRuler(day))
             .accessibilityIdentifier("today.ruler")
             .padding(.top, TodayLayout.labelToRuler)
     }
@@ -357,6 +358,11 @@ struct TodayView: View {
 
     private func hasAttentionCard(_ day: TodayContent) -> Bool {
         day.rawNight != nil || day.watchHint != nil
+    }
+
+    /// The gap under the ruler: to the attention cards, else the tiles, else the cards below.
+    private func belowRuler(_ day: TodayContent) -> CGFloat {
+        TodayLayout.belowRuler(hasAttentionCard: hasAttentionCard(day), showsTiles: day.showsTiles)
     }
 
     /// Last night from Apple Health and the night hint (pending only), 12 below the ruler and 12 apart.

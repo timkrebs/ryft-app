@@ -33,6 +33,12 @@ enum TodayLayout {
     /// Below the glow block: the cards, 12 apart (`Theme.Metrics.sectionSpacing`, derived).
     static let glowToCards: CGFloat = 24
 
+    /// The gap under the ruler's 36 pt box (its labels overflow it, `RulerScale(followingGap:)`): to the attention
+    /// cards, else the tiles, else the cards below (no tiles). The tiles land at the ruler's top + 58.
+    static func belowRuler(hasAttentionCard: Bool, showsTiles: Bool) -> CGFloat {
+        hasAttentionCard ? rulerToCards : showsTiles ? rulerToTiles : glowToCards
+    }
+
     // MARK: sizes
 
     /// L14: the hero gauge's dial, and its frame (dial + 12).

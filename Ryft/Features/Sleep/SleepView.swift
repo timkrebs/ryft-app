@@ -206,7 +206,7 @@ struct SleepDay: View {
             RulerScale(range: SleepRuler.range, value: board.ruler.value, zone: board.ruler.zone, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: board.ruler.labels, size: .regular,
                        accessibilityLabel: Text("Sleep duration scale", comment: "VoiceOver label of Sleep's ruler, 0 to 10 hours."),
-                       accessibilityValue: Text(board.ruler.spokenValue))
+                       accessibilityValue: Text(board.ruler.spokenValue), followingGap: SleepLayout.hypnogramGap)
                 .accessibilityIdentifier("sleep.ruler")
                 .padding(.top, SleepLayout.rulerGap)
             hypnogram

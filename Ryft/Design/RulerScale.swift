@@ -10,8 +10,11 @@ struct RulerScale: View {
         /// Today, Sleep, Strain. `compact`: the ruler inside Today's strain glow tile.
         case regular, compact
 
-        /// The ruler's height: 8 top + the tick row + 6 bottom (36; compact 32, derived).
+        /// The ruler's height: 8 top + the tick row + 6 bottom (36; compact 32, derived). The next block is measured
+        /// from this box, not from the labels (the board, VF1).
         var height: CGFloat { tickRowTop + tickRowHeight + 6 }
+        /// The labels' top: 2 under the tick row (the board's margin), so they overflow the box (+32 regular).
+        var labelTop: CGFloat { tickRowTop + tickRowHeight + 2 }
         /// The tick row starts under 8 pt of top padding, where the needle's head sits.
         var tickRowTop: CGFloat { 8 }
         var tickRowHeight: CGFloat { self == .regular ? 22 : 18 }
@@ -58,6 +61,9 @@ struct RulerScale: View {
     /// The smallest gap between two labels before they no longer fit on one line: at large sizes the row then falls
     /// back to the joined " · " line before the labels run together.
     static let labelMinGap: CGFloat = 16
+    /// What stays clear under the labels when they grow past the caller's gap (AX sizes): the next block is at
+    /// `max(box + gap, labels' bottom + 8)`.
+    nonisolated static let labelClearance: CGFloat = 8
 
     private let range: ClosedRange<Double>
     private let value: Double?
@@ -69,6 +75,7 @@ struct RulerScale: View {
     private let accessibilityLabel: Text
     private let accessibilityValue: Text
     private let forcedReduceMotion: Bool?
+    private let followingGap: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.displayScale) private var displayScale
@@ -82,10 +89,13 @@ struct RulerScale: View {
     ///   - zoneStyle: `.standard` (`textPrimary` at 0.55, compact 0.60), `.sleep` or `.strain`.
     ///   - labels: already localized, spread edge to edge under the ruler ("0", "low", "moderate", "high", "100").
     ///   - reduceMotion: previews and tests; `nil` follows the system.
+    ///   - followingGap: the gap the caller puts under the ruler before the next block. The labels hang 2 under the tick
+    ///     row and overflow the 36 pt box; the ruler is as tall as the box, or more where the labels would come within
+    ///     `labelClearance` of the next block (`layoutHeight`). `nil`: the ruler encloses its labels.
     init(range: ClosedRange<Double>, value: Double?, zone: ClosedRange<Double>? = nil,
          zoneStyle: ZoneStyle = .standard, tickCount: Int,
          labels: [String] = [], size: Size = .regular,
-         accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil) {
+         accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil, followingGap: CGFloat? = nil) {
         self.range = range
         self.value = value
         self.zone = zone
@@ -96,10 +106,11 @@ struct RulerScale: View {
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityValue = accessibilityValue
         self.forcedReduceMotion = reduceMotion
+        self.followingGap = followingGap
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        RulerStack(size: size, followingGap: followingGap) {
             graphic
             if !labels.isEmpty { labelRow }
         }
@@ -148,6 +159,15 @@ struct RulerScale: View {
     }
 
     // MARK: layout (pure)
+
+    /// The ruler's height for labels `labelsHeight` tall (0 without labels): the box, or more where the labels' bottom
+    /// plus `labelClearance` would pass the box plus the caller's gap. Without a gap it encloses the labels.
+    nonisolated static func layoutHeight(size: Size, labelsHeight: CGFloat, followingGap: CGFloat?) -> CGFloat {
+        guard labelsHeight > 0 else { return size.height }
+        let labelsBottom = size.labelTop + labelsHeight
+        guard let followingGap else { return max(size.height, labelsBottom) }
+        return max(size.height, labelsBottom + labelClearance - followingGap)
+    }
 
     /// The labels' ink as an opacity of `textPrimary`; `nil` is `textTertiary`. A regular ruler sits on the screen and
     /// keeps `textTertiary`. The compact ruler only lives inside a glow tile, where its edge labels sit in the lighter
@@ -218,6 +238,28 @@ struct RulerScale: View {
 
 /// Ticks at the given indices, centred vertically on `midY`, their left edge snapped to the device pixel. Not clipped:
 /// the outer ticks overhang the edges by half their width.
+/// The graphic at the top, the labels (if any) at `labelTop`, overflowing the box; as tall as
+/// `RulerScale.layoutHeight(size:labelsHeight:followingGap:)`.
+private struct RulerStack: Layout {
+    let size: RulerScale.Size
+    let followingGap: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let labels = subviews.count > 1 ? subviews[1].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
+        return CGSize(width: width, height: RulerScale.layoutHeight(size: size, labelsHeight: labels, followingGap: followingGap))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let graphic = subviews.first else { return }
+        graphic.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        if subviews.count > 1 {
+            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + size.labelTop),
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
+        }
+    }
+}
+
 private struct RulerTicks: Shape {
     let count: Int
     let indices: [Int]
