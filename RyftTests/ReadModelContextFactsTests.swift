@@ -207,37 +207,151 @@ struct ReadModelContextFactsTests {
         #expect(try await ContextFactsWriter.countOffMain(writer, days) == 450)
         #expect(try ModelContext(store.container).fetchCount(FetchDescriptor<CachedDay>()) == 450)
     }
+}
 
-    // MARK: T0.6: two containers of the schema in one process (the demo store beside the account's)
-    //
-    // Observation. iOS 17.0: only the container made last takes inserts. A save of a new row in any context of an
-    // older one (fresh or main, on disk or in memory) fails with 134020, "the object's persistent store is not
-    // reachable", even after the newer one is released; reopening the older store makes it the newest instead. So after
-    // a demo session on 17.0 the account's store takes no new rows until a relaunch, whoever writes them. iOS 27.2:
-    // both take inserts. iOS 18–26: not measured.
+// MARK: - T0.6: two containers of the schema in one process (the demo store beside the account's)
+//
+// iOS 17.0, measured: only the container made last takes inserts. A save of a new row in any context of an older one
+// (fresh or main, on disk or in memory) fails with 134020, "the object's persistent store is not reachable", even after
+// the newer one is released; reopening the older store makes it the newest instead. So after a demo session the
+// account's store takes no new rows until a relaunch, whoever writes them. iOS 27.2, measured: both take inserts.
+// Every other version is unmeasured: there these tests pass when every insert lands, and fail with their one line when
+// one doesn't. Each prints that line (`T0.6 …`) on every OS, so one run of this suite on a runtime is the answer:
+//
+//     xcodebuild test -only-testing:RyftTests/ReadModelContextFactsTests/TwoContainers …
+//
+// Serialized: a container another test makes in between would be the newest.
 
-    @Test func insertsIntoTheOlderOfTwoContainers() throws {
-        let older = TrainStore(inMemory: true)
-        let newer = TrainStore(inMemory: true)
-        func insert(_ day: String, into store: TrainStore) -> Int? {
-            let context = ModelContext(store.container)
-            context.insert(CachedDay(day: day, date: Self.now))
-            do {
-                try context.save()
-                return nil
-            } catch {
-                return (error as NSError).code
+extension ReadModelContextFactsTests {
+    @Suite("T0.6: two containers of the schema in one process", .serialized)
+    @MainActor
+    struct TwoContainers {
+        /// What has been measured, and where this runtime stands.
+        enum Runtime: Equatable {
+            /// iOS 17.0.
+            case onlyTheNewestTakesInserts
+            /// iOS 27.2.
+            case everyContainerTakesInserts
+            case unmeasured
+
+            static var current: Runtime {
+                let v = ProcessInfo.processInfo.operatingSystemVersion
+                switch (v.majorVersion, v.minorVersion) {
+                case (17, 0): return .onlyTheNewestTakesInserts
+                case (27, 2): return .everyContainerTakesInserts
+                default: return .unmeasured
+                }
+            }
+
+            static var name: String {
+                let v = ProcessInfo.processInfo.operatingSystemVersion
+                return "iOS \(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
             }
         }
-        let olderFailure = insert("2026-01-01", into: older)
-        let newerFailure = insert("2026-01-02", into: newer)
-        if #available(iOS 27, *) {
-            #expect(olderFailure == nil)
-            #expect(newerFailure == nil)
+
+        /// The observation in one line, printed on every OS; on an unmeasured one it's also the failure, if an insert
+        /// failed.
+        private func report(_ line: String, anInsertFailed: Bool, sourceLocation: SourceLocation = #_sourceLocation) {
+            print(line)
+            if Runtime.current == .unmeasured, anInsertFailed {
+                Issue.record(Comment(rawValue: line), sourceLocation: sourceLocation)
+            }
         }
-        if #unavailable(iOS 18) {
-            #expect(olderFailure == 134_020)
-            #expect(newerFailure == nil)
+
+        private static func saved(_ saved: Bool) -> String { saved ? "saved" : "NOT saved" }
+
+        /// Two containers made one after the other, a new row saved into each through a fresh context.
+        @Test func insertsIntoTheOlderOfTwoContainers() {
+            let older = TrainStore(inMemory: true)
+            let newer = TrainStore(inMemory: true)
+            func insert(_ day: String, into store: TrainStore) -> Int? {
+                let context = ModelContext(store.container)
+                context.insert(CachedDay(day: day, date: ReadModelContextFactsTests.now))
+                do {
+                    try context.save()
+                    return nil
+                } catch {
+                    return (error as NSError).code
+                }
+            }
+            let olderFailure = insert("2026-01-01", into: older)
+            let newerFailure = insert("2026-01-02", into: newer)
+
+            func outcome(_ failure: Int?) -> String { failure.map { "fails (\($0))" } ?? "lands" }
+            report("T0.6 probe, \(Runtime.name): an insert into the older container \(outcome(olderFailure)), "
+                + "into the newer \(outcome(newerFailure))",
+                anInsertFailed: olderFailure != nil || newerFailure != nil)
+            switch Runtime.current {
+            case .onlyTheNewestTakesInserts:
+                #expect(olderFailure == 134_020)
+                #expect(newerFailure == nil)
+            case .everyContainerTakesInserts:
+                #expect(olderFailure == nil)
+                #expect(newerFailure == nil)
+            case .unmeasured:
+                break
+            }
+        }
+
+        /// The path every new user may take, as the app takes it: the account's store opened on disk first (at
+        /// launch), the demo's store made by the Repository's first read in demo mode, then the demo switched off and
+        /// the account's first read-model write and Train row. This is the test that decides P1b (design.md,
+        /// decision 11).
+        @Test func theAccountsFirstWritesAfterTheDemo() async throws {
+            let disk = try ReadModelContextFactsTests.Disk()
+            let account = TrainStore(url: disk.url)
+            #expect(account.isDurable)
+            let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
+            let settings = Settings(defaults: defaults)
+            settings.demoMode = true
+            let api = MockPlatformAPI()
+            let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
+                                     auth: .preview(), persistence: account,
+                                     clock: TestClock(now: ReadModelContextFactsTests.now), notifier: MockNotifier(),
+                                     flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
+                                     demoOverride: nil)
+            let repo = Repository(env: env)
+            // A graph with the Demo data switch shares the widget's file; this one's writes are nobody's.
+            repo.widgetFile = nil
+
+            // The demo: its first read makes its store, the newest container, and it writes there.
+            #expect(repo.score("2026-01-01") == nil)
+            let demo = await repo.store(scores: [DailyScore(day: "2026-01-01", strain: 1)]).committed()
+
+            // The demo ends; the account's first writes.
+            settings.demoMode = false
+            let day = "2026-01-02"
+            let readModel = await repo.store(scores: [DailyScore(day: day, strain: 2)]).committed()
+            let session = LocalSession(title: "Upper")
+            account.context.insert(session)
+            let trainSaved = account.save()
+
+            // Read back through the Repository, and from the store itself (a fresh context, not the inserting one).
+            let id = session.id
+            let fresh = ModelContext(account.container)
+            let days = try fresh.fetchCount(FetchDescriptor<CachedDay>(predicate: #Predicate { $0.day == day }))
+            let sessions = try fresh.fetchCount(FetchDescriptor<LocalSession>(predicate: #Predicate { $0.id == id }))
+            let readsBack = repo.score(day)?.strain == 2
+
+            report("T0.6 app path, \(Runtime.name): the demo's write \(Self.saved(demo.saved)); then the account's "
+                + "read-model write \(Self.saved(readModel.saved)), its Train row \(Self.saved(trainSaved)); "
+                + "the store has \(days) day(s) and \(sessions) session(s); the Repository reads the day back: "
+                + (readsBack ? "yes" : "no"),
+                anInsertFailed: !demo.saved || !readModel.saved || !trainSaved || days != 1 || sessions != 1
+                    || !readsBack)
+            switch Runtime.current {
+            case .onlyTheNewestTakesInserts:
+                #expect(demo.saved)
+                #expect(!readModel.saved)
+                #expect(!trainSaved)
+                #expect(days == 0 && sessions == 0 && !readsBack)
+            case .everyContainerTakesInserts:
+                #expect(demo.saved)
+                #expect(readModel.saved && trainSaved)
+                #expect(days == 1 && sessions == 1 && readsBack)
+            case .unmeasured:
+                break
+            }
         }
     }
 }
