@@ -79,30 +79,52 @@ struct ReadModelContextFactsTests {
         deinit { try? FileManager.default.removeItem(at: folder) }
     }
 
-    // MARK: T0.1 (F8)
+    // MARK: T0.1 (F8): which thread a model actor's job runs on
     //
-    // F8 as the design states it is wrong on iOS 27.2: where the actor was made doesn't decide the thread. Its
-    // `DefaultSerialModelExecutor` runs each job synchronously on the thread that enqueued it, under the context's own
-    // queue (the queue label is the `NSManagedObjectContext`'s). Awaited from the main actor, a job runs on the main
-    // thread, even for an actor made off it; awaited from a `@concurrent` function, it runs off the main thread, even for
-    // an actor made on it.
+    // The OS decides differently, so both the place an actor is made and the place it's awaited matter:
+    // - iOS 17.0: the thread that made the actor. One made off the main actor runs off it even when awaited from main;
+    //   one made on the main actor runs on it even when awaited from a `@concurrent` function.
+    // - iOS 27.2: the thread that awaits it. Its `DefaultSerialModelExecutor` runs each job synchronously on the thread
+    //   that enqueued it, under the context's own queue (the queue label is the `NSManagedObjectContext`'s). Awaited
+    //   from the main actor, a job runs on the main thread even for an actor made off it; awaited from a `@concurrent`
+    //   function, it runs off the main thread even for an actor made on it.
+    // - iOS 18–26: not measured, so the two observations below assert nothing there.
+    // The invariant holds on both measured OSes, and it's the one the app relies on (`ReadModelDrain` makes and awaits
+    // its writer on its own executor): an actor made off the main actor and awaited off it runs its jobs off it.
 
-    @Test func aJobAwaitedFromTheMainActorRunsOnTheMainThreadWhereverTheActorWasMade() async throws {
+    @Test func aJobOfAnActorMadeAndAwaitedOffTheMainActorRunsOffTheMainThread() async throws {
         let store = TrainStore(inMemory: true)
-        let madeOff = await ContextFactsWriter.make(store.container)
-        #expect(try await madeOff.upsert(Self.days(3), score: Data("a".utf8), at: Self.now))
-        let madeOn = ContextFactsWriter(modelContainer: store.container)
-        #expect(try await madeOn.upsert(Self.days(3), score: Data("b".utf8), at: Self.now))
+        let writer = await ContextFactsWriter.make(store.container)
+        #expect(try await !ContextFactsWriter.upsertOffMain(writer, Self.days(3), score: Data("a".utf8), at: Self.now))
+        // A second job on the same actor stays off it too.
+        #expect(try await !ContextFactsWriter.upsertOffMain(writer, Self.days(3), score: Data("b".utf8), at: Self.now))
     }
 
-    @Test func aJobAwaitedFromAConcurrentFunctionRunsOffTheMainThread() async throws {
+    /// Observation: a job awaited from the main actor.
+    @Test func aJobAwaitedFromTheMainActor() async throws {
         let store = TrainStore(inMemory: true)
         let madeOff = await ContextFactsWriter.make(store.container)
-        #expect(try await !ContextFactsWriter.upsertOffMain(madeOff, Self.days(3), score: Data("a".utf8), at: Self.now))
-        // A second job on the same actor stays off it too.
-        #expect(try await !ContextFactsWriter.upsertOffMain(madeOff, Self.days(3), score: Data("b".utf8), at: Self.now))
+        let madeOffRanOnMain = try await madeOff.upsert(Self.days(3), score: Data("a".utf8), at: Self.now)
         let madeOn = ContextFactsWriter(modelContainer: store.container)
-        #expect(try await !ContextFactsWriter.upsertOffMain(madeOn, Self.days(3), score: Data("c".utf8), at: Self.now))
+        let madeOnRanOnMain = try await madeOn.upsert(Self.days(3), score: Data("b".utf8), at: Self.now)
+        if #available(iOS 27, *) { // the awaiting thread decides
+            #expect(madeOffRanOnMain)
+            #expect(madeOnRanOnMain)
+        }
+        if #unavailable(iOS 18) { // the making thread decides
+            #expect(!madeOffRanOnMain)
+            #expect(madeOnRanOnMain)
+        }
+    }
+
+    /// Observation: a job of an actor made on the main actor, awaited from a `@concurrent` function.
+    @Test func aJobOfAnActorMadeOnTheMainActorAwaitedOffIt() async throws {
+        let store = TrainStore(inMemory: true)
+        let madeOn = ContextFactsWriter(modelContainer: store.container)
+        let ranOnMain = try await ContextFactsWriter.upsertOffMain(madeOn, Self.days(3), score: Data("c".utf8),
+                                                                   at: Self.now)
+        if #available(iOS 27, *) { #expect(!ranOnMain) } // the awaiting thread decides
+        if #unavailable(iOS 18) { #expect(ranOnMain) } // the making thread decides
     }
 
     // MARK: T0.2 (F9, F10)
@@ -184,5 +206,38 @@ struct ReadModelContextFactsTests {
         #expect(try await ContextFactsWriter.countOffMain(writer, Array(days.prefix(400))) == 400)
         #expect(try await ContextFactsWriter.countOffMain(writer, days) == 450)
         #expect(try ModelContext(store.container).fetchCount(FetchDescriptor<CachedDay>()) == 450)
+    }
+
+    // MARK: T0.6: two containers of the schema in one process (the demo store beside the account's)
+    //
+    // Observation. iOS 17.0: only the container made last takes inserts. A save of a new row in any context of an
+    // older one (fresh or main, on disk or in memory) fails with 134020, "the object's persistent store is not
+    // reachable", even after the newer one is released; reopening the older store makes it the newest instead. So after
+    // a demo session on 17.0 the account's store takes no new rows until a relaunch, whoever writes them. iOS 27.2:
+    // both take inserts. iOS 18–26: not measured.
+
+    @Test func insertsIntoTheOlderOfTwoContainers() throws {
+        let older = TrainStore(inMemory: true)
+        let newer = TrainStore(inMemory: true)
+        func insert(_ day: String, into store: TrainStore) -> Int? {
+            let context = ModelContext(store.container)
+            context.insert(CachedDay(day: day, date: Self.now))
+            do {
+                try context.save()
+                return nil
+            } catch {
+                return (error as NSError).code
+            }
+        }
+        let olderFailure = insert("2026-01-01", into: older)
+        let newerFailure = insert("2026-01-02", into: newer)
+        if #available(iOS 27, *) {
+            #expect(olderFailure == nil)
+            #expect(newerFailure == nil)
+        }
+        if #unavailable(iOS 18) {
+            #expect(olderFailure == 134_020)
+            #expect(newerFailure == nil)
+        }
     }
 }
