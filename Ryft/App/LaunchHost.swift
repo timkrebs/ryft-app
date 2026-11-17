@@ -17,7 +17,9 @@ struct LaunchHost<Root: View>: View {
             .environment(\.launchCoversRoot, model.coversRoot)
             .environment(\.launchRevealsRoot, model.revealsRoot)
             .environment(\.launchHidesHandOffTargets, model.hidesHandOffTargets)
-            .environment(\.launchHandOffRegistrar, LaunchHandOffRegistrar { [model] in model.register($0, $1) })
+            // Today's header reports its lock-up only while the launch is on screen; after it, nothing (CR3).
+            .environment(\.launchHandOffRegistrar,
+                         model.isOnScreen ? LaunchHandOffRegistrar { [model] in model.register($0, $1) } : LaunchHandOffRegistrar())
             .environment(\.launchInterrupt, LaunchInterruptAction { [model] in model.send(.interrupted($0)) })
             .accessibilityHidden(model.coversRoot)
             .overlay {
