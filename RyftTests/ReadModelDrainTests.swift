@@ -671,6 +671,29 @@ extension ReadModelWipeRaceTests {
         #expect(await eventuallyAwaiting(timeout: .seconds(5)) { await h.repository.writerEpochs()[store] == nil })
     }
 
+    /// A refused save of the user committed after a wipe doesn't go again: the user written through is the wiped
+    /// account's, even before `invalidate()` forgets it.
+    @Test func aRefusedUserSaveAcrossAWipeDoesntGoAgain() async throws {
+        let h = WipeHarness()
+        let saves = OSAllocatedUnfairLock(initialState: 0)
+        let hold = WriterHold()
+        h.repository.writeHooks.refusesSave = { saves.withLock { n in
+            n += 1
+            return n == 1
+        } }
+        h.repository.writeHooks.beforeCommit = { hold.pass() }
+        let written = h.repository.store(user: MockData.user)
+        #expect(await eventually { hold.entered == 1 })
+
+        h.persistence.wipe(parkingActivitiesOf: nil, at: h.clock.now())
+        hold.open()
+
+        #expect(!(await written.committed()).saved)
+        await h.repository.settled()
+        #expect(saves.withLock { $0 } == 1)
+        #expect(try h.rowCount() == 0)
+    }
+
     /// A batch saved before the wipe and committed after it: its rows are gone, so it doesn't publish the widget (the
     /// sign-out's own publish does).
     @Test func aCommitAfterTheWipeDoesntPublishTheWidget() async throws {
