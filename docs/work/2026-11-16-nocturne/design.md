@@ -1222,8 +1222,8 @@ Every state keeps its reason and its one action; none is a blank screen or a spi
 | State | Trigger | Look |
 |---|---|---|
 | Scored night | `sleep` and `score` | The table in §P4-2 |
-| Latest night | `isToday` | Subtitle "Last night · …"; Next disabled (35 %, label unchanged, hint "This is your latest night") |
-| Oldest night | `date ≤ oldestNight` | Previous disabled the same way (hint "This is your oldest night") |
+| Latest night | `isToday` | Subtitle "Last night · …"; Next disabled (35 %, label unchanged, hint "No newer night to show") |
+| Oldest night | `date ≤ oldestNight` | Previous disabled the same way (hint "No older night to show") |
 | An older night | stepped back | Subtitle "Sat, Nov 14" or "Yesterday · Sat, Nov 14"; the numeral cross-fades (250 ms; none under Reduce Motion) |
 | Loading, nothing cached | `isLoading && sleep == nil` | Unlit "0:00", ruler ticks without a needle, hypnogram and four tiles as `surface` outlines (1 pt `separator`), values "–"; VoiceOver "Loading this night"; no spinner |
 | Load error | `model.error` | As loading, plus `InlineMessage(retry:)` in the hypnogram tile's place |
@@ -1271,11 +1271,11 @@ Needs from the lifecycle (to the lead, Q7): `Timing.full.handOff` 0.4 → 0.5 s 
 | 6 | Ruler | label "Readiness scale", value "84, high, on a scale from 0 to 100"; calibrating: "84, on a scale from 0 to 100"; no value: "No readiness yet, on a scale from 0 to 100" |
 | 7 | Attention cards | as today |
 | 8 | Recovery tile | button; label "Recovery", value "82 percent, High. HRV 66 milliseconds, lowest 51 and highest 66 over the last 7 days"; dimmed day: "…, Yesterday, not today's score"; hint "Opens Insights". The sparkline is inside the element and hidden |
-| 9 | Sleep tile | button; label "Sleep", value "7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last mark is the night shown"; hint "Opens Sleep" |
+| 9 | Sleep tile | button; label "Sleep", value "7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last is the night shown"; hint "Opens Sleep" |
 | 10 | Strain tile | button; label "Strain", value "12.4 of 21, moderate. The moderate range is 10 to 14"; hint "Opens Strain" |
 | 11 | Cards below | in their order; My Day's title is a header + button as today |
 
-Sleep: "Previous night" (button, dimmed and "This is your oldest night" at the end) · "Sleep" (header; value "Last night, Sunday, November 15", plus "not scored yet" from `DayMarker`) · "Next night" · the picker · the numeral ("7 hours 48 minutes asleep") · the caption ("94 percent of your need") · the ruler ("Sleep duration scale", "7 hours 48 minutes, on a scale from 0 to 10 hours. Your need is 8 hours 18 minutes") · the hypnogram (one element, §P4-2a) · Consistency, Sleep debt, Efficiency, Restorative (each one element: "Sleep debt, 30 minutes, down 42 minutes from the night before"; "Restorative, 3 hours 20 minutes of deep and REM sleep, 100 percent of the target"; "Consistency, 86 percent. 5 of the last 7 nights were regular, 1 was not, 1 has no data; the last is the night shown") · the cards. A step re-reads the new night: post `AccessibilityNotification.Announcement` with the subtitle and the duration after the load. Colour never carries state: Volt is a position (last mark), teal / `alert` arrows come with ▲ ▼ and the spoken "up / down".
+Sleep: "Previous night" (button, dimmed and "No older night to show" at the end) · "Sleep" (header; value "Last night, Sunday, November 15", plus "not scored yet" from `DayMarker`) · "Next night" · the picker · the numeral ("7 hours 48 minutes asleep") · the caption ("94 percent of your need") · the ruler ("Sleep duration scale", "7 hours 48 minutes, on a scale from 0 to 10 hours. Your need is 8 hours 18 minutes") · the hypnogram (one element, §P4-2a) · Consistency, Sleep debt, Efficiency, Restorative (each one element: "Sleep debt, 30 minutes, down 42 minutes from the night before"; "Restorative, 3 hours 20 minutes of deep and REM sleep, 100 percent of the target"; "Consistency, 86 percent. 5 of the last 7 nights were regular, 1 was not, 1 has no data; the last is the night shown") · the cards. A step re-reads the new night: post `AccessibilityNotification.Announcement` with the subtitle and the duration after the load. Colour never carries state: Volt is a position (last mark), teal / `alert` arrows come with ▲ ▼ and the spoken "up / down".
 
 **Dynamic Type (AX3 = `.accessibility3`).**
 
@@ -1308,13 +1308,13 @@ English only, `Localizable.xcstrings`, targeted edits and a `--stat` check (plan
 | `Strain · %@` | The strain tile's label while it shows another day or "calibrating". |
 | `Strain scale` · `%1$@, %2$@, on a scale from 0 to 21. The moderate range is 10 to 14.` | VoiceOver on the strain ruler and its tile. |
 | `HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days` | VoiceOver on the recovery tile's sparkline. |
-| `Slept enough on %lld of the last 7 nights; the last mark is the night shown` · `…; %lld nights have no data` | VoiceOver on the sleep dots (Today, `DotRow` summary). |
+| `Slept enough on %lld of the last 7 nights; the last is the night shown` · `…; %lld nights have no data` | VoiceOver on the sleep dots (Today, `DotRow` summary). |
 | `Last night · %@` · `Yesterday · %@` | Sleep header subtitle; %@ is the date ("Sun, Nov 15"). **Replace** `Last night` as the subtitle (the key stays for the raw-night card). |
 | `Asleep · %lld %% of your need` · `%lld percent of your need` | Caption under Sleep's numeral; its VoiceOver text. `Asleep` exists. |
 | `Sleep duration scale` · `0 h` · `need %@` · `10 h` · `%1$@, on a scale from 0 to 10 hours. Your need is %2$@.` | Sleep ruler: label, scale words, VoiceOver. |
 | `h` | Hours unit after a clock value ("7:48 h"). |
 | `Deep + REM` | Restorative tile's note. **Replaces** `deep + REM`. |
-| `This is your latest night` · `This is your oldest night` | Hints on the disabled night buttons. |
+| `No newer night to show` · `No older night to show` | Hints on the disabled night buttons. |
 | `Loading this night` · `The timeline isn't available for this night.` | Sleep loading state (VoiceOver) and the hypnogram tile without a timeline. |
 | `Hypnogram, %@ to %@` | VoiceOver label on the hypnogram tile (times). |
 | `Consistency, %lld percent. …` · `Sleep debt, …` · `Restorative, …` | VoiceOver on the neutral tiles (sentences in §P4-8). |
