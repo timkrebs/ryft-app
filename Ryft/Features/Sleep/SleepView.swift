@@ -264,7 +264,7 @@ struct SleepDay: View {
         case .failed(let message):
             InlineMessage(message: message, systemImage: failure?.systemImage ?? "wifi.exclamationmark",
                           details: failure?.details, retry: retry, identifier: "sleep.failure")
-        case .loading, .noSleep, .pending:
+        case .loading, .noSleep, .pending, .awaitingNight:
             SleepHypnogramOutline()
         }
     }

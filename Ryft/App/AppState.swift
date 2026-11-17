@@ -25,8 +25,9 @@ final class AppState {
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
     /// Last night as Apple Health has it (`RawNight`), which Today reads after each sync (`TodayViewModel.loadHealthFacts`):
-    /// Today's raw-night card and Sleep's pending night (design.md §P4-5) show the same night. Unscored, so wherever it
-    /// shows it says so. Not stored: the next launch reads it again.
+    /// Today's raw-night card and Sleep's night being scored (`scoring_state: pending`, design.md §P4-5) show the same
+    /// night; neither shows it while the platform waits for sleep (`waiting_for_sleep`, `stale`). Unscored, so wherever
+    /// it shows it says so. Not stored: the next launch reads it again.
     var lastNight: RawNight?
     private(set) var dismissedInsightIDs: Set<String> = []
 

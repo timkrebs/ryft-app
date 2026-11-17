@@ -71,6 +71,10 @@ final class SleepViewModel {
     /// The night's scoring state beside its title (`DayMarker`); the cached 90 days when the
     /// detail isn't loaded.
     var marker: DayMarker.Kind? { DayMarker.kind(for: score ?? state.score(for: date)) }
+    /// What the platform says about the night (the day's `scoring_state`, three-way): what the board says without one.
+    var nightScoring: SleepBoard.NightScoring {
+        SleepBoard.NightScoring((score ?? state.score(for: date))?.scoringState, isToday: isToday, hasNight: sleep != nil)
+    }
     var hasNoHealthData: Bool { state.hasNoHealthData }
 
     /// The oldest night Previous reaches (design.md §P4-4 S2): the first cached day with a night, else the 90 days the
@@ -98,12 +102,12 @@ final class SleepViewModel {
         } + [shown?.sleepConsistency]
         return SleepBoard(sleep: sleep, score: score,
                           previousDebt: state.score(for: DayFormat.shift(date, days: -1))?.sleepDebtMin,
-                          weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error,
+                          weekConsistency: week, scoring: nightScoring, isLoading: isLoading, error: error,
                           rawNight: rawNight)
     }
 
     /// Apple Health's last night (`AppState.lastNight`, what Today shows) when it is the night shown: it ended this
-    /// morning, and the night shown is last night.
+    /// morning, and the night shown is last night. The board shows it only while the night is being scored.
     var rawNight: RawNight? {
         guard isToday, let night = state.lastNight, Calendar.current.isDate(night.wake, inSameDayAs: date) else { return nil }
         return night
@@ -294,12 +298,37 @@ struct SleepBoard: Equatable {
         case loading
         /// The load failed with nothing cached: as loading, and the message with Try again in the hypnogram's place.
         case failed(String)
-        /// The day has no night.
+        /// A scored day without a night: "No sleep recorded for this night."
         case noSleep
-        /// The night is being scored and the platform has no sleep for it yet (`sleep: null`, `DayMarker.pending`):
+        /// The night is being scored (`scoring_state: pending`) and the platform has no sleep for it yet (`sleep: null`):
         /// the numeral and the ruler from Apple Health's raw night when there is one, labelled unscored; the outline
         /// hypnogram and tiles. Never "No sleep recorded".
         case pending
+        /// No night has reached RYFT (`waiting_for_sleep`, or today `stale`: a watch charging overnight): "Last night
+        /// hasn't reached RYFT yet.", as Today says it, with the outline and no raw night (R2-F1).
+        case awaitingNight
+    }
+
+    /// What the platform says about the night shown, from its day's `scoring_state` (`DayMarker` keeps the dot, which
+    /// doesn't tell these apart).
+    enum NightScoring: Equatable, Sendable {
+        /// Scored, or no word: the day's values are the night's.
+        case scored
+        /// `pending`: the night is in and being scored.
+        case scoring
+        /// `waiting_for_sleep`, or `stale` for today without a night: nothing of last night has arrived.
+        case awaitingNight
+
+        /// `stale` (no new data for over 20 h) is the platform's word for today only (API.md): without a night, last night
+        /// hasn't arrived; with one, the day's score stands, as on another day.
+        init(_ state: ScoringState?, isToday: Bool, hasNight: Bool) {
+            switch state {
+            case .pending: self = .scoring
+            case .waitingForSleep: self = .awaitingNight
+            case .stale: self = isToday && !hasNight ? .awaitingNight : .scored
+            case .scored, nil: self = .scored
+            }
+        }
     }
 
     /// The consistency dots: this many nights, the last the night shown.
@@ -322,10 +351,10 @@ struct SleepBoard: Equatable {
     /// Consistency, Sleep debt, Efficiency, Restorative.
     let tiles: [SleepTile]
 
-    /// Loading, a failed load and a pending night without the platform's sleep draw the tiles as outlines (§P4-5).
+    /// Loading, a failed load and a night not scored yet without the platform's sleep draw the tiles as outlines (§P4-5).
     var isOutline: Bool {
         switch look {
-        case .loading, .failed, .pending: return true
+        case .loading, .failed, .pending, .awaitingNight: return true
         case .night, .noSleep: return false
         }
     }
@@ -333,16 +362,23 @@ struct SleepBoard: Equatable {
     /// - Parameters:
     ///   - previousDebt: the night before's `sleepDebtMin`, for the debt's change.
     ///   - weekConsistency: `sleepConsistency` of the last seven nights, oldest first, the last the night shown.
-    ///   - isPending: the night's score is still being made (`DayMarker.pending`): what needs a score shows "–".
-    ///   - rawNight: last night as Apple Health has it (`AppState.lastNight`), when it is the night shown: a pending night
-    ///     the platform has no sleep for yet shows its time asleep, labelled unscored (§P4-5 "Pending score").
+    ///   - scoring: what the platform says about the night; while it isn't scored, what needs a score shows "–".
+    ///   - rawNight: last night as Apple Health has it (`AppState.lastNight`), when it is the night shown: a night being
+    ///     scored that the platform has no sleep for yet shows its time asleep, labelled unscored (§P4-5 "Pending
+    ///     score"). Not while no night has reached RYFT: Today hides it then too.
     init(sleep: SleepDetail?, score: DailyScore?, previousDebt: Int? = nil, weekConsistency: [Int?] = [],
-         isPending: Bool = false, isLoading: Bool = false, error: String? = nil, rawNight: RawNight? = nil,
+         scoring: NightScoring = .scored, isLoading: Bool = false, error: String? = nil, rawNight: RawNight? = nil,
          locale: Locale = .autoupdatingCurrent) {
-        let scored = isPending ? nil : score
+        let unscored = scoring != .scored
+        let scored = unscored ? nil : score
         let need = scored?.sleepNeedMin ?? sleep?.need?.total
         guard let sleep else {
-            let empty: Look = isLoading ? .loading : error.map(Look.failed) ?? (isPending ? .pending : .noSleep)
+            let night: Look = switch scoring {
+            case .scored: .noSleep
+            case .scoring: .pending
+            case .awaitingNight: .awaitingNight
+            }
+            let empty: Look = isLoading ? .loading : error.map(Look.failed) ?? night
             look = empty
             let raw = empty == .pending ? rawNight : nil
             clock = raw.map { Fmt.clock(minutes: $0.asleepMin) }
@@ -371,6 +407,12 @@ struct SleepBoard: Equatable {
                     caption = scoring
                     spokenCaption = scoring
                 }
+            case .awaitingNight:
+                // Today's words for the same night (`TodayContent.sentence`): nothing claims it is being scored.
+                let waiting = String(localized: "Last night hasn't reached RYFT yet.")
+                numeralLabel = nil
+                caption = waiting
+                spokenCaption = waiting
             case .night, .noSleep:
                 let none = String(localized: "No sleep recorded for this night.")
                 numeralLabel = nil
@@ -401,7 +443,7 @@ struct SleepBoard: Equatable {
         var week = weekConsistency
         if !week.isEmpty { week[week.count - 1] = scored?.sleepConsistency }
         tiles = [SleepTile.consistency(scored?.sleepConsistency, week: week, locale: locale),
-                 SleepTile.debt(scored?.sleepDebtMin, before: isPending ? nil : previousDebt, locale: locale),
+                 SleepTile.debt(scored?.sleepDebtMin, before: unscored ? nil : previousDebt, locale: locale),
                  SleepTile.efficiency(sleep.efficiencyPercent, locale: locale),
                  SleepTile.restorative(sleep, locale: locale)]
     }

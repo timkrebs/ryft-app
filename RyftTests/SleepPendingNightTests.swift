@@ -43,7 +43,7 @@ struct SleepPendingNightTests {
     @Test func thePlaceholderDayWithAppleHealthsNightShowsItUnscored() throws {
         let detail = try placeholderDay()
         #expect(detail.sleep == nil && DayMarker.kind(for: detail.score) == .pending, "the API's placeholder")
-        let board = SleepBoard(sleep: nil, score: detail.score, isPending: true, rawNight: rawNight(), locale: enUS)
+        let board = SleepBoard(sleep: nil, score: detail.score, scoring: .scoring, rawNight: rawNight(), locale: enUS)
         #expect(board.look == .pending && board.isOutline)
         #expect(board.clock == "7:17")
         #expect(board.numeralLabel == "\(Fmt.spokenDuration(minutes: 437, locale: enUS)) asleep")
@@ -54,7 +54,7 @@ struct SleepPendingNightTests {
     }
 
     @Test func withoutAppleHealthsNightItSaysTheNightIsBeingScored() throws {
-        let board = SleepBoard(sleep: nil, score: try placeholderDay().score, isPending: true, locale: enUS)
+        let board = SleepBoard(sleep: nil, score: try placeholderDay().score, scoring: .scoring, locale: enUS)
         #expect(board.look == .pending && board.isOutline)
         #expect(board.clock == nil && board.numeralLabel == nil && board.ruler.value == nil)
         #expect(board.caption == "Your night is being scored." && board.spokenCaption == board.caption)
@@ -63,8 +63,8 @@ struct SleepPendingNightTests {
     /// A day with a score and no night still says so; loading and a failed load come before pending.
     @Test func noSleepLoadingAndFailedAreUnchanged() {
         #expect(SleepBoard(sleep: nil, score: DailyScore(day: "2026-11-16"), rawNight: rawNight(), locale: enUS).look == .noSleep)
-        #expect(SleepBoard(sleep: nil, score: nil, isPending: true, isLoading: true, rawNight: rawNight(), locale: enUS).look == .loading)
-        #expect(SleepBoard(sleep: nil, score: nil, isPending: true, error: "x", rawNight: rawNight(), locale: enUS).look == .failed("x"))
+        #expect(SleepBoard(sleep: nil, score: nil, scoring: .scoring, isLoading: true, rawNight: rawNight(), locale: enUS).look == .loading)
+        #expect(SleepBoard(sleep: nil, score: nil, scoring: .scoring, error: "x", rawNight: rawNight(), locale: enUS).look == .failed("x"))
     }
 
     // MARK: the model

@@ -9,6 +9,9 @@ struct SleepPreviewScene {
         case latest, thin, oldest, older, loading, failed, noSleep, pending, noStages, noTimeline, noNeed, reduceTransparency
         /// Pending with `sleep: null` (the API's placeholder day): Apple Health's raw night; and without one either.
         case pendingRaw, pendingEmpty
+        /// `waiting_for_sleep` with `sleep: null` (a watch charging overnight): Apple Health has a night, the platform
+        /// none; Sleep says what Today says and hides the raw night.
+        case waitingForSleep
         /// A failed load the platform answered (503 with a request ID): the busy sentence, Details.
         case failedBusy
     }
@@ -76,6 +79,10 @@ struct SleepPreviewScene {
             detail = DayDetail(score: DailyScore(day: DayFormat.string(from: today), scoringState: .pending), sleep: nil,
                                workouts: [])
             rawNight = night == .pendingRaw ? Self.rawNight(today: today) : nil
+        case .waitingForSleep:
+            detail = DayDetail(score: DailyScore(day: DayFormat.string(from: today), scoringState: .waitingForSleep),
+                               sleep: nil, workouts: [])
+            rawNight = Self.rawNight(today: today)
         case .noStages:
             detail?.sleep?.stages = []
             detail?.sleep?.hasStages = false
@@ -94,8 +101,10 @@ struct SleepPreviewScene {
                                     canStepBack: night != .oldest, canStepForward: date < today)
         board = SleepBoard(sleep: detail?.sleep, score: score,
                            previousDebt: Self.score(DayFormat.shift(date, days: -1))?.sleepDebtMin,
-                           weekConsistency: week, isPending: marker == .pending, isLoading: isLoading,
-                           error: failure?.message, rawNight: rawNight)
+                           weekConsistency: week,
+                           scoring: SleepBoard.NightScoring(score?.scoringState, isToday: date == today,
+                                                            hasNight: detail?.sleep != nil),
+                           isLoading: isLoading, error: failure?.message, rawNight: rawNight)
         sleep = detail?.sleep
         self.failure = failure
         self.score = score
@@ -164,6 +173,8 @@ private extension View {
 #Preview("Sleep · pending, Apple Health's night · AX3") { SleepPreviewPage(.pendingRaw).previewEnvironment().ax3() }
 #Preview("Sleep · pending, no night yet") { SleepPreviewPage(.pendingEmpty).previewEnvironment() }
 #Preview("Sleep · pending, no night yet · AX3") { SleepPreviewPage(.pendingEmpty).previewEnvironment().ax3() }
+#Preview("Sleep · waiting for last night") { SleepPreviewPage(.waitingForSleep).previewEnvironment() }
+#Preview("Sleep · waiting for last night · AX3") { SleepPreviewPage(.waitingForSleep).previewEnvironment().ax3() }
 #Preview("Sleep · no stages") { SleepPreviewPage(.noStages).previewEnvironment() }
 #Preview("Sleep · no stages · AX3") { SleepPreviewPage(.noStages).previewEnvironment().ax3() }
 #Preview("Sleep · no timeline") { SleepPreviewPage(.noTimeline).previewEnvironment() }

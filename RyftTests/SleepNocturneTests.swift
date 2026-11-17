@@ -167,7 +167,7 @@ struct SleepSummaryCopyTests {
         noNeed?.sleepNeedMin = nil
         #expect(SleepBoard(sleep: boardSleep, score: noNeed, locale: enUS).caption == "Asleep")
         // Pending: the raw night, no performance.
-        #expect(SleepBoard(sleep: boardSleep, score: boardScore, isPending: true, locale: enUS).caption == "Asleep")
+        #expect(SleepBoard(sleep: boardSleep, score: boardScore, scoring: .scoring, locale: enUS).caption == "Asleep")
     }
 
     @Test func subtitles() {
@@ -300,7 +300,7 @@ struct SleepRulerTests {
 
     /// Pending: the raw night's need (the breakdown's total) still draws the zone.
     @Test func pendingUsesTheRawNightsNeed() {
-        let board = SleepBoard(sleep: boardSleep, score: boardScore, isPending: true, locale: enUS)
+        let board = SleepBoard(sleep: boardSleep, score: boardScore, scoring: .scoring, locale: enUS)
         #expect(board.ruler.value == 7.8)
         #expect((board.ruler.zone != nil) == (boardSleep.need != nil))
     }
@@ -370,7 +370,7 @@ struct SleepTileTests {
     /// Pending: the tiles that need a score show "–"; the raw night's stay.
     @Test func pendingTiles() {
         let board = SleepBoard(sleep: boardSleep, score: boardScore, previousDebt: 72,
-                               weekConsistency: [78, 64, nil, 52, 71, 80, 86], isPending: true, locale: enUS)
+                               weekConsistency: [78, 64, nil, 52, 71, 80, 86], scoring: .scoring, locale: enUS)
         #expect(board.tiles.map(\.value) == ["–", "–", "95", "3:20"])
         #expect(board.tiles[0].marks.last == .today && board.tiles[1].notes.isEmpty)
     }
