@@ -202,10 +202,18 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   its rows readable.
 - `.user` is written through: `user()` returns it from the submit on, for reads of the store
   it went to, because the upload gate reads it back in that step (ADR 0008). It stays until
-  `invalidate()`; a refused save of it goes again once. A `PATCH /v1/me` answer (and the
-  withdrawal) is stored `asOf` the `userChange()` taken before its request, and dropped after
-  a sign-out, another account or the Demo data switch. A `GET /v1/me` asked for before this
-  phone's last change of the user is dropped too (`store(fetchedUser:askedAt:)`).
+  `invalidate()`; a refused save of it goes again once. A `PATCH /v1/me` answer is stored
+  `asOf` the `userChange()` taken before its request, and dropped after a sign-out, another
+  account or the Demo data switch. The withdrawal is stored the same way
+  (`storeConsentWithdrawn(asOf:)`: the cached user without the consent). Each stored change
+  counts (`userChanges`): an answer whose request began before another change was stored
+  is dropped, counts as no change of its own, and the user is asked again
+  (`.changed(since:)`), because the platform may have read the user before that change,
+  a withdrawn consent with it. A `GET /v1/me` asked for before this phone's last change is
+  dropped too (`store(fetchedUser:askedAt:)`). Demo data on and off again while a `PATCH`
+  is out passes (the same account and store): the cached user may then be up to its 1 h
+  freshness behind the platform. The Notifications `PATCH` answers with the settings, not
+  the user, so the user is asked again after it.
 - The writer owns `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`,
   `CachedSleepRange`, `CachedWorkout` and the `activities.*` documents. Train's tables and
   every other document stay on the main context (`compact()` deletes Train's histories
@@ -216,8 +224,15 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - `settled()` returns once every write submitted so far has committed. A `BGTask`'s
   completion, the end of the background time after leaving the app and a silent push's
   handler wait for it, 2 s at most and not once the system's time ran out
-  (`settledBeforeCompletion()`): iOS may suspend the app there. A HealthKit delivery's
-  `completion()` doesn't wait: it comes right after the upload.
+  (`settledBeforeCompletion()`): iOS may suspend the app there. If the wait ends that way
+  in the background, the drain pauses (`ReadModelDrain.pause()`): no batch starts, the
+  one in progress is awaited (a save takes milliseconds), so no save into the App Group's
+  store is open at the suspension (0xdead10cc). What's queued is written when the app comes
+  to the foreground (`resumeWrites()` at `.active`) or after `pauseAfterCompletion` (10 s,
+  moved on by a later pause) of the app running. No pause in the foreground. The nightly
+  compaction waits for its write the same way (2 s, not once cancelled), and its task's
+  expiry stops it. A HealthKit delivery's `completion()` doesn't wait: it comes right
+  after the upload.
 - Debug asserts that each writer is made off main and that every job of it runs off main
   (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
   `OSSignposter` interval `write` on `reads` covers each batch.
@@ -254,7 +269,10 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
   `StoreID`, which is never reused.
 - Demo data goes to a separate in-memory store, so it never mixes with an account's. The
-  Demo data switch replaces it with an empty one at once (`Repository.reset()`).
+  Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
+  one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer
+  doesn't save, and its queued writes drop. There is no "clear" write: a store is wiped
+  (`Persistence.wipe`) or replaced.
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
@@ -608,6 +626,12 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     invite never holds. `check()`, `agree()` and `redeemInvite()` end them.
   - Read once per `AccountBinding`; wiped with every account wipe; demo reads and writes nothing. In the live graph
     `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
+  - A withdrawal on this phone (`withdrew(at:)`) is recorded as the platform's `consent_required` refusal and kept
+    beside the store, per account in `env.defaults` (`withdrawnAt`, a consent signal in `Facts.reported`): it holds
+    every data gate when the store refuses the withdrawal's saves (iOS 17 after demo data) and in a background launch
+    that never runs `check()`. It ends when this phone agrees again (`consented`) or a `GET /v1/me` asked for after
+    it shows consent to the policy in force (`heard`, from `Repository.store(fetchedUser:askedAt:)`). The
+    withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather than join reads begun before it.
   - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
     published, so a late `403` of theirs is never kept as the next account's refusal.
 - **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the
