@@ -128,3 +128,11 @@ tagline scales on one line. Contrast from pixels equals P3-3.
 
 The system launch screen reads `#090C0B` in screenshots against the overlay's `#0A0C0B`: one level of red, no visible
 flash. Not checked: VoiceOver itself, frame pacing on a device, Low Power Mode, the widget on the Lock Screen.
+
+**Fix round (d92ebe7…84bccc8).** Rows 11, 14, 15, 18 and 20 are fixed as decided, plus the tagline inset (the stage read
+the safe area inside `.ignoresSafeArea()`, so a > 40 pt inset was ignored; test-engineer pinned it as a known issue,
+now a plain pass) and L13 (one tagline: `BrandLockup` says "Engineered for peak.", the two old keys left the catalog by
+targeted edits). Row 18's evidence: the first drawn frame is t = 0 with group opacity 0 in 5 of 5 Debug launches (was
+t ≈ 0.03 at 77 %); Debug stalls of 60–280 ms in the first 0.3 s can still swallow part of the 0.25 s fade, which is
+performance-profiler's (row 19). Row 20: the scored shots are byte-identical; only pending shots change. Unit 3010
+passed + 2 skipped, UISmoke 41 + 1 skipped, zero warnings, `make lint` and `make style` green.

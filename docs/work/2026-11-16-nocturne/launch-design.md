@@ -11,6 +11,9 @@
     (modal) element.
   - §7.5: the `.launch` coordinate space's origin is offset from the overlay's by the safe area; PR 4's rect
     interpolation converts, and its test covers the conversion.
+  - §5: the timeline starts at the overlay's first drawn frame (`Event.firstFrame`), or 1 s after `.active` if no frame
+    arrives (`Timing.firstFrameWindow`); `playing`, the cover, taps and the cold-start window still start at `.active`, and
+    so does the `launch-sequence` interval. Frames before the first frame draw t = 0 (review row 18).
   - §8: the overlay is `launch.sequence`, `.isModal`, with a named "Skip" action; XCUITest sees it as a button and lists
     its hidden children, so "children hidden" is checked at unit level, not in a UI test.
 - Lasting decisions: [ADR 0017](../../adr/0017-launch-sequence-is-a-root-overlay-that-never-gates-startup.md).
@@ -425,7 +428,8 @@ Nothing else: no `Canvas`, `Text`, font, path or task until the first `.active`.
 | `first-screen` | event (**new**) | `LaunchSignpost.screenAppeared`'s `NextFrame` callback | the barrier opening; proves startup work does not wait |
 | `launch-decision` | event (**new**) | model `init` | `play-full`, `play-reduced` or `skip-<reason>` |
 | `launch-sequence` | interval (**new**) | `playing` start → `done` | metadata: the `Ending` |
-| `launch-handoff` | event (**new**) | `handingOff` start | **interactive Today** with the sequence |
+| `launch-first-frame` | event (**new**, fix round) | the playing overlay's first `TimelineView` frame | t = 0 of the timeline; the 5.2 s run from here |
+| `launch-handoff` | event (**new**) | `handingOff` start, or a late `playing → done` (not backgrounded) | **interactive Today** with the sequence; once per run |
 
 ### 9.3 What performance-profiler reports
 
