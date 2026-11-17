@@ -13,6 +13,18 @@ struct WriteTicket: Sendable {
     func committed() async -> WriteReceipt {
         await box.receipt()
     }
+
+    /// The same, but a cancelled caller stops waiting (nil); the write goes on. For waits with a deadline.
+    func committedUnlessCancelled() async -> WriteReceipt? {
+        await box.receiptUnlessCancelled()
+    }
+
+    /// A write that was never queued (an answer for someone else, `Repository.store(user:asOf:)`).
+    static var dropped: WriteTicket {
+        let box = TicketBox()
+        box.resolve(WriteReceipt(dropped: true))
+        return WriteTicket(box: box)
+    }
 }
 
 /// One ticket's result, and whoever waits for it.
@@ -20,6 +32,8 @@ private final class TicketBox: Sendable {
     private struct State: Sendable {
         var receipt: WriteReceipt?
         var waiters: [CheckedContinuation<WriteReceipt, Never>] = []
+        /// Waits that a cancellation may end early, by id.
+        var cancellable: [UUID: CheckedContinuation<WriteReceipt?, Never>] = [:]
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -35,14 +49,36 @@ private final class TicketBox: Sendable {
         }
     }
 
-    func resolve(_ receipt: WriteReceipt) {
-        let waiters = state.withLock { s -> [CheckedContinuation<WriteReceipt, Never>] in
-            guard s.receipt == nil else { return [] }
-            s.receipt = receipt
-            defer { s.waiters = [] }
-            return s.waiters
+    func receiptUnlessCancelled() async -> WriteReceipt? {
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<WriteReceipt?, Never>) in
+                let now = state.withLock { s -> (ready: Bool, receipt: WriteReceipt?) in
+                    if let r = s.receipt { return (true, r) }
+                    // Cancelled before it got here: the handler found nothing to resume.
+                    if Task.isCancelled { return (true, nil) }
+                    s.cancellable[id] = c
+                    return (false, nil)
+                }
+                if now.ready { c.resume(returning: now.receipt) }
+            }
+        } onCancel: {
+            state.withLock { $0.cancellable.removeValue(forKey: id) }?.resume(returning: nil)
         }
-        for waiter in waiters { waiter.resume(returning: receipt) }
+    }
+
+    func resolve(_ receipt: WriteReceipt) {
+        let waiting = state.withLock { s -> State? in
+            guard s.receipt == nil else { return nil }
+            s.receipt = receipt
+            defer {
+                s.waiters = []
+                s.cancellable = [:]
+            }
+            return s
+        }
+        for waiter in waiting?.waiters ?? [] { waiter.resume(returning: receipt) }
+        for waiter in (waiting?.cancellable ?? [:]).values { waiter.resume(returning: receipt) }
     }
 }
 
@@ -51,13 +87,18 @@ private final class TicketBox: Sendable {
 /// `ReadModelWriter`, then has the Repository commit on the main actor and resolves the batch's tickets.
 ///
 /// - **Submit order**: Swift actors run jobs by priority, not first in, first out, so the order lives in this queue.
+/// - **Priority**: the drain runs at `.userInitiated`, whoever submitted first. Awaiting a ticket doesn't raise it (a
+///   continuation doesn't escalate the task that resumes it), and a pull's write mustn't wait at a background sync's.
 /// - **Batches** never span a store, an epoch or a seed: one save each, and one revision bump per kind.
 /// - **Off the main actor, by structure**: the writer is private to this file, and only this actor makes it and awaits
 ///   it, both on its own executor. Which of the two decides a `@ModelActor` job's thread depends on the OS (T0.1): the
 ///   thread that made the actor on iOS 17.0, the thread that awaits it on iOS 27.2. Made and awaited off main, its jobs
 ///   run off main on both, and no main-actor code can reach one.
 /// - **The wipe**: a batch whose epoch is over is dropped; the writer saves inside `StoreEpoch.ifCurrent`; a new epoch or
-///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed.
+///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed. A writer whose epoch is
+///   over goes when the drain falls idle and at `retireWiped()` (the Repository's `invalidate()`), so the rows its
+///   context registered don't outlive the wipe in memory either. A store the Repository let go of (`retire(store:)`,
+///   demo data's at the switch) loses its writer the same way, and its writes still queued drop.
 actor ReadModelDrain {
     /// Where a write goes: one store's container, its wipe epoch, and how often the Repository seeded it.
     struct Target: Sendable {
@@ -65,10 +106,11 @@ actor ReadModelDrain {
         let epoch: StoreEpoch
         /// `Repository.seed` writes on a context of its own: the writer after it is a new one.
         let generation: Int
-        var store: ObjectIdentifier { ObjectIdentifier(container) }
+        var store: StoreID { epoch.store }
     }
 
-    /// Tests watch (and hold) the writer through these. Every closure runs on the writer's thread.
+    /// Tests watch (and hold) the writer through these. Every closure runs off the main thread: on the writer's, but
+    /// `beforeCommit` on the drain's.
     struct Hooks: Sendable {
         /// Each writer job, with whether it ran on the main thread.
         var job: (@Sendable (_ onMainThread: Bool) -> Void)?
@@ -79,6 +121,10 @@ actor ReadModelDrain {
         /// Each new writer (the first write to a store, the first after a wipe or a seed), with whether it was made on
         /// the main thread.
         var writerMade: (@Sendable (_ onMainThread: Bool) -> Void)?
+        /// Inside the save's critical section: true makes this save fail as a refused one does (rolled back).
+        var refusesSave: (@Sendable () -> Bool)?
+        /// After a batch's save, before its commit hops to the main actor (on the drain's executor).
+        var beforeCommit: (@Sendable () -> Void)?
     }
 
     /// The Repository's commit on the main actor: a new read context for the store, the receipt's kinds forgotten.
@@ -98,6 +144,8 @@ actor ReadModelDrain {
         var draining = false
         var last: TicketBox?
         var hooks = Hooks()
+        /// Stores the Repository let go of (`retire(store:)`): their writes drop. Never reused (`StoreID`).
+        var retired: Set<StoreID> = []
     }
 
     private struct WriterKey: Equatable {
@@ -105,18 +153,26 @@ actor ReadModelDrain {
         let generation: Int
     }
 
+    private struct CachedWriter {
+        let key: WriterKey
+        let writer: ReadModelWriter
+        /// Its store's epoch: once it has moved on, the writer is retired.
+        let epoch: StoreEpoch
+    }
+
     private let queue = OSAllocatedUnfairLock(initialState: Queue())
     private let commit: Commit
-    private var writers: [ObjectIdentifier: (key: WriterKey, writer: ReadModelWriter)] = [:]
+    private var writers: [StoreID: CachedWriter] = [:]
 
     init(commit: @escaping Commit) {
         self.commit = commit
     }
 
-    /// Queues `op` for `target` at the store's current epoch and starts the drain if it's idle. Never awaits.
-    nonisolated func submit(_ op: ReadModelWrite, to target: Target, now: Date) -> WriteTicket {
+    /// Queues `op` for `target` at `epoch` (the store's current one when nil) and starts the drain if it's idle. Never
+    /// awaits. An `epoch` from before a wipe makes the write drop.
+    nonisolated func submit(_ op: ReadModelWrite, to target: Target, at epoch: Int? = nil, now: Date) -> WriteTicket {
         let ticket = TicketBox()
-        let item = Submitted(op: op, now: now, target: target, epoch: target.epoch.current, ticket: ticket)
+        let item = Submitted(op: op, now: now, target: target, epoch: epoch ?? target.epoch.current, ticket: ticket)
         let start = queue.withLock { q -> Bool in
             q.pending.append(item)
             q.last = ticket
@@ -124,10 +180,26 @@ actor ReadModelDrain {
             q.draining = true
             return true
         }
-        // Inherits the submitter's priority.
-        if start { Task { await self.drain() } }
+        // Not the submitter's priority: a background submitter's would hold back a pull's write queued behind it.
+        if start { Task(priority: .userInitiated) { await self.drain() } }
         return WriteTicket(box: ticket)
     }
+
+    /// Retires the writers whose epoch is over (the Repository's `invalidate()`, after a wipe): their contexts let go
+    /// of the rows they registered.
+    nonisolated func retireWiped() {
+        Task(priority: .userInitiated) { await self.retireWipedWriters() }
+    }
+
+    /// `store` is gone (the Repository let go of demo data's): a write for it still queued drops, and its writer and
+    /// container go too.
+    nonisolated func retire(store: StoreID) {
+        queue.withLock { _ = $0.retired.insert(store) }
+        Task(priority: .userInitiated) { await self.retireWipedWriters() }
+    }
+
+    /// The epoch of each store's cached writer (tests).
+    var writerEpochs: [StoreID: Int] { writers.mapValues(\.key.epoch) }
 
     /// Nothing is queued or being written.
     nonisolated var isIdle: Bool { queue.withLock { !$0.draining } }
@@ -143,11 +215,19 @@ actor ReadModelDrain {
         var next = nextBatch()
         while let batch = next, let first = batch.first {
             let receipt = await write(batch)
+            queue.withLock { $0.hooks }.beforeCommit?()
             await commit(receipt, first.target, first.epoch)
             // Idle before the last tickets resolve: whoever awaited them may `seed` next.
             next = nextBatch()
             for item in batch { item.ticket.resolve(receipt) }
         }
+        retireWipedWriters()
+    }
+
+    /// Drops the writers of a wiped epoch or a retired store.
+    private func retireWipedWriters() {
+        let retired = queue.withLock { $0.retired }
+        writers = writers.filter { !retired.contains($0.key) && $0.value.epoch.current == $0.value.key.epoch }
     }
 
     /// Everything pending up to the first change of store, epoch or seed; nil, and the drain idle, when nothing is.
@@ -169,8 +249,9 @@ actor ReadModelDrain {
 
     private func write(_ batch: [Submitted]) async -> WriteReceipt {
         guard let first = batch.first else { return WriteReceipt() }
-        // A wipe since it was submitted: nothing to write, and no writer for an epoch that's over.
-        guard first.target.epoch.current == first.epoch else { return WriteReceipt(dropped: true) }
+        // A wipe since it was submitted, or its store let go of: nothing to write, and no writer for it.
+        guard first.target.epoch.current == first.epoch, !queue.withLock({ $0.retired.contains(first.target.store) })
+        else { return WriteReceipt(dropped: true) }
         let key = WriterKey(epoch: first.epoch, generation: first.target.generation)
         let writer: ReadModelWriter
         if let cached = writers[first.target.store], cached.key == key {
@@ -181,7 +262,7 @@ actor ReadModelDrain {
             queue.withLock { $0.hooks }.writerMade?(MainThread.isCurrent)
             MainThread.assertOff("Making a read-model writer")
             writer = ReadModelWriter(modelContainer: first.target.container)
-            writers[first.target.store] = (key, writer)
+            writers[first.target.store] = CachedWriter(key: key, writer: writer, epoch: first.target.epoch)
         }
         let hooks = queue.withLock { $0.hooks }
         return await writer.apply(batch.map { ReadModelWriteItem(op: $0.op, now: $0.now) }, batchEpoch: first.epoch,
@@ -219,6 +300,7 @@ private actor ReadModelWriter {
         let saved = epoch.ifCurrent(batchEpoch) { () -> Bool in
             hooks.insideSave?()
             guard modelContext.hasChanges else { return true }
+            if hooks.refusesSave?() == true { return false }
             do {
                 try modelContext.save()
                 hooks.saved?()

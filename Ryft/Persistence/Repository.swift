@@ -52,11 +52,17 @@ final class Repository {
     @ObservationIgnored private let drain: ReadModelDrain
     /// What the Repository reads through, one per store: a context of its own that nothing writes, replaced at every
     /// commit and at `invalidate()`, so no row it fetched before a write or a wipe survives them.
-    @ObservationIgnored private var readContexts: [ObjectIdentifier: ModelContext] = [:]
+    @ObservationIgnored private var readContexts: [StoreID: ModelContext] = [:]
     /// `seed`s per store: the writer after one is a new one (it may hold rows the seed changed).
-    @ObservationIgnored private var seeds: [ObjectIdentifier: Int] = [:]
-    /// The last user submitted (`store(user:)`), until `invalidate()`: the upload gate reads it back in the same step.
-    @ObservationIgnored private var writtenThroughUser: User?
+    @ObservationIgnored private var seeds: [StoreID: Int] = [:]
+    /// The last user submitted (`store(user:)`, `seed`) and the store it went to, until `invalidate()`: the upload gate
+    /// reads it back in the same step. Only reads of that store return it.
+    @ObservationIgnored private var writtenThroughUser: (store: StoreID, user: User)?
+    /// When this phone last changed the user (`store(user:asOf:)`: a `PATCH /v1/me` answer, the withdrawal). A
+    /// `GET /v1/me` asked for before it may answer with the user from before the change (`store(fetchedUser:askedAt:)`).
+    @ObservationIgnored private var lastUserChange: Date?
+    /// A refused save of the user went again (`committed`): a second refusal in a row isn't retried.
+    @ObservationIgnored private var resubmittedUser = false
     /// A misuse Debug builds stop at (`seed` while writes are pending, a preview setter on the live graph); tests
     /// record it instead.
     @ObservationIgnored var onMisuse: (String) -> Void = { assertionFailure($0) }
@@ -108,10 +114,16 @@ final class Repository {
         return s
     }
 
+    /// The store reads and writes go to now (tests).
+    var storeID: StoreID { store.epoch.store }
+
+    /// The epoch of each store's cached writer (tests).
+    func writerEpochs() async -> [StoreID: Int] { await drain.writerEpochs }
+
     /// The current store's read context (never written).
     private var context: ModelContext {
         let s = store
-        let id = ObjectIdentifier(s.container)
+        let id = s.epoch.store
         if let c = readContexts[id] { return c }
         let c = ModelContext(s.container)
         c.autosaveEnabled = false
@@ -201,9 +213,9 @@ final class Repository {
     }
 
     func user() -> User? {
-        if let writtenThroughUser {
+        if let written = writtenThroughUser, written.store == store.epoch.store {
             touch(.user)
-            return writtenThroughUser
+            return written.user
         }
         return memoized(.user, "current") {
             var d = FetchDescriptor<CachedUser>(sortBy: [SortDescriptor(\.fetchedAt, order: .reverse)])
@@ -324,7 +336,9 @@ final class Repository {
             let fetched = try await scheduled(ReadKey(resource, id: key), mode: mode, userInitiated: userInitiated,
                                               fetch: { [env] in try await env.api.day(date) },
                                               store: { [weak self] in await self?.store(detail: $0).committed() })
-            return fetched ?? day(key)
+            // What the store has: the flight resolved for this account only (`ReadScheduler.start`). The answer
+            // itself only if the store refused the save.
+            return day(key) ?? fetched
         } catch {
             if let cached = day(key) { return cached }
             throw error
@@ -402,9 +416,10 @@ final class Repository {
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.user) { return }
         }
-        _ = try await scheduled(ReadKey(.me), mode: mode, userInitiated: userInitiated,
-                                fetch: { [env] in try await env.api.me() },
-                                store: { [weak self] in await self?.store(user: $0).committed() })
+        _ = try await env.reads.run(ReadKey(.me), mode: mode, userInitiated: userInitiated,
+                                    storeAsked: { [weak self] (user: User, asked: Date) in
+                                        await self?.store(fetchedUser: user, askedAt: asked).committed()
+                                    }, { [env] in try await env.api.me() })
     }
 
     func refreshUser(force: Bool) async throws {
@@ -484,29 +499,61 @@ final class Repository {
         if kinds.contains(.days) { onDaysChanged?() }
     }
 
-    /// Queues `op` for the current store. Never awaits: the caller's account check and this are one step.
-    private func submit(_ op: ReadModelWrite) -> WriteTicket {
+    /// Queues `op` for the current store, at `epoch` (its current one when nil). Never awaits: the caller's account
+    /// check and this are one step.
+    private func submit(_ op: ReadModelWrite, at epoch: Int? = nil) -> WriteTicket {
         let s = store
-        let id = ObjectIdentifier(s.container)
         return drain.submit(op, to: ReadModelDrain.Target(container: s.container, epoch: s.epoch,
-                                                          generation: seeds[id, default: 0]), now: now)
+                                                          generation: seeds[s.epoch.store, default: 0]),
+                            at: epoch, now: now)
     }
 
     /// A batch landed in `store` (the drain, on the main actor; `seed`): reads see it from here on. `current`: no wipe
     /// since its save (one after it deleted what it saved, and the widget isn't published from that).
-    fileprivate func committed(_ receipt: WriteReceipt, store id: ObjectIdentifier, current: Bool = true) {
+    fileprivate func committed(_ receipt: WriteReceipt, store id: StoreID, current: Bool = true) {
         // A wipe came first: `invalidate()` already replaced the contexts and forgot everything.
         guard !receipt.dropped else { return }
         readContexts[id] = nil
+        if receipt.kinds.contains(.user) { resubmitUserIfRefused(receipt, store: id, current: current) }
         let kinds = Kind.allCases.filter(receipt.kinds.contains)
         guard !kinds.isEmpty else { return }
         forget(kinds)
         if receipt.publishesWidget, current { publishWidget() }
     }
 
+    /// A refused save of the user: the store keeps the one before it (a withdrawal's consent with it), and a relaunch
+    /// would read that. The user written through is the newest, so it goes again, once; not after a wipe (`current`
+    /// false), whose account it was.
+    private func resubmitUserIfRefused(_ receipt: WriteReceipt, store id: StoreID, current: Bool) {
+        guard !receipt.saved, current, !resubmittedUser, let written = writtenThroughUser, written.store == id,
+              store.epoch.store == id else {
+            resubmittedUser = false
+            return
+        }
+        resubmittedUser = true
+        _ = submit(.user(written.user))
+    }
+
     /// Every write submitted so far has committed or was dropped.
     func settled() async {
         await drain.lastSubmitted?.committed()
+    }
+
+    /// The longest `settledBeforeCompletion()` waits: iOS may end the app's background time soon after.
+    static let completionWait: Duration = .seconds(2)
+
+    /// `settled()` before a system completion (a background task, a silent push, the app's background time): for at
+    /// most `completionWait`, and not at all once the caller is cancelled (the system's time ran out). A write still
+    /// pending lands when the app runs next.
+    func settledBeforeCompletion() async {
+        guard let last = drain.lastSubmitted else { return }
+        let clock = env.clock, limit = Self.completionWait
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await last.committedUnlessCancelled() }
+            group.addTask { try? await clock.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     /// `ops` written at once on a context of their own, then committed as one batch: previews, tests and the legacy
@@ -518,7 +565,7 @@ final class Repository {
     func seed(_ ops: [ReadModelWrite]) {
         if !drain.isIdle { onMisuse("Repository.seed while read-model writes are pending: await settled() first") }
         let s = store
-        let id = ObjectIdentifier(s.container)
+        let id = s.epoch.store
         let context = ModelContext(s.container)
         context.autosaveEnabled = false
         var receipt = WriteReceipt()
@@ -533,8 +580,15 @@ final class Repository {
         }
         // The writer may hold rows this context changed: the next write gets a new one.
         seeds[id, default: 0] += 1
-        // The store has the user now; a user written through before is older.
-        if ops.contains(where: { if case .user = $0 { return true } else { return false } }) { writtenThroughUser = nil }
+        // The seeded user is the newest, written through as `store(user:)` writes it (a user written before is older);
+        // a seeded clear leaves none.
+        for op in ops {
+            switch op {
+            case .user(let user): writtenThroughUser = (id, user)
+            case .clear: writtenThroughUser = nil
+            default: break
+            }
+        }
         committed(receipt, store: id)
     }
 
@@ -603,10 +657,6 @@ final class Repository {
         return facts
     }
 
-    /// The cached scores become exactly `scores`; opened details stay.
-    @discardableResult
-    func replaceScores(_ scores: [DailyScore]) -> WriteTicket { submit(.replaceScores(scores)) }
-
     @discardableResult
     func store(trend: TrendSeries, metric: TrendMetric, range: TrendRange) -> WriteTicket {
         submit(.trend(trend, key: Self.trendKey(metric, range)))
@@ -620,9 +670,48 @@ final class Repository {
     /// upload gate decides from it in the same step (ADR 0008). A commit never replaces it; `invalidate()` does.
     @discardableResult
     func store(user: User) -> WriteTicket {
-        writtenThroughUser = user
+        writtenThroughUser = (store.epoch.store, user)
         forget([.user])
         return submit(.user(user))
+    }
+
+    /// Where this phone's own change of the user began, before its request's first await: whose it was and what the
+    /// store held then (`userChange()`, `store(user:asOf:)`).
+    struct UserChange: Sendable {
+        fileprivate let binding: AccountBinding
+        fileprivate let store: StoreID
+        fileprivate let epoch: Int
+    }
+
+    /// Taken before a request that changes the user (`PATCH /v1/me`, the withdrawal): its answer is stored `asOf` it.
+    func userChange() -> UserChange {
+        let s = store
+        return UserChange(binding: AccountBinding(env), store: s.epoch.store, epoch: s.epoch.current)
+    }
+
+    /// The platform's answer to this phone's change of the user, begun at `change`: written through as `store(user:)`
+    /// writes it, and newer than any `GET /v1/me` asked for before now (`store(fetchedUser:askedAt:)`). Dropped, unwritten,
+    /// when the account, the Demo data switch or the store's contents changed since `change`: a sign-out (another
+    /// account) while the request was out makes the answer someone else's.
+    @discardableResult
+    func store(user: User, asOf change: UserChange) -> WriteTicket {
+        let s = store
+        guard change.binding.isCurrent(in: env), change.store == s.epoch.store, change.epoch == s.epoch.current else {
+            return .dropped
+        }
+        lastUserChange = now
+        writtenThroughUser = (change.store, user)
+        forget([.user])
+        return submit(.user(user), at: change.epoch)
+    }
+
+    /// A `GET /v1/me` answer, asked for at `askedAt` (its flight's start). Dropped, unwritten, when this phone changed
+    /// the user after that (`lastUserChange`): the platform may have read the user before the change, and a withdrawn
+    /// consent would come back with it.
+    @discardableResult
+    func store(fetchedUser user: User, askedAt: Date) -> WriteTicket {
+        if let changed = lastUserChange, askedAt < changed { return .dropped }
+        return store(user: user)
     }
 
     @discardableResult
@@ -681,11 +770,29 @@ final class Repository {
     func invalidate() {
         readContexts = [:]
         writtenThroughUser = nil
+        lastUserChange = nil
+        resubmittedUser = false
         forget(Kind.allCases)
+        // A wipe's writer goes now, not at the next write: its context registered the account's rows.
+        drain.retireWiped()
     }
 
-    /// Every read model (demo toggle; sign-out wipes the whole store via `Persistence.wipe`). Nothing decoded before
-    /// it is read again from here on; the store is empty at the commit.
+    /// `AppState.reset` (another account, the Demo data switch): demo data's store starts over, empty at once, so no
+    /// read decides from (or shows) rows a queued clear would still have to delete; its next use makes a new one. Then
+    /// everything is read again (`invalidate()`).
+    func reset() {
+        if let demo = demoStoreInstance {
+            demoStoreInstance = nil
+            readContexts[demo.epoch.store] = nil
+            seeds[demo.epoch.store] = nil
+            drain.retire(store: demo.epoch.store)
+        }
+        invalidate()
+    }
+
+    /// Every read model of the current store, as one write after those queued (sign-out wipes the whole store via
+    /// `Persistence.wipe`, the Demo data switch replaces demo's: `reset()`). Nothing decoded before it is read again
+    /// from here on; the store is empty at the commit.
     @discardableResult
     func clear() -> WriteTicket {
         let ticket = submit(.clear)
@@ -1180,6 +1287,9 @@ final class ReadScheduler {
                                                            "\(key.resource.rawValue, privacy: .public)")
                     await store(value, flight.started)
                     signposts.endInterval("store", interval)
+                    // The commit was awaited: signed out, another account or a reset meanwhile, and the answer (its
+                    // write dropped by the wipe) isn't for whoever waits now.
+                    guard self.env?.auth.accountID == account, !Task.isCancelled else { throw CancellationError() }
                 }
                 result = .success(value)
             } catch {
