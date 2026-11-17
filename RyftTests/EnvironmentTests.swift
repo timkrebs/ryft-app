@@ -399,25 +399,29 @@ struct SyncEngineBackgroundTests {
         #expect(api.count("sync") == 1) // the completion came after the upload
     }
 
-    /// ADR 0018: and after the read-model writes submitted so far are readable (iOS may suspend the app at it).
-    @Test func aDeliveryCompletesAfterTheReadModelWritesSettle() async {
+    /// Not after the read-model writes (P1 review CR5): HealthKit stops delivering after late completions, and the
+    /// run's own writes come after the upload anyway. A write held in the writer doesn't hold the completion.
+    @Test func aDeliveryCompletesRightAfterItsUploadWhileAWriteIsHeld() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, health: health)
         let state = AppState(env: env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)),
                                           clock: env.clock, inBackground: true)
-        let (repository, hold) = await repositoryWithAHeldWrite()
-        RyftApp.observeHealthKit(health, coordinator: coordinator, settled: { await repository.settled() })
+        // The app's own Repository, its writer held: the run's writes queue behind it.
+        let hold = WriterHold()
+        state.repository.writeHooks.job = { _ in hold.pass() }
+        state.repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-19", strain: 7), sleep: nil, workouts: []))
+        #expect(await eventually { hold.entered == 1 })
+        RyftApp.observeHealthKit(health, coordinator: coordinator)
         #expect(await eventually { health.backgroundDeliveryEnabled })
 
         let completed = SyncCoordinatorBackgroundTests.Completions()
         health.deliverChange { completed.done() }
-        #expect(await eventually { api.count("sync") == 1 })
-        #expect(await eventually(timeout: .milliseconds(300)) { completed.calls == 1 } == false)
-
-        hold.open()
         #expect(await eventually { completed.calls == 1 })
+        #expect(api.count("sync") == 1) // after the upload
+        #expect(hold.entered == 1) // the held write is still in the writer
+        hold.open()
     }
 
     @Test func backgroundRunsFailFastInsteadOfWaitingForANetwork() {

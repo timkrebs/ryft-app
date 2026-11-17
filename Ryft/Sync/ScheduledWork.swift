@@ -21,9 +21,9 @@ enum BackgroundWork {
 
     /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`. `expired`: the refresh
     /// task's time ran out; work `afterRefresh` started outside its own task stops there (the activity uploads).
-    /// `settled`: every read-model write submitted so far is readable (`Repository.settled`); each task completes after
-    /// it, so the widget and Today are current before iOS suspends the app (ADR 0013, 0018). `compact` returns once its
-    /// write committed.
+    /// `settled`: the read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, waited for
+    /// at most 2 s); each task completes after it, so the widget and Today are current before iOS suspends the app (ADR
+    /// 0013, 0018). `compact` returns once its write committed.
     @MainActor
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
                          afterRefresh: @escaping @MainActor () async -> Void = {},
@@ -33,21 +33,8 @@ enum BackgroundWork {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             scheduleRefresh()
-            // The sync, then what follows from it (tonight's bedtime moves with the day's strain).
-            let work = Task {
-                let outcome = await coordinator.run(.background)
-                await afterRefresh()
-                return outcome
-            }
-            task.expirationHandler = {
-                work.cancel()
-                Task { await coordinator.cancel() }
-                Task { @MainActor in expired() }
-            }
             Task { @MainActor in
-                let outcome = await work.value
-                await settled()
-                task.setTaskCompleted(success: !outcome.cancelled && outcome.error == nil)
+                runRefresh(task, coordinator: coordinator, afterRefresh: afterRefresh, expired: expired, settled: settled)
             }
         }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: backfillTaskID, using: nil) { task in
@@ -65,6 +52,34 @@ enum BackgroundWork {
                 task.setTaskCompleted(success: true)
             }
         }
+    }
+
+    /// The refresh task's run: the sync, then what follows from it (tonight's bedtime moves with the day's strain),
+    /// then the completion once `settled` returns. At expiry the run stops, and so does the wait for the writes: the
+    /// task completes while there's still time. Returns the completion's task (tests).
+    @MainActor
+    @discardableResult
+    static func runRefresh(_ task: BackgroundTaskHandle, coordinator: SyncCoordinator,
+                           afterRefresh: @escaping @MainActor () async -> Void = {},
+                           expired: @escaping @MainActor () -> Void = {},
+                           settled: @escaping @MainActor () async -> Void = {}) -> Task<Void, Never> {
+        let work = Task {
+            let outcome = await coordinator.run(.background)
+            await afterRefresh()
+            return outcome
+        }
+        let completion = Task { @MainActor in
+            let outcome = await work.value
+            await settled()
+            task.setTaskCompleted(success: !outcome.cancelled && outcome.error == nil)
+        }
+        task.expirationHandler = {
+            work.cancel()
+            completion.cancel()
+            Task { await coordinator.cancel() }
+            Task { @MainActor in expired() }
+        }
+        return completion
     }
 
     static func scheduleRefresh(now: Date = .now) {
@@ -103,12 +118,13 @@ enum BackgroundWork {
 
     /// Runs the backfill until it's done or the system's time is up. At expiry the run is
     /// cancelled at once (the page in flight goes again next time: uploads are
-    /// idempotent), the rest is scheduled and the task completed while there's still time.
+    /// idempotent), the rest is scheduled and the task completed while there's still time:
+    /// the wait for `settled` stops there too.
     @MainActor
     static func runBackfill(_ task: BackgroundTaskHandle, coordinator: SyncCoordinator,
                             backlogBytes: @escaping @MainActor () -> Int?,
                             schedule: @escaping (Int) -> Void = scheduleBackfill(backlogBytes:),
-                            settled: @MainActor () async -> Void = {}) async {
+                            settled: @escaping @MainActor () async -> Void = {}) async {
         let expired = ExpiryFlag()
         task.expirationHandler = {
             expired.set()
@@ -120,7 +136,8 @@ enum BackgroundWork {
             outcome = await coordinator.run(.processing)
         }
         if let left = backlogBytes() { schedule(left) }
-        await settled()
+        // Expired (before or during the wait): the time left is for the completion, not for the writes.
+        await expired.unlessExpired(Task { @MainActor in await settled() })
         task.setTaskCompleted(success: outcome.error == nil && !outcome.cancelled)
     }
 
@@ -182,7 +199,7 @@ protocol BackgroundTaskHandle: AnyObject {
     func setTaskCompleted(success: Bool)
 }
 
-extension BGProcessingTask: BackgroundTaskHandle {}
+extension BGTask: BackgroundTaskHandle {}
 
 /// One background task, ended exactly once (by the work or by the expiration).
 @MainActor
@@ -206,12 +223,31 @@ private final class BackgroundTaskToken {
     }
 }
 
-/// Set from the expiration handler (any thread), read by the work.
+/// Set from the expiration handler (any thread), read by the work; cancels the waits it was given.
 private final class ExpiryFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
+    private var waits: [Task<Void, Never>] = []
     var isSet: Bool { lock.withLock { value } }
-    func set() { lock.withLock { value = true } }
+
+    func set() {
+        let waiting = lock.withLock { () -> [Task<Void, Never>] in
+            value = true
+            defer { waits = [] }
+            return waits
+        }
+        for wait in waiting { wait.cancel() }
+    }
+
+    /// Awaits `wait`, cancelled at the expiry (at once if it came already).
+    func unlessExpired(_ wait: Task<Void, Never>) async {
+        let expired = lock.withLock { () -> Bool in
+            if !value { waits.append(wait) }
+            return value
+        }
+        if expired { wait.cancel() }
+        await wait.value
+    }
 }
 
 /// User-facing timers as local notifications on a `UNCalendarNotificationTrigger`

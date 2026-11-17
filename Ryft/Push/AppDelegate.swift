@@ -9,7 +9,8 @@ struct PushHandlers {
     let coordinator: SyncCoordinator
     /// The read record: saved before a silent push's completion handler lets iOS suspend the app.
     let reads: ReadScheduler
-    /// Every read-model write submitted so far is readable (`Repository.settled`): awaited before that completion too.
+    /// The read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, at most 2 s): awaited
+    /// before that completion too.
     var settled: @MainActor () async -> Void = {}
 }
 
