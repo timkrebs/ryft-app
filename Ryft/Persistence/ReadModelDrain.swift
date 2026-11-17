@@ -306,8 +306,12 @@ actor ReadModelDrain {
             writers[first.target.store] = CachedWriter(key: key, writer: writer, epoch: first.target.epoch)
         }
         let hooks = queue.withLock { $0.hooks }
-        return await writer.apply(batch.map { ReadModelWriteItem(op: $0.op, now: $0.now) }, batchEpoch: first.epoch,
-                                  of: first.target.epoch, hooks: hooks)
+        let receipt = await writer.apply(batch.map { ReadModelWriteItem(op: $0.op, now: $0.now) },
+                                         batchEpoch: first.epoch, of: first.target.epoch, hooks: hooks)
+        // Not saved: the batch's changes are still in the writer's context (`ReadModelWriter.apply` doesn't roll back),
+        // so the next batch gets a new writer, whose context has only what the store has.
+        if !receipt.saved, writers[first.target.store]?.writer === writer { writers[first.target.store] = nil }
+        return receipt
     }
 }
 
@@ -323,9 +327,11 @@ private struct ReadModelWriteItem: Sendable {
 private actor ReadModelWriter {
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "reads")
 
-    /// Applies `items` in order and saves once, inside `epoch.ifCurrent(batchEpoch)`. A wipe in between: rolled back,
-    /// `dropped`. A refused save: rolled back, nothing saved; the kinds still go to the readers, who read what the store
-    /// has.
+    /// Applies `items` in order and saves once, inside `epoch.ifCurrent(batchEpoch)`. A wipe in between: `dropped`. A
+    /// refused save: nothing saved; the kinds still go to the readers, who read what the store has. Neither is rolled
+    /// back: on iOS 17.0 rolling back a refused change to rows the store has (the user's delete and insert in the older
+    /// of two containers, T0.6) traps inside SwiftData. The drain lets go of this writer instead, and of the change in
+    /// its context (`ReadModelDrain.write`).
     func apply(_ items: [ReadModelWriteItem], batchEpoch: Int, of epoch: StoreEpoch,
                hooks: ReadModelDrain.Hooks) -> WriteReceipt {
         hooks.job?(MainThread.isCurrent)
@@ -358,12 +364,10 @@ private actor ReadModelWriter {
             receipt.saved = true
             return receipt
         case false?:
-            modelContext.rollback()
             receipt.saved = false
             receipt.publishesWidget = false
             return receipt
         case nil:
-            modelContext.rollback()
             return WriteReceipt(dropped: true)
         }
     }

@@ -293,6 +293,64 @@ extension ReadModelContextFactsTests {
             }
         }
 
+        /// A graph on `account` with the Demo data switch at `demo`, as the app's: the demo's store is made by the
+        /// Repository's first read in demo mode.
+        private func graph(_ account: TrainStore, demo: Bool) throws -> (Repository, Settings) {
+            let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
+            let settings = Settings(defaults: defaults)
+            settings.demoMode = demo
+            let api = MockPlatformAPI()
+            let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
+                                     auth: .preview(), persistence: account,
+                                     clock: TestClock(now: ReadModelContextFactsTests.now), notifier: MockNotifier(),
+                                     flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
+                                     demoOverride: nil)
+            let repo = Repository(env: env)
+            repo.widgetFile = nil
+            return (repo, settings)
+        }
+
+        /// The account's user, a row its store has from a launch before, changed after a demo (as a withdrawal or a
+        /// `PATCH` changes it: a delete and an insert). On iOS 17.0 that save fails in the older container, and the
+        /// app must not crash there (a rollback of it traps inside SwiftData): the store keeps the user from before,
+        /// the next write goes on. Elsewhere it saves.
+        @Test func theAccountsUserChangedAfterTheDemo() async throws {
+            let disk = try ReadModelContextFactsTests.Disk()
+            var user = MockData.user
+            user.birthYear = 1981
+            do {
+                let (first, _) = try graph(TrainStore(url: disk.url), demo: false)
+                #expect(await first.store(user: user).committed().saved)
+            }
+
+            let account = TrainStore(url: disk.url)
+            let (repo, settings) = try graph(account, demo: true)
+            #expect(repo.score("2026-01-01") == nil) // the demo's store made: the newest container
+            settings.demoMode = false
+            #expect(repo.user()?.birthYear == 1981)
+            user.birthYear = 1982
+            let changed = await repo.store(user: user).committed()
+            #expect(repo.user()?.birthYear == 1982) // written through, whatever the store took
+            let next = await repo.store(scores: [DailyScore(day: "2026-01-03", strain: 3)]).committed()
+            await repo.settled()
+            repo.invalidate()
+            let stored = repo.user()?.birthYear
+
+            report("T0.6 changed user, \(Runtime.name): the user's save \(Self.saved(changed.saved)), the next write "
+                + "\(Self.saved(next.saved)); the store has birth year \(stored.map(String.init) ?? "none")",
+                anInsertFailed: !changed.saved || !next.saved || stored != 1982)
+            switch Runtime.current {
+            case .onlyTheNewestTakesInserts:
+                #expect(!changed.saved && !next.saved)
+                #expect(stored == 1981) // the user from before: nothing of the change saved, nothing lost
+            case .everyContainerTakesInserts:
+                #expect(changed.saved && next.saved)
+                #expect(stored == 1982)
+            case .unmeasured:
+                break
+            }
+        }
+
         /// The path every new user may take, as the app takes it: the account's store opened on disk first (at
         /// launch), the demo's store made by the Repository's first read in demo mode, then the demo switched off and
         /// the account's first read-model write and Train row. This is the test that decides P1b (design.md,

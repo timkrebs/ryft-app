@@ -707,6 +707,26 @@ extension ReadModelWipeRaceTests {
         #expect(try h.rowCount() == 0)
     }
 
+    /// A refused save isn't rolled back (on iOS 17.0 SwiftData traps there, T0.6): its writer goes, so the refused
+    /// change can't ride along with the next batch's save, and the next batch gets a writer of its own.
+    @Test func aRefusedBatchLeavesNothingForTheNextOne() async throws {
+        let h = WipeHarness()
+        let made = Recorded<Bool>()
+        let refuse = OSAllocatedUnfairLock(initialState: false)
+        h.repository.writeHooks.writerMade = { _ in made.append(true) }
+        h.repository.writeHooks.refusesSave = { refuse.withLock { $0 } }
+        #expect(await h.repository.store(detail: detail(h.today, strain: 1)).committed().saved)
+
+        refuse.withLock { $0 = true }
+        #expect(!(await h.repository.store(detail: detail(h.today, strain: 2)).committed()).saved)
+        refuse.withLock { $0 = false }
+        #expect(await h.repository.store(insights: MockData.insights).committed().saved)
+
+        h.repository.invalidate()
+        #expect(h.repository.day(h.today)?.score.strain == 1) // what the store has: the refused change went nowhere
+        #expect(made.count == 2) // the first writer, and the one after the refusal
+    }
+
     /// A refusal that lasts: the user goes again once, not again and again. Each new user gets its own one more try.
     @Test func aRefusedSaveOfTheUserGoesAgainOnceOnly() async throws {
         let h = WipeHarness()
