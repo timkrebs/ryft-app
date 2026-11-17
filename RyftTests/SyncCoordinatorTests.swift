@@ -952,6 +952,67 @@ struct BackgroundWorkTests {
         await finishing.value
         #expect(app.ended.count == 1)
     }
+
+    /// A run that touches no day: it doesn't wait for scoring, on a clock of its own.
+    private static func unscoredSteps() -> FakeSteps {
+        let steps = FakeSteps(clock: TestClock())
+        steps.touched = []
+        return steps
+    }
+
+    /// The wait for the writes before a completion is bounded (`Repository.settledBeforeCompletion`, as the app wires
+    /// it): a write that hangs doesn't keep the refresh task from completing.
+    @Test func theRefreshTaskCompletesAtTheWaitsBoundWhileAWriteIsHeld() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let completion = BackgroundWork.runRefresh(task, coordinator: c,
+                                                   settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(task.completed == nil)
+
+        clock.advance(by: Repository.completionWait)
+        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
+        #expect(task.completed == true)
+        #expect(hold.entered == 1) // still held
+        hold.open()
+        await completion.value
+    }
+
+    /// At the refresh task's expiry the wait for the writes stops: the time left is for the completion.
+    @Test func theRefreshTaskCompletesAtItsExpiryWithoutWaitingForTheWrites() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let completion = BackgroundWork.runRefresh(task, coordinator: c,
+                                                   settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the writes
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
+        hold.open()
+        await completion.value
+    }
+
+    /// The same for the backfill task, expiring while it waits for the writes.
+    @Test func theBackfillTaskCompletesAtItsExpiryWithoutWaitingForTheWrites() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let run = Task {
+            await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { nil }, schedule: { _ in },
+                                             settled: { await repository.settledBeforeCompletion() })
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the writes
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
+        hold.open()
+        await run.value
+    }
 }
 
 /// The review on #10.
