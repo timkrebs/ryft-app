@@ -32,6 +32,8 @@ struct TwoUpCase: Sendable, CustomStringConvertible {
     let caption: String?
     var description: String { name }
 
+    var words: TodayTwoUpWords { TodayTwoUpWords(title: title, value: value, unit: unit, caption: caption) }
+
     static let scored = TwoUpCase(name: "scored", title: "Sleep", value: "7:48", unit: "h", caption: nil)
     static let high = TwoUpCase(name: "recovery High", title: "Recovery", value: "82", unit: "%", caption: "High")
     static let yesterday = TwoUpCase(name: "pending", title: "Sleep", value: "7:10", unit: "h", caption: "Yesterday")
@@ -41,22 +43,31 @@ struct TwoUpCase: Sendable, CustomStringConvertible {
 
 @MainActor
 enum TwoUpHost {
-    /// The tile as `TodayTwoUpTile` draws it below AX1, without the button that makes it one element.
-    static func tile(_ c: TwoUpCase, frames: TwoUpFrames, name: String) -> some View {
+    /// The tile as `TodayTwoUpTile` draws it below AX1, without the button that makes it one element: Recovery's
+    /// sparkline, else Sleep's dots, reported as "`name`.series"; `partner`, the other tile's words.
+    static func tile(_ c: TwoUpCase, partner: TwoUpCase? = nil, frames: TwoUpFrames, name: String) -> some View {
         GlowTile(Theme.metricSleep, kind: .twoUp, reduceTransparency: true) {
-            TodayTwoUpBoard(title: c.title, value: c.value, unit: c.unit, caption: c.caption) {
-                DotRow(TodaySleepWeek(nights: Array(repeating: .enough, count: 7)).marks,
-                       accessibilityLabel: Text(verbatim: "week"))
+            TodayTwoUpBoard(words: c.words, partner: partner?.words) {
+                Group {
+                    if c.title == "Recovery" {
+                        Sparkline(values: [57, 56, 55, 54, 53, 52, 51])
+                    } else {
+                        DotRow(TodaySleepWeek(nights: Array(repeating: .enough, count: 7)).marks,
+                               accessibilityLabel: Text(verbatim: "week"))
+                    }
+                }
+                .reportFrame("\(name).series", to: frames)
             }
         }
         .reportFrame(name, to: frames)
     }
 
-    /// Two tiles side by side in a `width` window, as `TodayTiles` lays the pair: one height, the taller tile's.
+    /// Two tiles side by side in a `width` window, as `TodayTiles` lays the pair: one height, the taller tile's, each
+    /// with the other's words.
     static func pair(_ a: TwoUpCase, _ b: TwoUpCase, frames: TwoUpFrames) -> some View {
         HStack(alignment: .top, spacing: TodayLayout.tileGap) {
-            tile(a, frames: frames, name: "a")
-            tile(b, frames: frames, name: "b")
+            tile(a, partner: b, frames: frames, name: "a")
+            tile(b, partner: a, frames: frames, name: "b")
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, Theme.Metrics.screenPadding)
@@ -135,7 +146,7 @@ enum TwoUpHost {
 
     // MARK: no caption cut (R2-N4)
 
-    /// The caption's one-line width at `typeSize`, as the tile styles it.
+    /// A label's or caption's one-line width at `typeSize`, as the tile styles it.
     private func idealWidth(_ caption: String, typeSize: DynamicTypeSize) -> CGFloat {
         let host = UIHostingController(rootView: Text(verbatim: caption).ryftGlowLabelStyle().fixedSize()
             .environment(\.dynamicTypeSize, typeSize))
@@ -162,6 +173,126 @@ enum TwoUpHost {
                 #expect(node.frame.width >= ideal * TodayTwoUpValueRow.minimumScale - 0.5,
                         "\(tile) at \(c.width), \(c.typeSize): '\(caption)' \(node.frame.width) wide, one line \(ideal)")
             }
+        }
+    }
+
+    // MARK: the label is never cut (B)
+
+    struct SizeCase: Sendable, CustomStringConvertible {
+        let width: CGFloat
+        let typeSize: DynamicTypeSize
+        let category: UIContentSizeCategory
+        var description: String { "\(width), \(typeSize)" }
+
+        static let all = [CGFloat(375), 390, 402].flatMap { width in
+            [SizeCase(width: width, typeSize: .large, category: .large),
+             SizeCase(width: width, typeSize: .xLarge, category: .extraLarge),
+             SizeCase(width: width, typeSize: .xxLarge, category: .extraExtraLarge),
+             SizeCase(width: width, typeSize: .xxxLarge, category: .extraExtraExtraLarge)]
+        }
+    }
+
+    /// Recovery's label ("Recov…" at xxxLarge, its sparkline beside it) is whole at every size below AX1: the series
+    /// goes under the label when the label needs the room, in both tiles alike, never over it.
+    @Test("The label is whole and the series clear of it, alike in both tiles", arguments: SizeCase.all)
+    func theLabelIsNeverCut(_ c: SizeCase) async throws {
+        let recovery = TwoUpCase(name: "recovery", title: "Recovery", value: "82", unit: "%", caption: "High")
+        let sleep = TwoUpCase.scored
+        let frames = TwoUpFrames()
+        try await HostedWindow.run(width: c.width, height: 600, typeSize: c.typeSize, category: c.category,
+                                   TwoUpHost.pair(recovery, sleep, frames: frames)) { w in
+            try await w.wait("the tiles") { frames.byName["a.series"] != nil && w.node("Recovery", exactly: true) != nil }
+            try await w.settle()
+            var under: [Bool] = []
+            for (tile, name) in [(recovery, "a"), (sleep, "b")] {
+                let box = try #require(frames.byName[name])
+                let series = try #require(frames.byName["\(name).series"])
+                let title = try #require(w.nodes().first {
+                    $0.label == tile.title && box.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY))
+                }).frame
+                let ideal = idealWidth(tile.title, typeSize: c.typeSize)
+                #expect(title.width >= ideal - 0.5, "\(c): '\(tile.title)' \(title.width) wide, one line \(ideal)")
+                #expect(series.minX >= title.maxX - 0.5 || series.minY >= title.maxY - 0.5,
+                        "\(c): the series \(series) clear of '\(tile.title)' \(title)")
+                #expect(series.maxX <= box.maxX - 16 + 0.5 && series.minX >= box.minX + 16 - 0.5, "\(c): inside \(box): \(series)")
+                under.append(series.minY >= title.maxY - 0.5)
+            }
+            #expect(Set(under).count == 1, "\(c): the series beside or under the label in both tiles: \(under)")
+            if c.width == 390, c.typeSize == .large { #expect(under == [false, false], "beside at the default size") }
+            if c.width == 390, c.typeSize == .xxxLarge { #expect(under == [true, true], "Recovery needs the room at xxxLarge") }
+        }
+    }
+
+    // MARK: the pair's captions alike (C)
+
+    struct PairCase: Sendable, CustomStringConvertible {
+        let name: String
+        let recovery: Int?
+        let caption: String
+        let width: CGFloat
+        let typeSize: DynamicTypeSize
+        let category: UIContentSizeCategory
+        var description: String { "\(name) at \(width), \(typeSize)" }
+
+        /// Both tiles with `caption`; without a recovery, Recovery's "–" beside Sleep's "7:11 h".
+        @MainActor var content: TodayTilesContent {
+            TodayTilesContent(recovery: recovery, recoveryCaption: caption, hrvWeek: [57, 56, 55, 54, 53, 52, 51],
+                              sleepMinutes: recovery == nil ? 431 : 430, caption: caption,
+                              sleepWeek: TodaySleepWeek(nights: Array(repeating: .enough, count: 7)), strain: 9,
+                              isEarlierDay: false)
+        }
+
+        private static let large = (DynamicTypeSize.large, UIContentSizeCategory.large)
+        private static let xxxLarge = (DynamicTypeSize.xxxLarge, UIContentSizeCategory.extraExtraExtraLarge)
+
+        private init(_ name: String, _ recovery: Int?, _ caption: String, _ width: CGFloat,
+                     _ size: (DynamicTypeSize, UIContentSizeCategory)) {
+            self.name = name
+            self.recovery = recovery
+            self.caption = caption
+            self.width = width
+            typeSize = size.0
+            category = size.1
+        }
+
+        static let all = [
+            // The validator's: "calibrating" beside Recovery's "–", above Sleep's "7:11 h".
+            PairCase("calibrating", nil, "calibrating", 390, large),
+            PairCase("calibrating", nil, "calibrating", 402, large),
+            PairCase("calibrating", nil, "calibrating", 390, xxxLarge),
+            // And "Yesterday" at xxxLarge: beside "75 %", above "7:10 h".
+            PairCase("yesterday", 75, "Yesterday", 390, xxxLarge),
+            PairCase("an earlier day", 75, "Sat, Nov 14", 390, large),
+            PairCase("an earlier day", 75, "Sat, Nov 14", 390, xxxLarge),
+        ]
+    }
+
+    /// Where a tile's caption sits: above the value (its line ends over the value's top), or beside it.
+    private enum Placement { case beside, above }
+
+    /// When one tile's caption goes above its value, the other's does too: the pair reads alike.
+    @Test("The pair's captions sit alike, above in both when either needs it", arguments: PairCase.all)
+    func thePairsCaptionsSitAlike(_ c: PairCase) async throws {
+        let pair = cases(c.content)
+        let frames = TwoUpFrames()
+        try await HostedWindow.run(width: c.width, height: 700, typeSize: c.typeSize, category: c.category,
+                                   TwoUpHost.pair(pair.0, pair.1, frames: frames)) { w in
+            try await w.wait("the tiles") { frames.byName["a"] != nil && frames.byName["b"] != nil }
+            try await w.settle()
+            var placements: [Placement] = []
+            for (tile, name) in [(pair.0, "a"), (pair.1, "b")] {
+                let box = try #require(frames.byName[name])
+                let inside = w.nodes().filter { box.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+                let value = try #require(inside.first { $0.label == tile.value }, "\(c): \(inside.map(\.label))").frame
+                let caption = try #require(inside.first { $0.label == tile.caption }, "\(c): \(inside.map(\.label))").frame
+                if caption.maxY <= value.minY + 0.5 {
+                    placements.append(.above)
+                } else {
+                    #expect(caption.minX >= value.maxX, "\(c): '\(tile.caption ?? "")' \(caption) beside the value \(value)")
+                    placements.append(.beside)
+                }
+            }
+            #expect(placements[0] == placements[1], "\(c): Recovery's caption \(placements[0]), Sleep's \(placements[1])")
         }
     }
 

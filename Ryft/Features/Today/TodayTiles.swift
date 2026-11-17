@@ -244,20 +244,27 @@ struct TodayTiles: View {
         }
     }
 
+    private var recoveryWords: TodayTwoUpWords {
+        TodayTwoUpWords(title: String(localized: "Recovery"), value: content.recoveryText,
+                        unit: content.recovery == nil ? nil : "%", caption: content.recoveryCaption)
+    }
+
+    private var sleepWords: TodayTwoUpWords {
+        TodayTwoUpWords(title: String(localized: "Sleep"), value: content.sleepText,
+                        unit: content.sleepMinutes == nil ? nil : TodayTwoUpTile<DotRow>.hoursUnit, caption: content.caption)
+    }
+
     private var recovery: some View {
-        TodayTwoUpTile(metric: Theme.recovery, title: String(localized: "Recovery"), value: content.recoveryText,
-                       unit: content.recovery == nil ? nil : "%", caption: content.recoveryCaption,
-                       spoken: content.recoverySpoken, hint: String(localized: "Opens Insights"),
-                       identifier: "today.tile.recovery", reduceTransparency: reduceTransparency,
-                       action: { open(.insights) }) {
+        TodayTwoUpTile(metric: Theme.recovery, words: recoveryWords, partner: sleepWords, spoken: content.recoverySpoken,
+                       hint: String(localized: "Opens Insights"), identifier: "today.tile.recovery",
+                       reduceTransparency: reduceTransparency, action: { open(.insights) }) {
             Sparkline(values: content.hrvWeek)
         }
     }
 
     private var sleep: some View {
-        TodayTwoUpTile(metric: Theme.metricSleep, title: String(localized: "Sleep"), value: content.sleepText,
-                       unit: content.sleepMinutes == nil ? nil : TodayTwoUpTile<DotRow>.hoursUnit, caption: content.caption,
-                       spoken: content.sleepSpoken, hint: String(localized: "Opens Sleep"), identifier: "today.tile.sleep",
+        TodayTwoUpTile(metric: Theme.metricSleep, words: sleepWords, partner: recoveryWords, spoken: content.sleepSpoken,
+                       hint: String(localized: "Opens Sleep"), identifier: "today.tile.sleep",
                        reduceTransparency: reduceTransparency, action: { open(.sleep) }) {
             // Its summary is the tile's to read: the tile is the one element.
             DotRow(content.sleepWeek.marks, accessibilityLabel: Text(verbatim: content.sleepWeek.summary))
@@ -265,14 +272,22 @@ struct TodayTiles: View {
     }
 }
 
-/// A 2-up glow tile (§P4-1 row 11): the label top-leading with its series trailing on the label's baseline, the value
-/// (34 Light) and its unit bottom-left, the caption bottom-right. From AX1 the rows stack (label, series, value, caption).
-struct TodayTwoUpTile<Series: View>: View {
-    let metric: Color
+/// What a 2-up tile writes: its label, value, unit and caption.
+struct TodayTwoUpWords: Equatable, Sendable {
     let title: String
     let value: String
     var unit: String?
     var caption: String?
+}
+
+/// A 2-up glow tile (§P4-1 row 11): the label top-leading with its series trailing on the label's baseline, the value
+/// (34 Light) and its unit bottom-left, the caption bottom-right. From AX1 the rows stack (label, series, value, caption).
+/// Below AX1 the pair arranges alike (`partner`, the other tile's words): a series goes under the label, and a caption
+/// above the value, in both tiles when either tile needs it.
+struct TodayTwoUpTile<Series: View>: View {
+    let metric: Color
+    let words: TodayTwoUpWords
+    var partner: TodayTwoUpWords?
     let spoken: String
     let hint: String
     let identifier: String
@@ -293,13 +308,13 @@ struct TodayTwoUpTile<Series: View>: View {
                 if typeSize.isAccessibilitySize {
                     stacked
                 } else {
-                    TodayTwoUpBoard(title: title, value: value, unit: unit, caption: caption, series: series)
+                    TodayTwoUpBoard(words: words, partner: partner, series: series)
                 }
             }
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityLabel(Text(verbatim: words.title))
         .accessibilityValue(Text(verbatim: spoken))
         .accessibilityHint(Text(verbatim: hint))
         .accessibilityAddTraits(.isButton)
@@ -309,12 +324,12 @@ struct TodayTwoUpTile<Series: View>: View {
     /// AX1 and up: one under the other, nothing truncated; the numerals keep their size.
     private var stacked: some View {
         VStack(alignment: .leading, spacing: TodayLayout.tileRowGap) {
-            Text(verbatim: title)
+            Text(verbatim: words.title)
                 .ryftGlowLabelStyle()
                 .fixedSize(horizontal: false, vertical: true)
             series()
-            TodayTwoUpValue(value: value, unit: unit)
-            if let caption {
+            TodayTwoUpValue(value: words.value, unit: words.unit)
+            if let caption = words.caption {
                 Text(verbatim: caption)
                     .ryftGlowLabelStyle()
                     .fixedSize(horizontal: false, vertical: true)
@@ -327,36 +342,117 @@ struct TodayTwoUpTile<Series: View>: View {
 /// A 2-up tile's content below AX1 (§P4-1 row 11): the label row on top, the value row on the bottom, the space between
 /// them flexible. At least the board's 98 pt (124 less the padding), and as tall as its content asks at larger text, so
 /// the pair (`TodayTiles`: the taller tile's height for both) never clips. The value sits on the bottom in every state:
-/// a caption never moves it (`TodayTwoUpValueRow`).
+/// a caption never moves it (`TodayTwoUpValueRow`). `partner`, the other tile's words, is measured, never shown: the
+/// pair arranges alike (`TodayTwoUpLabelRow`, `TodayTwoUpValueRow`).
 struct TodayTwoUpBoard<Series: View>: View {
-    let title: String
-    let value: String
-    var unit: String?
-    var caption: String?
+    let words: TodayTwoUpWords
+    var partner: TodayTwoUpWords?
     @ViewBuilder var series: () -> Series
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: title)
-                .ryftGlowLabelStyle()
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, TodayLayout.seriesClearance)
-                // The series sits on the label's baseline at the trailing inset, without moving the label off the
-                // tile's top padding (derived, not measured: the board names the content, not its place).
-                .overlay(alignment: Alignment(horizontal: .trailing, vertical: .firstTextBaseline)) { series() }
+            TodayTwoUpLabelRow {
+                Text(verbatim: words.title)
+                    .ryftGlowLabelStyle()
+                    .lineLimit(1)
+                series()
+                if let partner {
+                    Text(verbatim: partner.title)
+                        .ryftGlowLabelStyle()
+                        .lineLimit(1)
+                        .partnerOnly()
+                }
+            }
             Spacer(minLength: TodayLayout.tileRowGap)
             TodayTwoUpValueRow {
-                TodayTwoUpValue(value: value, unit: unit)
-                if let caption {
-                    Text(verbatim: caption)
-                        .ryftGlowLabelStyle()
-                        .multilineTextAlignment(.trailing)
-                        .minimumScaleFactor(TodayTwoUpValueRow.minimumScale)
+                TodayTwoUpValue(value: words.value, unit: words.unit)
+                if let caption = words.caption { Self.caption(caption) }
+                if let partner {
+                    TodayTwoUpValue(value: partner.value, unit: partner.unit).partnerOnly()
+                    if let caption = partner.caption { Self.caption(caption).partnerOnly() }
                 }
             }
         }
         .frame(maxWidth: .infinity, minHeight: TodayLayout.twoUpContentHeight, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private static func caption(_ caption: String) -> some View {
+        Text(verbatim: caption)
+            .ryftGlowLabelStyle()
+            .multilineTextAlignment(.trailing)
+            .minimumScaleFactor(TodayTwoUpValueRow.minimumScale)
+    }
+}
+
+/// Whose a subview of a 2-up row is: the tile's own, or the other tile's, which the row measures to arrange as the
+/// other tile does and never shows.
+private struct TodayTwoUpPartnerKey: LayoutValueKey {
+    static let defaultValue = false
+}
+
+private extension View {
+    /// The other tile's words in a 2-up row: measured, hidden, not read by VoiceOver.
+    func partnerOnly() -> some View {
+        hidden().accessibilityHidden(true).layoutValue(key: TodayTwoUpPartnerKey.self, value: true)
+    }
+}
+
+private extension LayoutSubviews {
+    /// The tile's own subviews, in order, and the other tile's.
+    var ownAndPartner: (own: [LayoutSubview], partner: [LayoutSubview]) {
+        (filter { !$0[TodayTwoUpPartnerKey.self] }, filter { $0[TodayTwoUpPartnerKey.self] })
+    }
+}
+
+/// A 2-up tile's top row: the label leading, the series trailing on the label's baseline with `seriesClearance` kept
+/// for it. When the label, or the other tile's, would be cut there (larger text, a narrow phone), the series goes under
+/// the label, leading and `tileRowGap` below, in both tiles: the label is never cut (B). Subviews: the label, the
+/// series, and the other tile's label (`partnerOnly`).
+struct TodayTwoUpLabelRow: Layout {
+    /// Whether the series sits beside labels `labels` wide (one line each) in a row `width` wide.
+    static func seriesBeside(width: CGFloat, labels: [CGFloat]) -> Bool {
+        (labels.max() ?? 0) <= width - TodayLayout.seriesClearance
+    }
+
+    private static func beside(width: CGFloat, title: LayoutSubview, partner: [LayoutSubview]) -> Bool {
+        seriesBeside(width: width, labels: ([title] + partner).map { $0.sizeThatFits(.unspecified).width })
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (own, partner) = subviews.ownAndPartner
+        guard let title = own.first else { return .zero }
+        let line = title.sizeThatFits(.unspecified)
+        let width = proposal.width ?? line.width + TodayLayout.seriesClearance
+        guard own.count > 1, !Self.beside(width: width, title: title, partner: partner) else {
+            // Beside: as high as the label; the series may reach above it, as an overlay would.
+            return CGSize(width: width, height: line.height)
+        }
+        return CGSize(width: width, height: line.height + TodayLayout.tileRowGap + own[1].sizeThatFits(.unspecified).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (own, partner) = subviews.ownAndPartner
+        for hidden in partner { hidden.place(at: bounds.origin, proposal: .unspecified) }
+        guard let title = own.first else { return }
+        guard own.count > 1 else {
+            title.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: nil))
+            return
+        }
+        let series = own[1]
+        if Self.beside(width: bounds.width, title: title, partner: partner) {
+            let offer = ProposedViewSize(width: bounds.width - TodayLayout.seriesClearance, height: nil)
+            title.place(at: bounds.origin, proposal: offer)
+            // The series' baseline (its bottom: it has no text) on the label's, at the trailing edge.
+            let baseline = bounds.minY + title.dimensions(in: offer)[.firstTextBaseline]
+            let placed = series.dimensions(in: .unspecified)
+            series.place(at: CGPoint(x: bounds.maxX - placed.width, y: baseline - placed[.firstTextBaseline]),
+                         proposal: .unspecified)
+        } else {
+            let offer = ProposedViewSize(width: bounds.width, height: nil)
+            title.place(at: bounds.origin, proposal: offer)
+            series.place(at: CGPoint(x: bounds.minX, y: bounds.minY + title.dimensions(in: offer).height + TodayLayout.tileRowGap),
+                         proposal: .unspecified)
+        }
     }
 }
 
@@ -381,8 +477,10 @@ struct TodayTwoUpValue: View {
 
 /// A 2-up tile's bottom row (VF3): the value leading, the caption ("High", "Yesterday", "calibrating") trailing on the
 /// value's baseline. A caption that doesn't fit beside the value shrinks, to 80 % at most, on its one line; one that
-/// still doesn't goes above the value, trailing, wrapping if it must. The value's line is the row's bottom in every
-/// arrangement, so its baseline never moves and no word is broken.
+/// still doesn't goes above the value, trailing, wrapping if it must, and then the other tile's goes above too (C: the
+/// pair's tiles are as wide, so the one with less room decides). The value's line is the row's bottom in every
+/// arrangement, so its baseline never moves and no word is broken. Subviews: the value, the caption, and the other
+/// tile's value and caption (`partnerOnly`).
 struct TodayTwoUpValueRow: Layout {
     /// The least the caption shrinks to before it leaves the value's line.
     static let minimumScale: CGFloat = 0.8
@@ -398,6 +496,21 @@ struct TodayTwoUpValueRow: Layout {
         return caption * minimumScale + 1 <= room ? .besideScaled : .above
     }
 
+    /// The arrangement of a row whose pair's other row has `partner` (its value's and caption's widths): above when
+    /// either row's caption goes above, else this row's own.
+    static func arrangement(width: CGFloat, value: CGFloat, caption: CGFloat,
+                            partner: (value: CGFloat, caption: CGFloat)?) -> Arrangement {
+        let own = arrangement(width: width, value: value, caption: caption)
+        guard let partner, own != .above else { return own }
+        return arrangement(width: width, value: partner.value, caption: partner.caption) == .above ? .above : own
+    }
+
+    /// The other row's value and caption widths, one line each; `nil` without a caption there.
+    private static func partnerWidths(_ partner: [LayoutSubview]) -> (value: CGFloat, caption: CGFloat)? {
+        guard partner.count > 1 else { return nil }
+        return (partner[0].sizeThatFits(.unspecified).width, partner[1].sizeThatFits(.unspecified).width)
+    }
+
     /// The row's depth under the value's baseline: the deeper descent of the line's texts (the value's, 34 pt against
     /// 13, in practice), or the value's alone with the caption above it.
     private static func below(value: LayoutSubview, caption: LayoutSubview?, arrangement: Arrangement?) -> CGFloat {
@@ -408,13 +521,15 @@ struct TodayTwoUpValueRow: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let value = subviews.first else { return .zero }
+        let (own, partner) = subviews.ownAndPartner
+        guard let value = own.first else { return .zero }
         let valueSize = value.sizeThatFits(.unspecified)
         let width = proposal.width ?? valueSize.width
-        guard subviews.count > 1 else { return CGSize(width: width, height: valueSize.height) }
-        let caption = subviews[1]
+        guard own.count > 1 else { return CGSize(width: width, height: valueSize.height) }
+        let caption = own[1]
         let line = caption.sizeThatFits(.unspecified)
-        let arrangement = Self.arrangement(width: width, value: valueSize.width, caption: line.width)
+        let arrangement = Self.arrangement(width: width, value: valueSize.width, caption: line.width,
+                                           partner: Self.partnerWidths(partner))
         switch arrangement {
         case .beside, .besideScaled:
             // On the value's baseline: as high as the taller ascent and the deeper descent.
@@ -429,12 +544,15 @@ struct TodayTwoUpValueRow: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let value = subviews.first else { return }
+        let (own, partner) = subviews.ownAndPartner
+        for hidden in partner { hidden.place(at: bounds.origin, proposal: .unspecified) }
+        guard let value = own.first else { return }
         let valueDimensions = value.dimensions(in: .unspecified)
-        let caption = subviews.count > 1 ? subviews[1] : nil
+        let caption = own.count > 1 ? own[1] : nil
         let line = caption?.sizeThatFits(.unspecified) ?? .zero
         let arrangement = caption.map { _ in
-            Self.arrangement(width: bounds.width, value: valueDimensions.width, caption: line.width)
+            Self.arrangement(width: bounds.width, value: valueDimensions.width, caption: line.width,
+                             partner: Self.partnerWidths(partner))
         }
         // The value's baseline sits `below` over the row's bottom: no descent hangs out of the row, and with the value's
         // the deeper one (always, at these sizes) its line ends on the bottom padding in every arrangement.
