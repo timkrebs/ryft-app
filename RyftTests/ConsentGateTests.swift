@@ -33,6 +33,33 @@ private final class CountingPersistence: Persistence {
     func removeDocument(key: String) { base.removeDocument(key: key) }
 }
 
+/// `Persistence` over a `TrainStore` whose document saves can be refused, as a store that takes no save at all
+/// (iOS 17 after demo data, T0.6): the consent record on disk stays as it was.
+@MainActor
+private final class DocumentRefusingPersistence: Persistence {
+    let base: TrainStore
+    var refuses = false
+
+    init(base: TrainStore) { self.base = base }
+
+    var container: ModelContainer { base.container }
+    var context: ModelContext { base.context }
+    var isDurable: Bool { base.isDurable }
+    var epoch: StoreEpoch { base.epoch }
+    func save() -> Bool { base.save() }
+    func wipe() -> Bool { base.wipe() }
+    func document<T: Decodable>(_ type: T.Type, key: String) -> T? { base.document(type, key: key) }
+    func saveDocument<T: Encodable>(_ value: T, key: String, at date: Date) {
+        if !refuses { base.saveDocument(value, key: key, at: date) }
+    }
+    func saveDocumentData(_ data: Data, key: String, at date: Date) {
+        if !refuses { base.saveDocumentData(data, key: key, at: date) }
+    }
+    func removeDocument(key: String) {
+        if !refuses { base.removeDocument(key: key) }
+    }
+}
+
 /// A real `AuthService` whose wipe works on the test store, an environment around it, and the coordinator whose
 /// gates ScreenModels wires.
 @MainActor
@@ -43,6 +70,8 @@ private final class ConsentHarness {
     let clock = TestClock()
     let api: MockPlatformAPI
     let persistence: TrainStore
+    /// `refusingDocuments`: what the environment's persistence is, around `persistence`.
+    let documents: DocumentRefusingPersistence?
     let defaults: UserDefaults
     let settings: Settings
     let client: MockAuthClient
@@ -54,11 +83,13 @@ private final class ConsentHarness {
     let onboarding: OnboardingCoordinator
 
     init(api: MockPlatformAPI = MockPlatformAPI(), health: MockHealthStore = MockHealthStore(),
-         persistence: TrainStore? = nil, defaults: UserDefaults? = nil,
+         persistence: TrainStore? = nil, refusingDocuments: Bool = false, defaults: UserDefaults? = nil,
          online: Bool = true, demo: Bool = false, signedInAs account: UUID? = ConsentHarness.a) {
         self.api = api
         let persistence = persistence ?? TrainStore(inMemory: true)
         self.persistence = persistence
+        let documents = refusingDocuments ? DocumentRefusingPersistence(base: persistence) : nil
+        self.documents = documents
         self.health = health
         let defaults = defaults ?? UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         self.defaults = defaults
@@ -72,8 +103,9 @@ private final class ConsentHarness {
                            postAppleAuthorization: { _ in })
         api.now = { clock.now() }
         env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: api, auth: auth,
-                             persistence: persistence, clock: clock, notifier: MockNotifier(), flags: StaticFlags([:]),
-                             connectivity: .preview(online: online), defaults: defaults, demoOverride: demo ? nil : false)
+                             persistence: documents ?? persistence, clock: clock, notifier: MockNotifier(),
+                             flags: StaticFlags([:]), connectivity: .preview(online: online), defaults: defaults,
+                             demoOverride: demo ? nil : false)
         env.reads.random = { $0.lowerBound }
         env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
         env.uploader.random = { $0.lowerBound }
@@ -1432,5 +1464,266 @@ extension ConsentWriterTests {
         #expect(h.api.count("me") == asked + 2)
         #expect(h.state.user?.consent == nil)
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+}
+
+// MARK: - the withdrawal against answers begun before it (F1), and a store that keeps none of it (F2)
+
+extension ConsentWriterTests {
+    /// A `PATCH /v1/me` sent before the withdrawal and answered after it: its answer has the consent the platform had
+    /// when it arrived, so it's dropped, not stored, and doesn't count as a change of its own: the re-check's `/v1/me`,
+    /// asked after the withdrawal, is still stored. The user is asked again, so the patch shows.
+    @Test(.timeLimit(.minutes(1)))
+    func aPatchAnsweredAfterTheWithdrawalDoesntBringTheConsentBack() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        let patch = RequestHold(), recheck = RequestHold()
+        h.api.beforePatchMe = { await patch.wait() }
+        let save = Task { try? await h.state.patchUser(UserPatch(birthYear: 1980)) }
+        #expect(await eventually(timeout: .seconds(5)) { patch.waiting == 1 })
+        h.clock.advance(by: .seconds(1))
+        let asked = h.api.count("me")
+        h.api.beforeMe = { await recheck.wait() }
+
+        let withdrawal = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually(timeout: .seconds(5)) { recheck.waiting == 1 }) // the re-check's /v1/me, after it
+        #expect(h.state.user?.consent == nil)
+        h.clock.advance(by: .seconds(1))
+        patch.release()
+        await save.value
+        #expect(h.state.user?.consent == nil)
+        recheck.release()
+
+        #expect(await withdrawal.value)
+        #expect(h.state.user?.consent == nil)
+        #expect(h.state.user?.birthYear == 1980) // the re-check's answer, stored
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        // The dropped answer's own read again.
+        #expect(await eventually(timeout: .seconds(5)) { h.api.count("me") == asked + 2 })
+        await h.state.repository.settled()
+        #expect(h.state.user?.consent == nil)
+    }
+
+    /// The same for the launch's time-zone `PATCH` (`check()`): sent before the withdrawal, answered after it.
+    @Test(.timeLimit(.minutes(1)))
+    func aTimeZonePatchAnsweredAfterTheWithdrawalDoesntBringTheConsentBack() async throws {
+        let h = ConsentHarness()
+        h.answer()
+        // The platform has another zone: the launch's check sends this phone's.
+        _ = try await h.api.patchMe(UserPatch(tz: "Pacific/Chatham"))
+        try await h.cachedUser()
+        let patch = RequestHold()
+        h.api.beforePatchMe = { await patch.wait() }
+        let launch = Task { await h.onboarding.check(force: true) }
+        #expect(await eventually(timeout: .seconds(5)) { patch.waiting == 1 })
+        h.clock.advance(by: .seconds(1))
+
+        #expect(await h.onboarding.withdrawConsent())
+        #expect(h.state.user?.consent == nil)
+        patch.release()
+        await launch.value
+
+        #expect(h.state.user?.consent == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+
+    /// The withdrawal's re-check asks `GET /v1/me/sync` again rather than join one asked for before it, which would
+    /// say no gate and end the refusal.
+    @Test(.timeLimit(.minutes(1)))
+    func theWithdrawalsRecheckDoesntJoinAStatusAskedBeforeIt() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        let early = RequestHold()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        h.api.beforeSyncStatus = {
+            if calls.withLock({ n in
+                n += 1
+                return n
+            }) == 1 { await early.wait() }
+        }
+        let read = Task { try? await h.env.reads.run(ReadKey(.syncStatus)) { try await h.api.syncStatus() } }
+        #expect(await eventually(timeout: .seconds(5)) { early.waiting == 1 })
+        h.clock.advance(by: .seconds(1))
+
+        let withdrawal = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually(timeout: .seconds(5)) { h.api.count("revokeConsent") == 1 })
+        early.release()
+        #expect(await withdrawal.value)
+        _ = await read.value
+
+        #expect(h.api.count("syncStatus") == 2)
+        #expect(h.onboarding.syncStatus?.gate == .consentRequired)
+        #expect(h.consent.refusals == [.consentRequired])
+    }
+
+    /// The withdrawal itself is kept outside the store, and as the platform's refusal: with the re-check failing,
+    /// nothing else says so.
+    @Test func theWithdrawalIsKeptBesideTheStoreAndAsARefusal() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        h.api.failAfterRevoke = true
+        let before = h.clock.now()
+
+        #expect(await h.onboarding.withdrawConsent())
+
+        #expect(h.consent.withdrawnAt == before)
+        #expect(h.defaults.object(forKey: ConsentState.withdrawalKey(h.account)) as? Date == before)
+        #expect(h.consent.refusals == [.consentRequired])
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+
+    /// A withdrawal whose every save the store refuses (the user's and the consent record's: iOS 17 after demo data),
+    /// then the user's store and defaults for a relaunch. The store still has the consent and no refusal.
+    private func aWithdrawalTheStoreKeptNothingOf() async throws -> (url: URL, defaults: UserDefaults, folder: URL) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-consent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("Train.store")
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
+        let h = ConsentHarness(persistence: TrainStore(url: url), refusingDocuments: true, defaults: defaults)
+        try await h.cachedUser()
+        h.answer()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        h.documents?.refuses = true
+        h.state.repository.writeHooks.refusesSave = { true }
+
+        #expect(await h.onboarding.withdrawConsent())
+        await h.state.repository.settled()
+        await h.state.repository.settled()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        return (url, defaults, folder)
+    }
+
+    /// Relaunched offline (no check): the store's user still has the consent, the record no refusal; the withdrawal
+    /// kept beside the store holds the gate.
+    @Test func aWithdrawalTheStoreRefusedHoldsTheGateAcrossAnOfflineRelaunch() async throws {
+        let (url, defaults, folder) = try await aWithdrawalTheStoreKeptNothingOf()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let relaunched = ConsentHarness(persistence: TrainStore(url: url), defaults: defaults, online: false)
+
+        #expect(relaunched.state.user?.consent != nil) // what the store kept
+        #expect(relaunched.consent.refusals.isEmpty && relaunched.consent.isPolicyFresh(at: relaunched.clock.now()))
+        #expect(relaunched.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(relaunched.onboarding.uploadGate(for: .activities) == .gate(.consentRequired))
+    }
+
+    /// A HealthKit delivery's background launch, online, that never runs the check: it reads and sends nothing.
+    @Test func aBackgroundLaunchAfterARefusedWithdrawalUploadsNothing() async throws {
+        let (url, defaults, folder) = try await aWithdrawalTheStoreKeptNothingOf()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [ConsentHarness.page()]])
+
+        let relaunched = ConsentHarness(health: health, persistence: TrainStore(url: url), defaults: defaults)
+        let sync = relaunched.sync()
+        #expect(try await sync.upload() == [])
+
+        #expect(sync.pausedFor == .gate(.consentRequired))
+        #expect(relaunched.api.count("sync") == 0 && health.pageReads == 0 && health.committed.isEmpty)
+    }
+
+    /// The store refuses every save, and the platform can't be reached after the withdrawal: Demo data on and off,
+    /// twice (each switch reads the store again), and the gate stays closed. Two things hold it here: the withdrawal
+    /// kept beside the store, and the refusal in the consent record's memory (its save refused too).
+    @Test func aRefusedWithdrawalHoldsAcrossTwoDemoSwitches() async throws {
+        let h = ConsentHarness(refusingDocuments: true, demo: true)
+        h.settings.demoMode = false
+        h.state.repository.widgetFile = nil
+        try await h.cachedUser()
+        h.answer()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        h.documents?.refuses = true
+        h.state.repository.writeHooks.refusesSave = { true }
+        h.api.failAfterRevoke = true
+
+        #expect(await h.onboarding.withdrawConsent())
+        await h.state.repository.settled()
+        for demo in [true, false, true, false] {
+            h.settings.demoMode = demo
+            h.state.reset()
+            await h.state.repository.settled()
+        }
+
+        #expect(h.state.user?.consent != nil) // what the store kept
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+
+    /// Agreeing again on this phone ends the withdrawal at the `204`, before anything else is read.
+    @Test(.timeLimit(.minutes(1)))
+    func agreeingAgainEndsTheWithdrawal() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        #expect(await h.onboarding.withdrawConsent())
+        #expect(h.consent.withdrawnAt != nil)
+        let me = RequestHold()
+        h.api.beforeMe = { await me.wait() }
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually(timeout: .seconds(5)) { me.waiting == 1 }) // its check's /v1/me, held
+        #expect(h.consent.withdrawnAt == nil)
+        me.release()
+
+        #expect(await agreeing.value)
+        #expect(h.consent.withdrawnAt == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+    }
+
+    /// The user agreed again on another device: a `/v1/me` asked for after the withdrawal shows it, and ends it here.
+    @Test func aMeAskedAfterTheWithdrawalThatShowsConsentEndsIt() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        #expect(await h.onboarding.withdrawConsent())
+        h.clock.advance(by: .seconds(1))
+        h.api.accountConsent = Consent(policyVersion: MockData.policyVersion, grantedAt: h.clock.now())
+
+        try await h.state.repository.refreshUser(mode: .latest)
+
+        #expect(h.consent.withdrawnAt == nil)
+        #expect(h.state.user?.consent?.policyVersion == MockData.policyVersion)
+    }
+}
+
+extension ConsentRecordTests {
+    /// What ends this phone's withdrawal from a `/v1/me` answer: asked for at or after it, with consent to the latest
+    /// policy heard of. Not one asked before it, one without consent, or one with an older policy's.
+    @Test func onlyAMeAskedAfterTheWithdrawalWithTheLatestPolicyEndsIt() {
+        let h = ConsentHarness()
+        h.answer()
+        let at = h.clock.now()
+        h.consent.withdrew(at: at)
+        var consenting = MockData.user
+        consenting.consent = Consent(policyVersion: MockData.policyVersion, grantedAt: at)
+        var older = consenting
+        older.consent = Consent(policyVersion: "2025-01-01", grantedAt: at)
+        var none = consenting
+        none.consent = nil
+
+        h.consent.heard(consenting, askedAt: at.addingTimeInterval(-1))
+        h.consent.heard(older, askedAt: at.addingTimeInterval(1))
+        h.consent.heard(none, askedAt: at.addingTimeInterval(1))
+        #expect(h.consent.withdrawnAt == at)
+
+        h.consent.heard(consenting, askedAt: at)
+        #expect(h.consent.withdrawnAt == nil)
+    }
+
+    /// Per account, and nothing in demo mode.
+    @Test func theWithdrawalIsTheAccountsOwn() async {
+        let h = ConsentHarness()
+        h.consent.withdrew(at: h.clock.now())
+        #expect(h.consent.withdrawnAt != nil)
+        await h.signIn(ConsentHarness.b)
+        #expect(h.consent.withdrawnAt == nil)
+        await h.signIn(ConsentHarness.a)
+        #expect(h.consent.withdrawnAt != nil) // the same account, signed in again: it hasn't agreed since
+
+        let demo = ConsentHarness(demo: true)
+        demo.consent.withdrew(at: demo.clock.now())
+        #expect(demo.consent.withdrawnAt == nil)
+        #expect(demo.defaults.object(forKey: ConsentState.withdrawalKey(demo.account)) == nil)
     }
 }

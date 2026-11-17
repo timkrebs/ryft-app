@@ -61,6 +61,10 @@ final class Repository {
     /// When this phone last changed the user (`store(user:asOf:)`: a `PATCH /v1/me` answer, the withdrawal). A
     /// `GET /v1/me` asked for before it may answer with the user from before the change (`store(fetchedUser:askedAt:)`).
     @ObservationIgnored private var lastUserChange: Date?
+    /// The changes of the user stored so far (`noteUserChange()`), never reset: a `UserChange` taken before the last
+    /// of them began before it (`store(user:asOf:)`). A count, not a time: two changes in one tick of the clock still
+    /// differ.
+    @ObservationIgnored private var userChanges = 0
     /// A refused save of the user went again (`committed`): a second refusal in a row isn't retried.
     @ObservationIgnored private var resubmittedUser = false
     /// A misuse Debug builds stop at (`seed` while writes are pending, a preview setter on the live graph); tests
@@ -675,31 +679,67 @@ final class Repository {
         return submit(.user(user))
     }
 
-    /// Where this phone's own change of the user began, before its request's first await: whose it was and what the
-    /// store held then (`userChange()`, `store(user:asOf:)`).
+    /// Where this phone's own change of the user began, before its request's first await: whose it was, what the
+    /// store held then, and how many changes of the user were stored before it (`userChange()`, `store(user:asOf:)`).
     struct UserChange: Sendable {
         fileprivate let binding: AccountBinding
         fileprivate let store: StoreID
         fileprivate let epoch: Int
+        fileprivate let began: Int
     }
 
     /// Taken before a request that changes the user (`PATCH /v1/me`, the withdrawal): its answer is stored `asOf` it.
     func userChange() -> UserChange {
         let s = store
-        return UserChange(binding: AccountBinding(env), store: s.epoch.store, epoch: s.epoch.current)
+        return UserChange(binding: AccountBinding(env), store: s.epoch.store, epoch: s.epoch.current, began: userChanges)
+    }
+
+    /// The change is stored: a `GET /v1/me` asked for before now (`lastUserChange`) and a change begun before it
+    /// (`userChanges`) may answer with the user from before it.
+    private func noteUserChange() {
+        userChanges += 1
+        lastUserChange = now
+    }
+
+    /// The change for `change` is current: the same account, Demo data switch position and store contents. Demo data
+    /// switched on and off again while the request was out passes (the same account's store, its epoch unchanged).
+    private func isCurrent(_ change: UserChange) -> Bool {
+        let s = store
+        return change.binding.isCurrent(in: env) && change.store == s.epoch.store && change.epoch == s.epoch.current
     }
 
     /// The platform's answer to this phone's change of the user, begun at `change`: written through as `store(user:)`
-    /// writes it, and newer than any `GET /v1/me` asked for before now (`store(fetchedUser:askedAt:)`). Dropped, unwritten,
-    /// when the account, the Demo data switch or the store's contents changed since `change`: a sign-out (another
-    /// account) while the request was out makes the answer someone else's.
+    /// writes it, and newer than any `GET /v1/me` asked for before now (`store(fetchedUser:askedAt:)`). Dropped, unwritten:
+    /// - when the account, demo data or the store's contents changed since `change` (`isCurrent`): a sign-out (another
+    ///   account) while the request was out makes the answer someone else's;
+    /// - when another change of the user was stored since `change` began (the withdrawal, another `PATCH`): the platform
+    ///   may have read the user before that one, a withdrawn consent with it. It's no change of its own then (a `/v1/me`
+    ///   asked after the newer one still counts), and the user is asked again, so what the request changed shows.
     @discardableResult
     func store(user: User, asOf change: UserChange) -> WriteTicket {
-        let s = store
-        guard change.binding.isCurrent(in: env), change.store == s.epoch.store, change.epoch == s.epoch.current else {
+        guard isCurrent(change) else { return .dropped }
+        guard change.began == userChanges else {
+            let since = now
+            Task { [weak self] in try? await self?.refreshUser(mode: .changed(since: since)) }
             return .dropped
         }
-        lastUserChange = now
+        noteUserChange()
+        writtenThroughUser = (change.store, user)
+        forget([.user])
+        return submit(.user(user), at: change.epoch)
+    }
+
+    /// The withdrawal (`DELETE /v1/me/consent` answered), begun at `change`: the user as this phone has it, without the
+    /// consent, written through, so every upload gate closes in this step (ADR 0008). A change of the user of its own:
+    /// an answer begun or asked for before it is dropped (`store(user:asOf:)`, `store(fetchedUser:askedAt:)`). Dropped
+    /// when the account, demo data or the store changed since `change`; with no user cached, nothing is written (the
+    /// consent's own record holds the gate: `ConsentState.withdrew`).
+    @discardableResult
+    func storeConsentWithdrawn(asOf change: UserChange) -> WriteTicket {
+        guard isCurrent(change) else { return .dropped }
+        noteUserChange()
+        guard var user = user() else { return .dropped }
+        user.consent = nil
         writtenThroughUser = (change.store, user)
         forget([.user])
         return submit(.user(user), at: change.epoch)
@@ -707,11 +747,13 @@ final class Repository {
 
     /// A `GET /v1/me` answer, asked for at `askedAt` (its flight's start). Dropped, unwritten, when this phone changed
     /// the user after that (`lastUserChange`): the platform may have read the user before the change, and a withdrawn
-    /// consent would come back with it.
+    /// consent would come back with it. One that's written may end this phone's withdrawal (`ConsentState.heard`).
     @discardableResult
     func store(fetchedUser user: User, askedAt: Date) -> WriteTicket {
         if let changed = lastUserChange, askedAt < changed { return .dropped }
-        return store(user: user)
+        let ticket = store(user: user)
+        env.consent.heard(user, askedAt: askedAt)
+        return ticket
     }
 
     @discardableResult

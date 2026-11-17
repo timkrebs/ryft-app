@@ -357,14 +357,19 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
+    /// Runs before each `GET /v1/me/sync` answers, after it was read (tests hold one open with it).
+    var beforeSyncStatus: (@Sendable () async -> Void)?
+
     func syncStatus() async throws -> SyncStatus {
         try enter("syncStatus")
         let gate = gate
-        return lock.withLock {
+        let status = lock.withLock {
             SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",
                        latest: [:], today: scoringToday, pendingDays: pendingDays, expectedWithinSec: 20,
                        resyncRequestedAt: resyncRequestedAt)
         }
+        await beforeSyncStatus?()
+        return status
     }
 
     func consent(policyVersion: String, appVersion: String?) async throws {
@@ -496,8 +501,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
-        await beforePatchMe?()
-        // On top of the earlier patches, like the platform's stored user.
+        // Applied and answered when the request arrives, as the platform does: on top of the earlier patches, with the
+        // consent as it is then. An answer held on its way back (`beforePatchMe`) is from then.
         let base = lock.withLock { patchedUser }
         let user: User
         if let mock = screens as? MockDataSource {
@@ -506,7 +511,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
             user = try await screens.patchMe(p)
         }
         lock.withLock { patchedUser = user }
-        return withAccount(user)
+        let answer = withAccount(user)
+        await beforePatchMe?()
+        return answer
     }
 
     /// The user after the patches so far (`nil`: none yet).
@@ -515,13 +522,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before each `PATCH /v1/me` answers (tests hold one open with it).
     var beforePatchMe: (@Sendable () async -> Void)?
 
-    /// The scripted access, consent and hint on top of the mock user.
+    /// The scripted access, consent and hint, and the notification settings (`patchNotifications`), on top of the mock
+    /// user.
     private func withAccount(_ user: User) -> User {
         var u = user
         lock.withLock {
             u.betaAccess = betaAccess
             u.consent = accountConsent
             u.accountHint = accountHint
+            u.notifications = prefs
         }
         return u
     }

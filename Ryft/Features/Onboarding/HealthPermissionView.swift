@@ -51,8 +51,8 @@ final class OnboardingCoordinator {
         var policyVersion: String?
         /// `GET /v1/me/sync` → `gate`.
         var serverGate: APIErrorCode?
-        /// Refusals and warn-mode headers since (`APIStatus.gates`), and the gates `ConsentState` keeps the
-        /// platform's refusal of.
+        /// Refusals and warn-mode headers since (`APIStatus.gates`), the gates `ConsentState` keeps the
+        /// platform's refusal of, and this phone's withdrawal of consent (`ConsentState.withdrawnAt`).
         var reported: Set<APIErrorCode> = []
         var birthYear: Int?
         var aboutYouDone = false
@@ -174,7 +174,9 @@ final class OnboardingCoordinator {
         let u = user
         // The refusals kept from before show their steps as a 403 does (an enforced invite is kept, never a warning).
         let refusals = consent.refusals
-        let reported = apiStatus.gates.union(refusals)
+        var reported = apiStatus.gates.union(refusals)
+        // A withdrawal on this phone, whatever the store kept of it (a refused save, a background launch).
+        if consent.withdrawnAt != nil { reported.insert(.consentRequired) }
         return Facts(userKnown: u != nil, betaAccess: u?.betaAccess ?? true, consentVersion: u?.consent?.policyVersion,
                      policyVersion: consent.latestPolicyVersion, serverGate: syncStatus?.gate,
                      reported: reported, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
@@ -378,7 +380,8 @@ final class OnboardingCoordinator {
                 }
                 // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
                 async let config = try? consent.fetchConfig()
-                async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
+                // The same mode: after a withdrawal, a status asked for before it would say no gate.
+                async let status = try? reads.run(ReadKey(.syncStatus), mode: meMode) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz {
@@ -491,13 +494,12 @@ final class OnboardingCoordinator {
             let change = self.state.repository.userChange()
             try await self.api.revokeConsent()
             let revokedAt = self.env.clock.now()
-            // Withdrawn now, whatever the re-check below manages: sync stops at once.
-            if var u = self.user {
-                u.consent = nil
-                // Written through: every upload gate is closed from this step on, before the commit (ADR 0008, 0018),
-                // and a `/v1/me` asked for before now can't bring the consent back.
-                self.state.repository.store(user: u, asOf: change)
-            }
+            // Withdrawn now, whatever the re-check below manages: sync stops at once. Kept outside the store too, so a
+            // save the store refuses, or a launch that never checks, can't open the gate again (`ConsentState`).
+            self.consent.withdrew(at: revokedAt)
+            // Written through: every upload gate is closed from this step on, before the commit (ADR 0008, 0018), and a
+            // `/v1/me` or `PATCH /v1/me` begun before now can't bring the consent back.
+            self.state.repository.storeConsentWithdrawn(asOf: change)
             // Asked again only when the user wants to (Profile → Privacy, Today's action). Not a read already in
             // flight: it may have been answered before the withdrawal.
             self.deferred.insert(.consent)
