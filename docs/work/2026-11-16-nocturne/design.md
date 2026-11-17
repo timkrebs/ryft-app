@@ -1019,3 +1019,434 @@ For the ios-developer:
 - **Q7.** `Wordmark` needs a `tracking` parameter (default 0.32, additive) for the animated launch wordmark.
 - **Q8.** `RyftMarkShape`'s arc and dot path builders become static functions the launch view shares.
 - **Q9.** "28 pt below the mark" is read as below the box (Deviation 8); say if it is below the ring's edge (+8 pt).
+
+## PR 4 — Today and Sleep
+
+Scope: the layout, states, data, accessibility and strings of Today and Sleep in Nocturne; the glow tile's per-kind shape; the
+launch's matched move; the thin-digit switch. Inputs: `plan.md` "PR 4 in detail" (board measurements, L14–L18, criteria 1–6) and
+the PR 2 and PR 3 sections above. Nothing here changes the model, the sync or the API; data the screens need and the app lacks is
+inventoried in §P4-4. Lifecycle of the launch is `launch-design.md`; §P4-7 gives the visuals and the seams it needs.
+
+Conventions. Boards are 390 pt wide; content is **350 pt** (20 pt sides); CSS px = pt. "Ink" is `Theme.textPrimary`. The boards' ink alphas
+map to tokens: **0.62 = `textSecondary`**, **0.55 and 0.45 = `textTertiary` (48 %, PR 1 D-a)**, 0.78 = a glow-tile label
+(§P4-3). Gaps are from the bottom of the element above to the top of the next; a text line is its natural height (the Satoshi
+line box), not a number from the board. Fixed heights (header 40, gauge 260, ruler 36, tiles 124 / 96 / 168 / 88) are exact. The board's 56 pt
+top inset is its status-bar frame, not a layout number: content starts at the safe-area top (deviation D4-1). Layout constants are
+`nonisolated static let`s on `TodayLayout` / `SleepLayout` (P2-D9) so tests assert numbers, not pixels.
+
+### P4-1. Today
+
+Top to bottom (`ScrollView`, content `VStack(spacing: 0)` with the gaps below; `ScreenScaffold(showsHeader: false)`, §P4-12):
+
+| # | Element | Built from | Size and gap |
+|---|---|---|---|
+| 1 | **Header** | `ScreenHeader`: leading `WordmarkLockup(markSize: 26, handOff: true)` (mark 26, gap 10, "RYFT" 15 Light 0.32 em; stroke and dots by `RyftMarkGeometry.metrics(forSide: 26)`); trailing `CircleButton(systemImage: "calendar", iconSize: 16, label "Calendar")` opens My Day on today (`screens.myDay.select(today)`, push). Hidden, not disabled, when `screens.myDay.isEnabled` is false; the row keeps its height | 40 high; the circle's edge on the 20 pt inset (its 44 pt box overflows 2 pt, not clipped) |
+| 2 | **Greeting** | `Text(model.greeting)` `.ryft(.title)` (26 Light), tracking −0.26 pt (−0.01 em), `textPrimary`, leading, header trait, `lineLimit(2)`. Time of day as today (05–12 morning, 12–18 afternoon, else evening). Name: first word of `User.name` (`full_name`), trimmed; none when empty ("Good evening", no comma) | 18 below the header |
+| 3 | **Sub-line** | `Text(verbatim: "\(date) · \(day.sentence)")`, `.ryft(.label)` (13), `textSecondary`, leading, wraps. `date` = `EEEE, MMM d` from `env.clock`. The sentence is `TodayContent.sentence` as today | 4 below the greeting |
+| 4 | **Status row** | `SyncStatusLineView`, leading-aligned (was centred), `.caption` 12, colours and states as today (`syncLine`); visual height is the text's, the tap target 44 (`contentShape(Rectangle().inset(by: -14))`), so it adds one line (≈ 16 pt) to the board (D4-2). It is where today's sync status text lives: "Updated 07:15", "Scoring your night", "Offline — will sync when back", "Showing data from 14:05 · Try again", "Action needed…", "Demo data · …" | 4 below the sub-line |
+| 5 | **Import row** | `ImportRow` (slim, after the first score) when `day.importRow` | 12 below the status row; none otherwise |
+| 6 | **Hero gauge** | `OrbitGauge(mode: day.orbit, size: .hero, caption: Caption(title: "Overall readiness", delta:, showsBand:), showsCaption: false, numeral: heroNumerals.style, accessibilityNote:, identifier:, entrance:)`. `OrbitGaugeSize.hero = .custom(dial: 248)`: frame 260 (L14). Centred; never clipped (the halo reaches 3 pt past the frame). Same size in every hero state so nothing jumps: scored, pending, calibrating, empty | 14 below row 4 (or 5). The caption is drawn by row 7, not the gauge; `caption` stays so the sentence still carries the band and the change |
+| 7 | **Label row** | `HStack(spacing: 10)`, centred, 13 pt: `Text("Readiness · \(band)")` `textSecondary`; `DeltaLabel(spec: .readiness, delta: day.readinessDelta, reference: "vs 7 d", font: .ryft(.label), referenceColor: <delta colour>)` ("▲ +11 vs 7 d", teal up, `alert` down). No band while a calibration note owns the line (`showsReadinessBand` false): "Readiness" alone. At AX the two stack, centred. Hidden from VoiceOver (the gauge says it) | 8 below the gauge |
+| 8 | **Gauge note** | `noteBlock(day.gaugeNote)` as today (`GaugeNote`, its link), centred | 8 below row 7; none without a note |
+| 9 | **Ruler** | `RulerScale(range: 0...100, value: day.readiness, zone: RulerScale.zone(lo: 67, hi: 100), zoneStyle: .standard, tickCount: Ticks.today, labels: ["0", "low", "moderate", "high", "100"], size: .regular)`. Full 350 pt. The band is the high one (`MetricSpec.scoreBand`: ≥ 67), always marked, not "the current band". No zone and labels `["0", "100"]` while `showsReadinessBand` is false (a borrowed number is not placed in a band). No needle without a readiness | 12 below row 7 (or 8); 36 high plus the labels |
+| 10 | **Attention cards** | `RawNightCard`, `WatchSyncHintCard` (pending night only), on `Card` (surface), full width | 12 below the ruler, 12 apart |
+| 11 | **Two glow tiles** | `HStack(spacing: 12)`, 169 × 124 each, `GlowTile(…, kind: .twoUp)` (radius 24). **Recovery** (teal): row 1 "Recovery" leading, `Sparkline` trailing; row 2 (bottom-left, 16 / 12): "82" `.numberLarge` + "%" label; trailing caption (§ below). **Sleep** (violet): row 1 "Sleep" leading, `DotRow` of 7 nights trailing (66 × 6); row 2 "7:48" `.numberLarge` + "h". Each tile is one button (Recovery → Insights, Sleep → Sleep). The same day for both and for Strain (`tilesDimmed` day or "calibrating" shows as the caption, not as dimmed ink) | 22 below the ruler (12 below row 10 if present) |
+| 12 | **Strain glow tile** | `GlowTile(Theme.metricStrain, kind: .strain)`, 350 × 96 (radius 24). Row: "Strain" label leading; "12.4" `ryftNumber(size: 30)` Light, pushed right; "of 21 · moderate" label (6 after the value). Below, 16 in from the sides and 12 above the bottom: compact `RulerScale(range: 0...21, value: strain, zone: RulerScale.zone(lo: 10, hi: 14), zoneStyle: .strain, tickCount: Ticks.strainCompact, labels: [], size: .compact)`. One button → Strain | 12 below row 11 |
+| 13 | **Cards below** | In today's order, on `surface` cards, 12 apart: `HealthAccessHint`, `PushPrePromptCard`, **My Day**, `JournalCard`, `TonightCard`, `TrainTodayCard`, Trends (7-day readiness chart), then `status` (the error cards, last: it is the "Details" scroll target) | 24 below row 12 (`sectionSpacing`, derived) |
+
+The recovery tile's trailing caption is `day.recoveryCaption` (band word "High", the day "Yesterday", or "calibrating"); the Sleep tile's
+and the Strain tile's day / "calibrating" caption is `day.tileCaption` (Strain puts it in its label: "Strain · Yesterday"). All 13 pt, glow
+label style. The 2-up tile's two rows are placed derived-not-measured as: row 1 baseline-aligned with the label, series right-aligned at the
+16 pt inset (the board names the content, not the place). At AX1 and up the pair stacks (`VStack(spacing: 12)`), rows stack inside a tile
+(label, series, value), tiles grow (minHeight 124 / 96 stay), the strain row stacks (label, value and "of 21 · …", ruler).
+
+`Sparkline(values: [Double?], size 58 × 20)`: 7 points (the last 7 days' `DailyScore.hrvMs`, oldest first, the last is the tile's day), x at `i/6 × 58`,
+y from the series' min to max inside a 2 pt inset (flat at mid height when min = max), straight segments, 1.3 pt `textPrimary` at 80 %, round caps and
+joins; a missing day breaks the line (no interpolation), a lone point draws only its dot. The end dot is Volt r 3 with a 1.5 pt cleared ring (as the
+gauge's dots), drawn only when the last point has a value (L17: it is the "today" mark of a series). Under two values: **pending look**, a flat
+1 pt `textPrimary` 22 % line across, no dot. VoiceOver: hidden, the tile says it.
+
+What Today has that the board does not, and where it goes (nothing is dropped except the first row, for the lead):
+
+| Today now | In Nocturne |
+|---|---|
+| `MiniHypnogram` card behind `today.redesign` (default off) | **Proposed drop** (Q3): Sleep's tile and the Sleep tab show the night. The flag stays in `Seams`, unused |
+| `ImportCard` (first import, replaces the gauge), `ImportRow`, `SetupCard`, `RawNightCard`, `WatchSyncHintCard`, `HealthAccessHint`, `PushPrePromptCard`, `RefreshIssueCard` / `InlineMessage` (`status`) | Kept, same rules, restyled by `Card` (22 pt, surface); positions in the table above |
+| Sync status line, "Offline", "stale", "gated", "demo" | Row 4; the gate's `InlineMessage` stays last |
+| Three `MetricTile`s with tint, icon, band caption, dimmed ink | Two glow tiles + the strain tile; icons gone (colour is the legend); dimming becomes the caption |
+| Gauge caption ("Overall readiness", band, delta) | Row 7 (visible), the gauge's sentence (spoken) |
+| Trends card, My Day, Journal, Tonight, Train card | Below the glow block (row 13) |
+| Coach marks (`.gauges`, `.physiology`, `.trends`) | Targets move with the views: gauge + label + ruler, the tiles block, the Trends card |
+| Pull to refresh, journal / calibration / sync-details sheets, `-RyftOpenMyDay` | Unchanged |
+| Tab bar, `RyftHeader` on the other tabs | Unchanged until PR 5 |
+
+### P4-2. Sleep
+
+`ScreenScaffold(showsHeader: false)`. Day mode is the board; Week, Month and Bedtime keep their content. All sizes below are for Day mode.
+
+| # | Element | Built from | Size and gap |
+|---|---|---|---|
+| 1 | **Header** | `ScreenHeader`: `CircleButton("chevron.left", "Previous night")` · centre: "Sleep" `.ryft(.callout)` (15), header trait, and 2 below, "Last night · Sun, Nov 15" `.caption` (12) `textTertiary` (+ `DayMarker`, as today) · `CircleButton("chevron.right", "Next night")`. Chevrons 14 pt. Week / Month: the buttons stay in the layout, hidden and disabled; the subtitle is "Last 7 nights" / "Last 30 nights"; Bedtime: "Tonight" | 40 high |
+| 2 | **Mode picker** | `SegmentedPicker` Day · Week · Month · Bedtime, as today (restyled in PR 5) | 12 below the header, 36 high. **Shifts everything below by 48 pt** against the board (D4-3, Q1) |
+| 3 | **Numeral** | `DotNumeral(clock(totalMin), glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00", accessibilityLabel: "7 hours 48 minutes asleep")`; `style` from the hero-numbers preference; 125 × 47; centred | 22 below row 2 (the board's: below the header) |
+| 4 | **Caption** | `Text("Asleep · 94 % of your need")` 13 `textSecondary`, centred, wraps; "Asleep" alone without `sleepPerformance`; a nap chip (as today, `Label` on `surfaceRaised`) moves to the Details card | 12 below the numeral |
+| 5 | **Ruler** | `RulerScale(range: 0...10, value: totalMin/60, zone: RulerScale.zone(lo: 0.9·need/60, hi: need/60), zoneStyle: .sleep, tickCount: Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"], size: .regular)`; the zone is the last 10 % below the need (the board's 7.5–8.3 h for 8:18; D4-6); no zone or middle label without a need | 14 below the caption, 36 high plus labels |
+| 6 | **Hypnogram tile** | `GlowTile(Theme.metricSleep, kind: .hypnogram)`, 350 × 168 (radius 28); §P4-2a | 20 below the ruler |
+| 7 | **2 × 2 neutral tiles** | `LazyVGrid` of two flexible columns, gap 12; each 169 × 88, `surface`, radius 22 (`neutralTileRadius`), padding 14 / 16: label 13 `textSecondary`, value `.metric` (26 Light) + unit 12 `textTertiary`, bottom-left at 16 / 12. **Consistency** "86" + "%" and a 7-night `DotRow` bottom-right (full = that night's consistency ≥ 60, the platform's own threshold; `.noData` for a night without one; last = the night shown). **Sleep debt** "0:30" + "h", and "▼ 0:42" 12 pt in the sleep colour (debt against the night before; "None" with no unit at 0; ▲ in `textSecondary` when it grew; a high debt, > 45 min as today, adds "· high" in `warning`). **Efficiency** "95" + "%". **Restorative** "3:20" + "h", "Deep + REM" 12 `textTertiary` (deep + REM minutes from `stages`; the platform's `restorative` score is in the spoken value). Not buttons | 12 below the hypnogram tile |
+| 8 | **Need card** | `Card { SleepNeedBar }` → `SleepNeedSheet`, as today (`sleep.need`) | 12 below the tiles |
+| 9 | **Stages card** | `StageRow` ×4 (minutes and shares) on a `Card`; the proportional `StageBar` is dropped (Q3) | 12 below |
+| 10 | **Details card** | Nap chip + "A nap lowers tonight's sleep need.", Quality ("91 · Good" with `ProgressBar`) and its "Quality is 60 % …" footnote, Bedtime, Wake time, planned vs actual, Time in bed, Sleep need (when no breakdown), Actual (+ "% of need"). The rows that repeat a tile (Efficiency, Sleep debt) go | 12 below |
+
+States of the content below the header live in §P4-5. The nap chip stays out of the board's column so a night with a nap has the board's geometry.
+
+**P4-2a. The hypnogram tile** (`HypnogramPlot`, a new `Design/` view; the Charts-based `Hypnogram` stays for the catalog):
+
+| Part | Spec |
+|---|---|
+| Header row | "Hypnogram" 13, label style, leading; "22:50 – 07:00" 12, label style, trailing (`sleep.start` – `sleep.end` in the screen's locale; "–" ends without `end`) |
+| Body | 10 below the header: a **38 pt column** of stage names top to bottom "Awake, REM, Light, Deep", `.axis` (11), label style, each centred on its grid line; then the plot |
+| Plot | 90 high, the rest of the width. Four grid lines (ink 8 %, 1 pt) at y = 4, 31.33, 58.67, 86: Awake, REM, Light, Deep (`asleep` = unknown stage plots on Light). X = time linearly from `start` to `end`, no tick labels (the range is in the header) |
+| Step line | One path per night: for each segment (oldest first, clamped to the night) a horizontal run at its level, a vertical join at each change; 1.4 pt, ink 85 %, round joins, no smoothing. A gap between segments breaks the path |
+| Deep bars | For each Deep segment a bar on the Deep line: 8 high, radius 4, `metricSleep`, at least 3 pt wide |
+| Totals | 8 below the plot, 12 pt, label style, four items spread edge to edge: "Deep 1:35", "REM 1:45", "Light 4:28", "Awake 0:22" (stage minutes from `stages`, `h:mm`). A stage with no minutes reads "–" |
+| AX1+ | Column = the widest stage name (measured); plot height = max(90, 4 × the name's line height); totals wrap to a 2 × 2 grid; the header stacks |
+| VoiceOver | One element, "Hypnogram, 10:50 PM to 7:00 AM", value "Deep 1 hour 35 minutes, REM 1 hour 45 minutes, light 4 hours 28 minutes, awake 22 minutes" |
+| No segments, stages known | Tile with the header and the totals only (96 high) and "The timeline isn't available for this night." |
+| No stages | Tile keeps the header and says "Your watch didn't record sleep stages for this night — only the total." (existing string); no plot, no totals |
+
+### P4-3. The glow, per kind
+
+The board's three ellipses differ, and the 2-up one is much brighter at the corners (about 72 % metric colour; the PR 2 spec took the dark end of every range, P2-D1, which the user superseded on 2026-11-16). `GlowTileSpec` changes from one ellipse to one per kind:
+
+```swift
+enum GlowTileSpec.Kind { case twoUp, strain, hypnogram, panel }
+//            ellipse (rx, ry, cy)      stops (background opacity at t)               radius  minHeight
+// twoUp      0.85, 0.80, 0.50          .97 @0, .92 @.30, .55 @.65, .10 @1            24      124
+// strain     0.90, 1.10, 0.55          .97 @0, .92 @.32, .55 @.66, .10 @1            24       96
+// hypnogram  0.90, 0.95, 0.55          .97 @0, .92 @.34, .55 @.68, .10 @1            28      168
+// panel      0.90, 1.10, 0.55          .97 @0, .92 @.34, .55 @.68, .10 @1            28      172   (PR 2's single ellipse; Insights "An idea", PR 5)
+static func shape(for kind: Kind, size: CGSize) -> Shape   // pure; twoUp falls back to panel's ellipse and stops when size.width > 200 or size.height > 160
+GlowTile.init(_ metric: Color, kind: Kind, minHeight: CGFloat? = nil, reduceTransparency: Bool? = nil, content:)
+// the PR 2 init(_:radius:) stays as a shim for the catalog: .tile → panel at 24, .hero → panel at 28
+static func labelOpacity(metric: Color, typeSize: DynamicTypeSize) -> Double   // 1.0 for Theme.recovery at every size; 0.78 otherwise below AX1; 1.0 from AX1
+```
+
+`GlowTile` publishes the label opacity through a new environment value (`glowLabelOpacity`); `ryftGlowLabelStyle()` and the compact ruler's labels read it, so a view inside a recovery tile cannot forget. **Inside a glow tile there are only two inks: `textPrimary` (numerals, the primary text) and the label opacity (every other word, unit, caption, axis label and time); the board's 0.62 and 0.55 do not exist there** (they fail, below). Graphics: sparkline ink 80 %, step line ink 85 %, grid ink 8 % (decoration), `DotRow` and the ruler as built, Volt for the marks.
+The twoUp fallback: a wide or tall 2-up (AX single column, 350 pt) would otherwise put the corners under 4.5:1 even in full ink (350 × 124 recovery: 4.41); it takes the PR 2 ellipse, which passes there (6.63).
+
+**Contrast in the core.** WCAG 2.x, sRGB composite of `Theme.background` over the metric colour by `overlayOpacity(t)`, text composited over that pixel. "Text rect" is the padded rect the text sits in (16 sides, 14 top, 12 bottom: the value row is 12 up), worst pixel on a 40 × 40 grid (computed with a small script; test 10 reproduces it).
+
+| Tile (default size) | Ellipse, worst `t` | `textPrimary` | Label as specified | Board's 0.78 / 0.62 / 0.55 | Needs |
+|---|---|---|---|---|---|
+| Recovery 2-up 169 × 124 | 85 × 80, 0.694 at (16, 112) | 5.07 | **100 % → 5.07** | 3.78 / 2.99 / 2.69 | 4.5 |
+| Sleep 2-up 169 × 124 | same | 6.86 | **78 % → 4.92** | — / 3.75 / 3.30 | 4.5 |
+| Strain 350 × 96 | 90 × 110, 0.624 at (16, 14) | 9.09 | **78 % → 6.25** | — / 4.60 / 3.97 | 4.5 |
+| Hypnogram 350 × 168 | 90 × 95, 0.704 at (16, 14) | 7.21 | **78 % → 5.13** | — / 3.89 / 3.42 | 4.5 |
+
+Other widths with the label rule: 2-up at 161 × 124 (SE) 5.14 recovery / 4.96 sleep, at 194 × 124 (Pro Max) 4.90 / 4.80, at 169 × 160 4.73 / 4.68; strain 335…400 wide 6.28…6.19; hypnogram 335…400 wide 5.15…5.07. The lowest alpha that reaches 4.5 in the same rect: recovery 2-up 91 %, sleep 2-up 73 %, strain 61 %, hypnogram 70 %. The board's 0.62 and 0.55 pass only in the strain tile (0.62 → 4.60, 0.10 of margin); everywhere else they fail, so the rule above replaces them (D4-4).
+**AX3** (labels and numerals at 100 %, single column 350 wide, the panel ellipse for the 2-up): recovery 350 × 124…300: 6.63…5.89; sleep 8.51…7.74; strain 350 × 150…300: 8.52…7.93; hypnogram 350 × 260…420: 6.73…6.41. All ≥ 4.5.
+Graphics (≥ 3:1, same rects): sparkline ink 80 % over the recovery top-right corner 4.06; Volt there 5.27 (sleep 7.06); `DotRow` missed outline (ink 50 %) in the sleep tile's top-right corner 3.09 (**margin 0.09**: nothing may lower `DotRow.outlineOpacity`); step line ink 85 % in the hypnogram plot 7.29; Deep bars `metricSleep` 4.09 on the Deep line (3.68 anywhere in the plot); the compact ruler's zone ticks (ink 60 %) 4.69, its Volt needle 9.79. Neutral tiles: `textSecondary` 6.78, `textTertiary` 4.54 on `surface`; the debt delta (`metricSleep`) 6.38.
+**Reduce Transparency** (flat `surface`, 2 pt metric border): ink 16.24, label 78 % 10.13, `textSecondary` 6.78, sparkline 12.7, deep bars 6.38.
+
+### P4-4. Data inventory (L18)
+
+"Exists" means a view-model property or a cached API field today; every row below was checked against `Models.swift` and `API.md`. Nothing is invented on a device: a missing value is a pending look, never a number.
+
+| # | Board element | Source today | Status | When it is absent (look) |
+|---|---|---|---|---|
+| T1 | Greeting word | `ReadinessCopy.greeting(at:)` | exists | — |
+| T2 | First name | `AppState.user?.name` (`user_metadata.full_name`), first word; needs a new `TodayViewModel.firstName` | **partly**: empty for some Apple sign-ins | "Good evening" without name or comma. **R-N2** |
+| T3 | Date in the sub-line | `env.clock.now()` | exists | — |
+| T4 | Sentence, sync line | `TodayContent.sentence`, `syncLine` | exists | — |
+| T5 | Gauge values, numeral | `day.orbit` | exists | PR 3's states |
+| T6 | "Readiness · High" | `MetricSpec.scoreBand` | exists | band word dropped while `showsReadinessBand` is false |
+| T7 | "▲ +11 vs 7 d" | `day.readinessDelta` (`GET /v1/trends` readiness 7d, `readinessWeek`) | exists | nothing renders (no "—") |
+| T8 | Ruler: value, zone ≥ 67 | `day.readiness`, `scoreBand` thresholds | exists | no needle; no zone when the band is withheld |
+| T9 | Recovery value, caption | `day.recovery`, `recoveryCaption` | exists | "–" and "calibrating" |
+| T10 | HRV sparkline | `DailyScore.hrvMs` of the last 7 days, `AppState.history` (90 days cached); needs a new `TodayViewModel.hrvWeek: [Double?]` | exists in the cache | gaps break the line; under two values the flat pending line, no Volt dot |
+| T11 | Sleep value | `day.sleepText` → `Fmt.clock(minutes:)` (new, "7:48") | exists | "–" |
+| T12 | 7 nights of dots | `history[].sleepActualMin` against `sleepNeedMin`: full = slept at least the need; derived, no new score. New `TodayViewModel.sleepNights: [DotRow.Mark]` | exists, **rule is the app's** (Q5) | `.noData` mark for a night without both numbers |
+| T13 | Strain value | `day.strainText` | exists | "–" |
+| T14 | Strain word and zone 10–14 | `MetricSpec.strainBand` (thresholds 10 / 14 / 18) | **partly**: the moderate band, not a personal target | the zone is labelled by the band word, never "target". **R-N1** |
+| T15 | Cards below | existing models | exists | — |
+| S1 | Night title, date | `SleepViewModel.date`, `isToday`, `subtitle` | exists | — |
+| S2 | Previous disabled at the oldest night | new `SleepViewModel.oldestNight` = first `history` day with `sleepActualMin`, else today − 89 | exists | chevron 35 %, "Previous night" dimmed |
+| S3 | Duration | `sleep.totalMin` | exists | `DotNumeral(nil)`, unlit "0:00" |
+| S4 | "94 % of your need" | `score.sleepPerformance` | exists | "Asleep" alone |
+| S5 | Need, zone | `score.sleepNeedMin ?? sleep.need?.total`; zone = 90–100 % of it (display choice, Q6) | exists | no zone, no middle label |
+| S6 | Hypnogram | `sleep.segments` (`GET /v1/days/{day}` only, so an uncached night loads on the step) | exists | §P4-2a states |
+| S7 | Time range | `sleep.start`, `sleep.end` | exists | "–" |
+| S8 | Phase totals | `sleep.stages[].min` | exists | "–" per stage |
+| S9 | Consistency | `score.sleepConsistency` (needs 5 nights) | exists | "–" |
+| S10 | Consistency dots | `history[].sleepConsistency` per night, full ≥ 60 (`sleep-consistency-low` fires below 60) | exists | `.noData` |
+| S11 | Debt and its delta | `score.sleepDebtMin`; delta = debt minus the night before's (`AppState.score(for: date − 1)`) | exists (difference of two server values) | no delta without both |
+| S12 | Efficiency | `sleep.efficiencyPercent` | exists | "–" |
+| S13 | Restorative "3:20 h" | deep + REM from `sleep.stages` (the board's value is a duration, the API's `restorative` is a 0–100 score) | exists | "–"; the score is spoken |
+
+**Missing, with placeholders and requests.** The placeholder is `MockData` (previews, demo) plus the pending look; the phone shows nothing for them on a real account until the platform answers.
+
+| Id | Missing | Placeholder | One-line `API_REQUESTS.md` entry |
+|---|---|---|---|
+| R-N1 | A personal strain target (the board's "target 10–14", and `OrbitGaugeValues.strainBand`) | Today's zone is the fixed moderate band from `MetricSpec`; `MockData` has no target | `DailyScore.strain_target_min` / `strain_target_max` (number?, the day's recommended strain range, null before the baselines exist): Today's compact ruler and Strain's ruler zone, and the gauge's band rail, are the target, not the app's fixed band. |
+| R-N2 | An editable display name | Greeting without a name; `MockData.user.name` for previews | `PATCH /v1/me` `name` (string, ≤ 40): Sign in with Apple may deliver no name, so Today's "Good evening, ‹first name›" falls back to nothing; Profile (PR 5) edits it. |
+| R-N3 (optional) | A nightly "slept enough" fact for the 7-night dots | derived: `sleepActualMin ≥ sleepNeedMin` | `DailyScore.sleep_need_met` (bool?, `sleep_actual_min ≥ sleep_need_min`): only if the platform wants the rule on its side; Today's Sleep tile and Sleep's dots would read it instead of comparing two numbers. |
+
+MockData must give the previews the board's night (T4.0): asleep 468, awake 22, deep 95, REM 105, light 268, latency 0 (22:50 – 07:00), efficiency 95, a nap credit of 40 so the need is 498 and the performance 94, debt 30 today and 72 the night before (the ▼ 0:42), consistency 86, plus a `hrv_ms` series and a mix of met / missed / no-data nights in the last seven. Readiness 84 with the week 72, 66, 75, 70, 79, 76 already gives "+11 vs 7 d".
+
+### P4-5. States
+
+Every state keeps its reason and its one action; none is a blank screen or a spinner. Pending is an outline: the unlit numeral grid, tracks, ticks without a needle, outline tiles.
+
+**Today.** "Gauge" is PR 3's state; the other rows are the new layout's.
+
+| State | Trigger | Look |
+|---|---|---|
+| Scored | `hero == .score`, row A | The table in §P4-1. |
+| Pending night, with a previous day | `hero == .pending`, `previousReadiness != nil` | Gauge pending (dimmed, breathing); row 7 becomes the centred pending block: "Last scored: Yesterday" (caption, `textTertiary`), "Scoring your night…" (`.label`, `textPrimary`), the detail (`.caption`, `textSecondary`); the ruler has ticks, zone and labels but **no needle**; tiles show the latest scored day with the day as caption; `RawNightCard` under the ruler. Slow scoring: the gauge stops breathing, the title is "Still scoring your night" |
+| Pending, nothing scored | `waitingForSleep`, no previous | Unlit grid; same block; tiles hidden (`showsTiles` false); `WatchSyncHintCard` if the night is late |
+| Calibrating | `hero == .calibrating` | Gauge segments + "3 / 7"; row 7 is "Baselines" (no band, no delta); note and link in row 8; ruler without needle and zone, labels "0 · 100"; tiles after `showsTiles`, with "calibrating" captions and Recovery "–" where withheld |
+| Calibrating, with a readiness | `.learning` note (S2), `.blocked` (N1) | Gauge scored; "Readiness" alone; the needle at the value, **no zone**; note in row 8 |
+| Recalculating | row D, earlier day | Scored layout with the earlier day's values; the sub-line says the date; tile captions show the day; note "Recalculating your baselines" in row 8 |
+| First import | `hero == .importing` | `ImportCard` replaces rows 6–9 and the tiles; header, greeting and status row stay |
+| No scores yet | row E, `.firstImport` presentation | Empty gauge (hollow dots, unlit grid), "Readiness", ruler without needle, tiles hidden, sentence "Your scores appear after the first synced night." |
+| Not set up | `!hasDataSource` | Header, greeting ("Let's get you set up."), `SetupCard`; no gauge |
+| Offline | `!online` | Status row "Offline — will sync when back"; the last loaded values stay in full ink; no banner |
+| Stale / error | `SyncLine.stale`, `RefreshIssueCard` | Status row "Showing data from 14:05 · Try again"; the card last, scrolled to by "Details" |
+| Gated / invite | `.actionNeeded` | Status row is a button (icon + words, opens the step) and the `InlineMessage` last, as today |
+| Demo | `isDemo` | "Demo data · Updated …" in the status row; the launch plays |
+| Background refresh | `isRefreshing`, `.updating` | Status row "Updating…" with the pulse (off under Reduce Motion); values stay; a new score lands as the gauge's own animation |
+| Thin digits | `heroNumerals == .thin` | Gauge `numeral: .light` (52 pt Light); nothing else changes |
+
+**Sleep.**
+
+| State | Trigger | Look |
+|---|---|---|
+| Scored night | `sleep` and `score` | The table in §P4-2 |
+| Latest night | `isToday` | Subtitle "Last night · …"; Next disabled (35 %, label unchanged, hint "No newer night to show") |
+| Oldest night | `date ≤ oldestNight` | Previous disabled the same way (hint "No older night to show") |
+| An older night | stepped back | Subtitle "Sat, Nov 14" or "Yesterday · Sat, Nov 14"; the numeral cross-fades (250 ms; none under Reduce Motion) |
+| Loading, nothing cached | `isLoading && sleep == nil` | Unlit "0:00", ruler ticks without a needle, hypnogram and four tiles as `surface` outlines (1 pt `separator`), values "–"; VoiceOver "Loading this night"; no spinner |
+| Load error | `model.error` | As loading, plus the app's calm sentence (`SleepLoadFailure`, never `localizedDescription`) in the hypnogram tile's place, with Details (request ID) and Today's action: "Sign in" when signed out, none when the app is too old, "Try again" otherwise (review rows 14, R2) |
+| No sleep recorded / missing night | a scored day without `sleep` | Unlit numeral, caption "No sleep recorded for this night.", ruler without needle, tiles "–", hypnogram slot an outline tile; `HealthAccessHint` if there is no Health data at all |
+| Pending score | `scoring_state` `pending` (`sleep: null` from the API) | With Apple Health's raw night: numeral and ruler from it, caption "From Apple Health · not scored yet" (D4-15), outline hypnogram, tiles that need a score "–". Without one: "Your night is being scored." The marker dot is an outline, as today (review row 1) |
+| Waiting for the night | `waiting_for_sleep`, or `stale` for today without a night | "Last night hasn't reached RYFT yet.", as Today says it; no raw night, outline hypnogram, tiles "–". `stale` with a night keeps its score (R2-F1) |
+| Partial: no stages | `!hasStages` | Hypnogram tile with the explanatory line; Restorative "–"; Stages card hidden; the rest as scored |
+| Partial: no timeline | `segments.isEmpty`, stages known | Tile with totals only |
+| Partial: no need | `sleepNeedMin` nil | Ruler without zone or middle label; caption "Asleep"; Need card hidden |
+| Week / Month / Bedtime | `mode` | Their content as today under the header and picker (restyled in place by PR 5); header buttons hidden |
+| Demo | `isDemo` | The board's night (T4.0 fixtures) |
+
+### P4-6. The thin-digit switch (L16)
+
+**Recommendation: Profile → Settings, a "Hero numbers" row with two options, "Dots" (default) and "Thin".** The preference is set once; Today's board has no place for a control; a hidden gesture would not be found. Storage: `Settings.heroNumerals: HeroNumerals` (`enum: String { dots, thin }`), key **`ui.heroNumerals`** in `UserDefaults` (a device preference, kept on log-out, like `train.sessionLayout`); `HeroNumerals.style` maps to `DotNumeral.Style` (`.dots`, `.light`). Until PR 5 reworks Profile, the row sits in a new "Display" section above "About" with `SettingRow`'s look and a two-way `Picker` (menu) inside; footer "Large numbers on Today, Sleep and Strain." Effects: Today `OrbitGauge(numeral:)`; Sleep `DotNumeral(style:)`; Strain (PR 5) the same; the PR 3 rule still falls back to Light at AX1 and above and for characters the grid lacks, so "Dots" never produces unreadable text. A change applies at once (the screens read the observable `Settings`).
+**Alternative:** a control on Today (a "Dots · Thin" toggle on a long press of the gauge, or a row at the end of the page). It is the brief's wording ("Today hat einen Schalter") but it adds an element to a measured screen or hides it; if the lead prefers it, the storage and effects stay as above and only the control moves.
+
+### P4-7. The launch's matched move (L15)
+
+What the eye sees: the mark and "RYFT" of the final launch frame (`ink`, mark 184 pt, wordmark 22 pt under it) lift off the background and travel, shrinking, into the header's lock-up (mark 26 pt, wordmark 15 pt to its right), while the background and the tagline fade and Today appears around them. It lands; then the gauge builds. Only when all of these hold (`launch-design.md` §7.5): `.full` variant, a `.mark` target registered by Today's header, and `progress(at: handOffStart) ≥ 0.86` (the mark has formed). Reduce Motion, VoiceOver, Low Power, an early skip, another root, a missing target: PR 3's cross-fade, unchanged. The header's lock-up is then visible at once.
+
+| Quantity | Spec |
+|---|---|
+| Mark rect | from `LaunchStage.markRect(in:)` (390 × 844: 103, 290, 184 × 184) to the header mark, registered in the `.launch` space by `launchHandOffTarget(.mark)` (20, 7, 26 × 26: below the safe area) and converted to the overlay's space by adding the safe-area insets (as-built note: (20, 66) under a 59 pt inset). `LaunchFrame.rect(from:to:progress:) = ` the four components lerped; the centre moves on a straight line |
+| Wordmark | ink-box centre and size lerped: from (W/2, box bottom + 28 + half the line) at 22 pt to (target mid-x, target mid-y) at 15 pt. Tracking is 0.32 em at both ends, so it follows the size and is **not** animated (the launch's 0.9 → 0.32 em is finished by 0.86); the trailing-tracking pull-back scales with the size |
+| Easing | Mark: **E1** `cubic-bezier(.45, 0, .15, 1)` on `τ = clamp(elapsed / D)`; wordmark: E1 on `clamp((τ − 0.15) / 0.85)` (it starts 15 % later: without the delay the wordmark's top meets the mark's ring at τ ≈ 0.52, −5.4 pt of clearance; with it the clearance never falls under +7.3 pt) |
+| Duration D | **0.50 s** at the natural end (was the 0.4 s fade); the quick hand-off after a tap at ≥ 86 % keeps 0.25 s. Background and tagline: `1 − easeOut(clamp(elapsed / 0.25))`, so Today is visible from 0.25 s while the lock-up still travels. This is a brand moment, the launch's exception to the 250 ms rule (P3-4 motion rule); Q7 |
+| Mark stroke and dots | **Not interpolated.** The frame is `LaunchFrame(t: 1, palette:, side: current side)` each frame and `RyftMarkGeometry.metrics(forSide:)` gives the rest: stroke = max(3.16 % of the side, 1.25 pt), dot r = 6 % of the side × √k, so the gaps in the rings follow. Points: side 184 → stroke 5.81, dot 11.04, gaps 14.02° / 24.22°; 80 → 2.53, 4.80; 40 → 1.26, 2.40; 26 → 1.25, 1.92, gaps 17.92° / 31.05°. At the end it **is** `RyftMark()` at 26 pt (within 2/255), so the swap to the real header mark is invisible. The board's "stroke 5.2, dots 7.7 in the 100 box" are the 24 pt values (4.81 and 7.40 at 26 pt, 0.1 pt of difference; D4-7) |
+| Landing | At `elapsed = D` the model is `done`: the overlay goes, the header lock-up (hidden at opacity 0 while the mark moved) is at 1; identical pixels. VoiceOver focus: the existing `ScreenChanged` at hand-off start lands on the lock-up (an opacity-0 view is still in the tree) |
+| Gauge entrance | Starts when the lock-up has landed (L15). `launchCoversRoot` splits: `coversRoot` (taps, VoiceOver) ends at hand-off start as today; new `launchRevealsRoot` ends at `done` when the mark moves (else with `coversRoot`) and is what the gauge and its consumer read. During the move the gauge's slot is an empty 260 × 260 frame; at landing the consumer rebuilds, and the entrance plays (850 ms; the Reduce Motion path as before). The rest of Today is visible from the first frame of the hand-off |
+| Reduce Motion | No move: PR 3's 250 ms cross-fade; the entrance's reduced path |
+
+Needs from the lifecycle (to the lead, Q7): `Timing.full.handOff` 0.4 → 0.5 s when the mark moves; `LaunchSequenceModel.movesMark` decided at hand-off start; `targets: [LaunchHandOffRole: CGRect]` and `register(_:_:)` (§7.5); `launchRevealsRoot`; `LaunchStage` takes a wordmark placement beside `markRect`; `LaunchSequence.moveProgress(at:)` (linear time, then E1) beside `handOff(at:)`; `WordmarkLockup(handOff:)` applies `launchHandOffTarget(.mark / .wordmark)` and hides itself while `movesMark` and the phase is `handingOff`. Only Today's header sets `handOff: true`.
+
+### P4-8. Accessibility
+
+**Today, reading order** (top to bottom, one element each unless said):
+
+| # | Element | Label / value / hint |
+|---|---|---|
+| 1 | Lock-up | "RYFT", header trait (`WordmarkLockup`) |
+| 2 | Calendar | button "Calendar", hint "Opens My Day" |
+| 3 | Greeting + sub-line (combined) | "Good evening, ‹first name›. Sunday, November 15. Your health is in balance." Header trait |
+| 4 | Status row | the line's button(s) as today; a container |
+| 5 | Gauge | label "Overall readiness", value = PR 3's sentence ("84, High, Up 11 vs 7 d. Recovery 82 percent, Sleep 94 percent, Strain 12.4 of 21"), then the note. The visible label row is hidden from VoiceOver |
+| 6 | Ruler | label "Readiness scale", value "84, high, on a scale from 0 to 100"; calibrating: "84, on a scale from 0 to 100"; no value: "No readiness yet, on a scale from 0 to 100" |
+| 7 | Attention cards | as today |
+| 8 | Recovery tile | button; label "Recovery", value "82 percent, High. HRV 66 milliseconds, lowest 51 and highest 66 over the last 7 days"; dimmed day: "…, Yesterday, not today's score"; hint "Opens Insights". The sparkline is inside the element and hidden |
+| 9 | Sleep tile | button; label "Sleep", value "7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last is the night shown"; hint "Opens Sleep" |
+| 10 | Strain tile | button; label "Strain", value "12.4 of 21, moderate. The moderate range is 10 to 14"; hint "Opens Strain" |
+| 11 | Cards below | in their order; My Day's title is a header + button as today |
+
+Sleep: "Previous night" (button, dimmed and "No older night to show" at the end) · "Sleep" (header; value "Last night, Sunday, November 15", plus "not scored yet" from `DayMarker`) · "Next night" · the picker · the numeral ("7 hours 48 minutes asleep") · the caption ("94 percent of your need") · the ruler ("Sleep duration scale", "7 hours 48 minutes, on a scale from 0 to 10 hours. Your need is 8 hours 18 minutes") · the hypnogram (one element, §P4-2a) · Consistency, Sleep debt, Efficiency, Restorative (each one element: "Sleep debt, 30 minutes, down 42 minutes from the night before"; "Restorative, 3 hours 20 minutes of deep and REM sleep, 100 percent of the target"; "Consistency, 86 percent. 5 of the last 7 nights were regular, 1 was not, 1 has no data; the last is the night shown") · the cards. A step re-reads the new night: post `AccessibilityNotification.Announcement` with the subtitle and the duration after the load. Colour never carries state: Volt is a position (last mark), teal / `alert` arrows come with ▲ ▼ and the spoken "up / down".
+
+**Dynamic Type (AX3 = `.accessibility3`).**
+
+| Element | Behaviour |
+|---|---|
+| Header, gauge, ruler ticks, sparkline, `DotRow`, circle buttons | Fixed size (graphics); the gauge keeps 260; the header lock-up does not grow |
+| `DotNumeral` (Sleep, Today's gauge) | From AX1 Light digits, 52 pt scaled by `.largeTitle` (about 78 pt at AX3); Sleep's row stays centred, `minimumScaleFactor(0.5)` |
+| Greeting, sub-line, label row, ruler labels, tile labels, captions | Scale with their styles (`.title`, `.footnote`, `.caption2` …), wrap, never truncate; the label row stacks (band over delta); the ruler's labels join into one wrapping line |
+| Today tiles | Stack at AX1+ (single column, 350 wide), rows stack inside (label, series, value), tiles grow, the panel ellipse takes over from 160 pt of height; tile numerals `.numberLarge` / 30 stay fixed |
+| Strain tile | Label, value + "of 21 · …", then the ruler; grows |
+| Sleep 2 × 2 | One column at AX1+; value `.metric` fixed; units and deltas wrap under the value |
+| Hypnogram tile | §P4-2a "AX1+" |
+| Sleep header, picker | Title and subtitle scale and wrap between the fixed buttons. The picker truncated its titles at AX3 (PR 1 §11 left it to PR 4): from AX1 it becomes a one-row `Menu` showing the current mode (44 pt high, "Day ▾"), and the four segments return below AX1; PR 5 restyles it |
+
+**Reduce Motion:** no numeral cross-fade, no needle move (`RulerScale`), no sync-line pulse, no launch move (cross-fade), the gauge's own reduced paths. **Reduce Transparency:** `GlowTile` is flat `surface` with a 2 pt metric border (PR 2); inks as §P4-3; the matched move does not change. **Motion budget:** every UI animation is `Theme.Motion.quick` (250 ms); the matched move (0.5 s) is the launch's brand-moment exception.
+
+### P4-9. Strings
+
+English only, `Localizable.xcstrings`, targeted edits and a `--stat` check (plan risk). Keys are the English text. Bold = replaces an existing key, which is **removed** in the same edit.
+
+| Key | Comment for translators / developers |
+|---|---|
+| `Good morning, %@` · `Good afternoon, %@` · `Good evening, %@` | Today's greeting with the user's first name. **Replace** `Good morning,` `Good afternoon,` `Good evening,` |
+| `Good morning` · `Good afternoon` · `Good evening` | The same without a name (none known). |
+| `Readiness · %@` | Under Today's gauge: "Readiness", then the band word (High, Moderate, Low). |
+| `today.ruler.low` "low" · `…moderate` "moderate" · `…high` "high" | Scale words under Today's readiness ruler, lower case. |
+| `Calendar` · `Opens My Day` | Today's header button; its VoiceOver hint. |
+| `Readiness scale` · `%lld, %@, on a scale from 0 to 100` · `%lld, on a scale from 0 to 100` · `No readiness yet, on a scale from 0 to 100` | VoiceOver on the readiness ruler (with band, without, no value). |
+| `of 21` · `of 21 · light` · `of 21 · moderate` · `of 21 · high` · `of 21 · all out` | After Today's strain value: the scale and the band. |
+| `Strain · %@` | The strain tile's label while it shows another day or "calibrating". |
+| `Strain scale` · `%1$@, %2$@, on a scale from 0 to 21. The moderate range is 10 to 14.` | VoiceOver on the strain ruler and its tile. |
+| `HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days` | VoiceOver on the recovery tile's sparkline. |
+| `Slept enough on %lld of the last 7 nights; the last is the night shown` · `…; %lld nights have no data` (plural: "1 night has no data") | VoiceOver on the sleep dots (Today, `DotRow` summary). |
+| `Last night · %@` · `Yesterday · %@` | Sleep header subtitle; %@ is the date ("Sun, Nov 15"). **Replace** `Last night` as the subtitle (the key stays for the raw-night card). |
+| `Asleep · %lld %% of your need` · `%lld percent of your need` | Caption under Sleep's numeral; its VoiceOver text. `Asleep` exists. |
+| `Sleep duration scale` · `0 h` · `need %@` · `10 h` · `%@, on a scale from 0 to 10 hours. Your need is %@.` · `%@, on a scale from 0 to 10 hours.` · `No time asleep yet, on a scale from 0 to 10 hours.` (± `Your need is %@.`) | Sleep ruler: label, scale words, VoiceOver (with and without a need, no value). |
+| `h` | Hours unit after a clock value ("7:48 h"). |
+| `Deep + REM` | Restorative tile's note. **Replaces** `deep + REM`. |
+| `No newer night to show` · `No older night to show` | Hints on the disabled night buttons. |
+| `Loading this night` · `The timeline isn't available for this night.` | Sleep loading state (VoiceOver) and the hypnogram tile without a timeline. |
+| `Hypnogram, %@ to %@` | VoiceOver label on the hypnogram tile (times). |
+| `Consistency, %lld percent. …` · `Sleep debt, …` · `Restorative, …` | VoiceOver on the neutral tiles (sentences in §P4-8). |
+| `Display` · `Hero numbers` · `Dots` · `Thin` · `Large numbers on Today, Sleep and Strain.` | Profile → Display (§P4-6). |
+
+Also **remove** (no other caller after the change, verified by grep before the edit): `Total sleep`, `Performance` (the tile title), `asleep in bed`, `of your need` (the tile detail, lower case; the planner's `%lld % of your need` is another key), `last 7 nights`. `SleepScoreTile` is deleted with them. Kept: `Overall readiness` (spoken label), `Quality`, `Efficiency`, `Restorative`, `Consistency`, `Sleep debt`, `None`, `Previous night`, `Next night`, `vs 7 d`.
+
+### P4-10. Previews and catalog
+
+Dark only (D3), default size and AX3 for each (`"<View> · <state>"`, `"… · AX3"`); the old light and `de` previews of the two files go. `DebugComponentCatalog` gets `Nocturne · glow kinds` (four kinds, the fallback, Reduce Transparency), `Nocturne · sparkline`, `Nocturne · hypnogram` (full, no timeline, no stages), `Nocturne · header` (lock-up + calendar, three-slot) and the `DotRow` `.noData` mark; the screens' previews do the rest.
+
+| Screen | Previews (each × default, AX3) |
+|---|---|
+| Today | scored · thin digits · pending with a previous day · pending slow · pending, nothing scored · calibrating · calibrating with a readiness (learning) · first import · no scores yet · not set up · offline · stale · action needed · refresh issue · demo · with attention cards (night hint) · with a name and without · Reduce Transparency · launch hand-off frames at τ 0, 0.25, 0.5, 0.79, 1 (the move, over the Today layout) |
+| Sleep | scored · thin digits · latest night · oldest night · an older night · loading · load error · no sleep · pending score · no stages · no timeline · no need · with a nap · Reduce Transparency · Week · Month · Bedtime (kept) · Sleep need sheet (kept) |
+
+### P4-11. Tests
+
+Swift Testing, `@MainActor`; pure first. Files: `TodayLayoutTests`, `SleepLayoutTests`, `GlowTileKindTests` (+ the re-pinned `NocturneComponentTests` 12–19), `TodayDataTests`, `SleepDataTests`, `LaunchMoveTests`, `HeroNumeralsTests`, `NocturneTodaySleepA11yTests`; `RyftUITests` for 51.
+
+**Layout constants**
+1. `TodayLayout`: header 40, header→greeting 18, greeting→sub-line 4, sub-line→status 4, status→gauge 14, gauge→label 8, label gap 10, label→ruler 12, ruler→tiles 22, tile gap 12, tiles→strain 12, tile heights 124 / 96, strain row inset 16, hero dial 248 and frame 260. `SleepLayout`: header 40, picker gap 12, header(picker)→numeral 22, numeral→caption 12, caption→ruler 14, ruler→tile 20, tile height 168 radius 28, tile→grid 12, grid gap 12, neutral tile 88 radius 22, padding 14 / 16.
+2. The 2-up pair is 169 × 124 at 350 wide, 161 at 335, 194 at 400; stacks at AX1 (`isAccessibilitySize`) to 350.
+3. Header: the circle's edge on the 20 pt inset; the row is 40 and its buttons' boxes 44; Calendar is absent (row height unchanged) when My Day is off.
+4. `OrbitGaugeSize.hero.frame` 260 and `dial` 248; the gauge is centred and unclipped (halo 133 > 130).
+5. Sleep numeral `"7:48"` at gap 7 is 125 × 47; pending `"0:00"` the same; `Fmt.clock(minutes: 468)` "7:48", 0 → "0:00", 61 → "1:01", nil → "–".
+6. Hypnogram plot: grid lines at y 4, 31.33, 58.67, 86 in 90; deep bar 8 high radius 4 centred on y 86; step line 1.4; column 38.
+
+**Glow and contrast**
+7. `GlowTileSpec.shape(for:size:)`: the four kinds' ellipse, stops, radius, minHeight as §P4-3; `twoUp` at 169 × 124 and 200 × 160 keeps its own, at 201 × 124 and 169 × 161 and 350 × 124 returns the `panel` ellipse and stops.
+8. `overlayOpacity` per kind at 0, the second stop, the third, 1 equals the table; `twoUp` at t 0.858 (the corner) ≈ 0.283.
+9. `labelOpacity(metric:typeSize:)`: recovery 1.0 at every size; sleep and strain 0.78 below AX1, 1.0 from AX1.
+10. Contrast per concrete tile, rendered (`ImageRenderer`) or computed from `overlayOpacity`, worst pixel over each text rect at default size: recovery 2-up `textPrimary` ≥ 5.0 and label (100 %) ≥ 5.0; sleep 2-up ≥ 6.8 and label (78 %) ≥ 4.9; strain ≥ 9.0 and 6.2; hypnogram ≥ 7.2 and 5.1. Assert ≥ 4.5 in every case (the numbers are margins, not pins).
+11. The same at 161 × 124, 194 × 124, 169 × 160 (2-up), 335 and 400 wide (strain, hypnogram): all ≥ 4.5.
+12. AX3: recovery and sleep 2-up at 350 × 124 / 160 / 240 / 300 with the panel ellipse and full ink ≥ 4.5 (6.63…5.89, 8.51…7.74); strain 350 × 150…300 ≥ 7.9; hypnogram 350 × 260…420 ≥ 6.4.
+13. The board's own values fail where stated: recovery 2-up label at 78 % is < 4.5 (3.78), sleep 2-up at 62 % < 4.5 (3.75), hypnogram at 55 % < 4.5 (3.42): the test documents why the rule exists.
+14. Graphics ≥ 3: sparkline (ink 80 %) and Volt in the recovery top-right; `DotRow` missed outline (ink 50 %) in the sleep top-right ≥ 3.0; step line, deep bars over the plot, compact-ruler zone ticks in the strain tile.
+15. Reduce Transparency: flat `surface`, 2 pt border; ink, 78 %, sparkline, bars ≥ 4.5 / 3 on it.
+16. The PR 2 pins that the new shape supersedes are re-pinned (13, 16–19 of §P2-7: gradient stops per kind, padded rect numbers, `ellipse`); the `init(_:radius:)` shim still draws `panel`.
+
+**Data and states**
+17. Greeting: hours 4 → evening, 5 and 11 → morning, 12 and 17 → afternoon, 18 → evening; `firstName` of "‹first name› Surname" is the first word, of "" nil, of "  " nil; the string has no comma without a name.
+18. Sub-line "Sunday, Nov 15 · " + each `sentence` row; wraps rather than truncates.
+19. Label row: "Readiness · High" for 84, "Moderate" 50, "Low" 20; "Readiness" alone while `showsReadinessBand` is false; no delta when `readinessDelta` is nil.
+20. Ruler inputs per state: scored 84 → zone 67…100, 41…60 ticks, needle 252 at 300 wide; calibrating (no band) → no zone; pending / calibrating / empty → no needle.
+21. `hrvWeek`: seven entries, the last the shown day's; a gap day is nil; fewer than two values → pending look; the Volt dot only when the last value exists.
+22. `sleepNights`: `sleepActualMin ≥ sleepNeedMin` full, below missed, either nil `.noData`; seven marks; the last is `.today`; the summary says "Slept enough on n of the last 7 nights" with the unknown count.
+23. Strain tile: `Fmt.strain`, band word per 9.9 / 10 / 13.9 / 14 / 17.9 / 18 (light, moderate, moderate, high, high, all out); zone 10…14; value nil → "–", no needle.
+24. Tile captions: dimmed day, "calibrating", band word; the recovery tile's "–" beside the baselines counter; the same day for all three tiles.
+25. State → look for every row of the Today table (pending with and without previous, slow, calibrating S1 / S2 / N1, recalculating, first import, no scores yet, not set up, offline, stale, gated, demo), asserted on the pure decisions (`hero`, `presentation`, `syncLine`) and on the views' identifiers.
+26. Sleep summary: caption "Asleep · 94 % of your need" and "Asleep"; subtitle "Last night · Sun, Nov 15", "Yesterday · Sat, Nov 14", "Wed, Nov 11"; "Last 7 nights" / "Last 30 nights" / "Tonight".
+27. Night stepping: `canStepForward` false at today; `canStepBack` false at `oldestNight`; `oldestNight` = first history day with `sleepActualMin`, else today − 89; `show(night:)` and `step` clamp.
+28. Sleep ruler: zone `RulerScale.zone(lo: 0.9 · need/60, hi: need/60)` for 498 → 7.47…8.3, ticks 45…49; need nil → no zone, labels `["0 h", "10 h"]`; needle at 7.8; clamped at 12 h.
+29. Hypnogram plot model: levels per stage, `asleep` on Light, clamping to the night, a gap breaks the path, deep bars (≥ 3 pt), x of `start` = 0 and of `end` = 1; empty segments and no stages choose their tile variants.
+30. Totals: "Deep 1:35 · REM 1:45 · Light 4:28 · Awake 0:22" from the stages; a missing stage "–".
+31. Tiles: Consistency dots (≥ 60 full, < 60 missed, nil `.noData`, last `.today`); Sleep debt "0:30" and delta "▼ 0:42" (down), ▲ when up, none with either night missing, "None" at 0, "· high" above 45; Efficiency "95"; Restorative "3:20" from deep + REM and spoken score from `restorative`.
+32. `DotRow.Mark.noData`: size unchanged, drawn as a 2 pt dot at 35 %, distinct from `.missed` by shape.
+33. Placeholders: every missing value of §P4-4 renders its pending look and no number: nil `DailyScore` fields, no `segments`, no `hrv_ms`, no name (R-N1…3 rows do not appear in a real decode).
+34. Fixture decode: `strain_target_*`, `name`, `sleep_need_met` are not decoded (nothing in `Models.swift` changes in this PR).
+35. `MockData` board night: 468 / 22 / 95 / 105 / 268, 22:50 – 07:00, need 498, performance 94, efficiency 95, debt 30 (72 the night before), restorative 3:20, consistency 86; readiness delta +11.
+36. Identifiers kept: `today.readinessGauge`, `today.pendingGauge`, `today.baselineGauge`, `today.importCard`, `today.rawNight`, `today.nightHint`, `today.watchHint`, `today.syncLine.line`, `sleep.need`, `sleep.plannedVsActual`; new: `today.header.calendar`, `today.ruler`, `today.tile.recovery` / `.sleep` / `.strain`, `sleep.header.previous` / `.next`, `sleep.numeral`, `sleep.ruler`, `sleep.hypnogram`, `sleep.tile.consistency` / `.debt` / `.efficiency` / `.restorative`.
+
+**The matched move**
+37. `LaunchFrame.rect(from:to:progress:)`: 0 → the start, 1 → the target, 0.5 → the midpoint; with E1: at τ 0.25 the side is 151.3, at 0.5 the origin (37.3, 112.8) and side 59.0 for 103, 290, 184 → 20, 66, 26 (u = 0.2068 / 0.7912).
+38. The safe-area conversion: a header mark read as (20, 7, 26 × 26) in the `.launch` space becomes (20, 66, 26 × 26) in the overlay's for insets (0, 59, 0, 34); the test fixes the convention with a non-zero inset and with zero insets (identity).
+39. `moveProgress(at:)`: linear to D, then E1; 0 before the hand-off, 1 after; D 0.5 s natural, 0.25 s after a tap.
+40. Wordmark progress: E1 of `clamp((τ − 0.15)/0.85)`; at τ 0.15 it has not moved; both are 1 at τ = 1; the size is 22 at 0 and 15 at 1, the tracking 0.32 em throughout.
+41. Clearance: for τ = 0, 0.02 … 1 the mark's outer ink (0.44 · side + dot radius from the centre) and the wordmark's ink rect (advance 0.62 em per letter plus 0.32 em tracking) are at least 4 pt apart.
+42. Mark metrics along the move: `metrics(forSide:)` at 184 / 80 / 40 / 26 → stroke 5.81 / 2.53 / 1.26 / 1.25 pt, dot 11.04 / 4.80 / 2.40 / 1.92 pt, gaps 14.02 / 14.02 / 14.02 / 17.92° (outer); the frame at τ = 1 equals `LaunchFrame(t: 1, side: 26)` and renders as `RyftMark()` at 26 pt within 2/255.
+43. Decision: moves only for `.full` ∧ progress ≥ 0.86 ∧ target registered ∧ `.mark`; not for reduced, a skip at 0.5, a missing target, another root (those cross-fade); `movesMark` is decided once.
+44. Reveal: `launchRevealsRoot` false from hand-off start to `done` when the mark moves, equal to `coversRoot` otherwise; the gauge consumer rebuilds when it flips; the slot is 260 × 260 and empty before.
+45. Overlay layers: background and tagline reach 0 at 0.25 s, the mark and wordmark stay at 1 until `done`; the header lock-up is at 0 only while `movesMark` and `.handingOff`.
+
+**The switch and accessibility**
+46. `Settings.heroNumerals` defaults `.dots`, persists under `ui.heroNumerals`, survives log-out, ignores an unknown stored value; `.thin` gives `.light` to the gauge and to Sleep's `DotNumeral`; AX1 renders Light for both settings.
+47. Profile shows the row and changing it updates Today without a reload.
+48. VoiceOver: the reading order of both tables above (element counts and labels, hosted), one element per gauge, ruler, tile, hypnogram; header traits on the greeting, "Sleep" and the lock-up; the buttons' labels; disabled night buttons are not enabled and carry their hints.
+49. AX3: nothing clipped in the hosted views (frames inside the width), the pair stacked, the numeral Light, the label row stacked, hypnogram column and totals as specified.
+50. Strings: the catalog has every key of §P4-9 with a comment and none of the removed ones; `make lint` strings green.
+51. UI (`UISmoke`): Today shows the header, gauge, ruler and three tiles in demo; the Sleep tile opens Sleep; Previous night then Next night returns to the latest night and disables Next; Calendar opens My Day; the launch test still passes with the move (`-RyftLaunchSequence play`, the header lock-up exists at the end).
+
+### P4-12. Files and the split
+
+T4.2 (Today) and T4.3 (Sleep) can run in parallel worktrees **after a short T4.0** that makes every shared change, so that their file sets are disjoint. T4.4 (copy) follows both; T4.5 tests.
+
+| Ticket | Files |
+|---|---|
+| **T4.0 shared** (one worktree, first) | `Design/GlowTile.swift` (`Kind`, `shape(for:size:)`, `labelOpacity(metric:)`, the environment value, the shim); `Design/RulerScale.swift` (compact labels read the environment value); `Design/DotRow.swift` (`.noData`); `Design/DeltaLabel.swift` (`referenceColor:`); `Design/CircleButton.swift` (`iconSize:`); `Design/StatusViews.swift` (`ScreenScaffold(showsHeader:)`, `SyncStatusLineView` leading alignment and 44 pt target); `Design/OrbitGauge.swift` (`showsCaption:`); new `Design/ScreenHeader.swift`, `Design/Sparkline.swift`, `Design/HypnogramPlot.swift`; `Design/RyftHeader.swift` (`WordmarkLockup(handOff:)`); `App/Formatting.swift` (`Fmt.clock(minutes:)`, a spoken duration); `App/Settings.swift` + `Features/Profile/ProfileView.swift` ("Display"); `Preview/MockData.swift` (the board night); `DebugComponentCatalog.swift` (§P4-10); `Design/Theme.swift`: none; tests 7–16, 32, 46–47 |
+| **T4.2 Today** | `Features/Today/TodayView.swift`, `TodayViewModel.swift` (`firstName`, `hrvWeek`, `sleepNights`, strain word), `ReadinessCopy.swift`, new `TodayHeader.swift`, `TodayTiles.swift`, `OrbitGaugeSize+Hero.swift`; `App/LaunchHost.swift`, `LaunchSequence.swift`, `LaunchSequenceModel.swift`; `Design/LaunchStage.swift`, `LaunchFrame.swift` (the move); the gauge consumer; Today previews; tests 1–4, 17–25, 36–45 |
+| **T4.3 Sleep** | `Features/Sleep/SleepView.swift` (header, day section, tiles, hypnogram tile), `SleepViewModel.swift` (`oldestNight`, summary additions, subtitle), new `SleepTiles.swift`, `SleepHypnogramTile.swift`; Sleep previews; tests 1, 5, 6, 26–31, 36 |
+| **Shared, last** | `Resources/Localizable.xcstrings` (T4.4, localization-editor; targeted edits), `docs/API_REQUESTS.md` (T4.6: R-N1…R-N3), `CHANGELOG.md`, `docs/STATUS.md` |
+| **Not touched** | `OrbitGauge` geometry, `RyftMark`, the Strain / Insights / Profile screens (the Profile row aside), the tab bar, the model, sync, API, `Models.swift` |
+
+### P4-13. Deviations
+
+| # | Board | Brief | Spec | Why |
+|---|---|---|---|---|
+| D4-1 | Content top at 56 | — | safe-area top | 56 is the board's status-bar frame; a device's safe area is 54–62 |
+| D4-2 | No sync status | — | A status row (+≈ 20 pt) under the sub-line | Today's sync status text, tappable (Sync details, gates, Try again), must stay visible; Q2 |
+| D4-3 | No mode picker on Sleep | — | Picker under the header, content below it +64 pt (measured; first written +48, review row 12) | Week, Month and Bedtime would otherwise be unreachable; Q1 |
+| D4-4 | Glow-tile text at 0.62 / 0.55; labels 0.78 | §6 text ≥ 4.5 in the core | 100 % (recovery) or 78 % for every non-numeral text; recovery tile all full ink | The board's alphas fail 4.5:1 in all tiles but strain (numbers in §P4-3); user decision of 2026-11-16 for recovery |
+| D4-5 | Meta text at 0.55 and 0.45 | `textTertiary` 45 % | `textTertiary` 48 % for both | PR 1 D-a; 0.55 maps to the dimmer token to keep the hierarchy (label 0.62 above meta) |
+| D4-6 | Need zone 7.5–8.3 h | — | 90–100 % of the need | The board's example is one night; the rule is the display choice that reproduces it; Q6 |
+| D4-7 | Header mark stroke 5.2, dots 7.7 (100 box) | — | 4.81 and 7.40 (`metrics(forSide: 26)`) | 5.2 / 7.7 are the 24 pt values; the difference is 0.1 pt |
+| D4-8 | Calendar glyph 16 pt, 1.2 stroke | — | `CircleButton(iconSize: 16)`, the component's stroke (≈ 1.3) | One component, one stroke |
+| D4-9 | Restorative "3:20 h" | — | deep + REM minutes from `stages` | A sum of server minutes, not a score; the 0–100 `restorative` is spoken |
+| D4-10 | — | "Today hat einen Schalter" | The switch lives in Profile → Display | No place on the measured board; Q8 |
+| D4-11 | — | "das Logo wandert in den Header" | 0.5 s move (brand exception to 250 ms), wordmark delayed 15 % | Clearance in flight; Q7 |
+| D4-12 | 2-up ellipse 85 × 80 at any size | text in the core | `panel` ellipse when a 2-up is wider than 200 or taller than 160 | At 350 × 124 the board's ellipse gives 4.41:1 in full ink |
+| D4-13 | Recovery tile in the recovery colour; no band tint | one colour per metric | The tile and the gauge are teal always (was the band colour) | The legend |
+| D4-14 | Greeting with a name | — | Without a name when none is known | `full_name` can be empty (R-N2) |
+| D4-15 | Sleep caption "Asleep" | — | "From Apple Health · not scored yet" on a pending night with a raw night | Raw totals are unscored; "Asleep" under them read as RYFT's number (review row 1) |
+| D4-16 | 2-up captions under the label, value 22 pt lower when a caption is there | — | `TodayTwoUpValueRow`: the caption beside the value at 0.8 scale (1 pt slack) or above it; the value sits by its baseline and its line never moves; both tiles arrange alike (caption and sparkline), and the sparkline moves under the label before a title is cut. At default sizes the pair is 124 pt in every state; at 390 from xxLarge, with the captions above, it grows together (146.67, 149.33 at xxxLarge) | Calibrating and pending tiles lifted the value; "Recov…" at xxxLarge (review rows 13, B, C, R3-V1) |
+| D4-17 | — | — | Today's fault sub-line is the date alone | The status row and the card already say why (review row 15) |
+| D4-18 | Ruler labels on one line | — | `RulerLabels`: one line when they fit, else the fewest lines of whole labels joined by " · " | AX sizes wrapped at a separator (review row D) |
+| D4-19 | The strain tile clear of the tab bar | — | At 390 × 844 the strain ruler sits about 16 pt under the floating tab bar at the scroll top | The board's dot tab bar is PR 5 (review row 21) |
+| D4-20 | — | Q3: drop `StageBar`, `MiniHypnogram`, the old `Hypnogram` | Dropped; `StageRow` stays for Sleep's stage card (`Design/StageRow.swift`) | The stage card still lists the stages (review row 7) |
+
+**The ruler's box (measured on the board, review row 11).** The next block is measured from the ruler's 36 pt box (8 + a 22 pt tick row); the labels start at +32 and overflow it. `RulerScale(followingGap:)` puts Today's tiles at ruler top + 58 and Sleep's hypnogram at + 56; at accessibility sizes the labels push the block down.
+
+Derived, not measured (do not tune without asking): the series' and dots' place in the 2-up tiles; the unit and caption places; the strain row's spacing; the status row; section spacing 24 below the glow block; the hypnogram grid's y positions; the compact ruler without labels on Today; left-aligned greeting; ruler labels space-between; the Sleep ruler's middle label at the centre.
+
+### Questions for the lead
+
+1. **Sleep's modes (D4-3).** The board has no Week / Month / Bedtime. Recommended: the picker under the header, board content 48 pt lower (ui-validator offsets Day mode by 48). Alternative: Day is the board exactly and the three modes are rows ("Week", "Month", "Bedtime") at the end of Day, pushing their sections with a back button; more code, deep links (`show(night:)`, `showPlanner()`) change.
+2. **Sync status row (D4-2).** Recommended: always shown, +≈ 20 pt. Alternative: shown only when it is not the plain "Updated 07:15", which moves to Sync details only; Today then matches the board in the happy state but loses a visible freshness date, against the honest-states rule.
+3. **Drops.** `MiniHypnogram` on Today (flag `today.redesign`, default off), the proportional `StageBar` on Sleep, the Efficiency and Sleep debt rows in the Details card (they repeat tiles). Everything else is kept. OK to drop?
+4. **Glow inks (D4-4).** I raise the board's 0.62 and 0.55 inside glow tiles to the label rule because they fail 4.5:1. Alternative: keep the strain tile's 0.62 (4.60, margin 0.10) for "of 21 · moderate" so that one colour matches the board.
+5. **"Slept enough" (T12).** I compare `sleepActualMin` with `sleepNeedMin` (full at ≥ need). Alternative: R-N3, the platform's flag; or a threshold such as 90 % of the need (the board's 94 % night would then be full).
+6. **Need zone (S5).** 90–100 % of the need. Alternative: ask the platform for a window.
+7. **Launch lifecycle (§P4-7).** (a) the hand-off becomes 0.5 s when the mark moves (0.4 s today), the tap case stays 0.25 s; (b) the 250 ms rule has the launch as its exception, now also for this move; (c) `launchRevealsRoot` and an empty gauge slot during the move; (d) the splash is not made the last frame (L15). Please confirm (a)–(c).
+8. **Thin-digit switch.** Profile → Display (recommended) or on Today.
+9. **`DotRow.Mark.noData`** is an addition to a PR 2 component (T4.0), so a night without data is not drawn as a miss. OK?
+10. **MockData** gets the board's night (T4.0), which changes today's mock values (performance 87 → 94, need 538 → 498, debt 137 → 30, consistency 81 → 86, stages), and with them existing tests that pin them.

@@ -74,6 +74,12 @@ Store "What's New".
   dots, and the score in dot numerals on large gauges. The widget draws the same gauge.
 - A short launch animation on a cold start: the gauge folds into the RYFT mark. Tap to skip; it doesn't play when you
   return to the app within ten minutes, and Reduce Motion or VoiceOver show the still mark instead.
+- Today in the new look: the readiness gauge on top, Recovery and Sleep as two tiles with their last seven days, and
+  strain on a ruler. At the end of the launch animation the mark flies into Today's header.
+- Sleep in the new look: time asleep in large numerals against your need, the night as a hypnogram, and the stages
+  below. While last night is being scored, Sleep shows Apple Health's night marked "not scored yet".
+- Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
+  or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
 - A new app icon and RYFT mark: three orbits, three moons.
 - Today's readiness is now the RYFT orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on

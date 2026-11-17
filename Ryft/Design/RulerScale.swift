@@ -10,8 +10,11 @@ struct RulerScale: View {
         /// Today, Sleep, Strain. `compact`: the ruler inside Today's strain glow tile.
         case regular, compact
 
-        /// The ruler's height: 8 top + the tick row + 6 bottom (36; compact 32, derived).
+        /// The ruler's height: 8 top + the tick row + 6 bottom (36; compact 32, derived). The next block is measured
+        /// from this box, not from the labels (the board, VF1).
         var height: CGFloat { tickRowTop + tickRowHeight + 6 }
+        /// The labels' top: 2 under the tick row (the board's margin), so they overflow the box (+32 regular).
+        var labelTop: CGFloat { tickRowTop + tickRowHeight + 2 }
         /// The tick row starts under 8 pt of top padding, where the needle's head sits.
         var tickRowTop: CGFloat { 8 }
         var tickRowHeight: CGFloat { self == .regular ? 22 : 18 }
@@ -56,8 +59,11 @@ struct RulerScale: View {
     /// Volt: the needle is one of the signal's five marks (brief §1).
     static let needleColor = Theme.signal
     /// The smallest gap between two labels before they no longer fit on one line: at large sizes the row then falls
-    /// back to the joined " · " line before the labels run together.
+    /// back to lines of labels joined by " · " before the labels run together (`RulerLabels`).
     static let labelMinGap: CGFloat = 16
+    /// What stays clear under the labels when they grow past the caller's gap (AX sizes): the next block is at
+    /// `max(box + gap, labels' bottom + 8)`.
+    nonisolated static let labelClearance: CGFloat = 8
 
     private let range: ClosedRange<Double>
     private let value: Double?
@@ -69,10 +75,13 @@ struct RulerScale: View {
     private let accessibilityLabel: Text
     private let accessibilityValue: Text
     private let forcedReduceMotion: Bool?
+    private let followingGap: CGFloat?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Inside a glow tile: its label ink (`GlowTile` sets it), which the compact ruler's labels take.
+    @Environment(\.glowLabelOpacity) private var glowLabelOpacity
 
     /// - Parameters:
     ///   - zone: the band or target in the range's units. Build one from server data with `RulerScale.zone(lo:hi:)`,
@@ -80,10 +89,13 @@ struct RulerScale: View {
     ///   - zoneStyle: `.standard` (`textPrimary` at 0.55, compact 0.60), `.sleep` or `.strain`.
     ///   - labels: already localized, spread edge to edge under the ruler ("0", "low", "moderate", "high", "100").
     ///   - reduceMotion: previews and tests; `nil` follows the system.
+    ///   - followingGap: the gap the caller puts under the ruler before the next block. The labels hang 2 under the tick
+    ///     row and overflow the 36 pt box; the ruler is as tall as the box, or more where the labels would come within
+    ///     `labelClearance` of the next block (`layoutHeight`). `nil`: the ruler encloses its labels.
     init(range: ClosedRange<Double>, value: Double?, zone: ClosedRange<Double>? = nil,
          zoneStyle: ZoneStyle = .standard, tickCount: Int,
          labels: [String] = [], size: Size = .regular,
-         accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil) {
+         accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil, followingGap: CGFloat? = nil) {
         self.range = range
         self.value = value
         self.zone = zone
@@ -94,10 +106,11 @@ struct RulerScale: View {
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityValue = accessibilityValue
         self.forcedReduceMotion = reduceMotion
+        self.followingGap = followingGap
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        RulerStack(size: size, followingGap: followingGap) {
             graphic
             if !labels.isEmpty { labelRow }
         }
@@ -128,38 +141,41 @@ struct RulerScale: View {
         .animation(Theme.Motion.respecting(forcedReduceMotion ?? systemReduceMotion, Theme.Motion.quick), value: fraction)
     }
 
-    /// The labels on one line, first leading and last trailing; when they do not fit (large text), one wrapping line.
+    /// The labels on one line, first leading and last trailing; when they do not fit (large text), lines of whole
+    /// labels (`RulerLabels`).
     private var labelRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) {
-                ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                    if index > 0 { Spacer(minLength: Self.labelMinGap) }
-                    Text(verbatim: label).lineLimit(1).fixedSize()
-                }
-            }
-            Text(verbatim: labels.joined(separator: " · "))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.ryft(.axis))
-        .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize))
+        RulerLabels(labels: labels)
+            .font(.ryft(.axis))
+            .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize, glowLabelOpacity: glowLabelOpacity))
     }
 
     // MARK: layout (pure)
 
+    /// The ruler's height for labels `labelsHeight` tall (0 without labels): the box, or more where the labels' bottom
+    /// plus `labelClearance` would pass the box plus the caller's gap. Without a gap it encloses the labels.
+    nonisolated static func layoutHeight(size: Size, labelsHeight: CGFloat, followingGap: CGFloat?) -> CGFloat {
+        guard labelsHeight > 0 else { return size.height }
+        let labelsBottom = size.labelTop + labelsHeight
+        guard let followingGap else { return max(size.height, labelsBottom) }
+        return max(size.height, labelsBottom + labelClearance - followingGap)
+    }
+
     /// The labels' ink as an opacity of `textPrimary`; `nil` is `textTertiary`. A regular ruler sits on the screen and
     /// keeps `textTertiary`. The compact ruler only lives inside a glow tile, where its edge labels sit in the lighter
-    /// outer region: it uses the glow label's `GlowTileSpec.labelOpacity(for:)`, 78 %, full `textPrimary` from AX1.
-    nonisolated static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize) -> Double? {
+    /// outer region: it takes the tile's label ink (`glowLabelOpacity`: full in a recovery tile, else 78 %, full from AX1;
+    /// §P4-3), or without a tile the glow label's `GlowTileSpec.labelOpacity(for:)`.
+    nonisolated static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize, glowLabelOpacity: Double? = nil) -> Double? {
         switch size {
         case .regular: return nil
-        case .compact: return GlowTileSpec.labelOpacity(for: dynamicTypeSize)
+        case .compact: return glowLabelOpacity ?? GlowTileSpec.labelOpacity(for: dynamicTypeSize)
         }
     }
 
-    /// The labels' colour: `textPrimary` at `labelOpacity(size:dynamicTypeSize:)`, or `textTertiary` where that is `nil`.
-    nonisolated static func labelColor(size: Size, dynamicTypeSize: DynamicTypeSize) -> Color {
-        labelOpacity(size: size, dynamicTypeSize: dynamicTypeSize).map { Theme.textPrimary.opacity($0) } ?? Theme.textTertiary
+    /// The labels' colour: `textPrimary` at `labelOpacity(size:dynamicTypeSize:glowLabelOpacity:)`, or `textTertiary`
+    /// where that is `nil`.
+    nonisolated static func labelColor(size: Size, dynamicTypeSize: DynamicTypeSize, glowLabelOpacity: Double? = nil) -> Color {
+        labelOpacity(size: size, dynamicTypeSize: dynamicTypeSize, glowLabelOpacity: glowLabelOpacity)
+            .map { Theme.textPrimary.opacity($0) } ?? Theme.textTertiary
     }
 
     /// A zone from server data (the strain target, a sleep need): `nil` unless both bounds are present and finite and
@@ -203,11 +219,91 @@ struct RulerScale: View {
         needleFraction(value: value, range: range).map { CGFloat($0) * width }
     }
 
+    /// The ways to set `count` labels on lines of whole labels, in the order `RulerLabels` tries them: fewer lines first,
+    /// and among as many lines the fuller earlier lines first, as text wraps. Each is the lines' ranges of labels.
+    nonisolated static func labelLines(count: Int) -> [[Range<Int>]] {
+        guard count > 0 else { return [] }
+        func lines(from start: Int, into parts: Int) -> [[Range<Int>]] {
+            guard parts > 1 else { return [[start..<count]] }
+            return stride(from: count - start - (parts - 1), through: 1, by: -1).flatMap { first in
+                lines(from: start + first, into: parts - 1).map { [start..<start + first] + $0 }
+            }
+        }
+        return (1...count).flatMap { lines(from: 0, into: $0) }
+    }
+
     /// The needle's place as a fraction of the width, clamped to 0…1.
     nonisolated static func needleFraction(value: Double?, range: ClosedRange<Double>) -> Double? {
         let lo = range.lowerBound, hi = range.upperBound
         guard let value, !value.isNaN, hi > lo else { return nil }
         return min(max((value - lo) / (hi - lo), 0), 1)
+    }
+}
+
+/// A ruler's labels (D): on one line, first leading and last trailing, at least `RulerScale.labelMinGap` apart; when
+/// they don't fit (large text), the fewest lines of whole labels with " · " between them, the earlier lines the fuller
+/// (`RulerScale.labelLines`), so no line starts or ends with a separator ("0 · low · moderate", "high · 100", never
+/// "· high · 100"); when a label doesn't fit on a line of its own either, one label per line, wrapping. The caller sets
+/// the font and ink.
+///
+/// Limits (N4): the candidates are every way to cut the labels into runs, 2^(n − 1) of them, which `ViewThatFits`
+/// measures in turn: fine for the rulers' 2 to 5 labels (16 at most), not for long lists, so it asserts 6 or fewer.
+/// Not mirrored for right-to-left: the ticks and the needle run left to right while the labels follow the layout
+/// direction (RYFT is English only).
+struct RulerLabels: View {
+    let labels: [String]
+
+    init(labels: [String]) {
+        // 2^(n − 1) candidates, each measured by `ViewThatFits`: 6 labels is 32; more would make every layout pass slow.
+        assert(labels.count <= 6, "RulerLabels tries every cut of the labels into lines: keep a ruler to 6 or fewer")
+        self.labels = labels
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                    if index > 0 { Spacer(minLength: RulerScale.labelMinGap) }
+                    Text(verbatim: label).lineLimit(1).fixedSize()
+                }
+            }
+            ForEach(Array(RulerScale.labelLines(count: labels.count).enumerated()), id: \.offset) { _, lines in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines, id: \.lowerBound) { line in
+                        Text(verbatim: labels[line].joined(separator: " · ")).lineLimit(1).fixedSize()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
+                    Text(verbatim: label).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The graphic at the top, the labels (if any) at `labelTop`, overflowing the box; as tall as
+/// `RulerScale.layoutHeight(size:labelsHeight:followingGap:)`.
+private struct RulerStack: Layout {
+    let size: RulerScale.Size
+    let followingGap: CGFloat?
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let labels = subviews.count > 1 ? subviews[1].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
+        return CGSize(width: width, height: RulerScale.layoutHeight(size: size, labelsHeight: labels, followingGap: followingGap))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let graphic = subviews.first else { return }
+        graphic.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        if subviews.count > 1 {
+            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + size.labelTop),
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
+        }
     }
 }
 
@@ -272,17 +368,15 @@ private struct RulerNeedle: Shape {
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
-            GlowTile(Theme.metricStrain, minHeight: GlowTileSpec.twoUpMinHeight) {
+            GlowTile(Theme.metricStrain, kind: .strain) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Strain").ryftGlowLabelStyle()
-                    Text(verbatim: "12.4").font(.ryft(.metric))
                     Spacer(minLength: 0)
                     RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
                                labels: ["0", "21"], size: .compact, accessibilityLabel: Text("Strain scale"),
                                accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
                 }
             }
-            .frame(width: 169)
             RulerScale(range: 0...100, value: nil, zone: 67...100, tickCount: RulerScale.Ticks.today,
                        labels: ["0", "low", "moderate", "high", "100"],
                        accessibilityLabel: Text("Readiness scale"),

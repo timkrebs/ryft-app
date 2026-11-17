@@ -252,18 +252,11 @@ struct FlagGateTests {
         #expect(StrainViewModel(state: on, store: TrainStore(inMemory: true)).showsTrain)
     }
 
+    /// `today.redesign` still ships dark and stays in `Seams`; Nocturne's Today no longer reads it (L22: the hypnogram
+    /// card is dropped, the Sleep tile and the Sleep tab show the night).
     @Test func theRedesignShipsDark() {
-        let s = state([:])
-        let model = TodayViewModel(state: s, sync: SyncService.ungated(env: s.env),
-                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService.ungated(env: s.env)),
-                                                                clock: s.env.clock))
-        #expect(!model.showsRedesign)
-        let lit = state([.todayRedesign: true])
-        lit.user = MockData.user
-        let litModel = TodayViewModel(state: lit, sync: SyncService.ungated(env: lit.env),
-                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: lit, sync: SyncService.ungated(env: lit.env)),
-                                                                   clock: lit.env.clock))
-        #expect(litModel.showsRedesign)
+        #expect(!state([:]).env.flags.isOn(.todayRedesign))
+        #expect(state([.todayRedesign: true]).env.flags.isOn(.todayRedesign))
     }
 
     @Test func notificationSettingsExplainTheRolloutWithoutThePushFlag() {

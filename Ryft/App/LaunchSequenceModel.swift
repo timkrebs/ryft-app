@@ -25,6 +25,37 @@ final class LaunchSequenceModel {
     /// The overlay's timeline runs.
     var isAnimating: Bool { phase == .playing || phase == .handingOff }
 
+    // MARK: the matched move (design.md §P4-7, launch-design.md §7.5)
+
+    /// Today's header lock-up in the window's space, as its targets report it (`launchHandOffTarget`) while the launch
+    /// is on screen. During a move a target that goes keeps its last frame, so the lock-up still lands somewhere.
+    private(set) var targets: [LaunchHandOffRole: CGRect] = [:]
+
+    /// A target's frame, or `nil` when it left the hierarchy. Only while the launch is on screen; the sequence takes
+    /// whether a mark is there until the hand-off starts.
+    func register(_ role: LaunchHandOffRole, _ frame: CGRect?) {
+        guard isOnScreen else { return }
+        if let frame {
+            if targets[role] != frame { targets[role] = frame }
+        } else if !(phase == .handingOff && movesMark), targets[role] != nil {
+            targets[role] = nil
+        }
+        guard role == .mark else { return }
+        let now = clock.now()
+        let before = sequence
+        sequence.setMarkTarget(targets[.mark] != nil, at: now)
+        // The hand-off's length (and so the deadline after it) follows the decision.
+        if sequence != before { refresh(at: now) }
+    }
+
+    /// The mark flies into the header instead of fading (`LaunchSequence.movesMark`, decided at the hand-off).
+    var movesMark: Bool { sequence.movesMark }
+    /// `launchRevealsRoot`: Today is not revealed yet, covered or with the lock-up still in flight. Equal to `coversRoot`
+    /// without a move; with one it holds until `done`. The gauge's entrance waits for it (L25).
+    var revealsRoot: Bool { coversRoot || (phase == .handingOff && movesMark) }
+    /// The overlay draws the lock-up in flight: the header's own stays at opacity 0 until `done`.
+    var hidesHandOffTargets: Bool { phase == .handingOff && movesMark }
+
     /// What the model marks for performance-profiler (launch-design §9.2), as values: each goes to `Signposts.launch`
     /// when `signposts` is on, and to `marks` either way.
     enum Mark: Equatable, Sendable {
@@ -168,9 +199,12 @@ struct LaunchInterruptAction: Sendable {
 }
 
 extension EnvironmentValues {
-    /// The launch sequence covers the root (armed or playing): anything that plays once when first seen treats it like
-    /// the background and plays at the hand-off (ADR 0017, 7; Today's gauge entrance).
+    /// The launch sequence covers the root (armed or playing): it takes no taps and is hidden from VoiceOver, and anything
+    /// that plays once when first seen treats it like the background and plays at the hand-off (ADR 0017, 7).
     @Entry var launchCoversRoot = false
+    /// The launch still reveals the root: `launchCoversRoot`, and while the mark flies into Today's header until the
+    /// lock-up lands (`LaunchSequenceModel.revealsRoot`, design.md §P4-7). Today's gauge entrance waits for it.
+    @Entry var launchRevealsRoot = false
     /// Ends the launch sequence early: a root sheet or cover is presenting.
     @Entry var launchInterrupt = LaunchInterruptAction()
 }

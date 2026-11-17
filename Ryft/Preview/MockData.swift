@@ -1,6 +1,9 @@
 // Realistic, deterministic history for previews and the simulator demo mode.
-// Today matches the brand board: readiness 84, 7h 48m sleep, recovery 82 %,
-// strain 12.4, Deep 1h 52m / Light 4h 21m / REM 1h 35m / Awake 10m.
+// Today matches the Nocturne boards (docs/work/2026-11-16-nocturne/design.md §P4-4): readiness 84 (+11 vs 7 d),
+// recovery 82 %, strain 12.4; the night 22:50 – 07:00, 7:48 asleep (Deep 1:35, REM 1:45, Light 4:28, Awake 0:22),
+// efficiency 95, a need of 8:18 (a 40-minute nap credit) and so 94 % of it, debt 0:30 (1:12 the night before),
+// consistency 86. The last seven days carry an HRV week (lowest 51, highest 66 today), nights that met their need
+// (≥ 90 % of it, L24), missed it, and one without a need (no data), and a consistency below 60 and one missing.
 //
 // Shapes follow API.md: typed baselines, steps/kcal, DayDetail.strain and a
 // hypnogram, so every screen renders without a server.
@@ -147,6 +150,20 @@ enum MockData {
 
     // MARK: generation
 
+    /// The last seven days, oldest first (offset 6 … 0; today is the board's own night). What the Nocturne previews
+    /// show as the HRV sparkline, the 7-night dots of Today's sleep tile and Sleep's consistency tile (§P4-4, T10, T12,
+    /// S10). `asleepShare`: the night's sleep as a share of its need (≥ 0.90 met, below missed; today's is the board's
+    /// 468 of 498, not applied); `nil` is a night scored without a need, so neither "met" nor "missed" can be told.
+    enum BoardWeek {
+        static let hrv: [Double] = [58, 51, 60, 55, 62, 57, 66]
+        static let asleepShare: [Double?] = [0.95, 0.82, nil, 0.96, 0.84, 0.93, 0.94]
+        static let consistency: [Int?] = [78, 64, nil, 52, 71, 80, 86]
+        /// Debt the night before today and today (the ▼ 0:42).
+        static let debtYesterday = 72, debtToday = 30
+        /// Yesterday's nap: today's need takes it off (the 40-minute credit).
+        static let napYesterday = 40
+    }
+
     private struct Night {
         let score: DailyScore
         let sleep: SleepDetail
@@ -174,7 +191,9 @@ enum MockData {
             let isToday = offset == 0
 
             var readiness = Int((68 + 10 * sin(t / 4.3) + rng.next(in: -8...8)).rounded())
-            if offset < 7 { readiness = lastWeek[6 - offset] }
+            // The board's week: index 0 is six days back, 6 today.
+            let week = offset < 7 ? 6 - offset : nil
+            if let week { readiness = lastWeek[week] }
             readiness = min(97, max(24, readiness))
             let recovery = isToday ? 82 : min(99, max(20, readiness + Int(rng.next(in: -6...4))))
             let strain = isToday ? 12.4 : (4 + rng.next(in: 0...13)).roundedTo(1)
@@ -182,24 +201,26 @@ enum MockData {
             // Sleep: the need by term, as the platform scores it (API.md → DailyScore).
             let needStrain = isToday ? 37 : min(60, Int((lastStrain * 3).rounded()))
             let needDebt = isToday ? 41 : min(60, Int((debt * 0.3).rounded()))
-            let needNap = isToday ? 0 : lastNap
+            let needNap = lastNap
             let need = sleepBase + needStrain + needDebt - needNap
-            let nap = isToday ? 25 : (i % 9 == 4 ? Int(rng.next(in: 25...50)) : 0)
+            let nap = isToday ? 25 : offset == 1 ? BoardWeek.napYesterday : (i % 9 == 4 ? Int(rng.next(in: 25...50)) : 0)
             lastStrain = strain
             lastNap = nap
-            let asleep = isToday ? 468 : Int(410 + rng.next(in: -45...70))
-            let awake = isToday ? 10 : Int(rng.next(in: 8...28))
-            let deep = isToday ? 112 : Int(Double(asleep) * rng.next(in: 0.19...0.26))
-            let rem = isToday ? 95 : Int(Double(asleep) * rng.next(in: 0.17...0.23))
+            var asleep = isToday ? 468 : Int(410 + rng.next(in: -45...70))
+            if let week, !isToday, let share = BoardWeek.asleepShare[week] { asleep = Int((Double(need) * share).rounded()) }
+            let awake = isToday ? 22 : Int(rng.next(in: 8...28))
+            let deep = isToday ? 95 : Int(Double(asleep) * rng.next(in: 0.19...0.26))
+            let rem = isToday ? 105 : Int(Double(asleep) * rng.next(in: 0.17...0.23))
             let light = asleep - deep - rem
-            let latency = isToday ? 12 : Int(rng.next(in: 6...22))
+            let latency = isToday ? 0 : Int(rng.next(in: 6...22))
             let bedtimeOffset = isToday ? 5.0 : rng.next(in: -45...55) + (offset < 7 && offset % 2 == 0 ? 35 : 0)
             let start = cal.date(byAdding: .minute, value: -(75 - Int(bedtimeOffset)), to: date) ?? date // ~22:45 previous evening
             let inBed = asleep + awake + latency
             let end = start.addingTimeInterval(Double(inBed) * 60)
             debt = max(0, debt * 0.7 + Double(need - asleep))
             let performance = min(100, Int((Double(asleep) / Double(need) * 100).rounded()))
-            let efficiency = Int((Double(asleep) / Double(inBed) * 100).rounded())
+            // Today: the board's 95 (468 of 490 minutes is 95.5; the platform's own rounding is not the mock's).
+            let efficiency = isToday ? 95 : Int((Double(asleep) / Double(inBed) * 100).rounded())
             let restorative = min(100, Int((Double(deep + rem) / Double(asleep) / 0.40 * 100).rounded()))
             let quality = isToday ? 91 : Int((0.6 * Double(performance) + 0.2 * Double(efficiency)
                                               + 0.2 * Double(restorative)).rounded())
@@ -210,10 +231,13 @@ enum MockData {
                 let m = xs.reduce(0, +) / Double(xs.count)
                 return (xs.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(xs.count)).squareRoot()
             }
-            let consistency: Int? = isToday ? 81 : beds.count < 5 ? nil
+            let measured: Int? = beds.count < 5 ? nil
                 : max(0, min(100, Int((100 - 0.5 * (sd(beds.suffix(7)) + sd(wakes.suffix(7)))).rounded())))
+            let consistency = week.map { BoardWeek.consistency[$0] } ?? measured
 
-            let hrv = isToday ? 66 : (58 + 7 * sin(t / 6) + rng.next(in: -6...6)).roundedTo(1)
+            // Today draws no random value here (nor below), so the rest of today's values keep their sequence.
+            var hrv = isToday ? 66 : (58 + 7 * sin(t / 6) + rng.next(in: -6...6)).roundedTo(1)
+            if let week { hrv = BoardWeek.hrv[week] }
             let rhr = isToday ? 50 : (52 - 2 * sin(t / 6) + rng.next(in: -2...2)).roundedTo(1)
             let zoneScale = strain / 12
             let zones = [30, 24, 15, 6, 2].map { Int((Double($0) * zoneScale).rounded()) }
@@ -231,17 +255,21 @@ enum MockData {
             var stages = SleepMath.shares([.deep: deep, .light: light, .rem: rem]).filter { $0.stage != .awake }
             stages.append(StageShare(stage: .awake, min: awake, pct: (Double(awake) / Double(inBed) * 100).rounded()))
             let state: ReadinessState = readiness >= 67 ? .balanced : readiness >= 34 ? .strained : .depleted
+            // A night of the board's week scored without a need: no performance either.
+            let hasNeed = week.map { BoardWeek.asleepShare[$0] != nil } ?? true
+            let debtShown = isToday ? BoardWeek.debtToday : offset == 1 ? BoardWeek.debtYesterday : Int(debt.rounded())
             let score = DailyScore(
                 day: day, readiness: readiness, state: state, recovery: recovery, strain: strain,
                 steps: steps, activeKcal: kcal,
-                sleepPerformance: isToday ? 87 : performance, sleepNeedMin: need, sleepActualMin: asleep,
-                sleepDebtMin: isToday ? 137 : Int(debt.rounded()), hrvMs: hrv, rhr: rhr,
+                sleepPerformance: hasNeed ? performance : nil, sleepNeedMin: hasNeed ? need : nil, sleepActualMin: asleep,
+                sleepDebtMin: debtShown, hrvMs: hrv, rhr: rhr,
                 respRate: (14.2 + rng.next(in: -0.6...0.6)).roundedTo(1),
                 spo2: (96 + rng.next(in: -1.5...1.5)).roundedTo(0),
                 hrvBaselineMs: hrvBase, rhrBaseline: rhrBase, baselineDays: baselineDays,
                 calibrating: baselineDays < DailyScore.baselineNightsRequired, computedAt: end.addingTimeInterval(600),
-                sleepNeedBaseMin: sleepBase, sleepNeedStrainMin: needStrain, sleepNeedDebtMin: needDebt,
-                sleepNeedNapMin: needNap, napMin: nap, sleepQuality: quality, sleepConsistency: consistency)
+                sleepNeedBaseMin: hasNeed ? sleepBase : nil, sleepNeedStrainMin: hasNeed ? needStrain : nil,
+                sleepNeedDebtMin: hasNeed ? needDebt : nil, sleepNeedNapMin: hasNeed ? needNap : nil, napMin: nap,
+                sleepQuality: quality, sleepConsistency: consistency)
             let sleep = SleepDetail(start: start, end: end, totalMin: asleep, inBedMin: inBed,
                                     efficiency: efficiency,
                                     stages: stages, quality: quality,
@@ -249,8 +277,8 @@ enum MockData {
                                     segments: hypnogram(start: start, latency: latency, deep: deep, light: light,
                                                         rem: rem, awake: awake),
                                     restorative: restorative,
-                                    need: SleepNeed(base: sleepBase, strain: needStrain, debt: needDebt,
-                                                    napCredit: needNap, total: need))
+                                    need: hasNeed ? SleepNeed(base: sleepBase, strain: needStrain, debt: needDebt,
+                                                              napCredit: needNap, total: need) : nil)
             let dayStrain = DayStrain(trimp: Int((strain * 9).rounded()), hrMin: 900 + Int(rng.next(in: 0...200)),
                                       zoneMin: zones, steps: steps, activeKcal: kcal)
             out.append(Night(score: score, sleep: sleep, strain: dayStrain,
@@ -260,23 +288,29 @@ enum MockData {
     }()
 
     /// Five ~90-minute cycles: deep front-loaded, REM growing towards morning,
-    /// two short wake-ups. Minutes add up to the night's stage totals.
+    /// two short wake-ups. Minutes add up to the night's stage totals exactly (the last cycle takes what the shares
+    /// leave), so the timeline runs from sleep onset to the night's end.
     private static func hypnogram(start: Date, latency: Int, deep: Int, light: Int, rem: Int, awake: Int) -> [SleepInterval] {
         let deepShare = [0.32, 0.26, 0.2, 0.14, 0.08], remShare = [0.1, 0.16, 0.2, 0.24, 0.3]
         var t = start.addingTimeInterval(Double(latency) * 60)
         var out: [SleepInterval] = []
-        func add(_ stage: SleepIntervalStage, _ minutes: Int) {
+        var left: [SleepIntervalStage: Int] = [.light: light, .deep: deep, .rem: rem, .awake: awake]
+        func add(_ stage: SleepIntervalStage, _ minutes: Int, last: Bool = false) {
+            let minutes = last ? left[stage] ?? 0 : min(minutes, left[stage] ?? 0)
             guard minutes > 0 else { return }
+            left[stage, default: 0] -= minutes
             let end = t.addingTimeInterval(Double(minutes) * 60)
             out.append(SleepInterval(stage: stage, start: t, end: end))
             t = end
         }
         for c in 0..<5 {
+            let last = c == 4
             add(.light, light / 10)
-            add(.deep, Int(Double(deep) * deepShare[c]))
+            add(.deep, Int(Double(deep) * deepShare[c]), last: last)
             add(.light, light / 10)
-            add(.rem, Int(Double(rem) * remShare[c]))
-            if c == 1 || c == 3 { add(.awake, awake / 2) }
+            add(.rem, Int(Double(rem) * remShare[c]), last: last)
+            if c == 1 || c == 3 { add(.awake, awake / 2, last: c == 3) }
+            if last { add(.light, 0, last: true) }
         }
         return out
     }

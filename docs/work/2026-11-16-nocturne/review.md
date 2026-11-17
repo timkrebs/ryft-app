@@ -153,3 +153,113 @@ hand-off 5214 ms; nothing ticks after done. The overlay costs 0.06 ms per frame 
 Device-only: absolute numbers, 120 Hz (stall frame counts double, per-frame cost holds), signed-in launches with real data
 (stores land mid-animation), Animation Hitches (not supported on the simulator; main-thread vsync and `TimelineView` tick
 gaps used instead).
+
+## PR 4 — today and sleep in nocturne
+
+**Code review (code-reviewer, eb8a803).** No blockers. Checked fine: the view models against the spec and API.md (first
+name and greeting, the 7-entry weeks ending on the tiles' day with gaps as nil, strain bands 10/14/18, L24's integer
+"enough" rule, Sleep's oldest night, stepping and clamping, the consistency week and the debt delta), day keys in the
+device's time zone, no invented numbers, no new Repository, Persistence or Sync API, the pure launch-move state machine
+(decided once at the hand-off, no retain cycle, nothing after done), deterministic `LaunchMoveTests`, body cost, one
+accessibility element per tile and hypnogram, and the catalog diff (62 added, 10 removed, 1 changed; plurals right).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 1 | Should fix: Sleep → Day said "No sleep recorded for this night." on a night still being scored (`sleep: null` from the API); every pending test passed a non-nil `sleep`. | §P4-5's pending row: Apple Health's raw night (numeral, ruler, outline hypnogram, "–" tiles), caption "From Apple Health · not scored yet" (deviation from "Asleep": raw totals are unscored); "Your night is being scored." without a raw night. Tests decode the API placeholder. | ios-developer |
+| 2 | Should fix: `GlowTileKindTests.boardTiles` warned (Swift 6 error). | `nonisolated private static let`. | test-engineer |
+| 3 | Nit: hand-off targets reported on every scroll for the life of the process. | Collected only while the launch is on screen; test. | ios-developer |
+| 4 | Nit: the 2-up height was fixed at 98 by `idealHeight`; a long caption could clip. | No `idealHeight`; the pair grows to the taller tile (with ui-validator row 13). | ios-developer |
+| 5 | Nit: "Display" had no catalog comment; a few `"\(a), \(b)"` joins. | Comment added (localization-editor); the joins stay (English only). | localization-editor |
+| 6 | Nit: the mark also flew on an interruption. | Only the natural end or a tap move it; test. | ios-developer |
+| 7 | Nit: `MiniHypnogram`, the old `Hypnogram` and `StageBar` were catalog-only. | Deleted; `StageRow` stays (Sleep's stage card), in `Design/StageRow.swift`. | ios-developer |
+| 8 | Nit: "Asleep" under an unlit 0:00 after a failed load. | Empty caption that keeps its line. | ios-developer |
+| 9 | Pre-existing: two quick night steps run two loads and two announcements. | Follow-up. | — |
+
+**ui-validator (eb8a803, iPhone 17 Pro and 16e, iOS 27.2).** Not mergeable because of row 10; everything else within
+tolerance. Measured: tiles 169 × 124 / 175 × 124, strain 350 × 96 / 362 × 96, gap 12, gauge top 144 below the header top,
+Volt `#D8FF4F`, ink `#F2F1EC`, the glow's brightest pixels 59–60 % metric colour (the board's 72 % is the unrounded
+corner), text 4.73–6.3:1 in the cores, Reduce Transparency flat with the metric border, VoiceOver order as the tables.
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 10 | Blocker: the matched move landed about 62 pt low, held, then jumped: a named coordinate space isn't resolved across the `TabView`'s hosting, so the header reported window coordinates and the top inset was added twice. The tests pinned the same premise. | Target and stage both in `.global`; `overlayRect(fromWindow:stageOrigin:)`; a real-window test of the landing ink boxes (±0.5 pt) at 390 and 402. | ios-developer |
+| 11 | Should fix: the block under a ruler sat 14 pt low. The lead measured the board: the 36 pt box is 8 + a 22 pt tick row, the labels start at +32 and overflow it, and the next block is measured from the box. | `RulerScale(followingGap:)`: tiles at ruler top + 58, Sleep's hypnogram at + 56; at AX sizes the labels still push it down. | ios-developer |
+| 12 | Should fix: Sleep's picker costs +64, not the recorded +48. | Design text corrected; the picker is restyled in PR 5. | lead |
+| 13 | Should fix: calibrating and pending 2-up tiles lifted the value 22 pt. | `TodayTwoUpValueRow`: the caption beside the value, scaled to 0.8, or above it; the value line never moves. | ios-developer |
+| 14 | Nit: Sleep's failed load showed `localizedDescription` ("NSURLErrorDomain -1009"). | The app's calm sentences (`SleepLoadFailure`), Details with the request ID. | ios-developer |
+| 15 | Nit: Today's fault sub-line said "Your scores appear after the first synced night." | The date alone; the status row and the card say why. | ios-developer |
+| 16 | Nit: Thin numerals make Sleep's numeral block 17 pt taller than Dots. | Accepted. | — |
+| 17 | Nit: the AX3 strain caption wrapped ragged. | `TodayStrainValueRow`: beside the value, or under it from the leading edge. | ios-developer |
+| 18 | Nit: the sync status row's target was 43 pt. | ≥ 44 pt, measured from the label. | ios-developer |
+| 19 | Nit: the header mark's ink box is 24.7 pt against 26. | Accepted: 26 is the SVG box with the stroke inset. | — |
+| 20 | Nit: the last dot of a week row is always Volt. | Per spec. | — |
+| 21 | At 390 × 844 the strain tile's ruler sits about 16 pt under the floating tab bar at the scroll top. | PR 5 (the board's dot tab bar). | PR 5 |
+
+**test-engineer (T4.5).** §P4-11 is mapped to tests row by row; new: the VoiceOver order, traits, labels and hints on
+Today and Sleep (25 tests), the strings contract, the models PR 4 leaves alone, and five UI smoke tests (in `UISmoke`).
+Every new assertion was mutation-checked. Design text drift it found (strain and Sleep ruler VoiceOver keys, the sleep
+tile's "; 1 night has no data") is corrected in `design.md`.
+
+**Re-review round 2 (code-reviewer on a13b5c0; ui-validator on a13b5c0, iPhone 17 Pro and 16e).** Row 10 is fixed on
+real pixels: the mark lands on the header mark at 402 (21.0, 70.0 – 45.0, 94.3) and at 390, at the natural end and on a
+tap, with no hold or jump; Reduce Motion cross-fades. Rows 11 (+58 / +56), 13 (tiles 124 in every state, one value
+line), 14, 15, 17 and 18 pass. The validator called it mergeable; both reviews found should-fix items, fixed in
+`392cd11..567de10`:
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| R2-F1 | Should fix (regression from row 1): Sleep said "Your night is being scored." on `waiting_for_sleep`, because the day marker folds it into pending. | Sleep reads the day's scoring state: `waiting_for_sleep`, and `stale` today without a night, say "Last night hasn't reached RYFT yet." as Today does; `stale` with a night keeps its score. Tests decode the API JSON for each state. | ios-developer |
+| R2-F2 | Catalog key "in bed %@ to %@" orphaned. | Removed. | localization-editor |
+| R2-a | Sleep's failed load offered "Try again" when signed out. | Today's action: "Sign in", none for an outdated app, "Try again" otherwise. | ios-developer |
+| R2-N2–N4 | Doc order in `RulerScale.swift`; `StageRow`'s preview; the 2-up value placed by height, not baseline. | Fixed; the value sits by its baseline, the 0.8 boundary has 1 pt slack, captions tested by frame width. | ios-developer |
+| A | Should fix: the landing render test failed once under parallel load. | The renderer had returned an empty image (every pixel off, the corner transparent): the test draws again, up to three times, when the background is missing; a different drawing still fails. 25 of 25 parallel iterations pass. | ios-developer |
+| B | Should fix: "Recov…" at xxxLarge. | The sparkline moves under the label in both tiles before a title is cut; hosted test at 375, 390, 402 from large to xxxLarge. | ios-developer |
+| C | Nit: "calibrating" beside the value in one tile, above it in the other. | Each tile measures the other's words; if one goes above, both do. | ios-developer |
+| D | Nit: the AX3 ruler labels wrapped with a line starting "·". | `RulerLabels`: whole labels per line, never a separator at a line's edge (AX3 and AX5 tested). | ios-developer |
+| E | Nit: the status row's target was 43.67 pt in the fault state. | The outset makes it one device pixel over 44, on the pixel grid; a pure test at 1x, 2x, 3x. | ios-developer |
+| — | Accepted: Light numerals at AX3; the lock-up passes over the ruler in flight. | — | — |
+
+**Re-review round 3 (code-reviewer on 567de10).** No blocker. Checked fine: the scoring mapping (`stale` with a night
+keeps its score, as the backend's `todayState` orders it), VoiceOver following the caption, the failure buttons, the
+2-up layouts (one decision for both tiles, no layout loop, the partner's words hidden from drawing, hit testing and
+VoiceOver), `RulerLabels`' line breaking, the status row's pixel-grid outset, the landing test's redraw (a wrong drawing
+still fails), parallel safety of the hosted tests, strings and previews.
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| R3-S1 | Should fix: right after the night uploads, Today says "being scored" (the phone's ledger) while Sleep, reading only the cached row, says the night hasn't arrived. | Sleep takes today's state from `ScoringWord.state` (ledger, then `/v1/me/sync`, then the row), as Today and the widget do. | ios-developer |
+| R3-N1 | An unknown `scoring_state` read as scored. | Mirrors Today: unscored → waiting for the night. | ios-developer |
+| R3-N2 | Two string comments still said Sleep shows "Try again" when signed out or outdated. | Corrected in code and catalog. | ios-developer |
+| R3-N3 | The failure button's wiring is written twice. | One shared helper. | ios-developer |
+| R3-N4 | `RulerLabels` tries 2^(n−1) arrangements. | Documented, asserted ≤ 6 labels; RTL not supported (English only). | ios-developer |
+| R3-N5 | Two tests prove less than their names. | Pinned per case, or renamed. | ios-developer |
+| R3-N6 | No preview of the xxxLarge arrangement. | Added. | ios-developer |
+| R3-N7 | A nil-width sizing edge. | Unreachable from `TodayTiles`; left. | — |
+
+**ui-validator round 3 (567de10, iPhone 16e and 17 Pro, iOS 27.2).** Mergeable. On real pixels:
+- **B:** the full "Recovery" and "Sleep" in all 24 size × state × width cases; the series goes under the label in both tiles from xxLarge at 390.
+- **C:** captions sit alike in both tiles.
+- **D:** no line starts or ends with "·" at AX3 or AX5.
+- **E:** the status row's target is 44.33 pt in the up-to-date, fault and signed-out states, at 390 and 402.
+- **Sleep's failure:** "Sign in" for a 401, "Try again" for a 503.
+- **Unchanged:** the launch still lands on the header mark at 390 and 402, and the gaps are still +58 and +56.
+
+Sleep's waiting state, the outdated-app state and an earlier day aren't reachable in demo; they were verified hosted.
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| R3-V1 | Should fix: at 390 the pair grows from 124 to 146.67 pt at xxLarge (149.33 at xxxLarge) when the captions go above. | Accepted: both tiles grow together and the value stays on its line from the bottom; 124 holds at every default size. Recorded in D4-16. | — |
+| R3-V2 | Nit: for a 401 in demo, Sleep offers "Sign in" while Today's card has no button. | One rule for both screens, through the shared helper (R3-N3). | ios-developer |
+| R3-V3 | Nit: three Sleep states have no on-screen path in demo. | Follow-up: a `-RyftScenario` hook for Sleep, then UI smoke tests. | — |
+| R3-V4 | Nit: "100" alone on the second line at AX3. | Accepted (fewest lines, earlier lines fuller). | — |
+
+**Round 4 (e0d5e7e).** Fixed: R3-S1, R3-N1–N6 and R3-V2.
+- **R3-S1:** for today, Sleep takes `ScoringWord.state` (the phone's ledger word, then `/v1/me/sync`, then the row) and redraws when the word lands. `todayAgrees` runs 13 cases on the same facts.
+- **R3-V2:** demo data offers no "Sign in" on either screen, because it would sign out a real session behind the demo. Details stays. A UI smoke test covers a 401 in demo.
+- **Mutation checks:** every fix has one that fails without it, except the `RulerLabels` assert, which Swift Testing can't test on iOS.
+- **Strict CI build:** no warnings.
+- **Tests:** Unit 3232 of 3232 passed; UISmoke 48 run, 0 failures, 1 skipped by design.
+
+Known differences between Today and Sleep, accepted:
+- `stale` today without a night: Today says "No readiness yet today…" and Sleep says "Last night hasn't reached RYFT yet."
+- A scored row with no readiness and no sleep: Today says "No readiness yet today…" and Sleep says "No sleep recorded for this night."

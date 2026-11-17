@@ -212,6 +212,12 @@ struct LaunchSequence: Equatable, Sendable {
         /// The last frame fades in over `Theme.Motion.quick`'s 0.25 s and holds until 1.0 s, then 0.25 s out.
         static let reduced = Timing(duration: 1.0, handOff: 0.25, quickHandOff: 0.25, fadeIn: 0.25)
 
+        /// The hand-off at the natural end when the mark flies into Today's header (L25): the launch's brand-moment
+        /// exception to the 250 ms motion rule. A tap keeps `quickHandOff`.
+        static let moveHandOff: TimeInterval = 0.5
+        /// During the move the background and the tagline fade over this long, so Today shows while the lock-up travels.
+        static let moveFade: TimeInterval = 0.25
+
         /// The first `.active` must come within this long after init, or it is a background launch opened later.
         static let coldStartWindow: TimeInterval = 5
         /// The timeline waits this long after the first `.active` for the overlay's first frame, then starts anyway, so
@@ -234,6 +240,9 @@ struct LaunchSequence: Equatable, Sendable {
     private(set) var recordedEnding: Ending?
     /// Armed and then skipped by an event.
     private(set) var skippedBy: LaunchSkip?
+    /// Today's header has a `.mark` hand-off target on screen (`setMarkTarget`). Recorded only while armed or playing,
+    /// so from the hand-off on it is fixed and `movesMark` is decided once.
+    private(set) var hasMarkTarget = false
 
     init(decision: LaunchDecision, createdAt: Date) {
         self.decision = decision
@@ -292,6 +301,13 @@ struct LaunchSequence: Equatable, Sendable {
         }
     }
 
+    /// Whether a `.mark` target (Today's header lock-up) is on screen; taken only while armed or playing.
+    mutating func setMarkTarget(_ present: Bool, at date: Date) {
+        let phase = phase(at: date)
+        guard phase == .armed || phase == .playing else { return }
+        hasMarkTarget = present
+    }
+
     private mutating func handOff(at date: Date, ending: Ending) {
         handOffAt = date
         handOffFade = timing.quickHandOff
@@ -309,7 +325,58 @@ struct LaunchSequence: Equatable, Sendable {
     /// When the overlay is gone; nil before the start.
     var doneAt: Date? {
         if let endedAt { return endedAt }
-        return handOffStart.map { $0.addingTimeInterval(handOffFade ?? timing.handOff) }
+        return handOffStart.map { $0.addingTimeInterval(handOffDuration) }
+    }
+
+    /// The hand-off's length: an event's quick fade, else 0.5 s when the mark moves (L25), else the variant's fade.
+    var handOffDuration: TimeInterval {
+        handOffFade ?? (movesMark ? Timing.moveHandOff : timing.handOff)
+    }
+
+    // MARK: the matched move (design.md §P4-7, launch-design.md §7.5)
+
+    /// The mark has formed by this share of the timeline (the wordmark and the colour are done): a hand-off from here on
+    /// may move it.
+    static let markFormed = LaunchFrame.Key.wordmarkTo
+
+    /// The mark and "RYFT" fly into Today's header lock-up instead of fading: the full variant, a `.mark` target on
+    /// screen, the mark formed when the hand-off starts, and a hand-off the person chose or the timeline's end (a tap or
+    /// the natural end). Anything else (the reduced variant, a skip before 0.86, another root, system UI or an
+    /// interruption, which take the screen) keeps the cross-fade. Fixed from the hand-off on (`setMarkTarget`).
+    var movesMark: Bool {
+        guard variant == .full, hasMarkTarget, Self.endingMovesMark(recordedEnding), let start = handOffStart else { return false }
+        return progress(at: start) >= Self.markFormed
+    }
+
+    /// The natural end (no event, or `.finished` once backgrounded in its hand-off) and a tap may move the mark; system
+    /// UI, an interruption and the background don't (CR6).
+    static func endingMovesMark(_ ending: Ending?) -> Bool {
+        switch ending {
+        case nil, .finished, .tapped: return true
+        case .systemUI, .backgrounded, .interrupted, .skipped: return false
+        }
+    }
+
+    /// 0...1 of the hand-off's duration, linear; 0 before it, 1 after.
+    func moveTime(at date: Date) -> Double {
+        guard let start = handOffStart else { return 0 }
+        if let endedAt, date >= endedAt { return 1 }
+        let duration = handOffDuration
+        guard duration > 0 else { return date >= start ? 1 : 0 }
+        return min(max(date.timeIntervalSince(start) / duration, 0), 1)
+    }
+
+    /// The mark's progress through the move: E1 of `moveTime(at:)`.
+    func moveProgress(at date: Date) -> Double {
+        LaunchFrame.markMoveProgress(moveTime(at: date))
+    }
+
+    /// The background's and the tagline's opacity during the move: `1 − easeOut(elapsed / 0.25)`, so they are gone 0.25
+    /// s in while the lock-up still travels; 1 before the hand-off.
+    func moveFade(at date: Date) -> Double {
+        guard let start = handOffStart else { return 1 }
+        if let endedAt, date >= endedAt { return 0 }
+        return 1 - LaunchFrame.Easing.easeOut(date.timeIntervalSince(start) / Timing.moveFade)
     }
 
     func phase(at date: Date) -> Phase {
@@ -327,11 +394,12 @@ struct LaunchSequence: Equatable, Sendable {
         return min(max(date.timeIntervalSince(startedAt) / timing.duration, 0), 1)
     }
 
-    /// 0 until the hand-off, then 0...1 over its fade, eased out (`Theme.Motion`). The overlay's opacity is 1 minus this.
+    /// 0 until the hand-off, then 0...1 over its fade, eased out (`Theme.Motion`). The overlay's opacity is 1 minus this
+    /// (with the matched move, the overlay fades its background and tagline by `moveFade(at:)` instead).
     func handOff(at date: Date) -> Double {
         guard let handOffStart else { return 0 }
         if let endedAt, date >= endedAt { return 1 }
-        let fade = handOffFade ?? timing.handOff
+        let fade = handOffDuration
         guard fade > 0 else { return date >= handOffStart ? 1 : 0 }
         return LaunchFrame.Easing.easeOut(date.timeIntervalSince(handOffStart) / fade)
     }

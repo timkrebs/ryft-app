@@ -42,6 +42,11 @@ final class Settings {
     var setColumn: SetColumn? {
         didSet { defaults.set(setColumn?.rawValue, forKey: "train.setColumn") }
     }
+    /// Profile → Display → Hero numbers: the large numerals on Today, Sleep and Strain as the dot grid or in thin digits
+    /// (L19). A device preference, so it stays on log-out; an unknown stored value reads as the default, Dots.
+    var heroNumerals: HeroNumerals {
+        didSet { defaults.set(heroNumerals.rawValue, forKey: HeroNumerals.defaultsKey) }
+    }
 
     #if DEBUG
     // Profile → Developer. None of this is compiled into Release.
@@ -92,6 +97,7 @@ final class Settings {
         jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
         sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
         setColumn = defaults.string(forKey: "train.setColumn").flatMap(SetColumn.init(rawValue:))
+        heroNumerals = defaults.string(forKey: HeroNumerals.defaultsKey).flatMap(HeroNumerals.init(rawValue:)) ?? .dots
         #if DEBUG
         devAPIURLOverride = defaults.string(forKey: "dev.apiURL") ?? ""
         devIngestURLOverride = defaults.string(forKey: "dev.ingestURL") ?? ""
@@ -127,7 +133,7 @@ final class Settings {
     var isConfigured: Bool { apiURL != nil }
 
     /// Per-user state on log-out and account deletion. Demo mode, the training
-    /// preferences (jump to next, session layout) and the device ID stay;
+    /// preferences (jump to next, session layout), the hero numerals and the device ID stay;
     /// HealthKit anchors and cached responses are dropped by AuthService.
     func clearPerUserState() {
         lastSync = nil
@@ -159,6 +165,32 @@ enum SessionLayout: String, CaseIterable, Identifiable {
     /// What a session opens in: the stored choice while `train.focused_session` is on, List otherwise (plan.md, L5).
     static func effective(flagOn: Bool, stored: SessionLayout) -> SessionLayout {
         flagOn ? stored : .list
+    }
+}
+
+/// How the hero numbers are drawn (Today's gauge, Sleep's duration, Strain's value; design.md §P4-6): the dot grid, or
+/// thin Light digits. From AX1 and for characters the grid lacks both are Light (`DotNumeral.rendersDots`).
+enum HeroNumerals: String, CaseIterable, Identifiable, Sendable {
+    case dots, thin
+
+    /// The `UserDefaults` key.
+    static let defaultsKey = "ui.heroNumerals"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dots: return String(localized: "Dots", comment: "Profile → Display → Hero numbers: large numbers drawn as a grid of dots.")
+        case .thin: return String(localized: "Thin", comment: "Profile → Display → Hero numbers: large numbers in thin digits.")
+        }
+    }
+
+    /// The numeral style the screens pass to `OrbitGauge(numeral:)` and `DotNumeral(style:)`.
+    var style: DotNumeral.Style {
+        switch self {
+        case .dots: return .dots
+        case .thin: return .light
+        }
     }
 }
 
