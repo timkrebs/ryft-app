@@ -390,8 +390,9 @@ struct ReadModelWipeRaceTests {
     /// sign-out starts once 30, 55, … are in, and each writer's last five wait for its wipe, so writes are pending on
     /// both sides of it; the sign-out's own last write is held in the writer across the wipe, so at least one from
     /// before it is dropped, not only overwritten. Days repeat (60 for 200 writes) and every seventh write is the
-    /// user's; with demo data on, every other one goes to the account's store, the rest to demo data's (which the
-    /// sign-out's reset replaces). Each store ends with exactly what was submitted to it after its wipe or its
+    /// user's; with demo data on, every other one goes to the account's store, the rest to demo data's, which the
+    /// account change replaces right after the sign-out (`AppState.accountChanged(from:)`, as RyftApp calls it:
+    /// `Repository.reset()` under load). Each store ends with exactly what was submitted to it after its wipe or its
     /// replacement, the last of it per user, and no value from before.
     @Test(.timeLimit(.minutes(1)), arguments: 0..<5, [false, true]) // a lock held across an await would hang here
     func manyWritersAndASignOutLeaveOnlyWhatCameAfterIt(round: Int, demo: Bool) async throws {
@@ -440,7 +441,9 @@ struct ReadModelWipeRaceTests {
             // The next batch to reach the writer, this write's or one before it, waits there for the wipe.
             armed.arm()
             submit(200, toAccount: true)
+            let account = h.auth.accountID
             await h.auth.signOut()
+            h.state.accountChanged(from: account)
             held.open()
         })
         for task in tasks { await task.value }
@@ -516,7 +519,7 @@ struct ReadModelLockAndPriorityTests {
         repo.writeHooks = .init(insideSave: { hold.pass() })
         let key = DayFormat.string(from: .now)
         let first = repo.store(detail: detail(key, strain: 1))
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
         // Opens it anyway, so a reader that does wait (the bug) is measured, not hung.
         DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(500)) { hold.open() }
 
@@ -526,7 +529,8 @@ struct ReadModelLockAndPriorityTests {
         let blocked = ContinuousClock.now - start
         hold.open()
 
-        #expect(blocked < .milliseconds(100), "main waited \(blocked)")
+        // The bug waits for the hold's 500 ms; a busy machine (CI runs four suites at once) stays well below 250.
+        #expect(blocked < .milliseconds(250), "main waited \(blocked)")
         #expect(epoch == env.persistence.epoch.current)
         let saved = (await first.committed().saved, await ticket.committed().saved)
         #expect(saved == (true, true))
@@ -620,7 +624,11 @@ struct ReadModelDemoSwitchTests {
             await state.refresh()
             done.append(true)
         }
-        _ = await eventually(timeout: .milliseconds(500)) { done.count == 1 }
+        // The refresh decided: it skipped today (and ended, the writer held) or reads it (in flight, waiting there).
+        // Opening before that decision would let the clear land first and hide the skip.
+        #expect(await eventually(timeout: .seconds(5)) {
+            done.count == 1 || state.env.reads.inFlight.contains { $0.resource == .today }
+        })
         hold.open()
         await refresh.value
         await state.repository.settled()
@@ -644,7 +652,7 @@ struct ReadModelDemoSwitchTests {
         repo.writeHooks.job = { _ in hold.pass() }
         let old = repo.storeID
         let held = repo.store(detail: detail("2026-11-01", strain: 1))
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
         let queued = repo.store(detail: detail("2026-11-02", strain: 2))
 
         repo.reset()
@@ -688,7 +696,7 @@ extension ReadModelWipeRaceTests {
         } }
         h.repository.writeHooks.beforeCommit = { hold.pass() }
         let written = h.repository.store(user: MockData.user)
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
 
         h.persistence.wipe(parkingActivitiesOf: nil, at: h.clock.now())
         hold.open()
@@ -697,6 +705,31 @@ extension ReadModelWipeRaceTests {
         await h.repository.settled()
         #expect(saves.withLock { $0 } == 1)
         #expect(try h.rowCount() == 0)
+    }
+
+    /// A refusal that lasts: the user goes again once, not again and again. Each new user gets its own one more try.
+    @Test func aRefusedSaveOfTheUserGoesAgainOnceOnly() async throws {
+        let h = WipeHarness()
+        let saves = OSAllocatedUnfairLock(initialState: 0)
+        // Refuses the first ten: a retry that didn't stop would end at the eleventh, not hang.
+        h.repository.writeHooks.refusesSave = { saves.withLock { n in
+            n += 1
+            return n <= 10
+        } }
+        var user = MockData.user
+        user.birthYear = 1981
+
+        #expect(!(await h.repository.store(user: user).committed()).saved)
+        await h.repository.settled() // the second try, submitted inside the first one's commit
+        await h.repository.settled()
+        #expect(saves.withLock { $0 } == 2)
+
+        user.birthYear = 1982
+        #expect(!(await h.repository.store(user: user).committed()).saved)
+        await h.repository.settled()
+        await h.repository.settled()
+        #expect(saves.withLock { $0 } == 4)
+        #expect(h.repository.user()?.birthYear == 1982) // written through, whatever the store took
     }
 
     /// A batch saved before the wipe and committed after it: its rows are gone, so it doesn't publish the widget. The
@@ -715,7 +748,7 @@ extension ReadModelWipeRaceTests {
         let hold = WriterHold()
         h.repository.writeHooks.beforeCommit = { hold.pass() }
         let written = h.repository.store(detail: detail(h.today, strain: 13))
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
 
         h.persistence.wipe(parkingActivitiesOf: nil, at: h.clock.now())
         h.repository.invalidate()

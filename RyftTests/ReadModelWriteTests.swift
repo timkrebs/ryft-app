@@ -386,10 +386,10 @@ extension ReadModelReaderTests {
         repo.writeHooks.job = { _ in hold.pass() }
         // An earlier write in the writer: the refresh's queues behind it, and so does the later one below.
         repo.store(insights: MockData.insights)
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
         let refresh = Task { try await repo.refreshDay(env.clock.now()) }
         // Succeeded, so its write is submitted (the same main-actor step).
-        #expect(await eventually { env.reads.states[.today]?.fetchedAt != nil })
+        #expect(await eventually(timeout: .seconds(5)) { env.reads.states[.today]?.fetchedAt != nil })
         repo.store(detail: DayDetail(score: DailyScore(day: key, strain: 19), sleep: nil, workouts: []))
         hold.open()
 
@@ -444,7 +444,7 @@ extension ReadModelWipeTests {
         let hold = WriterHold()
         h.repository.writeHooks.job = { _ in hold.pass() }
         let refresh = Task { try await h.repository.refreshDay(h.clock.now()) }
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
 
         await h.auth.signOut()
         hold.open()
@@ -474,7 +474,7 @@ extension ReadModelWipeTests {
             case .aboutYou: _ = await onboarding.saveAboutYou(birthYear: 1971)
             }
         }
-        #expect(await eventually { hold.waiting == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.waiting == 1 })
 
         await h.auth.signOut()
         hold.release()
@@ -496,7 +496,7 @@ extension ReadModelWipeTests {
         api.beforePatchNotifications = { await hold.wait() }
         let model = NotificationSettingsViewModel(state: h.state, push: PushRegistrar(env: h.env))
         let request = Task { await model.set(.pr, on: false) }
-        #expect(await eventually { hold.waiting == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.waiting == 1 })
 
         await h.auth.signOut()
         await h.signIn(WipeHarness.b)
@@ -530,7 +530,7 @@ extension ReadModelOtherWritersTests {
         } else {
             env.uploader.onRemoved?(id, [DayFormat.string(from: now)])
         }
-        #expect(await eventually { hold.entered == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
 
         let store = try #require(env.persistence as? TrainStore)
         store.wipe(parkingActivitiesOf: nil, at: now)
@@ -538,6 +538,9 @@ extension ReadModelOtherWritersTests {
         hold.open()
         await state.repository.settled()
 
+        // Safe as a negative: the follow-up decided when its ticket resolved, before `settled()` returned (it waited
+        // first). A run it started reports its days first thing (`SyncCoordinator.run`: two actor hops, no clock), so
+        // 300 ms of turns would see them.
         #expect(await eventually(timeout: .milliseconds(300)) { !steps.accepted.isEmpty } == false)
         await coordinator.cancel()
     }
