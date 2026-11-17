@@ -586,3 +586,18 @@ private enum TodayTilesPreview {
 #Preview("Today tiles · Reduce Transparency") {
     DarkPreview { TodayTilesPreview.all(reduceTransparency: true) }
 }
+
+/// The strain tile's AX value row: beside the value where the line fits (AX3 in the tile at 390), under it from the
+/// leading edge where it doesn't (AX5).
+#Preview("Today strain value row · AX3 beside, AX5 under") {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 24) {
+            TodayStrainValueRow(value: "12.4", caption: TodayStrainBand.moderate.caption)
+                .environment(\.dynamicTypeSize, .accessibility3)
+            TodayStrainValueRow(value: "12.4", caption: TodayStrainBand.moderate.caption)
+                .environment(\.dynamicTypeSize, .accessibility5)
+        }
+        .frame(width: 318)
+        .padding(20)
+    }
+}
