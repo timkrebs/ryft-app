@@ -22,8 +22,9 @@ enum BackgroundWork {
     /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`. `expired`: the refresh
     /// task's time ran out; work `afterRefresh` started outside its own task stops there (the activity uploads).
     /// `settled`: the read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, waited for
-    /// at most 2 s); each task completes after it, so the widget and Today are current before iOS suspends the app (ADR
-    /// 0013, 0018). `compact` returns once its write committed.
+    /// at most 2 s, then only the batch in progress); each task completes after it, so the widget and Today are current
+    /// before iOS suspends the app, and no save is open then (ADR 0013, 0018). `compact` returns once its write
+    /// committed, after 2 s at most, and when cancelled (the task's expiry).
     @MainActor
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
                          afterRefresh: @escaping @MainActor () async -> Void = {},
@@ -46,12 +47,28 @@ enum BackgroundWork {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: compactionTaskID, using: nil) { task in
             guard let task = task as? BGProcessingTask else { return }
             scheduleCompaction()
-            Task { @MainActor in
-                await compact()
-                await settled()
-                task.setTaskCompleted(success: true)
-            }
+            Task { @MainActor in runCompaction(task, compact: compact, settled: settled) }
         }
+    }
+
+    /// The compaction task's run: the compaction, then the completion once `settled` returns. At expiry both stop (the
+    /// write itself goes on, and lands when the app runs next if it must): the task completes while there's still
+    /// time. Returns the completion's task (tests).
+    @MainActor
+    @discardableResult
+    static func runCompaction(_ task: BackgroundTaskHandle, compact: @escaping @MainActor () async -> Void,
+                              settled: @escaping @MainActor () async -> Void = {}) -> Task<Void, Never> {
+        let work = Task { @MainActor in await compact() }
+        let completion = Task { @MainActor in
+            await work.value
+            await settled()
+            task.setTaskCompleted(success: !work.isCancelled)
+        }
+        task.expirationHandler = {
+            work.cancel()
+            completion.cancel()
+        }
+        return completion
     }
 
     /// The refresh task's run: the sync, then what follows from it (tonight's bedtime moves with the day's strain),

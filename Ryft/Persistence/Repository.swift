@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import UIKit
 import WidgetKit
 import os
 
@@ -103,6 +104,7 @@ final class Repository {
         liveStore = store ?? env.persistence
         self.policy = policy
         widgetFile = env.sharesWithWidget ? ReadinessSnapshot.sharedFile : nil
+        if env.isLive { isInForeground = { UIApplication.shared.applicationState == .active } }
         let link = RepositoryLink()
         drain = ReadModelDrain { receipt, target, epoch in
             link.repository?.committed(receipt, store: target.store, current: target.epoch.current == epoch)
@@ -548,20 +550,70 @@ final class Repository {
 
     /// The longest `settledBeforeCompletion()` waits: iOS may end the app's background time soon after.
     static let completionWait: Duration = .seconds(2)
+    /// How long writes stay paused after a completion whose wait ran out, unless the app comes to the foreground first
+    /// (`resumeWrites()`). Suspended, the app doesn't run, so they resume when it runs next (its clock's sleep is over
+    /// by then); kept running in the background (a workout, another task), they resume after this.
+    static let pauseAfterCompletion: Duration = .seconds(10)
+
+    /// Whether the app is in the foreground, where iOS doesn't suspend it after a completion: no pause there. The live
+    /// graph asks `UIApplication`; every other graph is in the background unless its test says otherwise.
+    @ObservationIgnored var isInForeground: @MainActor () -> Bool = { false }
+    /// Until when the writes stay paused (a later pause moves it on); nil when they aren't.
+    @ObservationIgnored private var pausedUntil: Date?
 
     /// `settled()` before a system completion (a background task, a silent push, the app's background time): for at
-    /// most `completionWait`, and not at all once the caller is cancelled (the system's time ran out). A write still
-    /// pending lands when the app runs next.
+    /// most `completionWait`, and not at all once the caller is cancelled (the system's time ran out). If that ends it
+    /// in the background, the writes pause (`ReadModelDrain.pause()`): the batch in progress is awaited (a save takes
+    /// milliseconds), no new one starts, so no save into the App Group's store is open when iOS suspends the app
+    /// (0xdead10cc). What's still queued is written when the app runs again (`resumeWrites()`, `pauseAfterCompletion`).
     func settledBeforeCompletion() async {
         guard let last = drain.lastSubmitted else { return }
         let clock = env.clock, limit = Self.completionWait
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { _ = await last.committedUnlessCancelled() }
-            group.addTask { try? await clock.sleep(for: limit) }
-            await group.next()
+        let settled = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await last.committedUnlessCancelled() != nil }
+            group.addTask {
+                try? await clock.sleep(for: limit)
+                return false
+            }
+            let first = await group.next() ?? false
             group.cancelAll()
+            return first
+        }
+        guard !settled, !isInForeground() else { return }
+        let inProgress = drain.pause()
+        let resumes = pausedUntil != nil
+        pausedUntil = now.addingTimeInterval(Self.pauseAfterCompletion.timeInterval)
+        if !resumes { resumeAtTheEndOfThePause() }
+        // Not cancellable: a save in progress can't be stopped, and the completion must come after it.
+        await inProgress?.committed()
+    }
+
+    /// Sleeps until `pausedUntil` (moved on by a later pause meanwhile), then resumes the writes; nothing once they
+    /// resumed otherwise (the foreground).
+    private func resumeAtTheEndOfThePause() {
+        let clock = env.clock
+        Task { [weak self] in
+            while true {
+                guard let until = self?.pausedUntil else { return }
+                let left = until.timeIntervalSince(clock.now())
+                if left <= 0 { break }
+                do { try await clock.sleep(for: .seconds(left)) } catch { return }
+            }
+            self?.resumeWrites()
         }
     }
+
+    /// The writes paused at a completion go on: the app came to the foreground (RyftApp), or the pause is over.
+    func resumeWrites() {
+        pausedUntil = nil
+        drain.resume()
+    }
+
+    /// Writes wait for `resumeWrites()` (tests).
+    var writesPaused: Bool { drain.isPaused }
+
+    /// A batch is being written (tests).
+    var writeInProgress: Bool { drain.batchInProgress != nil }
 
     /// `ops` written at once on a context of their own, then committed as one batch: previews, tests and the legacy
     /// import, never the app's own writes. Only while no write is pending (two contexts must not write one row).
@@ -786,7 +838,8 @@ final class Repository {
 
     /// Nightly (`BGProcessingTask`): days beyond a year, workouts and Train
     /// documents nobody opened for 30 days, series older than a week. What's
-    /// gone is fetched again when needed. Returns once it's committed.
+    /// gone is fetched again when needed. Returns once it's committed, after `completionWait` at most, and at once when
+    /// cancelled (the task's time ran out); the count is then what was removed so far.
     @discardableResult
     func compact() async -> Int {
         let cutoffDay = calendar.startOfDay(for: DayFormat.shift(now, days: -365))
@@ -799,8 +852,22 @@ final class Repository {
         var removed = (try? s.context.fetchCount(oldDocs)) ?? 0
         try? s.context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
         if removed > 0 { s.save() }
-        removed += await submit(.compact(dayCutoff: cutoffDay, month: month, week: week)).committed().removed
-        return removed
+        // Waited for as a completion waits (`completionWait`), and not once the task is cancelled (its time ran out):
+        // the rows go when the write commits, whoever waits.
+        let ticket = submit(.compact(dayCutoff: cutoffDay, month: month, week: week))
+        let clock = env.clock, limit = Self.completionWait
+        let receipt = await withTaskGroup(of: WriteReceipt?.self) { group in
+            group.addTask { await ticket.committedUnlessCancelled() }
+            group.addTask {
+                try? await clock.sleep(for: limit)
+                return nil
+            }
+            // The first child to end: the receipt, or nil (the bound, or cancelled).
+            let first = await group.next().flatMap { $0 }
+            group.cancelAll()
+            return first
+        }
+        return removed + (receipt?.removed ?? 0)
     }
 
     /// The store changed underneath (sign-out wiped it): forget decoded values, the read contexts and the user

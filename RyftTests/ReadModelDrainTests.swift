@@ -54,8 +54,22 @@ func repositoryWithAHeldWrite(clock: TestClock = TestClock()) async -> (reposito
     let hold = WriterHold()
     repository.writeHooks.job = { _ in hold.pass() }
     repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-19", strain: 7), sleep: nil, workouts: []))
-    _ = await eventually { hold.entered == 1 }
+    // Below WriterHold's 10 s: a writer that never arrives fails here, not after the hold let go.
+    _ = await eventually(timeout: .seconds(5)) { hold.entered == 1 }
     return (repository, hold)
+}
+
+/// The day `repositoryWithAHeldWriteAndOneQueued` queues behind the held write.
+let queuedDay = "2026-10-20"
+
+/// The same, and a second write queued behind the held one, a batch of its own: what a completion's pause leaves for
+/// the app's next run.
+@MainActor
+func repositoryWithAHeldWriteAndOneQueued(clock: TestClock) async
+    -> (repository: Repository, hold: WriterHold, queued: WriteTicket) {
+    let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+    let queued = repository.store(detail: DayDetail(score: DailyScore(day: queuedDay, strain: 8), sleep: nil, workouts: []))
+    return (repository, hold, queued)
 }
 
 private func detail(_ day: String, strain: Double) -> DayDetail {
@@ -717,21 +731,26 @@ extension ReadModelWipeRaceTests {
 @Suite("Read-model writes: before a system completion")
 @MainActor
 struct ReadModelCompletionWaitTests {
-    /// A write that hangs holds a completion for 2 s at most: iOS may end the app's time soon after.
+    /// A write that hangs holds a completion for 2 s at most: iOS may end the app's time soon after. In the foreground
+    /// (not suspended after it) nothing pauses.
     @Test func theWaitEndsAtTwoSeconds() async {
         let clock = TestClock()
         let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        repository.isInForeground = { true }
         let ended = Recorded<Bool>()
         let wait = Task {
             await repository.settledBeforeCompletion()
             ended.append(true)
         }
-        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
         clock.advance(by: .milliseconds(1_500))
+        // Safe as a negative: the wait has nothing else to end on (the write is held for up to 10 s), so it can only
+        // end early if the bound is shorter, and a slow machine makes that later, never sooner.
         #expect(await eventually(timeout: .milliseconds(200)) { ended.count == 1 } == false)
         clock.advance(by: .milliseconds(500))
-        #expect(await eventually(timeout: .seconds(2)) { ended.count == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { ended.count == 1 })
         #expect(hold.entered == 1) // still held
+        #expect(!repository.writesPaused)
         hold.open()
         await wait.value
     }
@@ -740,26 +759,148 @@ struct ReadModelCompletionWaitTests {
         let clock = TestClock()
         let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
         let wait = Task { await repository.settledBeforeCompletion() }
-        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
         hold.open()
         await wait.value
         #expect(repository.day("2026-10-19") != nil)
-        #expect(await eventually { clock.pendingSleeps == 0 }) // the bound's sleep ended with it
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 0 }) // the bound's sleep ended with it
+        #expect(!repository.writesPaused)
     }
 
-    /// The system's time ran out (the caller is cancelled): the wait ends at once.
+    /// The system's time ran out (the caller is cancelled): in the foreground the wait ends at once.
     @Test func aCancelledWaitEndsAtOnce() async {
         let clock = TestClock()
         let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        repository.isInForeground = { true }
         let ended = Recorded<Bool>()
         let wait = Task {
             await repository.settledBeforeCompletion()
             ended.append(true)
         }
-        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
         wait.cancel()
-        #expect(await eventually(timeout: .seconds(2)) { ended.count == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { ended.count == 1 })
         hold.open()
         await wait.value
+    }
+
+    /// In the background, where iOS may suspend the app right after the completion: at the bound the writes pause. The
+    /// batch in progress is awaited (no save is open at the suspension), no new one starts, a write submitted
+    /// meanwhile waits too, and all of them go once the pause is over (the app runs again).
+    @Test(.timeLimit(.minutes(1)))
+    func inTheBackgroundTheBoundPausesTheWritesAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let (repository, hold, queued) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let ended = Recorded<Bool>()
+        let wait = Task {
+            await repository.settledBeforeCompletion()
+            ended.append(true)
+        }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        clock.advance(by: Repository.completionWait)
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        // Deterministic: the batch in progress is held (up to 10 s), and the wait ends only after it.
+        #expect(ended.all.isEmpty)
+
+        hold.open()
+        await wait.value
+        // Paused before that batch's tickets resolved: the queued one never started.
+        #expect(!repository.writeInProgress && hold.entered == 1)
+        #expect(repository.day("2026-10-19") != nil && repository.day(queuedDay) == nil)
+        let later = repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-21", strain: 9), sleep: nil,
+                                                       workouts: []))
+        #expect(!repository.writeInProgress && hold.entered == 1) // a submit doesn't end the pause
+
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // the pause's end
+        clock.advance(by: Repository.pauseAfterCompletion)
+        #expect(await eventually(timeout: .seconds(5)) { repository.day(queuedDay) != nil && repository.day("2026-10-21") != nil })
+        let saved = (await queued.committed().saved, await later.committed().saved)
+        #expect(saved == (true, true))
+        #expect(!repository.writesPaused)
+    }
+
+    /// The system's time ran out in the background: the wait stops, and still awaits the batch in progress.
+    @Test(.timeLimit(.minutes(1)))
+    func aCancelledWaitInTheBackgroundAwaitsTheBatchInProgress() async {
+        let clock = TestClock()
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let ended = Recorded<Bool>()
+        let wait = Task {
+            await repository.settledBeforeCompletion()
+            ended.append(true)
+        }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        wait.cancel()
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(ended.all.isEmpty) // deterministic: the batch in progress is held
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { ended.count == 1 })
+        #expect(repository.day(queuedDay) == nil)
+        repository.resumeWrites()
+    }
+
+    /// The foreground (RyftApp's `.active`) ends the pause at once.
+    @Test(.timeLimit(.minutes(1)))
+    func theForegroundEndsThePause() async {
+        let clock = TestClock()
+        let (repository, hold, queued) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let wait = Task { await repository.settledBeforeCompletion() }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        clock.advance(by: Repository.completionWait)
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        hold.open()
+        await wait.value
+        #expect(repository.day(queuedDay) == nil)
+
+        repository.resumeWrites()
+        #expect(!repository.writesPaused)
+        #expect(await eventually(timeout: .seconds(5)) { repository.day(queuedDay) != nil })
+        #expect(await queued.committed().saved)
+    }
+
+    /// A second completion's pause moves the end on: the first one's end doesn't cut it short.
+    @Test(.timeLimit(.minutes(1)))
+    func aSecondPauseMovesTheEndOn() async {
+        let clock = TestClock()
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let first = Task { await repository.settledBeforeCompletion() }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        clock.advance(by: Repository.completionWait) // t = 2 s: paused until 12 s
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        hold.open()
+        await first.value
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // the pause's end
+        clock.advance(by: .seconds(5)) // 7 s
+
+        // The queued write is still pending: the next completion's wait runs into its bound too.
+        let second = Task { await repository.settledBeforeCompletion() }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 2 })
+        clock.advance(by: Repository.completionWait) // 9 s: paused until 19 s
+        await second.value
+        clock.advance(by: .seconds(3)) // 12 s: the first end, moved on
+
+        // The end sleeps again, or (the bug) the writes resumed: either is an event, and only the first is right.
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 || !repository.writesPaused })
+        #expect(repository.writesPaused && repository.day(queuedDay) == nil)
+        clock.advance(by: .seconds(7)) // 19 s
+        #expect(await eventually(timeout: .seconds(5)) { repository.day(queuedDay) != nil })
+    }
+
+    /// The nightly compaction waits for its write as a completion does: 2 s at most, so a write that hangs doesn't keep
+    /// the task from completing.
+    @Test(.timeLimit(.minutes(1)))
+    func theCompactionsWaitEndsAtTwoSeconds() async {
+        let clock = TestClock()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let removed = Recorded<Int>()
+        let compaction = Task {
+            removed.append(await repository.compact())
+        }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        clock.advance(by: Repository.completionWait)
+        #expect(await eventually(timeout: .seconds(5)) { removed.count == 1 })
+        #expect(removed.all == [0])
+        hold.open()
+        await compaction.value
     }
 }

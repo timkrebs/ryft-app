@@ -97,8 +97,12 @@ private final class TicketBox: Sendable {
 /// - **The wipe**: a batch whose epoch is over is dropped; the writer saves inside `StoreEpoch.ifCurrent`; a new epoch or
 ///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed. A writer whose epoch is
 ///   over goes when the drain falls idle and at `retireWiped()` (the Repository's `invalidate()`), so the rows its
-///   context registered don't outlive the wipe in memory either. A store the Repository let go of (`retire(store:)`,
-///   demo data's at the switch) loses its writer the same way, and its writes still queued drop.
+///   context registered don't outlive the wipe in memory either. A store the Repository let go of (`retire(_:)`, demo
+///   data's at the switch) has its epoch moved on: its writes still queued drop, a batch in its writer doesn't save (or
+///   commits as not current), and its writer goes.
+/// - **Paused** (`pause()`, before a system completion whose wait ran out): no batch starts until `resume()`, so none
+///   is mid-save in the App Group's store when iOS suspends the app (0xdead10cc); the batch in progress finishes
+///   (`batchInProgress`).
 actor ReadModelDrain {
     /// Where a write goes: one store's container, its wipe epoch, and how often the Repository seeded it.
     struct Target: Sendable {
@@ -146,6 +150,10 @@ actor ReadModelDrain {
         var hooks = Hooks()
         /// Stores the Repository let go of (`retire(_:)`): their writes drop. Never reused (`StoreID`).
         var retired: Set<StoreID> = []
+        /// `pause()` until `resume()`: no batch starts.
+        var paused = false
+        /// The batch being written, by its last ticket; nil between batches.
+        var writing: TicketBox?
     }
 
     private struct WriterKey: Equatable {
@@ -201,11 +209,38 @@ actor ReadModelDrain {
         Task(priority: .userInitiated) { await self.retireWipedWriters() }
     }
 
+    /// No batch starts from now until `resume()`; the one in progress finishes, and is returned (in the same step, so
+    /// no batch can start between the two). Writes submitted meanwhile wait in the queue.
+    @discardableResult
+    nonisolated func pause() -> WriteTicket? {
+        queue.withLock { q -> WriteTicket? in
+            q.paused = true
+            return q.writing.map(WriteTicket.init(box:))
+        }
+    }
+
+    /// Batches start again, the writes queued meanwhile first.
+    nonisolated func resume() {
+        let start = queue.withLock { q -> Bool in
+            q.paused = false
+            guard !q.draining, !q.pending.isEmpty else { return false }
+            q.draining = true
+            return true
+        }
+        if start { Task(priority: .userInitiated) { await self.drain() } }
+    }
+
+    /// Batches wait for `resume()` (tests).
+    nonisolated var isPaused: Bool { queue.withLock { $0.paused } }
+
+    /// The batch being written now, if any: its ticket resolves once it's committed (or dropped).
+    nonisolated var batchInProgress: WriteTicket? { queue.withLock { $0.writing.map(WriteTicket.init(box:)) } }
+
     /// The epoch of each store's cached writer (tests).
     var writerEpochs: [StoreID: Int] { writers.mapValues(\.key.epoch) }
 
     /// Nothing is queued or being written.
-    nonisolated var isIdle: Bool { queue.withLock { !$0.draining } }
+    nonisolated var isIdle: Bool { queue.withLock { !$0.draining && $0.pending.isEmpty } }
 
     /// The last write submitted: once it's resolved, every earlier one is.
     nonisolated var lastSubmitted: WriteTicket? { queue.withLock { $0.last.map(WriteTicket.init(box:)) } }
@@ -233,11 +268,13 @@ actor ReadModelDrain {
         writers = writers.filter { !retired.contains($0.key) && $0.value.epoch.current == $0.value.key.epoch }
     }
 
-    /// Everything pending up to the first change of store, epoch or seed; nil, and the drain idle, when nothing is.
+    /// Everything pending up to the first change of store, epoch or seed; nil, and the drain idle, when nothing is or
+    /// the drain is paused.
     private nonisolated func nextBatch() -> [Submitted]? {
         queue.withLock { q -> [Submitted]? in
-            guard let first = q.pending.first else {
+            guard !q.paused, let first = q.pending.first else {
                 q.draining = false
+                q.writing = nil
                 return nil
             }
             let count = q.pending.prefix {
@@ -246,6 +283,7 @@ actor ReadModelDrain {
             }.count
             let batch = Array(q.pending.prefix(count))
             q.pending.removeFirst(count)
+            q.writing = batch.last?.ticket
             return batch
         }
     }

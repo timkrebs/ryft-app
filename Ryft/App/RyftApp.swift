@@ -297,6 +297,8 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                // Writes paused at a background completion go on: iOS doesn't suspend the app in the foreground.
+                state.repository.resumeWrites()
                 (env.flags as? FlagStore)?.applyPending()
                 Task {
                     await coordinator.enterForeground()

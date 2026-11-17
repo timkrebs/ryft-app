@@ -961,57 +961,90 @@ struct BackgroundWorkTests {
     }
 
     /// The wait for the writes before a completion is bounded (`Repository.settledBeforeCompletion`, as the app wires
-    /// it): a write that hangs doesn't keep the refresh task from completing.
-    @Test func theRefreshTaskCompletesAtTheWaitsBoundWhileAWriteIsHeld() async {
+    /// it): at the bound the writes pause, and the refresh task completes once the batch in progress is done, without
+    /// the ones queued behind it (they go when the app runs again).
+    @Test(.timeLimit(.minutes(1)))
+    func theRefreshTaskCompletesAtTheWaitsBoundAfterTheBatchInProgress() async {
         let clock = TestClock()
         let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
         let task = FakeBGTask()
-        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
         let completion = BackgroundWork.runRefresh(task, coordinator: c,
                                                    settled: { await repository.settledBeforeCompletion() })
-        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
         #expect(task.completed == nil)
 
         clock.advance(by: Repository.completionWait)
-        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
-        #expect(task.completed == true)
-        #expect(hold.entered == 1) // still held
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil) // deterministic: the batch in progress is held, and the completion follows it
         hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(task.completed == true)
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
         await completion.value
     }
 
-    /// At the refresh task's expiry the wait for the writes stops: the time left is for the completion.
-    @Test func theRefreshTaskCompletesAtItsExpiryWithoutWaitingForTheWrites() async {
+    /// At the refresh task's expiry the wait for the writes stops: the time left is for the completion, after the batch
+    /// in progress.
+    @Test(.timeLimit(.minutes(1)))
+    func theRefreshTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
         let clock = TestClock()
         let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
         let task = FakeBGTask()
-        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
         let completion = BackgroundWork.runRefresh(task, coordinator: c,
                                                    settled: { await repository.settledBeforeCompletion() })
-        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the writes
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // waiting for the writes
 
         task.expirationHandler?()
-        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
         hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
         await completion.value
     }
 
     /// The same for the backfill task, expiring while it waits for the writes.
-    @Test func theBackfillTaskCompletesAtItsExpiryWithoutWaitingForTheWrites() async {
+    @Test(.timeLimit(.minutes(1)))
+    func theBackfillTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
         let clock = TestClock()
         let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
         let task = FakeBGTask()
-        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
         let run = Task {
             await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { nil }, schedule: { _ in },
                                              settled: { await repository.settledBeforeCompletion() })
         }
-        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the writes
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // waiting for the writes
 
         task.expirationHandler?()
-        #expect(await eventually(timeout: .seconds(2)) { task.completed != nil })
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
         hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
         await run.value
+    }
+
+    /// The compaction task: its expiry stops the compaction's wait and the one for the writes, and it completes after
+    /// the batch in progress.
+    @Test(.timeLimit(.minutes(1)))
+    func theCompactionTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let completion = BackgroundWork.runCompaction(task, compact: { await repository.compact() },
+                                                      settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // the compaction waits for its write
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(task.completed == false)
+        await completion.value
     }
 }
 
