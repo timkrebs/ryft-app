@@ -194,21 +194,23 @@ struct SessionView: View {
     private var headerButton: CGFloat { isCompactHeader && typeSize < .accessibility3 ? 44 : 48 }
 
     /// List at the accessibility sizes: the buttons get a row of their own and the title and clock the full width under it.
-    /// Side by side, Finish broke into "Fini/sh" and the title was cut to "Uppe…". Focused keeps its one row (§5.1).
+    /// Side by side, Finish broke into "Finis/h" and at the largest sizes the title was cut. Focused keeps its one row (§5.1).
     private var stacksHeader: Bool { controller.layout == .list && typeSize.isAccessibilitySize }
 
     private var header: some View {
         Group {
             if stacksHeader {
+                // VoiceOver keeps the one-row order (Minimise, the title and clock, More, Finish), not the drawn one.
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
-                        minimiseButton
+                        minimiseButton.accessibilitySortPriority(4)
                         Spacer(minLength: 8)
-                        moreMenu
-                        finishButton
+                        moreMenu.accessibilitySortPriority(2)
+                        finishButton.accessibilitySortPriority(1)
                     }
-                    titleAndClock
+                    titleAndClock.accessibilitySortPriority(3)
                 }
+                .accessibilityElement(children: .contain)
             } else {
                 HStack(spacing: isCompactHeader ? 6 : 8) {
                     minimiseButton

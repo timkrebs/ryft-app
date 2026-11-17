@@ -642,18 +642,27 @@ struct ExerciseCard: View {
         }
     }
 
+    /// The column titles' widths: the list row's own (`SetRow` without Focused's `columns`), so each title sits over its
+    /// column. kg and Reps share what's left. Named so a hosted test can hold each title against its column.
+    enum TitleColumns {
+        static let number: CGFloat = 40
+        static let fourthMax: CGFloat = 64
+        static let check: CGFloat = 56
+        static let gap: CGFloat = 6
+    }
+
     private var columnTitles: some View {
-        HStack(spacing: 6) {
-            Text("Set").frame(width: 40)
+        HStack(spacing: TitleColumns.gap) {
+            Text("Set").frame(width: TitleColumns.number)
             if usesWeight { Text("kg").frame(maxWidth: .infinity) }
             Text("Reps").frame(maxWidth: .infinity)
-            Text("RPE").frame(maxWidth: 64)
-            Text("").frame(width: 56)
+            Text("RPE").frame(maxWidth: TitleColumns.fourthMax)
+            Text("").frame(width: TitleColumns.check)
         }
         .ryftLabelStyle(Theme.textTertiary)
         // As Focused's `SetTableHeader`: the titles share the rows' columns, whose numbers have a fixed size, so they stop
-        // growing at XXXL and keep one line. At AX3 they broke inside the word ("S/et", "Rep/s", "RP/E"). VoiceOver reads
-        // each row as one element with its values named, so the titles are hidden from it.
+        // growing at XXXL and keep one line. At AX3 on a 402 pt iPhone "Set" broke inside the word ("Se/t"). VoiceOver
+        // reads each row as one element with its values named, so the titles are hidden from it.
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
