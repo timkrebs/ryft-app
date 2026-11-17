@@ -395,7 +395,12 @@ struct TrainStoreWipeTests {
 
         disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        #expect(deleted.isSuperset(of: rows))
+        withKnownIssue("iOS 17: ModelContext.didSave carries no deleted identifiers, so this can't see the deletes") {
+            #expect(deleted.isSuperset(of: rows))
+        } when: {
+            if #unavailable(iOS 18) { return true }
+            return false
+        }
     }
 
     /// The throw behind `try?` leaves nothing but this log line, so the log is where it can be seen. A failed batch
