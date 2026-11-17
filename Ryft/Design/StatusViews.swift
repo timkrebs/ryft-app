@@ -5,13 +5,18 @@ import UIKit
 /// background, pull-to-refresh (sync + reload).
 struct ScreenScaffold<Content: View>: View {
     @Environment(ScreenModels.self) private var screens
+    /// The centred `RyftHeader` above the content. Today and Sleep in Nocturne draw their own `ScreenHeader` as the
+    /// content's first row and pass `false` (design.md §P4-1, §P4-2); the content then starts at the safe-area top.
+    var showsHeader = true
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         ScrollView {
             VStack(spacing: Theme.Metrics.sectionSpacing) {
-                RyftHeader()
-                    .padding(.top, 6)
+                if showsHeader {
+                    RyftHeader()
+                        .padding(.top, 6)
+                }
                 content()
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
@@ -207,11 +212,20 @@ struct UpdatedLabel: View {
 /// numbers are. Never a modal. Tapping it opens what's needed (a gate) or Sync details; a stale
 /// line ("Showing data from 14:05") has its own "Try again" unless the error card shows one.
 struct SyncStatusLineView: View {
+    /// `centered`: centred, each button 44 pt high (Today before Nocturne). `leading`: Nocturne's status row (design.md
+    /// §P4-1, row 4), leading-aligned and as high as its text, each button's tap target 44 pt or more around it
+    /// (`hitOutset` past the text above and below), so the row adds one text line to the board, not 44 pt.
+    enum Alignment: Sendable { case centered, leading }
+
     let line: SyncLine
     /// The line's tap: the gate's screen, or Sync details. Without it the line is plain text.
     var action: (() -> Void)? = nil
     /// "Try again" on a stale line.
     var retry: (() async -> Void)? = nil
+    var alignment: Alignment = .centered
+
+    /// `leading`: the tap target's outset past the text on every side; a 12 pt line (about 16 pt high) gets 44.
+    nonisolated static let hitOutset: CGFloat = 14
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -258,10 +272,7 @@ struct SyncStatusLineView: View {
         case .actionNeeded:
             if let action {
                 Button(action: action) {
-                    label(now: now)
-                        .foregroundStyle(Theme.accent)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    tapTarget(label(now: now).foregroundStyle(Theme.accent))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Text("Opens what's needed"))
@@ -271,7 +282,8 @@ struct SyncStatusLineView: View {
             }
         case .stale:
             let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 6))
+                ? AnyLayout(VStackLayout(alignment: alignment == .leading ? .leading : .center, spacing: 0))
+                : AnyLayout(HStackLayout(spacing: 6))
             layout {
                 tappable(now: now, hint: "Opens sync details")
                     .accessibilityIdentifier("today.syncLine.line")
@@ -284,19 +296,17 @@ struct SyncStatusLineView: View {
                         retried = true
                         Task { await retry() }
                     } label: {
-                        Text("Try again")
+                        tapTarget(Text("Try again")
                             .font(.ryft(.caption))
                             .fontWeight(.medium)
-                            .foregroundStyle(Theme.accent)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                            .foregroundStyle(Theme.accent))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint(Text("Tries to load your data again"))
                     .accessibilityIdentifier("today.syncLine.retry")
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)
         case .waitingForUnlock:
             label(now: now).foregroundStyle(Theme.textTertiary)
         case .issue:
@@ -315,10 +325,7 @@ struct SyncStatusLineView: View {
         let color = current.isActive || current.isIssue || current == .scoringSlow ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
-                label(now: now)
-                    .foregroundStyle(color)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                tapTarget(label(now: now).foregroundStyle(color))
             }
             .buttonStyle(.plain)
             .accessibilityHint(Text(hint))
@@ -336,11 +343,23 @@ struct SyncStatusLineView: View {
             // Wraps at every size, never truncates ("Demodaten · Aktuell · gerade eben" at AX3 is
             // three lines); the fixed vertical size keeps a parent from squeezing it into an ellipsis.
             Text(current.text(now: now))
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.ryft(.caption))
-        .frame(maxWidth: current.isStale ? nil : .infinity)
+        .frame(maxWidth: current.isStale ? nil : .infinity, alignment: alignment == .leading ? .leading : .center)
+    }
+
+    /// A button's label as its tap target: at least 44 pt high (`centered`), or as high as the text with the target
+    /// `hitOutset` above and below it (`leading`: 16 + 28 = 44 for one line), so the row's height is the text's.
+    @ViewBuilder
+    private func tapTarget(_ label: some View) -> some View {
+        switch alignment {
+        case .centered:
+            label.frame(minHeight: 44).contentShape(Rectangle())
+        case .leading:
+            label.padding(.vertical, Self.hitOutset).contentShape(Rectangle()).padding(.vertical, -Self.hitOutset)
+        }
     }
 
     /// VoiceOver hears the stale claim, slow scoring once, and the return to "Up to date" after a manual
@@ -1364,6 +1383,31 @@ struct NumberedStep: View {
             }
         }
     }
+}
+
+/// Nocturne's status row (design.md §P4-1, row 4): leading, the text's height; the borders show the layout boxes.
+#Preview("Sync status line · leading", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 12) {
+            SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: false), action: {}, alignment: .leading)
+                .border(Theme.separator)
+            SyncStatusLineView(line: .scoring(night: true), action: {}, alignment: .leading)
+            SyncStatusLineView(line: .offline, action: {}, alignment: .leading)
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {}, alignment: .leading)
+                .border(Theme.separator)
+            SyncStatusLineView(line: .actionNeeded(.consent), action: {}, alignment: .leading)
+        }
+    }
+}
+
+#Preview("Sync status line · leading · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 12) {
+            SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: true), action: {}, alignment: .leading)
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {}, alignment: .leading)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Sync status line · de", traits: .sizeThatFitsLayout) {
