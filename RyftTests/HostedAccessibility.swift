@@ -13,6 +13,8 @@ final class HostedWindow {
     struct Node {
         let label: String
         let value: String?
+        /// What VoiceOver reads after the label and value, nil or empty when the element has none.
+        let hint: String?
         let frame: CGRect
         let traits: UIAccessibilityTraits
         fileprivate let object: NSObject
@@ -135,8 +137,8 @@ final class HostedWindow {
         func walk(_ object: NSObject, depth: Int) {
             guard depth < 40, seen.insert(ObjectIdentifier(object)).inserted else { return }
             if String(describing: type(of: object)) == "AccessibilityNode", let label = object.accessibilityLabel, !label.isEmpty {
-                found.append(Node(label: label, value: object.accessibilityValue, frame: object.accessibilityFrame,
-                                  traits: object.accessibilityTraits, object: object))
+                found.append(Node(label: label, value: object.accessibilityValue, hint: object.accessibilityHint,
+                                  frame: object.accessibilityFrame, traits: object.accessibilityTraits, object: object))
             }
             if let elements = object.accessibilityElements {
                 for case let child as NSObject in elements { walk(child, depth: depth + 1) }
