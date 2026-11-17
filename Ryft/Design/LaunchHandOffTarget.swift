@@ -1,0 +1,53 @@
+// The seam for the launch's matched move (docs/work/2026-11-16-nocturne/design.md §P4-7, launch-design.md §7.5): a view the
+// launch's mark or wordmark flies into reports its frame in the `.launch` space, and hides while the overlay draws it in
+// flight. `LaunchHost` provides the two environment values (the move itself is PR 4's T4.2); without them the registrar
+// ignores the frames and nothing hides, so a target is an ordinary view everywhere else (previews, other roots, tests).
+import SwiftUI
+
+/// What the launch hands off to: the header lock-up's mark and its wordmark.
+enum LaunchHandOffRole: Hashable, Sendable {
+    case mark, wordmark
+}
+
+/// Takes a target's frame in the `.launch` space; `nil` when the target left the hierarchy. Wraps the closure because
+/// `@Entry` refuses a bare one.
+struct LaunchHandOffRegistrar: Sendable {
+    let action: @MainActor @Sendable (LaunchHandOffRole, CGRect?) -> Void
+
+    init(_ action: @escaping @MainActor @Sendable (LaunchHandOffRole, CGRect?) -> Void = { _, _ in }) {
+        self.action = action
+    }
+
+    @MainActor func callAsFunction(_ role: LaunchHandOffRole, _ frame: CGRect?) { action(role, frame) }
+}
+
+extension EnvironmentValues {
+    /// Where hand-off targets report their frames. `LaunchHost` points it at the launch model while the launch is on
+    /// screen; the default ignores them.
+    @Entry var launchHandOffRegistrar = LaunchHandOffRegistrar()
+    /// The overlay draws the targets in flight (the mark moves and the phase is `handingOff`): they keep their place at
+    /// opacity 0, still in the accessibility tree, until the launch is done, then show with identical pixels.
+    @Entry var launchHidesHandOffTargets = false
+}
+
+extension View {
+    /// A target of the launch's matched move: reports this view's frame in the `.launch` space to
+    /// `launchHandOffRegistrar` whenever it changes (and `nil` when the view goes), and draws at opacity 0 while
+    /// `launchHidesHandOffTargets` is on. Only Today's header lock-up is one (`WordmarkLockup(handOff: true)`).
+    func launchHandOffTarget(_ role: LaunchHandOffRole) -> some View {
+        modifier(LaunchHandOffTarget(role: role))
+    }
+}
+
+private struct LaunchHandOffTarget: ViewModifier {
+    let role: LaunchHandOffRole
+    @Environment(\.launchHandOffRegistrar) private var registrar
+    @Environment(\.launchHidesHandOffTargets) private var hides
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(hides ? 0 : 1)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .launch) } action: { registrar(role, $0) }
+            .onDisappear { registrar(role, nil) }
+    }
+}

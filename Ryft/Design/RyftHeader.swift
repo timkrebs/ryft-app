@@ -37,19 +37,31 @@ struct Wordmark: View {
 }
 
 /// The Nocturne header lock-up: the orbit mark, 10 pt of air, then the wordmark. At the default `markSize` of 26 pt
-/// the wordmark is 15 pt; both scale with `markSize`. Not yet on the screens (PR 4 puts it in their headers).
+/// the wordmark is 15 pt; both scale with `markSize`. Today's header passes `handOff: true`: the mark and the wordmark
+/// are then the launch's hand-off targets (`launchHandOffTarget`, design.md §P4-7), which report their frames to the
+/// launch and stay at opacity 0 while it draws them in flight. Only Today's header sets it.
 struct WordmarkLockup: View {
     var markSize: CGFloat = 26
+    var handOff = false
 
     var body: some View {
         HStack(spacing: markSize * 10 / 26) {
             RyftMark().frame(width: markSize, height: markSize)
+                .handOffTarget(.mark, if: handOff)
             Wordmark(size: markSize * RyftTextStyle.wordmark.size / 26)
+                .handOffTarget(.wordmark, if: handOff)
         }
         .foregroundStyle(Theme.textPrimary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "RYFT"))
         .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func handOffTarget(_ role: LaunchHandOffRole, if active: Bool) -> some View {
+        if active { launchHandOffTarget(role) } else { self }
     }
 }
 
@@ -86,6 +98,19 @@ struct BrandLockup: View {
             WordmarkLockup(markSize: 44)
             Wordmark(size: 15)
             Wordmark(size: 32)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+#Preview("Wordmark lock-up · hand-off target", traits: .sizeThatFitsLayout) {
+    // As the launch sees it: registered (nothing to show) and, while the mark is in flight, hidden in place.
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 28) {
+            WordmarkLockup(handOff: true)
+            WordmarkLockup(handOff: true)
+                .environment(\.launchHidesHandOffTargets, true)
+                .border(Theme.separator)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
