@@ -180,7 +180,7 @@ final class SleepViewModel {
         } catch {
             if detail == nil {
                 failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
-                                           at: state.env.clock.now())
+                                           isDemo: state.isDemo, at: state.env.clock.now())
             }
         }
     }
@@ -194,22 +194,24 @@ struct SleepLoadFailure: Equatable {
     let systemImage: String
     /// "HTTP 503 · Request ID 01a1…"; nil without a response.
     let details: String?
-    /// The button, as on Today's card: Sign in when signed out, none for an outdated app, else Try again.
+    /// The button, as on Today's card (`RefreshIssue.Reason.action(isDemo:)`): Sign in when signed out (none with demo
+    /// data on), none for an outdated app, else Try again.
     let action: RefreshIssue.Reason.Action
 
-    init(_ error: Error, isOnline: Bool, at date: Date) {
+    init(_ error: Error, isOnline: Bool, isDemo: Bool = false, at date: Date) {
         if !isOnline || Self.lostConnection(error) {
             self.init(message: String(localized: "No connection. Check your internet and try again."),
                       systemImage: "wifi.exclamationmark", details: error.diagnosticDetails, action: .retry)
         } else {
             let reason = RefreshIssue.reason(for: ResourceError(error, kind: FailureKind.of(error), attempts: 1, at: date))
-            self.init(reason: reason, details: error.diagnosticDetails)
+            self.init(reason: reason, details: error.diagnosticDetails, isDemo: isDemo)
         }
     }
 
     /// A reason's sentence, symbol and button (previews and tests: nothing produces `appTooOld` yet).
-    init(reason: RefreshIssue.Reason, details: String? = nil) {
-        self.init(message: reason.message, systemImage: reason.systemImage, details: details, action: reason.action)
+    init(reason: RefreshIssue.Reason, details: String? = nil, isDemo: Bool = false) {
+        self.init(message: reason.message, systemImage: reason.systemImage, details: details,
+                  action: reason.action(isDemo: isDemo))
     }
 
     private init(message: String, systemImage: String, details: String?, action: RefreshIssue.Reason.Action) {

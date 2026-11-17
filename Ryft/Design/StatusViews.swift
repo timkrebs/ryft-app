@@ -477,6 +477,13 @@ extension RefreshIssue.Reason {
         }
     }
 
+    /// The button on Today's card and Sleep's failed night, decided once for both: `action`, except no Sign in with
+    /// demo data on. Demo data needs no account, and a 401 there only comes from fault injection (DEBUG); Sign in signs
+    /// out (`AppState.signInAgain`), which would end a real session behind the demo, or do nothing. Details stays.
+    func action(isDemo: Bool) -> Action {
+        isDemo && action == .signIn ? .noButton : action
+    }
+
     var systemImage: String {
         switch self {
         case .busy: return "clock.arrow.circlepath"
@@ -492,6 +499,8 @@ extension RefreshIssue.Reason {
 /// and Details. Only past `RefreshPolicy`'s threshold, or for something the user can act on.
 struct RefreshIssueCard: View {
     let issue: RefreshIssue
+    /// Demo data is on: no Sign in (`RefreshIssue.Reason.action(isDemo:)`).
+    var isDemo = false
     var retry: () async -> Void = {}
     var signIn: () async -> Void = {}
     /// Previews: the "Trying again…" state.
@@ -500,9 +509,10 @@ struct RefreshIssueCard: View {
     @State private var showsDetails = false
 
     var body: some View {
+        let action = issue.reason.action(isDemo: isDemo)
         InlineMessage(message: issue.reason.message, systemImage: issue.reason.systemImage,
-                      retryTitle: issue.reason.action.title, retry: issue.reason.action.button(retry: retry, signIn: signIn),
-                      caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
+                      retryTitle: action.title, retry: action.button(retry: retry, signIn: signIn), caption: age,
+                      retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
             .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.

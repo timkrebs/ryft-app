@@ -60,6 +60,43 @@ struct SleepLoadFailureTests {
         #expect(Action.signIn.button(retry: retry, signIn: nil) == nil, "no sign-in action: no button")
     }
 
+    /// With demo data on, a 401 (only fault injection makes one there) offers no Sign in, on Today's card and Sleep's
+    /// failed night alike (`RefreshIssue.Reason.action(isDemo:)`): Sign in signs out, which demo data doesn't need.
+    @Test func withDemoDataNeitherScreenSignsIn() {
+        typealias Reason = RefreshIssue.Reason
+        #expect(Reason.signedOut.action(isDemo: true) == .noButton)
+        for reason in [Reason.busy, .unreachable, .unexpected, .signedOut, .appTooOld] {
+            #expect(reason.action(isDemo: false) == reason.action, "\(reason): signed in, as before")
+            if reason != .signedOut { #expect(reason.action(isDemo: true) == reason.action, "\(reason): only Sign in goes") }
+        }
+        let fault = APIError.http(401, "injected fault", requestID: "fault-day")
+        #expect(SleepLoadFailure(fault, isOnline: true, isDemo: true, at: at).action == .noButton)
+        #expect(SleepLoadFailure(fault, isOnline: true, isDemo: false, at: at).action == .signIn)
+        #expect(SleepLoadFailure(reason: .signedOut, isDemo: true).action == .noButton)
+    }
+
+    /// The model passes demo mode on: a demo 401 leaves Sleep's failed night without Sign in, its Details kept.
+    @Test func aDemo401LeavesSleepWithoutSignIn() async throws {
+        let clock = TestClock(now: at)
+        let api = MockPlatformAPI()
+        api.now = { clock.now() }
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let env = AppEnvironment(
+            settings: Settings(defaults: defaults), health: MockHealthStore(), liveAPI: MockPlatformAPI(), demoAPI: api,
+            auth: .preview(), persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(),
+            flags: StaticFlags(), connectivity: .preview(online: true), defaults: defaults, demoOverride: true)
+        env.reads.random = { $0.lowerBound }
+        env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+        let state = AppState(env: env)
+        try #require(state.isDemo && state.hasDataSource)
+        api.failure = APIError.http(401, "injected fault", requestID: "fault-day")
+        let vm = SleepViewModel(state: state)
+        vm.mode = .day
+        await vm.load()
+        #expect(vm.error == RefreshIssue.Reason.signedOut.message)
+        #expect(vm.failure?.action == .noButton && vm.failure?.details == "HTTP 401 · Request ID fault-day")
+    }
+
     @Test func aFailedBoardHasAnEmptyCaption() {
         let board = SleepBoard(sleep: nil, score: nil, error: noConnection)
         #expect(board.look == .failed(noConnection) && board.caption.isEmpty && board.numeralLabel == nil)
@@ -136,6 +173,36 @@ final class SleepFailureTaps {
                 try await w.wait("the tap") { !taps.names.isEmpty }
                 #expect(taps.names == ["signIn"])
             }
+        }
+    }
+
+    /// Demo data on, signed out (a 401 from fault injection): neither Today's card nor Sleep's failed night has Sign
+    /// in, both keep Details; signed in, both have it.
+    @Test(arguments: [true, false])
+    func bothScreensDecideSignInAlike(isDemo: Bool) async throws {
+        let failure = SleepLoadFailure(APIError.http(401, "", requestID: "fault-day"), isOnline: true, isDemo: isDemo,
+                                       at: .now)
+        let error = ResourceError(kind: .signedOut, status: 401, code: nil, requestID: "fault-day", transport: nil,
+                                  attempts: 1, at: .now)
+        let issue = RefreshIssue(reason: .signedOut, resource: .today, dataFrom: nil, failures: 1, error: error)
+        let page = ScrollView {
+            VStack(spacing: 24) {
+                RefreshIssueCard(issue: issue, isDemo: isDemo)
+                SleepDay(board: SleepBoard(sleep: nil, score: nil, error: failure.message), sleep: nil, score: nil,
+                         night: .now, failure: failure, retry: {}, signIn: {})
+            }
+        }
+        try await HostedWindow.run(width: 390, height: 1400, bottomInset: 0, page) { w in
+            try await w.wait("both messages") { w.nodes().filter { $0.label == failure.message }.count == 2 }
+            try await w.settle()
+            let nodes = w.nodes()
+            for prefix in ["refreshIssue", "sleep.failure"] {
+                let button = nodes.first { $0.identifier == "\(prefix).retry" }
+                #expect((button != nil) == !isDemo, "\(prefix), demo \(isDemo): \(button?.label ?? "no button")")
+                if let button { #expect(button.label == "Sign in") }
+            }
+            #expect(nodes.contains { $0.identifier == "refreshIssue.details" }, "Today's Details")
+            #expect(nodes.contains { $0.label == "Details" && $0.identifier != "refreshIssue.details" }, "Sleep's Details")
         }
     }
 }

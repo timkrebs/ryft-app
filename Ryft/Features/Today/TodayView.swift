@@ -439,7 +439,8 @@ struct TodayView: View {
         case .retrying(let notice):
             InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
         case .refreshIssue(let issue):
-            RefreshIssueCard(issue: issue, retry: { await model.refresh() }, signIn: { await model.signIn() })
+            RefreshIssueCard(issue: issue, isDemo: model.isDemo, retry: { await model.refresh() },
+                             signIn: { await model.signIn() })
                 .id(Self.issueCardID)
         case .syncPaused(let message, let details):
             InlineMessage(message: message, systemImage: "heart.text.square", details: details,
