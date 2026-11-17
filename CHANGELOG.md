@@ -104,6 +104,7 @@ Store "What's New".
   in force, also from the background and after a long time offline; a refusal is remembered
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
+- Launch is smoother: saving data no longer holds up the screen.
 
 ### Fixed
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.

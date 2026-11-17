@@ -194,12 +194,18 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   drain's file, so no main-actor code can make or await it). The drain does both on its own
   executor: iOS 17 runs a model actor's jobs on the thread that made it, iOS 27 on the
   thread that awaits it. A batch never spans a store, an epoch or a seed, and it saves once.
+  The drain runs at `.userInitiated` whoever submitted first: awaiting a ticket doesn't raise
+  its priority.
 - At the commit the Repository replaces its read context (one per store, never written),
   bumps each written kind's revision once, and publishes the widget. `committed()` resolves
   after that: a refresh's flight awaits it, so a refresh, and each sync stage, returns with
   its rows readable.
-- `.user` is written through: `user()` returns it from the submit on, because the upload
-  gate reads it back in that step (ADR 0008). It stays until `invalidate()`.
+- `.user` is written through: `user()` returns it from the submit on, for reads of the store
+  it went to, because the upload gate reads it back in that step (ADR 0008). It stays until
+  `invalidate()`; a refused save of it goes again once. A `PATCH /v1/me` answer (and the
+  withdrawal) is stored `asOf` the `userChange()` taken before its request, and dropped after
+  a sign-out, another account or the Demo data switch. A `GET /v1/me` asked for before this
+  phone's last change of the user is dropped too (`store(fetchedUser:askedAt:)`).
 - The writer owns `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`,
   `CachedSleepRange`, `CachedWorkout` and the `activities.*` documents. Train's tables and
   every other document stay on the main context (`compact()` deletes Train's histories
@@ -208,9 +214,10 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   import. Only while the queue is idle (`onMisuse` otherwise); the next write gets a new
   writer.
 - `settled()` returns once every write submitted so far has committed. A `BGTask`'s
-  completion, the end of the background time after leaving the app, a silent push's
-  handler and a HealthKit delivery's `completion()` wait for it: iOS may suspend the app
-  there.
+  completion, the end of the background time after leaving the app and a silent push's
+  handler wait for it, 2 s at most and not once the system's time ran out
+  (`settledBeforeCompletion()`): iOS may suspend the app there. A HealthKit delivery's
+  `completion()` doesn't wait: it comes right after the upload.
 - Debug asserts that each writer is made off main and that every job of it runs off main
   (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
   `OSSignposter` interval `write` on `reads` covers each batch.
@@ -237,13 +244,17 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - A response that arrives after the account changed is dropped.
 
 **Accounts and demo.**
-- Sign-out wipes the whole store (`Persistence.wipe`), and `AppState.reset()` invalidates
-  the Repository's memo, its read contexts and the user written through.
+- Sign-out wipes the whole store (`Persistence.wipe`), and the Repository's `invalidate()`
+  forgets its memo, its read contexts and the user written through, and retires the
+  wiped epoch's writer.
 - The wipe's first step advances `StoreEpoch`. A write submitted before it is dropped
-  unwritten; the writer saves inside the same lock, so a save in progress finishes first
-  and the wipe then deletes it. The first write after a wipe gets a new writer, so no
-  context keeps a deleted row (`ReadModelWipeRaceTests`).
-- Demo data goes to a separate in-memory store, so it never mixes with an account's.
+  unwritten; the writer saves inside the epoch's save gate, so a save in progress finishes
+  first and the wipe then deletes it. Reading `current` takes a lock of its own and never
+  waits for a save. The first write after a wipe gets a new writer, so no context keeps a
+  deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
+  `StoreID`, which is never reused.
+- Demo data goes to a separate in-memory store, so it never mixes with an account's. The
+  Demo data switch replaces it with an empty one at once (`Repository.reset()`).
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
