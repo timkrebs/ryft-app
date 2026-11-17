@@ -462,6 +462,31 @@ struct TodayNocturneTests {
         #expect(!demo.isOffline && demo.content.showsTiles)
     }
 
+    // MARK: 33. placeholders: a missing value is a pending look, never a number
+
+    @Test func aDayOfNullsShowsNoNumberAnywhere() throws {
+        let nulls = DailyScore(day: key, readiness: nil, recovery: nil, strain: nil, sleepNeedMin: nil, sleepActualMin: nil,
+                               hrvMs: nil, baselineDays: 30, computedAt: now, scoringState: .scored)
+        let vm = model(today: nulls, history: history(vitals: false), status: .scored, name: nil)
+        let c = vm.content
+        #expect(c.readiness == nil && c.rulerValue == nil && c.readinessDelta == nil)
+        #expect(c.rulerSpoken == "No readiness yet, on a scale from 0 to 100")
+        #expect(c.readinessLabel == "Readiness", "no band word without a readiness")
+        let tiles = TodayTilesContent(c)
+        #expect(tiles.recoveryText == Fmt.placeholder && tiles.sleepText == Fmt.placeholder && tiles.strainText == Fmt.placeholder)
+        #expect(tiles.strainBand == nil && tiles.strainCaption == "of 21")
+        // The sparkline has nothing to draw (no hrv_ms in the history either) and says nothing about it.
+        #expect(tiles.hrvWeek.allSatisfy { $0 == nil } && Sparkline.isPending(tiles.hrvWeek) && tiles.hrvSentence == nil)
+        #expect(tiles.sleepWeek.marks.last == .noData || tiles.sleepWeek.marks.last == .today,
+                "the shown night has no numbers to compare: \(tiles.sleepWeek.marks)")
+        // Nothing the tiles say aloud is a number for the shown day.
+        #expect(!tiles.recoverySpoken.contains { $0.isNumber }, "\(tiles.recoverySpoken)")
+        #expect(!tiles.strainSpoken.contains { $0.isNumber }, "\(tiles.strainSpoken)")
+        #expect(!tiles.sleepSpoken.hasPrefix("0"), "\(tiles.sleepSpoken)")
+        // No name: the greeting is the word alone.
+        #expect(vm.greeting == ReadinessCopy.greeting(at: now, name: nil) && !vm.greeting.contains(","))
+    }
+
     // MARK: 36. identifiers (Today's half), hosted
 
     private func identifiers(_ state: AppState) async throws -> Set<String> {
