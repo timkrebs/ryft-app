@@ -443,10 +443,10 @@ extension RefreshIssue.Reason {
                           comment: "Error card on Today and Sleep → Day's failed night. Any other failure. Try again.")
         case .signedOut:
             return String(localized: "You're signed out, so new data can't load.",
-                          comment: "Error card on Today (Sign in) and Sleep → Day's failed night (Try again). The session ended; new data can't load.")
+                          comment: "Error card on Today and Sleep → Day's failed night (Sign in). The session ended; new data can't load.")
         case .appTooOld:
             return String(localized: "This version of RYFT is too old to load new data. Update it to continue.",
-                          comment: "Error card on Today (no button) and Sleep → Day's failed night (Try again). App too old for the server; an update helps.")
+                          comment: "Error card on Today and Sleep → Day's failed night (no button). App too old for the server; an update helps.")
         }
     }
 

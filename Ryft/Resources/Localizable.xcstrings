@@ -3574,7 +3574,7 @@
       "comment" : "Import note, after \"Line N\": a workout on the autumn clock change."
     },
     "This version of RYFT is too old to load new data. Update it to continue." : {
-      "comment" : "Error card on Today (no button) and Sleep → Day's failed night (Try again). App too old for the server; an update helps."
+      "comment" : "Error card on Today and Sleep → Day's failed night (no button). App too old for the server; an update helps."
     },
     "This workout is in another picked file too and is imported once" : {
       "comment" : "Import warning, after \"Line N\"."
@@ -3868,7 +3868,7 @@
       "comment" : "Today's status line while the signed-out card is shown (last on Today); tapping scrolls to the card."
     },
     "You're signed out, so new data can't load." : {
-      "comment" : "Error card on Today (Sign in) and Sleep → Day's failed night (Try again). The session ended; new data can't load."
+      "comment" : "Error card on Today and Sleep → Day's failed night (Sign in). The session ended; new data can't load."
     },
     "Your %lld done sets stay with %@." : {
       "comment" : "Replace sheet, several sets already done. 1: number of sets, 2: the exercise being replaced."
