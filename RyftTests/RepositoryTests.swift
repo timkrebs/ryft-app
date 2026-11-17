@@ -269,7 +269,9 @@ struct LegacyCacheMigrationTests {
             .write(to: dir.appendingPathComponent("train.plans.json"))
 
         let (repo, _, env) = makeRepo()
-        let store = TrainStore(inMemory: true)
+        // One store for both, as in the app (`train: .shared` beside the Repository's own): a second container, made
+        // after the Repository's, would be the only one of the two that takes inserts on iOS 17.0 (T0.6).
+        let store = try #require(env.persistence as? TrainStore)
         let defaults = env.defaults
         LegacyCacheMigration.runOnce(into: repo, train: store, defaults: defaults, directory: dir)
 
