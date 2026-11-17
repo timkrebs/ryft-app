@@ -52,7 +52,8 @@ final class HostedWindow {
                 guard let next = rotor.itemSearchBlock(predicate), let element = next.targetElement as? NSObject,
                       !found.contains(where: { $0.object === element }) else { break }
                 found.append(Node(label: element.accessibilityLabel ?? "", value: element.accessibilityValue,
-                                  frame: element.accessibilityFrame, traits: element.accessibilityTraits, object: element))
+                                  hint: element.accessibilityHint, frame: element.accessibilityFrame,
+                                  traits: element.accessibilityTraits, object: element))
                 current = next
             }
             return found
