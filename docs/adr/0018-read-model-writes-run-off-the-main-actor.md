@@ -50,10 +50,14 @@
 5. **A kind that a decision reads back in the same step is written through.** Today that is `.user`, which the upload
    gate reads. The memo takes it at submit, and the store follows. Adding a kind to this list is a review check.
 6. **The wipe and the writer are ordered by `StoreEpoch`.**
-   - The wipe's first step advances the epoch under a lock.
-   - The writer checks its batch's epoch and saves inside the same lock. On a mismatch it rolls back and drops the
+   - The wipe's first step advances the epoch under a save gate.
+   - The writer checks its batch's epoch and saves inside the same gate. On a mismatch it rolls back and drops the
      batch.
-   - A wipe retires the writer, so stale objects never outlive it.
+   - Reading the current epoch takes only a separate value lock, never the gate, so main doesn't wait behind a save.
+   - A wipe retires the writer, so stale objects never outlive it. Writers, read contexts and seeds are keyed by a
+     never-reused `StoreID`. The demo switch releases demo data's store and drops its queued writes.
+   - A user answer (`PATCH /v1/me`, `GET /v1/me`) is stored as of its request: one that a wipe, the demo switch or a
+     later local change overtook is dropped.
    - P2 puts the widget file write under the same check.
 
 ## Consequences
@@ -70,7 +74,10 @@
 - Writes are asynchronous. Production callers submit and, where they read afterwards, await `committed()`. About 7 call
   sites and the tests that read right after a write change.
 - Two contexts on one container. The ownership table is a review check, and `seed` asserts that the queue is idle.
-- A lock in a Swift-concurrency codebase. Its bodies are synchronous and short, and main holds it only for `advance()`.
+- Two locks in a Swift-concurrency codebase. Their bodies are synchronous and short, the gate is always taken first,
+  and main takes the gate only for `advance()` at a wipe.
+- System completions wait for the writes, at most 2 s and never past the task's expiry. The HealthKit delivery's
+  completion doesn't wait.
 - A freshness check can read the store state from before a pending commit for a few ms: one extra or one skipped
   revalidation.
 

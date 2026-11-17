@@ -209,7 +209,7 @@ sequenceDiagram
 - The drain takes everything pending, cuts it into batches that never span a store or an epoch, and awaits
   `writer.apply` for one batch at a time. On main it then runs `committed(receipt)` and resolves that batch's tickets.
 - So one answer becomes one save, and several answers in one turn become one save and one revision bump per kind. The
-  drain inherits the submitter's priority, and awaiting a ticket raises it.
+  drain runs at `.userInitiated`, whoever submits first (decision 12).
 
 **Callers.**
 
@@ -301,9 +301,11 @@ P1 keeps it as today, on main in `committed`, so its background timing doesn't m
   contexts. Then `TodayPresentation.decide` and `ReadinessSnapshot.make` run there; both are pure and `Sendable` (Read).
   `ReadinessSnapshot.publish` (read, compare, atomic write, `isExcludedFromBackup`) runs inside `epoch.ifCurrent`.
 - If it changed, main calls `reloadWidget()`. That keeps the seam; `WidgetCenter` stays behind it.
-- **The background keeps its guarantee.** The flights already end after the commit. Every place that hands a completion
-  to the system first awaits `repository.settled()`: the BG refresh, backfill and compaction tasks, the silent push's
-  completion, and the HealthKit delivery's `afterUpload`. So the widget is current before suspension, as ADR 0013 needs.
+- **The background keeps its guarantee.** The flights already end after the commit. The BG refresh, backfill and
+  compaction tasks, `finishInBackground` and the silent push's completion first await
+  `repository.settledBeforeCompletion()`: the writes, but at most 2 s on `env.clock`, and not past the task's expiry.
+  So the widget is current before suspension, as ADR 0013 needs, and a stuck write can't hold a completion. The
+  HealthKit delivery's `afterUpload` doesn't wait: its completion comes right after the upload (decision 12).
 - **Contract with Nocturne PR 4:** `TodayScoreFacts`, `TodayPresentation.decide`, `OrbitGaugeMode.init(_:)` and
   `ScoringWord.state` stay nonisolated and `Sendable`. No P2 edit lands in `Features/Today/`.
 
@@ -484,6 +486,26 @@ brief. The order between PR 4 and P1–P3 doesn't matter.
     on 27.2). One container with two configurations is not taken: an entity belongs to one configuration, and both
     stores hold every entity. Gate: on iOS 17.0, demo → sign in → a Train row and a read-model write land and read back
     without a relaunch. 17.1–17.6 are not measured.
+    **Amended after T0.6 per runtime (2026-11-17), superseding "in this PR":** the app-path test
+    (`ReadModelContextFactsTests/TwoContainers/theAccountsFirstWritesAfterTheDemo`) loses the account's first writes on
+    iOS 17.0 and keeps them on 18.0, 26.0 and 27.2. So the fault is iOS 17's, not P1's, and it is on `main` already.
+    The reopen is not harmless everywhere: a live Train session started in the demo lives in the account store
+    (`TrainStore.shared`). **P1b becomes its own follow-up PR, iOS 17 only** (`#unavailable(iOS 18)`): when the demo
+    ends, its workouts are discarded after a confirmation (the user's decision), then the account's container is
+    reopened so it is the newest. Until then the known issue is in STATUS: on iOS 17, after "demo, then sign in",
+    relaunch before the first sync lands. The tests that hit it carry `withKnownIssue` below iOS 18.
+12. **The review round (2026-11-17, `523e34d..53d7c48`)** changed four claims in this note; the code comments and
+    `ARCHITECTURE.md` say the same:
+    - **The demo switch replaces the store** rather than clearing it: `AppState.reset()` calls `Repository.reset()`,
+      which releases demo data's store and drops its queued writes, then `invalidate()` (CR1).
+    - **`StoreEpoch` has two locks:** a save gate (`advance`, `ifCurrent`), always taken first, and a value lock that
+      reading `current` takes alone, so main never waits behind a save (CR2). Writers, read contexts and seeds are
+      keyed by a never-reused `StoreID`, not `ObjectIdentifier` (N1).
+    - **The drain runs at `.userInitiated`** whoever submits first, instead of inheriting the submitter's priority (§5.3).
+    - **System completions wait at most 2 s** (`settledBeforeCompletion()` on `env.clock`, ended at once by expiry or
+      cancellation), and **the HealthKit delivery's completion doesn't wait at all** (§5.7).
+    - User answers are stored as of their request (`userChange()` / `askedAt`): a PATCH or `/me` answer that the
+      sign-out, the demo switch or a later local change overtook is dropped. `Repository.replaceScores` is gone.
 
 1. **Accept the split criterion?** This work gates on AC1–AC5. "Every gap ≤ 33 ms after `.active`" moves to the Today
    first-data render follow-up, together with row 23.
