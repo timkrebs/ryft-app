@@ -49,7 +49,7 @@ struct SleepView: View {
                 case .day:
                     SleepDay(board: model.board, sleep: model.sleep, score: model.score, night: model.date,
                              numeralStyle: model.numeralStyle, showsHealthHint: model.hasNoHealthData,
-                             retry: { await model.load() })
+                             failure: model.failure, retry: { await model.load() })
                 case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
                 case .plan: SleepPlannerSection(model: model.planner)
                 }
@@ -194,6 +194,8 @@ struct SleepDay: View {
     var showsHealthHint = false
     /// Previews and tests; `nil` follows the system.
     var reduceTransparency: Bool?
+    /// A failed load's symbol and Details (the board has its sentence).
+    var failure: SleepLoadFailure?
     var retry: (() async -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -241,7 +243,8 @@ struct SleepDay: View {
     }
 
     private var caption: some View {
-        Text(board.caption)
+        // An empty caption (a failed load) keeps its line, so nothing below moves.
+        Text(verbatim: board.caption.isEmpty ? " " : board.caption)
             .font(.ryft(.label))
             .foregroundStyle(Theme.textSecondary)
             .multilineTextAlignment(.center)
@@ -259,7 +262,8 @@ struct SleepDay: View {
                 SleepHypnogramTile(content: content, reduceTransparency: reduceTransparency)
             }
         case .failed(let message):
-            InlineMessage(message: message, retry: retry)
+            InlineMessage(message: message, systemImage: failure?.systemImage ?? "wifi.exclamationmark",
+                          details: failure?.details, retry: retry, identifier: "sleep.failure")
         case .loading, .noSleep, .pending:
             SleepHypnogramOutline()
         }

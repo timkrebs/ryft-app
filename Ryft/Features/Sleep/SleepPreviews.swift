@@ -9,6 +9,8 @@ struct SleepPreviewScene {
         case latest, thin, oldest, older, loading, failed, noSleep, pending, noStages, noTimeline, noNeed, reduceTransparency
         /// Pending with `sleep: null` (the API's placeholder day): Apple Health's raw night; and without one either.
         case pendingRaw, pendingEmpty
+        /// A failed load the platform answered (503 with a request ID): the busy sentence, Details.
+        case failedBusy
     }
 
     /// Apple Health's night for `pendingRaw`: 7:17 asleep, woken at 06:52 (Today's pending scenario's night).
@@ -24,6 +26,8 @@ struct SleepPreviewScene {
     let board: SleepBoard
     let sleep: SleepDetail?
     let score: DailyScore?
+    /// A failed load's symbol and Details.
+    let failure: SleepLoadFailure?
 
     /// Days back: an older night with a need, and `MockData.BoardWeek`'s night scored without one (its `nil` share, week
     /// index 2 of offsets 6 … 0).
@@ -36,7 +40,8 @@ struct SleepPreviewScene {
         let today = Calendar.current.startOfDay(for: .now)
         var date = today
         var detail: DayDetail? = MockData.todayDetail
-        var isLoading = false, error: String?
+        var isLoading = false
+        var failure: SleepLoadFailure?
         var rawNight: RawNight?
         switch night {
         case .latest, .thin, .reduceTransparency:
@@ -57,7 +62,10 @@ struct SleepPreviewScene {
         case .failed:
             detail = nil
             // What `SleepViewModel.load()` keeps when the request fails offline and nothing is cached.
-            error = APIError.transport(URLError(.notConnectedToInternet)).localizedDescription
+            failure = SleepLoadFailure(APIError.transport(URLError(.notConnectedToInternet)), isOnline: false, at: .now)
+        case .failedBusy:
+            detail = nil
+            failure = SleepLoadFailure(APIError.http(503, "", requestID: "01JD8K2V9Q7M3X"), isOnline: true, at: .now)
         case .noSleep:
             detail?.sleep = nil
         case .pending:
@@ -86,9 +94,10 @@ struct SleepPreviewScene {
                                     canStepBack: night != .oldest, canStepForward: date < today)
         board = SleepBoard(sleep: detail?.sleep, score: score,
                            previousDebt: Self.score(DayFormat.shift(date, days: -1))?.sleepDebtMin,
-                           weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error,
-                           rawNight: rawNight)
+                           weekConsistency: week, isPending: marker == .pending, isLoading: isLoading,
+                           error: failure?.message, rawNight: rawNight)
         sleep = detail?.sleep
+        self.failure = failure
         self.score = score
     }
 
@@ -111,7 +120,7 @@ struct SleepPreviewPage: View {
             SleepPage(header: scene.header, mode: .constant(.day), modes: SleepMode.allCases, step: { _ in }) {
                 SleepDay(board: scene.board, sleep: scene.sleep, score: scene.score, night: scene.date,
                          numeralStyle: scene.numeralStyle, reduceTransparency: scene.reduceTransparency,
-                         retry: scene.night == .failed ? {} : nil)
+                         failure: scene.failure, retry: scene.failure != nil ? {} : nil)
             }
         }
     }
@@ -145,6 +154,8 @@ private extension View {
 #Preview("Sleep · loading · AX3") { SleepPreviewPage(.loading).previewEnvironment().ax3() }
 #Preview("Sleep · load error") { SleepPreviewPage(.failed).previewEnvironment() }
 #Preview("Sleep · load error · AX3") { SleepPreviewPage(.failed).previewEnvironment().ax3() }
+#Preview("Sleep · load error, the platform busy") { SleepPreviewPage(.failedBusy).previewEnvironment() }
+#Preview("Sleep · load error, the platform busy · AX3") { SleepPreviewPage(.failedBusy).previewEnvironment().ax3() }
 #Preview("Sleep · no sleep") { SleepPreviewPage(.noSleep).previewEnvironment() }
 #Preview("Sleep · no sleep · AX3") { SleepPreviewPage(.noSleep).previewEnvironment().ax3() }
 #Preview("Sleep · pending score") { SleepPreviewPage(.pending).previewEnvironment() }

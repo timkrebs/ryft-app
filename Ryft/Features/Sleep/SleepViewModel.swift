@@ -34,7 +34,10 @@ final class SleepViewModel {
     /// The night shown in Day mode, identified by the morning it ended.
     private(set) var date: Date
     private(set) var isLoading = false
-    private(set) var error: String?
+    /// Why the night couldn't load, with nothing cached: the app's calm sentence and the Details (VN1).
+    private(set) var failure: SleepLoadFailure?
+    /// The failure's sentence, which the board shows in the hypnogram's place.
+    var error: String? { failure?.message }
 
     /// Sleep → Planner, behind `sleep.planner`.
     let planner: SleepPlannerViewModel
@@ -113,6 +116,7 @@ final class SleepViewModel {
     /// pending), then its duration or what is known of it.
     var stepAnnouncement: String {
         let board = board
+        if case .failed(let message) = board.look { return "\(header.spokenValue). \(message)" }
         return "\(header.spokenValue). \(board.numeralLabel ?? board.spokenCaption ?? board.caption)"
     }
 
@@ -132,7 +136,7 @@ final class SleepViewModel {
 
     /// Revalidates what the mode shows (no request when cached and fresh).
     func load() async {
-        error = nil
+        failure = nil
         guard state.hasDataSource else { return }
         if mode == .plan {
             await planner.load()
@@ -152,8 +156,41 @@ final class SleepViewModel {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return
         } catch {
-            if detail == nil { self.error = error.localizedDescription }
+            if detail == nil {
+                failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
+                                           at: state.env.clock.now())
+            }
         }
+    }
+}
+
+/// What Sleep → Day says when a night couldn't load and nothing is cached (VN1): the sentences Today's refresh issue
+/// uses (`RefreshIssue.Reason.message`), or "No connection" offline, never the system's error text; the status and the
+/// request ID behind Details, for support.
+struct SleepLoadFailure: Equatable {
+    let message: String
+    let systemImage: String
+    /// "HTTP 503 · Request ID 01a1…"; nil without a response.
+    let details: String?
+
+    init(_ error: Error, isOnline: Bool, at date: Date) {
+        details = error.diagnosticDetails
+        if !isOnline || Self.lostConnection(error) {
+            message = String(localized: "No connection. Check your internet and try again.")
+            systemImage = "wifi.exclamationmark"
+        } else {
+            let reason = RefreshIssue.reason(for: ResourceError(error, kind: FailureKind.of(error), attempts: 1, at: date))
+            message = reason.message
+            systemImage = reason.systemImage
+        }
+    }
+
+    /// The phone has no connection: URLSession says so, whatever the connectivity monitor last heard.
+    private static func lostConnection(_ error: Error) -> Bool {
+        var url = error as? URLError
+        if case .transport(let inner)? = error as? APIError { url = inner as? URLError }
+        guard let code = url?.code else { return false }
+        return code == .notConnectedToInternet || code == .networkConnectionLost || code == .dataNotAllowed
     }
 }
 
@@ -317,9 +354,10 @@ struct SleepBoard: Equatable {
                 caption = loading
                 spokenCaption = nil
             case .failed:
-                // The message in the hypnogram's place says what happened; the numeral and caption stay quiet.
+                // The message in the hypnogram's place says what happened; the numeral and caption stay quiet: no
+                // "Asleep" under an unlit 0:00 (CR8). The caption keeps its line, empty.
                 numeralLabel = nil
-                caption = String(localized: "Asleep")
+                caption = ""
                 spokenCaption = nil
             case .pending:
                 if let raw {
