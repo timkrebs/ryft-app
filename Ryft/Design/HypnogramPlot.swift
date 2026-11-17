@@ -1,8 +1,8 @@
 // The night as a step line (Nocturne, docs/work/2026-11-16-nocturne/design.md §P4-2a): the body of Sleep's hypnogram
 // glow tile. A 38 pt column of stage names, then the plot: four grid lines (Awake, REM, Light, Deep, top to bottom), the
 // stage step line in 85 % ink, and each Deep span as a sleep-colour bar on the Deep line. Time runs linearly from the
-// night's start to its end with no tick labels (the tile's header has the range). The Charts-based `Hypnogram` stays for
-// the catalog. The tile (header, totals, the no-timeline and no-stages variants, VoiceOver) is the screen's.
+// night's start to its end with no tick labels (the tile's header has the range). The tile (header, totals, the
+// no-timeline and no-stages variants, VoiceOver) is the screen's.
 import SwiftUI
 
 /// The stage column and the plot. No strings inside: the caller passes the four stage names. Hidden from VoiceOver: the

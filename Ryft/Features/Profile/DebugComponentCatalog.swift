@@ -141,12 +141,11 @@ struct DebugComponentCatalog: View {
     @ViewBuilder
     private var sleep: some View {
         if let night = MockData.todayDetail.sleep {
-            VStack(spacing: 16) {
-                Card { MiniHypnogram(sleep: night, action: {}) }
-                Card { Hypnogram(segments: night.segments) }
-                StageBar(stages: night.displayStages)
-                StageBar(stages: [])
-                ForEach(night.displayStages) { StageRow(share: $0) }
+            // The hypnogram is the glow tile further down (`CatalogHypnogramTile`).
+            Card {
+                VStack(spacing: 14) {
+                    ForEach(night.displayStages) { StageRow(share: $0) }
+                }
             }
         }
     }
