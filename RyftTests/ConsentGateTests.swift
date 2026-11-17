@@ -1,6 +1,7 @@
 import Auth
 import Foundation
 import Observation
+import os
 import SwiftData
 import Testing
 import UIKit
@@ -1360,5 +1361,76 @@ struct ConsentTrainTests {
         demo.on = false
         sync.sessionChanged(SessionFactory.empty(in: store))
         #expect(store.pendingOps().map(\.account) == [TrainSyncService.demoOwner, "A"])
+    }
+}
+
+extension ConsentWriterTests {
+    /// The withdrawal's save refused (the store keeps the user with the consent): it goes again, so a relaunch, offline,
+    /// still reads the consent withdrawn and keeps the gate closed.
+    @Test func aRefusedSaveOfTheWithdrawalGoesAgainAndHoldsAcrossARelaunch() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-consent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("Train.store")
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
+        let h = ConsentHarness(persistence: TrainStore(url: url), defaults: defaults)
+        try await h.cachedUser()
+        h.answer()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        let saves = OSAllocatedUnfairLock(initialState: 0)
+        h.state.repository.writeHooks.refusesSave = { saves.withLock { n in
+            n += 1
+            return n == 1
+        } }
+        var withdrawn = try #require(h.state.user)
+        withdrawn.consent = nil
+
+        let first = await h.state.repository.store(user: withdrawn).committed()
+        await h.state.repository.settled()
+
+        #expect(!first.saved)
+        #expect(saves.withLock { $0 } == 2) // the write, then its second try
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        let relaunched = ConsentHarness(persistence: TrainStore(url: url), defaults: defaults, online: false)
+        relaunched.answer()
+        #expect(relaunched.state.user != nil)
+        #expect(relaunched.state.user?.consent == nil)
+        #expect(relaunched.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+    }
+
+    /// A `GET /v1/me` asked for before the withdrawal and answered after it, with the consent, doesn't bring the consent
+    /// back; the withdrawal's re-check asks again instead of joining it.
+    @Test func aMeAskedBeforeTheWithdrawalDoesntReopenTheGate() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        let asked = h.api.count("me")
+        let early = RequestHold(), recheck = RequestHold()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        h.api.beforeMe = {
+            let n = calls.withLock { n in
+                n += 1
+                return n
+            }
+            await (n == 1 ? early : recheck).wait()
+        }
+        let read = Task { try? await h.state.repository.refreshUser(mode: .latest) }
+        #expect(await eventually { early.waiting == 1 })
+        h.clock.advance(by: .seconds(1))
+
+        let withdrawal = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.api.count("revokeConsent") == 1 && h.state.user?.consent == nil })
+        early.release()
+        #expect(await eventually(timeout: .seconds(5)) { recheck.waiting == 1 })
+        // The early answer landed, unwritten.
+        #expect(h.state.user?.consent == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        recheck.release()
+
+        #expect(await withdrawal.value)
+        await read.value
+        #expect(h.api.count("me") == asked + 2)
+        #expect(h.state.user?.consent == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
     }
 }
