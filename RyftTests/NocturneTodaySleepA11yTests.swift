@@ -228,6 +228,39 @@ struct NocturneTodaySleepA11yTests {
         }
     }
 
+    // MARK: the launch's reveal (test 44's view half)
+
+    @MainActor @Observable
+    final class LaunchFlip {
+        var reveals = true
+    }
+
+    private struct FlippedToday: View {
+        let flip: LaunchFlip
+        let state: AppState
+
+        var body: some View {
+            TodayView().previewEnvironment(state).environment(\.launchRevealsRoot, flip.reveals)
+        }
+    }
+
+    @Test("While the mark flies into the header the gauge's 260 pt slot is empty, and the gauge is built when it lands")
+    func theGaugeAppearsWhenTheLockUpHasLanded() async throws {
+        let flip = LaunchFlip()
+        let state = AppState.preview(flags: [.todayMyDay: true], scenario: .watch)
+        try await HostedWindow.run(width: Self.width, height: 2600, FlippedToday(flip: flip, state: state)) { w in
+            try await w.wait("Today's ruler") { w.nodes().contains { $0.identifier == "today.ruler" } }
+            try await w.settle()
+            #expect(!w.nodes().contains { $0.identifier == "today.readinessGauge" }, "in flight: nothing in the slot")
+            let rulerInFlight = try node(w, "today.ruler").frame
+            flip.reveals = false
+            try await w.wait("the gauge") { w.nodes().contains { $0.identifier == "today.readinessGauge" } }
+            try await w.settle()
+            let ruler = try node(w, "today.ruler").frame
+            #expect(abs(ruler.minY - rulerInFlight.minY) < 1, "the slot kept its place: \(rulerInFlight.minY) then \(ruler.minY)")
+        }
+    }
+
     // MARK: Today at AX3 (test 49, Today's half)
 
     @Test("At AX3 nothing leaves the screen, the tiles stack in one column and the header and the gauge keep their size")
