@@ -355,9 +355,10 @@ struct ReadModelWipeRaceTests {
         #expect(h.repository.user() == nil)
     }
 
-    /// 200 writes from ten main-actor tasks and a sign-out among them, five times: exactly the days submitted after
-    /// the wipe are in the store, none from before it.
-    @Test(arguments: 0..<5)
+    /// 200 writes from ten main-actor tasks and a sign-out among them, five times. The sign-out starts once 30, 55, …
+    /// are in, and each writer's last five wait for its wipe, so writes are pending on both sides of it. Exactly the
+    /// days submitted after the wipe are in the store, none from before it.
+    @Test(.timeLimit(.minutes(1)), arguments: 0..<5) // a lock held across an await would hang here
     func manyWritersAndASignOutLeaveOnlyWhatCameAfterIt(round: Int) async throws {
         let h = WipeHarness()
         let start = h.clock.now()
@@ -367,6 +368,7 @@ struct ReadModelWipeRaceTests {
             for writer in 0..<10 {
                 group.addTask { @MainActor in
                     for i in 0..<20 {
+                        while i >= 15, h.persistence.epoch.current == epoch { await Task.yield() }
                         let n = writer * 20 + i
                         let day = DayFormat.string(from: DayFormat.shift(start, days: -n))
                         let ticket = n % 3 == 0
@@ -379,7 +381,7 @@ struct ReadModelWipeRaceTests {
                 }
             }
             group.addTask { @MainActor in
-                for _ in 0..<(round * 7) { await Task.yield() }
+                while log.submitted.count < 30 + round * 25 { await Task.yield() }
                 await h.auth.signOut()
             }
         }
@@ -389,6 +391,8 @@ struct ReadModelWipeRaceTests {
         #expect(h.persistence.epoch.current == epoch + 1)
         #expect(Set(try cachedDays(in: h.persistence).map(\.day)) == expected)
         #expect(log.submitted.count == 200)
+        #expect(log.submitted.filter { !$0.afterWipe }.count >= 30 + round * 25)
+        #expect(expected.count >= 50) // the sign-out landed among the writes, not after the last one
         for (day, afterWipe) in log.submitted where !afterWipe {
             #expect(h.repository.score(day) == nil)
         }
