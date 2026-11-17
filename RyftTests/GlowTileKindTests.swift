@@ -200,7 +200,7 @@ import UIKit
         var testDescription: String { "\(name) \(Int(size.width)) × \(Int(size.height))" }
     }
 
-    private static let boardTiles: [TileCase] = [
+    nonisolated private static let boardTiles: [TileCase] = [
         TileCase(name: "recovery 2-up", kind: .twoUp, metric: .recovery, size: CGSize(width: 169, height: 124), ink: 5.0, label: 5.0),
         TileCase(name: "sleep 2-up", kind: .twoUp, metric: .sleep, size: CGSize(width: 169, height: 124), ink: 6.8, label: 4.9),
         TileCase(name: "strain", kind: .strain, metric: .strain, size: CGSize(width: 350, height: 96), ink: 9.0, label: 6.2),
