@@ -59,7 +59,7 @@ struct RulerScale: View {
     /// Volt: the needle is one of the signal's five marks (brief §1).
     static let needleColor = Theme.signal
     /// The smallest gap between two labels before they no longer fit on one line: at large sizes the row then falls
-    /// back to the joined " · " line before the labels run together.
+    /// back to lines of labels joined by " · " before the labels run together (`RulerLabels`).
     static let labelMinGap: CGFloat = 16
     /// What stays clear under the labels when they grow past the caller's gap (AX sizes): the next block is at
     /// `max(box + gap, labels' bottom + 8)`.
@@ -141,21 +141,12 @@ struct RulerScale: View {
         .animation(Theme.Motion.respecting(forcedReduceMotion ?? systemReduceMotion, Theme.Motion.quick), value: fraction)
     }
 
-    /// The labels on one line, first leading and last trailing; when they do not fit (large text), one wrapping line.
+    /// The labels on one line, first leading and last trailing; when they do not fit (large text), lines of whole
+    /// labels (`RulerLabels`).
     private var labelRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) {
-                ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                    if index > 0 { Spacer(minLength: Self.labelMinGap) }
-                    Text(verbatim: label).lineLimit(1).fixedSize()
-                }
-            }
-            Text(verbatim: labels.joined(separator: " · "))
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.ryft(.axis))
-        .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize, glowLabelOpacity: glowLabelOpacity))
+        RulerLabels(labels: labels)
+            .font(.ryft(.axis))
+            .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize, glowLabelOpacity: glowLabelOpacity))
     }
 
     // MARK: layout (pure)
@@ -228,11 +219,58 @@ struct RulerScale: View {
         needleFraction(value: value, range: range).map { CGFloat($0) * width }
     }
 
+    /// The ways to set `count` labels on lines of whole labels, in the order `RulerLabels` tries them: fewer lines first,
+    /// and among as many lines the fuller earlier lines first, as text wraps. Each is the lines' ranges of labels.
+    nonisolated static func labelLines(count: Int) -> [[Range<Int>]] {
+        guard count > 0 else { return [] }
+        func lines(from start: Int, into parts: Int) -> [[Range<Int>]] {
+            guard parts > 1 else { return [[start..<count]] }
+            return stride(from: count - start - (parts - 1), through: 1, by: -1).flatMap { first in
+                lines(from: start + first, into: parts - 1).map { [start..<start + first] + $0 }
+            }
+        }
+        return (1...count).flatMap { lines(from: 0, into: $0) }
+    }
+
     /// The needle's place as a fraction of the width, clamped to 0…1.
     nonisolated static func needleFraction(value: Double?, range: ClosedRange<Double>) -> Double? {
         let lo = range.lowerBound, hi = range.upperBound
         guard let value, !value.isNaN, hi > lo else { return nil }
         return min(max((value - lo) / (hi - lo), 0), 1)
+    }
+}
+
+/// A ruler's labels (D): on one line, first leading and last trailing, at least `RulerScale.labelMinGap` apart; when
+/// they don't fit (large text), the fewest lines of whole labels with " · " between them, the earlier lines the fuller
+/// (`RulerScale.labelLines`), so no line starts or ends with a separator ("0 · low · moderate", "high · 100", never
+/// "· high · 100"); when a label doesn't fit on a line of its own either, one label per line, wrapping. The caller sets
+/// the font and ink.
+struct RulerLabels: View {
+    let labels: [String]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                    if index > 0 { Spacer(minLength: RulerScale.labelMinGap) }
+                    Text(verbatim: label).lineLimit(1).fixedSize()
+                }
+            }
+            ForEach(Array(RulerScale.labelLines(count: labels.count).enumerated()), id: \.offset) { _, lines in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines, id: \.lowerBound) { line in
+                        Text(verbatim: labels[line].joined(separator: " · ")).lineLimit(1).fixedSize()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
+                    Text(verbatim: label).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

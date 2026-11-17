@@ -104,3 +104,74 @@ struct RulerSpacingTests {
         }
     }
 }
+
+/// D: at large text the labels go on lines of whole labels ("0 · low · moderate", "high · 100"), never a joined line
+/// wrapped between a label and its separator ("· high · 100").
+@MainActor
+@Suite(.serialized) struct RulerLabelLinesTests {
+    @Test func theLinesAreTriedFewestFirstTheEarlierLinesFuller() {
+        #expect(RulerScale.labelLines(count: 3) == [[0..<3], [0..<2, 2..<3], [0..<1, 1..<3], [0..<1, 1..<2, 2..<3]])
+        let five = RulerScale.labelLines(count: 5)
+        #expect(five.count == 16, "every way to cut 5 labels into runs")
+        #expect(five.first == [0..<5] && five.last == [0..<1, 1..<2, 2..<3, 3..<4, 4..<5])
+        #expect(five[1] == [0..<4, 4..<5] && five[2] == [0..<3, 3..<5], "two lines, the first the fuller first")
+        for lines in five {
+            #expect(lines.first?.lowerBound == 0 && lines.last?.upperBound == 5, "all of them: \(lines)")
+            #expect(zip(lines, lines.dropFirst()).allSatisfy { $0.upperBound == $1.lowerBound }, "in order: \(lines)")
+        }
+        #expect(RulerScale.labelLines(count: 0).isEmpty)
+    }
+
+    struct LabelCase: Sendable, CustomStringConvertible {
+        let typeSize: DynamicTypeSize
+        let category: UIContentSizeCategory
+        var description: String { "\(typeSize)" }
+    }
+
+    /// The board's label sets: Today's readiness, Sleep's need, Strain's target.
+    static let labelSets = [["0", "low", "moderate", "high", "100"], ["0 h", "need 8:18", "10 h"], ["0", "target 10–14", "21"]]
+
+    /// One line of the labels' font at `typeSize`.
+    private func lineHeight(_ typeSize: DynamicTypeSize) -> CGFloat {
+        UIHostingController(rootView: Text(verbatim: "0").font(.ryft(.axis)).fixedSize().environment(\.dynamicTypeSize, typeSize))
+            .sizeThatFits(in: CGSize(width: 2_000, height: 2_000)).height
+    }
+
+    @Test("Every line is whole labels: none starts or ends with a separator, none wraps",
+          arguments: [CGFloat(390), 402],
+          [LabelCase(typeSize: .large, category: .large),
+           LabelCase(typeSize: .xxxLarge, category: .extraExtraExtraLarge),
+           LabelCase(typeSize: .accessibility1, category: .accessibilityMedium),
+           LabelCase(typeSize: .accessibility3, category: .accessibilityExtraLarge),
+           LabelCase(typeSize: .accessibility5, category: .accessibilityExtraExtraExtraLarge)])
+    func everyLineIsWholeLabels(_ width: CGFloat, _ c: LabelCase) async throws {
+        let line = lineHeight(c.typeSize)
+        for labels in Self.labelSets {
+            let frames = TwoUpFrames()
+            // The ruler's width on Today and Sleep: the window less the screen padding.
+            let row = RulerLabels(labels: labels)
+                .font(.ryft(.axis))
+                .reportFrame("row", to: frames)
+                .padding(.horizontal, Theme.Metrics.screenPadding)
+                .frame(maxHeight: .infinity, alignment: .top)
+            try await HostedWindow.run(width: width, height: 900, typeSize: c.typeSize, category: c.category, row) { w in
+                try await w.wait("the labels") { frames.byName["row"] != nil && !w.nodes().isEmpty }
+                try await w.settle()
+                let box = try #require(frames.byName["row"])
+                let nodes = w.nodes().sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+                let where_ = "\(labels) at \(width), \(c.typeSize): \(nodes.map { "'\($0.label)' \($0.frame)" })"
+                #expect(nodes.map(\.label).joined(separator: " · ") == labels.joined(separator: " · "), "all, in order: \(where_)")
+                for node in nodes {
+                    let text = node.label.trimmingCharacters(in: .whitespaces)
+                    #expect(!text.hasPrefix("·") && !text.hasSuffix("·"), "'\(node.label)' starts or ends with a separator: \(where_)")
+                    #expect(node.frame.height < line * 1.5, "'\(node.label)' is one line (\(line)): \(where_)")
+                    #expect(node.frame.maxX <= box.maxX + 0.5 && node.frame.minX >= box.minX - 0.5, "inside the row \(box): \(where_)")
+                }
+                if c.typeSize == .large {
+                    #expect(nodes.count == labels.count && abs(nodes.last!.frame.maxX - box.maxX) < 0.5,
+                            "one line, edge to edge, at the default size: \(where_)")
+                }
+            }
+        }
+    }
+}
