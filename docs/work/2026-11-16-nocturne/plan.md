@@ -274,6 +274,27 @@ T4.2 and T4.3 can run in parallel worktrees if the spec assigns the shared files
   stages, consistency, efficiency) is inventoried by T4.1 against the view models; gaps get placeholders and
   `API_REQUESTS.md` entries, not invented values.
 
+**Decisions on the spec (`design.md` "PR 4", questions 1–10), 2026-11-17**
+- **L19 (user):** the hero-number switch lives in Profile → a new "Display" section, "Hero numbers: Dots / Thin"
+  (`ui.heroNumerals`); it applies to Today, Sleep and (PR 5) Strain. AX1 and up stay Light.
+- **L20 (user):** Sleep keeps its Day / Week / Month / Bedtime picker, under the header; the board's content follows 48 pt
+  lower.
+- **L21:** Today keeps the sync status row under the sub-line: freshness stays visible.
+- **L22:** Dropped: Today's `MiniHypnogram` card (behind `today.redesign`, default off), Sleep's `StageBar`, and the
+  Efficiency and Sleep debt rows in Details (the new tiles show them).
+- **L23:** Inside a glow tile there are two inks only: full `textPrimary` and the label opacity (100 % in recovery tiles,
+  78 % otherwise). The board's 0.62 and 0.55 fail 4.5:1 in the core, so §6 wins.
+- **L24:** A night counts as "enough" at ≥ 90 % of its need, the same band the ruler's need zone shows (90–100 % of the
+  need; the board's 7.5–8.3 h is exactly that for an 8:18 need). No platform flag (R-N3 is not filed).
+- **L25:** The matched move's lifecycle as proposed: a 0.5 s hand-off when the mark moves (0.4 s otherwise), the 250 ms
+  motion rule makes an exception for it, a new `launchRevealsRoot` with an empty gauge slot until the lock-up lands,
+  and no splash as the last frame. code-reviewer checks it against ADR 0017.
+- **L26:** `DotRow.Mark.noData` (additive) and the board night in `MockData` are accepted; tests pinning the old mock
+  values are re-pinned in the PR, each listed.
+- **Order:** T4.0 (shared components, Settings, MockData, catalog) first, then T4.2 Today and T4.3 Sleep in parallel on
+  disjoint files (`design.md` §P4-12), then T4.4 strings, T4.6 `API_REQUESTS.md` (R-N1 strain target, R-N2 display
+  name), T4.5 tests.
+
 **Acceptance criteria**
 1. Today and Sleep match the measurements above (ui-validator from 3x pixels, ±1 pt, colours exact) at default size,
    and stay usable at AX3 (nothing clipped, stacks where needed, `DotNumeral` falls back to Light).
