@@ -399,6 +399,27 @@ struct SyncEngineBackgroundTests {
         #expect(api.count("sync") == 1) // the completion came after the upload
     }
 
+    /// ADR 0018: and after the read-model writes submitted so far are readable (iOS may suspend the app at it).
+    @Test func aDeliveryCompletesAfterTheReadModelWritesSettle() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, health: health)
+        let state = AppState(env: env)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)),
+                                          clock: env.clock, inBackground: true)
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        RyftApp.observeHealthKit(health, coordinator: coordinator, settled: { await repository.settled() })
+        #expect(await eventually { health.backgroundDeliveryEnabled })
+
+        let completed = SyncCoordinatorBackgroundTests.Completions()
+        health.deliverChange { completed.done() }
+        #expect(await eventually { api.count("sync") == 1 })
+        #expect(await eventually(timeout: .milliseconds(300)) { completed.calls == 1 } == false)
+
+        hold.open()
+        #expect(await eventually { completed.calls == 1 })
+    }
+
     @Test func backgroundRunsFailFastInsteadOfWaitingForANetwork() {
         let c = APIClient.backgroundConfiguration
         #expect(!c.waitsForConnectivity)

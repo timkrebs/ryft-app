@@ -586,6 +586,30 @@ struct ConsentWriterTests {
         #expect(h.state.user?.consent == nil)
     }
 
+    /// A `GET /v1/me` answer with the consent still being written when the user withdraws it: its commit lands after
+    /// the withdrawal and doesn't reopen the gate (the user written through stays until the account changes).
+    @Test func anOlderUsersCommitDoesntReopenTheGate() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        let consented = try #require(h.state.user)
+        var withdrawn = consented
+        withdrawn.consent = nil
+        let hold = WriterHold()
+        h.state.repository.writeHooks.job = { _ in hold.pass() }
+        let older = h.state.repository.store(user: consented)
+        #expect(await eventually { hold.entered == 1 })
+
+        let newer = h.state.repository.store(user: withdrawn)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        hold.open()
+        #expect(await older.committed().saved)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(await newer.committed().saved)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.state.user?.consent == nil)
+    }
+
     @Test func withdrawingConsentHoldsTheSyncAfterItReturns() async throws {
         let h = ConsentHarness()
         try await h.cachedUser()

@@ -915,6 +915,43 @@ struct BackgroundWorkTests {
         await finishing.value
         #expect(app.ended.count == 1) // ended once, not twice
     }
+
+    /// ADR 0018: iOS may suspend the app at a task's completion, so it comes once the read-model writes submitted so
+    /// far are readable (Today and the widget current).
+    @Test func theBackfillTaskCompletesAfterTheReadModelWritesSettle() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true, false]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let run = Task {
+            await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { nil }, schedule: { _ in },
+                                             settled: { await repository.settled() })
+        }
+        #expect(await eventually { steps.count("upload") == 2 })
+        #expect(await eventually(timeout: .milliseconds(300)) { task.completed != nil } == false)
+
+        hold.open()
+        await run.value
+        #expect(task.completed == true)
+        #expect(repository.day("2026-10-19") != nil)
+    }
+
+    @Test func leavingTheAppEndsItsBackgroundTimeAfterTheReadModelWritesSettle() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: FakeSteps(clock: clock), clock: clock)
+        let app = FakeApp()
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let finishing = BackgroundWork.finishInBackground(coordinator: c, app: app, backlogBytes: { nil }, schedule: { _ in },
+                                                          settled: { await repository.settled() })
+        #expect(app.begun == 1)
+        #expect(await eventually(timeout: .milliseconds(300)) { !app.ended.isEmpty } == false)
+
+        hold.open()
+        await finishing.value
+        #expect(app.ended.count == 1)
+    }
 }
 
 /// The review on #10.
@@ -2270,6 +2307,29 @@ struct ReadRecordSuspensionTests {
                                     reads: env.reads)
         _ = await AppDelegate.refresh(day: DayFormat.string(from: clock.now()), handlers: handlers)
         #expect(ReadScheduler(env: env).states[.insights]?.consecutiveFailures == 1)
+    }
+
+    /// ADR 0018: the completion handler comes once the read-model writes submitted so far are readable.
+    @Test func aSilentPushEndsAfterTheReadModelWritesSettle() async {
+        let (env, state, clock) = readGraph()
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)), clock: clock)
+        let router = DeepLinkRouter(state: state, sleep: SleepViewModel(state: state),
+                                    strain: StrainViewModel(state: state, store: TrainStore(inMemory: true)),
+                                    insights: InsightsViewModel(state: state))
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let handlers = PushHandlers(registrar: PushRegistrar(env: env), router: router, coordinator: coordinator,
+                                    reads: env.reads, settled: { await repository.settled() })
+        let ended = Recorded<Bool>()
+        let refresh = Task {
+            _ = await AppDelegate.refresh(day: DayFormat.string(from: clock.now()), handlers: handlers)
+            ended.append(true)
+        }
+        #expect(await eventually(timeout: .milliseconds(500)) { ended.count == 1 } == false)
+
+        hold.open()
+        await refresh.value
+        #expect(ended.count == 1)
+        #expect(repository.day("2026-10-19") != nil)
     }
 
     /// Nothing waiting: nothing is written.
