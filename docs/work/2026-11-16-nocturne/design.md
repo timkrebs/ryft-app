@@ -1226,9 +1226,10 @@ Every state keeps its reason and its one action; none is a blank screen or a spi
 | Oldest night | `date ≤ oldestNight` | Previous disabled the same way (hint "No older night to show") |
 | An older night | stepped back | Subtitle "Sat, Nov 14" or "Yesterday · Sat, Nov 14"; the numeral cross-fades (250 ms; none under Reduce Motion) |
 | Loading, nothing cached | `isLoading && sleep == nil` | Unlit "0:00", ruler ticks without a needle, hypnogram and four tiles as `surface` outlines (1 pt `separator`), values "–"; VoiceOver "Loading this night"; no spinner |
-| Load error | `model.error` | As loading, plus `InlineMessage(retry:)` in the hypnogram tile's place |
-| No sleep recorded / missing night | no `sleep` | Unlit numeral, caption "No sleep recorded for this night.", ruler without needle, tiles "–", hypnogram slot an outline tile; `HealthAccessHint` if there is no Health data at all |
-| Pending score | `DayMarker.pending` | Numeral and ruler from the raw night; caption "Asleep" (no performance); tiles that need a score show "–"; the marker dot is an outline, as today |
+| Load error | `model.error` | As loading, plus the app's calm sentence (`SleepLoadFailure`, never `localizedDescription`) in the hypnogram tile's place, with Details (request ID) and Today's action: "Sign in" when signed out, none when the app is too old, "Try again" otherwise (review rows 14, R2) |
+| No sleep recorded / missing night | a scored day without `sleep` | Unlit numeral, caption "No sleep recorded for this night.", ruler without needle, tiles "–", hypnogram slot an outline tile; `HealthAccessHint` if there is no Health data at all |
+| Pending score | `scoring_state` `pending` (`sleep: null` from the API) | With Apple Health's raw night: numeral and ruler from it, caption "From Apple Health · not scored yet" (D4-15), outline hypnogram, tiles that need a score "–". Without one: "Your night is being scored." The marker dot is an outline, as today (review row 1) |
+| Waiting for the night | `waiting_for_sleep`, or `stale` for today without a night | "Last night hasn't reached RYFT yet.", as Today says it; no raw night, outline hypnogram, tiles "–". `stale` with a night keeps its score (R2-F1) |
 | Partial: no stages | `!hasStages` | Hypnogram tile with the explanatory line; Restorative "–"; Stages card hidden; the rest as scored |
 | Partial: no timeline | `segments.isEmpty`, stages known | Tile with totals only |
 | Partial: no need | `sleepNeedMin` nil | Ruler without zone or middle label; caption "Asleep"; Need card hidden |
@@ -1308,10 +1309,10 @@ English only, `Localizable.xcstrings`, targeted edits and a `--stat` check (plan
 | `Strain · %@` | The strain tile's label while it shows another day or "calibrating". |
 | `Strain scale` · `%1$@, %2$@, on a scale from 0 to 21. The moderate range is 10 to 14.` | VoiceOver on the strain ruler and its tile. |
 | `HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days` | VoiceOver on the recovery tile's sparkline. |
-| `Slept enough on %lld of the last 7 nights; the last is the night shown` · `…; %lld nights have no data` | VoiceOver on the sleep dots (Today, `DotRow` summary). |
+| `Slept enough on %lld of the last 7 nights; the last is the night shown` · `…; %lld nights have no data` (plural: "1 night has no data") | VoiceOver on the sleep dots (Today, `DotRow` summary). |
 | `Last night · %@` · `Yesterday · %@` | Sleep header subtitle; %@ is the date ("Sun, Nov 15"). **Replace** `Last night` as the subtitle (the key stays for the raw-night card). |
 | `Asleep · %lld %% of your need` · `%lld percent of your need` | Caption under Sleep's numeral; its VoiceOver text. `Asleep` exists. |
-| `Sleep duration scale` · `0 h` · `need %@` · `10 h` · `%1$@, on a scale from 0 to 10 hours. Your need is %2$@.` | Sleep ruler: label, scale words, VoiceOver. |
+| `Sleep duration scale` · `0 h` · `need %@` · `10 h` · `%@, on a scale from 0 to 10 hours. Your need is %@.` · `%@, on a scale from 0 to 10 hours.` · `No time asleep yet, on a scale from 0 to 10 hours.` (± `Your need is %@.`) | Sleep ruler: label, scale words, VoiceOver (with and without a need, no value). |
 | `h` | Hours unit after a clock value ("7:48 h"). |
 | `Deep + REM` | Restorative tile's note. **Replaces** `deep + REM`. |
 | `No newer night to show` · `No older night to show` | Hints on the disabled night buttons. |
@@ -1414,7 +1415,7 @@ T4.2 (Today) and T4.3 (Sleep) can run in parallel worktrees **after a short T4.0
 |---|---|---|---|---|
 | D4-1 | Content top at 56 | — | safe-area top | 56 is the board's status-bar frame; a device's safe area is 54–62 |
 | D4-2 | No sync status | — | A status row (+≈ 20 pt) under the sub-line | Today's sync status text, tappable (Sync details, gates, Try again), must stay visible; Q2 |
-| D4-3 | No mode picker on Sleep | — | Picker under the header, content below it +48 pt | Week, Month and Bedtime would otherwise be unreachable; Q1 |
+| D4-3 | No mode picker on Sleep | — | Picker under the header, content below it +64 pt (measured; first written +48, review row 12) | Week, Month and Bedtime would otherwise be unreachable; Q1 |
 | D4-4 | Glow-tile text at 0.62 / 0.55; labels 0.78 | §6 text ≥ 4.5 in the core | 100 % (recovery) or 78 % for every non-numeral text; recovery tile all full ink | The board's alphas fail 4.5:1 in all tiles but strain (numbers in §P4-3); user decision of 2026-11-16 for recovery |
 | D4-5 | Meta text at 0.55 and 0.45 | `textTertiary` 45 % | `textTertiary` 48 % for both | PR 1 D-a; 0.55 maps to the dimmer token to keep the hierarchy (label 0.62 above meta) |
 | D4-6 | Need zone 7.5–8.3 h | — | 90–100 % of the need | The board's example is one night; the rule is the display choice that reproduces it; Q6 |
@@ -1426,6 +1427,14 @@ T4.2 (Today) and T4.3 (Sleep) can run in parallel worktrees **after a short T4.0
 | D4-12 | 2-up ellipse 85 × 80 at any size | text in the core | `panel` ellipse when a 2-up is wider than 200 or taller than 160 | At 350 × 124 the board's ellipse gives 4.41:1 in full ink |
 | D4-13 | Recovery tile in the recovery colour; no band tint | one colour per metric | The tile and the gauge are teal always (was the band colour) | The legend |
 | D4-14 | Greeting with a name | — | Without a name when none is known | `full_name` can be empty (R-N2) |
+| D4-15 | Sleep caption "Asleep" | — | "From Apple Health · not scored yet" on a pending night with a raw night | Raw totals are unscored; "Asleep" under them read as RYFT's number (review row 1) |
+| D4-16 | 2-up captions under the label, value 22 pt lower when a caption is there | — | `TodayTwoUpValueRow`: the caption beside the value at 0.8 scale (1 pt slack) or above it; the value sits by its baseline and its line never moves; both tiles arrange alike (caption and sparkline), and the sparkline moves under the label before a title is cut | Calibrating and pending tiles lifted the value; "Recov…" at xxxLarge (review rows 13, B, C) |
+| D4-17 | — | — | Today's fault sub-line is the date alone | The status row and the card already say why (review row 15) |
+| D4-18 | Ruler labels on one line | — | `RulerLabels`: one line when they fit, else the fewest lines of whole labels joined by " · " | AX sizes wrapped at a separator (review row D) |
+| D4-19 | The strain tile clear of the tab bar | — | At 390 × 844 the strain ruler sits about 16 pt under the floating tab bar at the scroll top | The board's dot tab bar is PR 5 (review row 21) |
+| D4-20 | — | Q3: drop `StageBar`, `MiniHypnogram`, the old `Hypnogram` | Dropped; `StageRow` stays for Sleep's stage card (`Design/StageRow.swift`) | The stage card still lists the stages (review row 7) |
+
+**The ruler's box (measured on the board, review row 11).** The next block is measured from the ruler's 36 pt box (8 + a 22 pt tick row); the labels start at +32 and overflow it. `RulerScale(followingGap:)` puts Today's tiles at ruler top + 58 and Sleep's hypnogram at + 56; at accessibility sizes the labels push the block down.
 
 Derived, not measured (do not tune without asking): the series' and dots' place in the 2-up tiles; the unit and caption places; the strain row's spacing; the status row; section spacing 24 below the glow block; the hypnogram grid's y positions; the compact ruler without labels on Today; left-aligned greeting; ruler labels space-between; the Sleep ruler's middle label at the centre.
 

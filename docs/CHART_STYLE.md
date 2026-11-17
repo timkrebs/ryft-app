@@ -89,8 +89,8 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | `RangeBar` | value within a personal range |
 | `DeltaLabel` | change against a reference |
 | `ZoneBar` | heart-rate-zone minutes |
-| `MiniHypnogram` | last night, 20:00–12:00 |
-| `Hypnogram` | Sleep tab |
+| `HypnogramPlot` | Sleep → Day: the night's stages over time (Nocturne PR 4) |
+| `StageRow` | Sleep → Day's stage card: one stage's time and share |
 
 Every component has dark `#Preview`s (the app is dark-only, ADR 0016).
 

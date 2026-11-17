@@ -3,6 +3,26 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Nocturne restyle (open, 2026-11-17)
+
+From Nocturne PR 4 (`docs/work/2026-11-16-nocturne/design.md` §P4-4, rows R-N1 and R-N2). The screens ship without
+these; each has a fallback that invents nothing.
+
+1. **R-N1: a personal strain target.** The board marks "target 10–14" on Today's compact strain ruler, on Strain's
+   ruler and on the gauge's band rail. `DailyScore` has no target, so the app shades the fixed moderate band from
+   `MetricSpec` (10–14) and labels it with the band word ("moderate"), never "target".
+   - **Proposal:** `DailyScore.strain_target_min` and `strain_target_max` (number?, the day's recommended strain range;
+     `null` until the baselines exist).
+   - **Until then:** the fixed moderate band, labelled as a band. Nothing waits on this.
+2. **R-N2: an editable display name.** Today greets with the first word of `User.name` ("Good evening, Tim"). For a
+   Sign in with Apple account the platform stores `""` when Apple sent no name, and `PATCH /v1/me` can't set one.
+   - **Proposal:** `PATCH /v1/me` accepts `name` (string, trimmed, 1–40 characters, `422` otherwise). Profile (Nocturne
+     PR 5) would offer to edit it.
+   - **Until then:** "Good evening" without a name or comma.
+
+Not filed: a platform "slept enough" flag (R-N3). The app counts a night as enough when the time asleep is at least
+90 % of the need (plan decision L24); the rule can move to the platform later if both sides should agree on it.
+
 ## Training import (closed, 2026-10-27)
 
 All thirteen questions (T1–T13) from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) are

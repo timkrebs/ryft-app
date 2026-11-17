@@ -248,7 +248,7 @@ Ryft/
   App/         entry, AppState (read-side store + disk cache), Settings, SupabaseConfig, formatting
   Auth/        AuthService (Supabase Auth: Apple, email, links, deletion), AppleSignInButton
   Design/      Theme, Typography, RyftMark and components (ScoreRing, MetricTile, Card,
-               SegmentedPicker, StageBar, Hypnogram, InsightCard, TrendChart, status views)
+               SegmentedPicker, HypnogramPlot, StageRow, InsightCard, TrendChart, status views)
   Features/    Auth (Welcome, Create account, Log in, reset), Today, Sleep, Strain
                (+ WorkoutDetail), Insights, Profile, Train (live session, plans, history)
   Health/      HealthKitManager: anchored queries, background delivery
