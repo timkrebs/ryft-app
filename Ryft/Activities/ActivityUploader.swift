@@ -126,7 +126,7 @@ final class ActivityUploader {
 
     var generation: Generation {
         Generation(count: accountCount, account: store.account, demo: env?.isDemo ?? false,
-                   store: (env?.persistence as? TrainStore)?.epoch ?? 0)
+                   store: env?.persistence.epoch.current ?? 0)
     }
 
     /// The earliest automatic attempt waiting after a transient failure; nil when none is.

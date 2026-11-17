@@ -20,6 +20,7 @@ private final class CountingPersistence: Persistence {
     var container: ModelContainer { base.container }
     var context: ModelContext { base.context }
     var isDurable: Bool { base.isDurable }
+    var epoch: StoreEpoch { base.epoch }
     func save() -> Bool { base.save() }
     func wipe() -> Bool { base.wipe() }
     func document<T: Decodable>(_ type: T.Type, key: String) -> T? {
