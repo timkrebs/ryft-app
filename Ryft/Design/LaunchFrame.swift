@@ -1,7 +1,8 @@
 // The launch sequence's visual timeline (Nocturne PR 3, design.md §P3-4; brief §5) as a pure function of t, the
 // share of the 5.2 s that has passed: what each part of the mark looks like at that moment. Foundation and
 // `RyftMarkGeometry` only, no SwiftUI, so every moment can be sampled in a unit test; `LaunchStage` draws a frame and
-// `LaunchSequence` (App/) says which t is now.
+// `LaunchSequence` (App/) says which t is now. The matched move into Today's header (PR 4) is a lerp of rects on top of
+// the last frame (`rect(from:to:progress:)`).
 //
 // Angles are degrees, 0 = 3 o'clock, clockwise (the mark's and the boards' convention; the gauge's code angles are
 // these + 90). An arc is (start, end) with end > start, drawn clockwise; the recovery arc, which grows
@@ -207,6 +208,40 @@ struct LaunchFrame: Equatable {
     /// How far `t` is through the segment from `a` to `b`, clamped to 0...1.
     static func progress(_ t: Double, _ a: Double, _ b: Double) -> Double {
         min(max((t - a) / (b - a), 0), 1)
+    }
+
+    // MARK: the matched move into Today's header (design.md §P4-7, L15)
+
+    /// The wordmark starts this share of the move later than the mark: without it its top meets the mark's ring at
+    /// τ ≈ 0.52; with it the clearance stays above 7 pt.
+    static let wordmarkMoveDelay = 0.15
+    /// The header's wordmark: 15 pt (`RyftTextStyle.wordmark`); the launch's is `LaunchStage.wordmarkSize` (22).
+    static let wordmarkMoveTargetSize = 15.0
+
+    /// The four components lerped from `start` to `target` (the centre moves on a straight line); exact at 0 and 1.
+    static func rect(from start: CGRect, to target: CGRect, progress: Double) -> CGRect {
+        CGRect(x: lerp(start.minX, target.minX, progress), y: lerp(start.minY, target.minY, progress),
+               width: lerp(start.width, target.width, progress), height: lerp(start.height, target.height, progress))
+    }
+
+    /// A point lerped from `start` to `target`; exact at 0 and 1.
+    static func point(from start: CGPoint, to target: CGPoint, progress: Double) -> CGPoint {
+        CGPoint(x: lerp(start.x, target.x, progress), y: lerp(start.y, target.y, progress))
+    }
+
+    /// The mark's progress through the move at `τ` (0...1 of its duration, linear): E1.
+    static func markMoveProgress(_ τ: Double) -> Double {
+        Easing.e1(τ)
+    }
+
+    /// The wordmark's: E1 of `clamp((τ − 0.15) / 0.85)`, so it has not moved at τ 0.15 and lands with the mark at 1.
+    static func wordmarkMoveProgress(_ τ: Double) -> Double {
+        Easing.e1(progress(τ, wordmarkMoveDelay, 1))
+    }
+
+    /// The wordmark's size in flight: 22 → 15 pt. Its tracking stays 0.32 em, so it follows the size.
+    static func wordmarkMoveSize(_ τ: Double, from start: Double) -> Double {
+        lerp(start, wordmarkMoveTargetSize, wordmarkMoveProgress(τ))
     }
 
     /// Exact at both ends, so the last frame carries the mark's own numbers, not a rounding of them.

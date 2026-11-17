@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The launch sequence's picture at one moment (`LaunchFrame`): the mark, drawn in one `Canvas` with
 /// `RyftMarkGeometry`'s own path builders, "RYFT" under it and the tagline at the bottom, laid out on the full screen
@@ -12,6 +13,30 @@ struct LaunchStage: View {
     /// The screen's bottom safe-area inset (the home indicator's), which the tagline clears. The overlay passes it from
     /// `LaunchFullScreen`: the stage's own geometry is laid out ignoring the safe areas, where it reads 0.
     var safeAreaBottom: CGFloat = 0
+    /// The matched move into Today's header (design.md §P4-7): the mark and "RYFT" leave the launch layout for the
+    /// lock-up's frames; nil draws the launch layout.
+    var move: Move?
+
+    /// One moment of the matched move: where the lock-up is, how far the move is, and what the mark is drawn in.
+    struct Move: Equatable {
+        /// The header's mark and wordmark in the `.launch` space, as their targets report them. Without a wordmark target
+        /// the wordmark lands beside the mark, as `WordmarkLockup` lays it out.
+        var mark: CGRect
+        var wordmark: CGRect?
+        /// 0...1 of the hand-off's duration, linear (`LaunchSequence.moveTime(at:)`).
+        var time: Double
+        /// The tagline's opacity at this moment (it fades with the background).
+        var taglineOpacity: Double
+        /// The mark is drawn as the last frame at each moment's side: its stroke and dots follow the size.
+        var palette: LaunchFrame.Palette
+    }
+
+    /// Where the lock-up is drawn at one moment of the move, in the stage's (the screen's) space.
+    struct MoveLayout: Equatable {
+        var mark: CGRect
+        var wordmarkCentre: CGPoint
+        var wordmarkSize: CGFloat
+    }
 
     /// The 100 box's side: stroke 5.81, dot r 11.04, radii 80.96 / 47.10 / 13.98 pt.
     static let markSide: CGFloat = 184
@@ -38,17 +63,71 @@ struct LaunchStage: View {
         max(taglineBottom, safeAreaBottom + taglineAboveInset)
     }
 
+    // MARK: the matched move (design.md §P4-7)
+
+    /// A frame in the `.launch` space (`LaunchHost`'s, the root's: inside the safe area) in the overlay's, which ignores
+    /// the safe areas: moved by the leading and top insets. (20, 7) under a 59 pt top inset is (20, 66).
+    static func overlayRect(fromLaunch rect: CGRect, safeArea: EdgeInsets) -> CGRect {
+        rect.offsetBy(dx: safeArea.leading, dy: safeArea.top)
+    }
+
+    /// The wordmark's line box at `size` (Satoshi Light: 29.7 at 22, 20.25 at 15), which its centre is placed by.
+    static func wordmarkLineHeight(_ size: CGFloat) -> CGFloat {
+        UIFont(name: RyftFonts.postScriptName(for: .light), size: size)?.lineHeight ?? size * 1.35
+    }
+
+    /// The wordmark's ink width at `size` (the clearance model): four letters at 0.62 em and three trackings of 0.32 em;
+    /// the tracking after the last letter is pulled back (`Wordmark`).
+    static func wordmarkInkWidth(_ size: CGFloat) -> CGFloat {
+        size * (4 * 0.62 + 3 * Wordmark.tracking)
+    }
+
+    /// The launch layout's wordmark centre: the screen's middle, its line box 28 below the mark's box.
+    static func wordmarkCentre(in screen: CGSize) -> CGPoint {
+        let box = markRect(in: screen)
+        return CGPoint(x: screen.width / 2, y: box.maxY + wordmarkGap + wordmarkLineHeight(wordmarkSize) / 2)
+    }
+
+    /// The lock-up at one moment: the mark's box lerped from the launch layout's to the header's by E1 of the move's time,
+    /// the wordmark's centre and size by the delayed E1 (`LaunchFrame.wordmarkMoveProgress`).
+    static func moveLayout(_ move: Move, screen: CGSize, safeArea: EdgeInsets) -> MoveLayout {
+        let start = markRect(in: screen)
+        let target = overlayRect(fromLaunch: move.mark, safeArea: safeArea)
+        let mark = LaunchFrame.rect(from: start, to: target, progress: LaunchFrame.markMoveProgress(move.time))
+        let landing: CGPoint
+        if let wordmark = move.wordmark.map({ overlayRect(fromLaunch: $0, safeArea: safeArea) }) {
+            landing = CGPoint(x: wordmark.midX, y: wordmark.midY)
+        } else {
+            // `WordmarkLockup`: 10 pt of air per 26 pt of mark, the wordmark centred on the mark's middle.
+            let size = CGFloat(LaunchFrame.wordmarkMoveTargetSize)
+            landing = CGPoint(x: target.maxX + target.width * 10 / 26 + wordmarkInkWidth(size) / 2, y: target.midY)
+        }
+        let progress = LaunchFrame.wordmarkMoveProgress(move.time)
+        return MoveLayout(mark: mark, wordmarkCentre: LaunchFrame.point(from: wordmarkCentre(in: screen), to: landing,
+                                                                        progress: progress),
+                          wordmarkSize: CGFloat(LaunchFrame.wordmarkMoveSize(move.time, from: Double(wordmarkSize))))
+    }
+
+    /// The screen's safe areas, from `LaunchFullScreen` (the move converts the header's frames with them).
+    @Environment(\.launchSafeArea) private var safeArea
+
     var body: some View {
         GeometryReader { proxy in
-            let rect = markRect ?? Self.markRect(in: proxy.size)
-            let ink = Color(frame.ink)
+            let layout = move.map { Self.moveLayout($0, screen: proxy.size, safeArea: safeArea) }
+            // In flight the mark is the last frame at its current side (stroke and dots follow it), never interpolated.
+            let drawn = move.map { LaunchFrame(t: 1, palette: $0.palette, side: Double(layout?.mark.width ?? Self.markSide)) }
+                ?? frame
+            let rect = layout?.mark ?? markRect ?? Self.markRect(in: proxy.size)
+            // The tagline keeps the launch layout's place while the lock-up moves.
+            let layoutRect = move == nil ? rect : Self.markRect(in: proxy.size)
+            let ink = Color(drawn.ink)
             ZStack(alignment: .top) {
-                Canvas { context, _ in Self.drawMark(frame, in: rect, context: &context) }
+                Canvas { context, _ in Self.drawMark(drawn, in: rect, context: &context) }
                 VStack(spacing: 0) {
-                    Color.clear.frame(height: max(rect.maxY + Self.wordmarkGap, 0))
+                    Color.clear.frame(height: max(layoutRect.maxY + Self.wordmarkGap, 0))
                     Wordmark(size: Self.wordmarkSize, tracking: frame.wordmarkTracking)
                         .foregroundStyle(ink)
-                        .opacity(frame.wordmarkOpacity)
+                        .opacity(layout == nil ? frame.wordmarkOpacity : 0)
                     Spacer(minLength: Self.taglineMinGap)
                     Text("Engineered for peak.", comment: "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up.")
                         .font(.ryft(.label))
@@ -56,11 +135,18 @@ struct LaunchStage: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, Theme.Metrics.screenPadding)
-                        .opacity(frame.taglineOpacity)
+                        .opacity(move?.taglineOpacity ?? frame.taglineOpacity)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                     Color.clear.frame(height: Self.taglineBottomInset(safeAreaBottom: safeAreaBottom))
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                if let layout {
+                    // In flight: at its own size each frame (so it lands as the header's 15 pt text), 0.32 em throughout.
+                    Wordmark(size: layout.wordmarkSize)
+                        .foregroundStyle(ink)
+                        .fixedSize()
+                        .position(layout.wordmarkCentre)
+                }
             }
         }
         .accessibilityHidden(true)
@@ -90,6 +176,11 @@ struct LaunchStage: View {
             context.fill(g.dotPath(radius: radius, degrees: orbit.dot, in: placement), with: .color(Color(orbit.colour)))
         }
     }
+}
+
+extension EnvironmentValues {
+    /// The screen's safe-area insets, which `LaunchFullScreen` reads outside its `.ignoresSafeArea()` and passes down.
+    @Entry var launchSafeArea = EdgeInsets()
 }
 
 extension LaunchFrame.Palette {
