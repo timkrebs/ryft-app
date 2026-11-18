@@ -55,21 +55,26 @@ struct SleepNeedBreakdown: Equatable {
     }
 }
 
-/// The need as one segmented bar: baseline, strain and debt top-ups side by
-/// side, the nap credit as a dashed segment taken off the end; the four
-/// numbers labelled underneath, the sentence below them.
+/// The need as one segmented bar: baseline, strain and debt top-ups side by side, the nap credit as an outlined segment taken
+/// off the end; the four numbers labelled underneath, the sentence below them. Nocturne (docs/work/2026-11-16-nocturne/design.md
+/// §P5-7.4): the baseline is the sleep violet, the strain top-up the violet at 62 %, the debt `textSecondary`, the nap a 1 pt ink
+/// outline (shape, not hue); the legend is text, in the bar's order, so no part is told by its colour alone.
 struct SleepNeedBar: View {
     let need: SleepNeed
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// The strain top-up's share of the violet; the nap's outline.
+    nonisolated static let strainOpacity = 0.62, napLineWidth: CGFloat = 1
+
     private var breakdown: SleepNeedBreakdown { SleepNeedBreakdown(need) }
 
-    private func color(_ kind: SleepNeedBreakdown.Term.Kind) -> Color {
+    /// A filled segment's colour (the nap is an outline, `nil`).
+    static func fill(_ kind: SleepNeedBreakdown.Term.Kind) -> Color? {
         switch kind {
         case .base: return Theme.metricSleep
-        case .strain: return Theme.metricStrain
-        case .debt: return Theme.warning
-        case .nap: return Theme.textTertiary
+        case .strain: return Theme.metricSleep.opacity(strainOpacity)
+        case .debt: return Theme.textSecondary
+        case .nap: return nil
         }
     }
 
@@ -106,16 +111,17 @@ struct SleepNeedBar: View {
                 HStack(spacing: 2) {
                     ForEach(b.terms.filter { $0.kind != .nap }) { t in
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(color(t.kind))
+                            .fill(Self.fill(t.kind) ?? .clear)
                             .frame(width: max(2, w * Double(t.minutes) / gross - 2))
                     }
                 }
                 if b.minutes(.nap) > 0 {
+                    // Taken off the end: the card's own ground with an ink outline over the segments it covers.
                     let napWidth = w * Double(b.minutes(.nap)) / gross
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Theme.surface.opacity(0.7))
+                        .fill(Theme.surface)
                         .overlay(RoundedRectangle(cornerRadius: 2)
-                            .strokeBorder(Theme.textSecondary, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                            .strokeBorder(Theme.textPrimary, lineWidth: Self.napLineWidth))
                         .frame(width: napWidth)
                         .offset(x: w - napWidth)
                 }
@@ -130,10 +136,7 @@ struct SleepNeedBar: View {
         return layout {
             ForEach(b.terms) { t in
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Circle().fill(color(t.kind)).frame(width: 6, height: 6)
-                        Text(t.title).font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
-                    }
+                    Text(t.title).font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
                     Text(t.signed)
                         .font(.ryft(.callout))
                         .monospacedDigit()
@@ -145,10 +148,17 @@ struct SleepNeedBar: View {
 }
 
 #Preview("Sleep need", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 24) {
             SleepNeedBar(need: SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 0, total: 538))
             SleepNeedBar(need: SleepNeed(base: 460, strain: 24, debt: 12, napCredit: 35, total: 461))
         }
     }
+}
+
+#Preview("Sleep need · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        SleepNeedBar(need: SleepNeed(base: 460, strain: 24, debt: 12, napCredit: 35, total: 461))
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

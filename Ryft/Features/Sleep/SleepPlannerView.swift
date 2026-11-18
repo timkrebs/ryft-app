@@ -1,90 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// Sleep → Planner: pick a wake time, get three bedtimes (100 / 85 / 70 % of
-/// tonight's need), the time in bed behind them, and why the need is what it is.
-struct SleepPlannerSection: View {
-    let model: SleepPlannerViewModel
-    @State private var showsWhy = false
-
-    @Environment(ScreenModels.self) private var screens
-
-    var body: some View {
-        VStack(spacing: Theme.Metrics.sectionSpacing) {
-            // Tonight, from your schedule; below, any other wake time to try.
-            TonightCard(planner: screens.bedtime)
-            Text("Try another wake time")
-                .ryftLabelStyle()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Card {
-                DatePicker("Wake up at", selection: Binding(get: { model.wake }, set: { model.setWake($0) }),
-                           displayedComponents: .hourAndMinute)
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                    .tint(Theme.accent)
-            }
-            if let plan = model.plan {
-                bedtimes(plan)
-                why(plan)
-                if let asOf = model.asOf {
-                    Label(String(localized: "As of \(asOf.formatted(date: .abbreviated, time: .shortened))"),
-                          systemImage: "clock.arrow.circlepath")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            } else if model.isLoading {
-                ProgressView().tint(Theme.accent).padding(.top, 40)
-            } else if let error = model.error {
-                InlineMessage(message: error, retry: { await model.load() })
-            }
-        }
-    }
-
-    private func bedtimes(_ plan: SleepPlan) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Go to bed")
-                ForEach(model.options) { option in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(Fmt.time(option.bedtime))
-                            .font(.ryft(.metric))
-                            .monospacedDigit()
-                            .foregroundStyle(option.share == 100 ? Theme.textPrimary : Theme.textSecondary)
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(option.share) % of your need")
-                                .font(.ryft(.callout))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text("\(Fmt.duration(minutes: option.sleepMin)) asleep")
-                                .font(.ryft(.caption))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    if option.share != 70 { Divider().overlay(Theme.separator) }
-                }
-                Text("Time in bed \(Fmt.duration(minutes: plan.inBedMin)) at \(plan.efficiency) % efficiency.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-    }
-
-    private func why(_ plan: SleepPlan) -> some View {
-        Card {
-            DisclosureGroup(isExpanded: $showsWhy) {
-                NeedBasisRows(plan: plan).padding(.top, 10)
-            } label: {
-                Text("Why this need")
-                    .font(.ryft(.headline))
-                    .foregroundStyle(Theme.textPrimary)
-            }
-            .tint(Theme.textSecondary)
-        }
-    }
-}
-
 /// Tonight's need, term by term (`GET /v1/sleep/plan` → `basis`).
 struct NeedBasisRows: View {
     let plan: SleepPlan
@@ -174,7 +90,7 @@ struct TonightCard: View {
                 } else if let error = planner.error {
                     InlineMessage(message: error, retry: { await planner.refresh() })
                 } else {
-                    ProgressView().tint(Theme.accent)
+                    ProgressView().tint(Theme.textSecondary)
                 }
             }
         }
@@ -213,7 +129,7 @@ struct TonightCard: View {
         } label: {
             Label(title, systemImage: "bed.double")
                 .font(.ryft(.callout))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.textPrimary)
                 .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
@@ -450,24 +366,6 @@ struct SleepScheduleView: View {
     }
 }
 
-#Preview("Planner · dark") {
-    let state = AppState.preview(flags: [.sleepPlanner: true])
-    let model = SleepPlannerViewModel(state: state)
-    return ScrollView { SleepPlannerSection(model: model).padding() }
-        .background(Theme.background)
-        .task { await model.load() }
-        .previewEnvironment(state)
-}
-
-#Preview("Planner · light") {
-    let state = AppState.preview(flags: [.sleepPlanner: true])
-    let model = SleepPlannerViewModel(state: state)
-    return ScrollView { SleepPlannerSection(model: model).padding() }
-        .background(Theme.background)
-        .task { await model.load() }
-        .previewEnvironment(state, scheme: .light)
-}
-
 #Preview("Tonight · dark") {
     let state = AppState.preview(flags: [.sleepPlanner: true])
     let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
@@ -478,13 +376,13 @@ struct SleepScheduleView: View {
     .previewEnvironment(state)
 }
 
-#Preview("Tonight · not set up · light") {
+#Preview("Tonight · not set up") {
     let state = AppState.preview(flags: [.sleepPlanner: true])
     return NavigationStack {
         ScrollView { TonightCard(planner: BedtimePlanner(state: state, alarms: MockWakeAlarms())).padding() }
             .background(Theme.background)
     }
-    .previewEnvironment(state, scheme: .light)
+    .previewEnvironment(state)
 }
 
 #Preview("Bedtime & wake · dark") {
