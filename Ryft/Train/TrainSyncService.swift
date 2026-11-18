@@ -12,6 +12,7 @@
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
 import Observation
+import SwiftData
 
 @MainActor
 @Observable
@@ -76,10 +77,16 @@ final class TrainSyncService {
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
 
+    /// The sessions started while the binding was demo's (`sessionStarted`), by id: what ending the demo discards
+    /// (ADR 0019). Ids only, never a title, a time or a health value; pruned against the store.
+    private let defaults: UserDefaults
+    static let demoSessionsKey = "train.demoSessions"
+
     /// `owner` goes with `remote`: by default both follow the live environment's account and Demo data switch.
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, owner: (@MainActor () -> String?)? = nil,
          debounce: Duration = .seconds(2), finishWait: Duration = .seconds(10), monitorsNetwork: Bool = true,
-         connectivity: ConnectivityMonitor? = nil) {
+         connectivity: ConnectivityMonitor? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         self.connectivity = connectivity ?? .shared
         self.finishWait = finishWait
         self.store = store ?? .shared
@@ -144,6 +151,16 @@ final class TrainSyncService {
     /// Signed out or another account: the replay and the 2 s wait stop, and nothing of the previous
     /// account's shows (summary, error). An answer still in flight for it is dropped (`generation`).
     func accountChanged() {
+        stopReplay()
+        holds = []
+        lastCompletion = nil
+        lastError = nil
+        refreshCount()
+    }
+
+    /// The replay and the 2 s wait stop, and the generation moves: an answer in flight is dropped before it touches a
+    /// row. The ops stay queued and go at the next trigger.
+    private func stopReplay() {
         accountCount += 1
         debounceTask?.cancel()
         debounceTask = nil
@@ -153,9 +170,69 @@ final class TrainSyncService {
         isFlushing = false
         flushAgain = false
         inFlightSeq = nil
-        holds = []
-        lastCompletion = nil
+    }
+
+    // MARK: the demo's sessions (ADR 0019)
+
+    private var demoSessionIDs: [UUID] {
+        (defaults.stringArray(forKey: Self.demoSessionsKey) ?? []).compactMap(UUID.init(uuidString:))
+    }
+
+    private func setDemoSessionIDs(_ ids: [UUID]) {
+        if ids.isEmpty {
+            defaults.removeObject(forKey: Self.demoSessionsKey)
+        } else {
+            defaults.set(ids.map(\.uuidString), forKey: Self.demoSessionsKey)
+        }
+    }
+
+    /// `TrainCoordinator.start`: a session started while the binding is demo's goes on the list, whatever happens to
+    /// its ops later.
+    func sessionStarted(_ s: LocalSession) {
+        guard owner() == Self.demoOwner else { return }
+        let ids = demoSessionIDs
+        guard !ids.contains(s.id) else { return }
+        setDemoSessionIDs(ids + [s.id])
+    }
+
+    /// Whether any session is on the list (the launch sweep asks before it fetches anything).
+    var hasDemoSessions: Bool { !demoSessionIDs.isEmpty }
+
+    /// The sessions on the list that the store has, in progress or finished: the list is never trusted on its own.
+    /// Nothing is fetched while it's empty.
+    func demoSessions() -> [LocalSession] {
+        let ids = demoSessionIDs
+        guard !ids.isEmpty else { return [] }
+        return (try? store.context.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
+            ?? []
+    }
+
+    /// The demo ends: its sessions go, with their ops, and nothing is sent, not even a `DELETE` (their only other copy
+    /// was on the demo's in-memory platform, which goes with it). The replay stops first, so a demo answer in flight
+    /// never touches a deleted row. Then the list keeps only the ids a fresh context on the store still finds: the file
+    /// decides, not the main context, so a delete the store refused is tried again at the next launch.
+    func discardDemoSessions() {
+        let ids = demoSessionIDs
+        guard !ids.isEmpty else { return }
+        stopReplay()
+        let sessions = demoSessions()
+        let gone = Set(sessions.map(\.id))
+        // One by one, so ops only inserted are found too (a batch delete skips them).
+        for op in store.pendingOps() where gone.contains(op.sessionId) { store.context.delete(op) }
+        for session in sessions {
+            // Read now: reading either list on a deleted row is a fatal error unless it was resolved before the delete.
+            _ = (session.deletedSetIDs, session.deletedExerciseIDs)
+            // Cascades to its exercises and sets.
+            store.context.delete(session)
+        }
+        holds.subtract(gone)
+        if let id = lastCompletion?.id, ids.contains(id) { lastCompletion = nil }
         lastError = nil
+        store.save()
+        let fresh = ModelContext(store.container)
+        let kept = (try? fresh.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
+            .map { Set($0.map(\.id)) } ?? Set(ids)
+        setDemoSessionIDs(ids.filter { kept.contains($0) })
         refreshCount()
     }
 

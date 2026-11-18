@@ -26,8 +26,8 @@ final class TrainCoordinator {
     /// The home-screen quick action says Start or Resume (`WorkoutLauncher`).
     @ObservationIgnored var onActiveChange: ((Bool) -> Void)?
 
-    /// The workout's Live Activity; `nil` in tests.
-    private let liveActivity: RestActivityController?
+    /// The workout's Live Activity; `nil` in tests, or their recorder.
+    private let liveActivity: (any WorkoutLiveActivity)?
     /// The live session's "now" and waits (the undo window, the jump to the next exercise).
     private let clock: AppClock
     /// Profile → Training → Jump to next exercise, read when a jump is due; tests replace it.
@@ -38,12 +38,13 @@ final class TrainCoordinator {
         SessionLayout.effective(flagOn: AppEnvironment.live.flags.isOn(.focusedSession), stored: Settings.shared.sessionLayout)
     }
 
+    /// `liveActivity`: tests' recorder; nil means the system's, or none without `liveActivities`.
     init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true,
-         clock: AppClock = SystemClock()) {
+         clock: AppClock = SystemClock(), liveActivity: (any WorkoutLiveActivity)? = nil) {
         self.sync = sync ?? .shared
         self.library = library ?? .shared
         self.clock = clock
-        liveActivity = liveActivities ? .shared : nil
+        self.liveActivity = liveActivity ?? (liveActivities ? RestActivityController.shared : nil)
         active = self.sync.store.activeSession()
         // An activity left from a workout that's over (or an older version) goes.
         liveActivity?.endAll(except: active?.id)
@@ -112,7 +113,10 @@ final class TrainCoordinator {
 
     // MARK: starting
 
+    /// Every session starts here (quick starts, plans, empty, repeat): one started in the demo goes on its list, so
+    /// ending the demo discards it (ADR 0019).
     func start(_ s: LocalSession) {
+        sync.sessionStarted(s)
         active = s
         open(s)
     }
@@ -194,6 +198,36 @@ final class TrainCoordinator {
         refreshActive()
     }
 
+    // MARK: the demo's workouts (ADR 0019)
+
+    /// What ending the demo would discard: the sessions started in it that the store still has, in progress or
+    /// finished. Nil: nothing (no confirmation). Computed each time, never stored.
+    var demoWorkouts: DemoWorkouts? {
+        let sessions = sync.demoSessions()
+        guard !sessions.isEmpty else { return nil }
+        return DemoWorkouts(count: sessions.count, inProgress: sessions.contains { $0.status == .inProgress })
+    }
+
+    /// The demo ends (`ProfileViewModel.endDemo`, the launch sweep): its live workout stops and leaves the lock
+    /// screen, then every session started in it goes, with its ops. Nothing is sent. An account's workout, even one
+    /// that went on during the demo, isn't on the list and stays. Nothing is fetched while the list is empty.
+    func discardDemoWorkouts() {
+        guard sync.hasDemoSessions else { return }
+        let ids = Set(sync.demoSessions().map(\.id))
+        if let live, ids.contains(live.session.id) {
+            // Tickers, the advance and the undo first: nothing of it runs on a deleted row.
+            live.stop()
+            self.live = nil
+        }
+        if let active, ids.contains(active.id) {
+            liveActivity?.end()
+            self.active = nil
+        }
+        if let summary, ids.contains(summary.sessionID) { self.summary = nil }
+        sync.discardDemoSessions()
+        refreshActive()
+    }
+
     // MARK: ending
 
     func finish(_ controller: SessionController, bodyweightKg: Double? = nil, export: WorkoutHealthExport? = nil) async {
@@ -225,6 +259,13 @@ final class TrainCoordinator {
         live = nil
         active = nil
     }
+}
+
+/// The workouts ending the demo would discard (`TrainCoordinator.demoWorkouts`): what the confirmation counts.
+struct DemoWorkouts: Equatable, Sendable {
+    /// Started in the demo and still stored, in progress or finished.
+    let count: Int
+    let inProgress: Bool
 }
 
 /// What the summary sheet shows: the server's answer, or "will sync".

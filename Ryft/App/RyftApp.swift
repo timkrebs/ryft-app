@@ -119,6 +119,9 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
+        // The demo ended outside its switch (Debug launch arguments, `defaults write`): its workouts go without asking
+        // (ADR 0019). A kill inside the switch's exit leaves Demo data on, so that launch is still in the demo.
+        if !Settings.shared.demoMode { TrainCoordinator.shared.discardDemoWorkouts() }
         let workoutActive = TrainCoordinator.shared.active != nil
         WorkoutLauncher.updateShortcutItems(resume: workoutActive)
         // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
@@ -206,6 +209,8 @@ struct RyftApp: App {
                     sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
+                    // A start asked for in the demo doesn't carry over, as one doesn't across an account change.
+                    if !on { WorkoutLauncher.discardPending() }
                     // Demo's remembered import matches and its import job go with it (also when it's switched off
                     // elsewhere); the import follows the binding in use.
                     if !on {
