@@ -73,7 +73,8 @@ final class TabBarUITests: XCTestCase {
         for _ in 0..<10 where !(row.isHittable && row.frame.maxY < barTop) { app.swipeUp(velocity: .slow) }
         XCTAssertLessThan(row.frame.maxY, barTop, "the row above the bar")
         row.tap()
-        let workout = app.navigationBars.firstMatch
+        // The workout's own header (Nocturne hides the navigation bar on it, design.md §P5-4).
+        let workout = app.descendants(matching: .any)["workout.header"]
         XCTAssertTrue(workout.waitForExistence(timeout: wait), "the workout, pushed")
         XCTAssertTrue(app.tab("Strain").isHittable, "the bar on a pushed screen")
 
