@@ -682,10 +682,11 @@ private struct RequestIDRow: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
                 HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
+                    // 12 pt: a UUID stays on one line beside the copy button at 390 pt. Copied with the button or the
+                    // VoiceOver action, not by selection.
                     Text(verbatim: requestID)
-                        .font(.system(.footnote, design: .monospaced))
+                        .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Theme.textTertiary)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button(action: copy) {
