@@ -88,7 +88,7 @@ struct SportCatalogTests {
         #expect(Sport.gravel.distanceType?.identifier == .distanceCycling)
         #expect(Sport.skiing.distanceType?.identifier == .distanceDownhillSnowSports)
         #expect(Sport.swimming.distanceType?.identifier == .distanceSwimming)
-        // iOS 17 has no distance type for these.
+        // No distance type is recorded for these (iOS 18's rowing distance isn't adopted).
         for sport in [Sport.rowing, .strength, .hiit, .yoga, .mobility, .climbing, .football, .tennis, .padel, .other] {
             #expect(sport.distanceType == nil)
         }
@@ -142,15 +142,14 @@ struct SportCatalogTests {
         #expect(String(bytes: encoded, encoding: .utf8) == #"["ski_touring","indoor_running"]"#)
     }
 
-    /// The deployment target is iOS 17: every symbol must exist there, not only on the simulator's newer iOS
-    /// (`figure.run.treadmill`, for one, is iOS 18). Read from the system's own availability table when the
-    /// runtime has it.
+    /// The deployment target is iOS 18.6: every symbol must exist there, not only on the simulator's newer iOS
+    /// (an iOS 26 symbol, for one). Read from the system's own availability table when the runtime has it.
     @Test(.enabled(if: SymbolAvailability.table != nil))
-    func everySymbolExistsOnIOS17() throws {
+    func everySymbolExistsOnTheDeploymentTarget() throws {
         let table = try #require(SymbolAvailability.table)
         for sport in Sport.allCases {
             let release = try #require(table.iOS(for: sport.symbol), "\(sport.symbol) isn't in the table")
-            #expect(release.compare("17.0", options: .numeric) != .orderedDescending, "\(sport.symbol): iOS \(release)")
+            #expect(release.compare("18.6", options: .numeric) != .orderedDescending, "\(sport.symbol): iOS \(release)")
         }
     }
 }

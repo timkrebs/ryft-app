@@ -4,7 +4,6 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-@available(iOS 18.0, *)
 struct StartWorkoutControl: ControlWidget {
     static let kind = "dev.timkrebs.ryft.workout"
 

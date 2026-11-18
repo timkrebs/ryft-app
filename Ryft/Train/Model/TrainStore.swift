@@ -268,7 +268,7 @@ final class TrainStore {
             batchDelete(ImportMapping.self),
             // And its import job, never uploaded for another account (design §7). One by one: its payload is external
             // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
-            // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
+            // the iOS 27 simulator SwiftData's batch delete removed it too; on iOS 18.6 that's unmeasured.
             deleteEach(PendingImport.self),
             batchDelete(CachedDay.self),
             batchDelete(CachedTrend.self),

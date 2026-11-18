@@ -192,8 +192,9 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   check and returns a `WriteTicket`. `ReadModelDrain` applies the queue in submit order,
   one batch at a time, on the store's `ReadModelWriter` (a `@ModelActor`, private to the
   drain's file, so no main-actor code can make or await it). The drain does both on its own
-  executor: iOS 17 runs a model actor's jobs on the thread that made it, iOS 27 on the
-  thread that awaits it. A batch never spans a store, an epoch or a seed, and it saves once.
+  executor: on iOS 17.0 the thread that made a model actor ran its jobs, and iOS 18 is
+  reported to do the same (unmeasured on 18.6); on iOS 27.2 the thread that awaits it. A
+  batch never spans a store, an epoch or a seed, and it saves once.
   The drain runs at `.userInitiated` whoever submitted first: awaiting a ticket doesn't raise
   its priority.
 - At the commit the Repository replaces its read context (one per store, never written),
@@ -235,8 +236,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   expiry stops it. A HealthKit delivery's `completion()` doesn't wait: it comes right
   after the upload.
 - Debug asserts that each writer is made off main and that every job of it runs off main
-  (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
-  `OSSignposter` interval `write` on `reads` covers each batch.
+  (`ReadModelOffMainTests` proves both through the real path, measured on 17.0 and 27.2; 18.6
+  is the oldest-runtime gate); `OSSignposter` interval `write` on `reads` covers each batch.
 
 **Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
 
@@ -653,10 +654,11 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
   - A withdrawal on this phone (`withdrew(at:)`) is recorded as the platform's `consent_required` refusal and kept
     beside the store, per account in `env.defaults` (`withdrawnAt`, a consent signal in `Facts.reported`): it holds
-    every data gate when the store refuses the withdrawal's saves (iOS 17 after demo data) and in a background launch
-    that never runs `check()`. It ends when this phone agrees again (`consented`) or a `GET /v1/me` asked for after
-    it shows consent to the policy in force (`heard`, from `Repository.store(fetchedUser:askedAt:)`). The
-    withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather than join reads begun before it.
+    every data gate when the store refuses the withdrawal's saves (any refused save; iOS 17 refused them all after demo
+    data) and in a background launch that never runs `check()`. It ends when this phone agrees again (`consented`)
+    or a `GET /v1/me` asked for after it shows consent to the policy in force (`heard`, from
+    `Repository.store(fetchedUser:askedAt:)`). The withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather
+    than join reads begun before it.
   - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
     published, so a late `403` of theirs is never kept as the next account's refusal.
 - **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the

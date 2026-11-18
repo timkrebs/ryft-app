@@ -56,4 +56,4 @@ Focused session PR 1 review (53e65e6, 2026-11-04), confirmed with UI probes in a
 - **Folding hides what the keypad is on.** Check every way a row leaves the screen (pill, auto-fold) against `focus`,
   not only page changes.
 - **Custom `isPresented` binding that nils the item, action reads the item:** on iOS 27 the action runs first (probed), so
-  this is not a bug there. Don't report it without a probe; iOS 17 is unverified.
+  this is not a bug there. Don't report it without a probe; iOS 18.6 is unverified.
