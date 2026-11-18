@@ -46,7 +46,7 @@ final class RefreshResilienceUITests: XCTestCase {
         XCTAssertTrue(gauge.waitForExistence(timeout: 15), "the readiness gauge")
         wait(for: "label CONTAINS 'Up to date'", on: line(app), timeout: 15, "settled before the pull")
         let readiness = gauge.value as? String
-        let sleep = app.buttons["Sleep"].firstMatch.value as? String
+        let sleep = app.buttons["today.tile.sleep"].value as? String
         XCTAssertNotNil(readiness)
         XCTAssertNotNil(sleep)
 
@@ -61,7 +61,7 @@ final class RefreshResilienceUITests: XCTestCase {
         }
         wait(for: "label CONTAINS 'Up to date'", on: line(app), timeout: 15, "the line ends at Up to date")
         XCTAssertEqual(gauge.value as? String, readiness, "the numbers stay")
-        XCTAssertEqual(app.buttons["Sleep"].firstMatch.value as? String, sleep, "the numbers stay")
+        XCTAssertEqual(app.buttons["today.tile.sleep"].value as? String, sleep, "the numbers stay")
         XCTAssertFalse(element(app, "today.refreshIssue").exists)
     }
 
@@ -107,7 +107,7 @@ final class RefreshResilienceUITests: XCTestCase {
         wait(for: "isHittable == true", on: app.buttons["refreshIssue.details"], timeout: 5, "the card's Details")
         XCTAssertFalse(app.buttons["refreshIssue.retry"].exists, "no Sign in on Today's card")
 
-        app.tabBars.buttons["Sleep"].tap()
+        app.tab("Sleep").tap()
         let message = app.staticTexts["You're signed out, so new data can't load."]
         XCTAssertTrue(message.waitForExistence(timeout: 20), "Sleep → Day's failed night")
         XCTAssertFalse(app.buttons["sleep.failure.retry"].exists, "no Sign in on Sleep")

@@ -120,8 +120,8 @@ final class DevicesUITests: XCTestCase {
         for _ in 0..<6 where !row.exists { app.swipeUp() }
         if !row.exists {
             // A flag answer that arrived while Profile showed applies on the next tab change.
-            app.tabBars.buttons["Today"].tap()
-            app.tabBars.buttons["Profile"].tap()
+            app.tab("Today").tap()
+            app.tab("Profile").tap()
             for _ in 0..<6 where !row.exists { app.swipeUp() }
         }
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices & sync row")
