@@ -9,7 +9,15 @@ import UIKit
 @MainActor
 @Observable
 final class TrainCoordinator {
-    static let shared = TrainCoordinator()
+    static let shared: TrainCoordinator = {
+        let coordinator = TrainCoordinator()
+        existing = coordinator
+        return coordinator
+    }()
+
+    /// `shared`, once something has asked for it. A wipe at launch comes first and has no row to let go of
+    /// (`releaseRows`), so it doesn't build one.
+    private(set) static var existing: TrainCoordinator?
 
     /// Presented full screen while set.
     var live: SessionController?
@@ -179,6 +187,16 @@ final class TrainCoordinator {
         guard url.scheme == "ryft", url.host == "train", url.path == "/session" || url.path.isEmpty else { return false }
         WorkoutLauncher.resume(coordinator: self)
         return true
+    }
+
+    /// In the wipe's own turn (`AuthService.wipeSharedLocalData`), before anything draws again: the workout's screen
+    /// and the in-progress banner let go of the rows the store just deleted. On iOS 18.0 reading a deleted row's
+    /// exercises or sets is a fatal error, whatever was read before the delete, and the rest timer reads them twice a
+    /// second. `accountChanged()` still follows, from the app's account-change handler a runloop later.
+    func releaseRows() {
+        live?.release()
+        live = nil
+        active = nil
     }
 
     /// Signed out or another account: the previous account's workout closes (it stays stored

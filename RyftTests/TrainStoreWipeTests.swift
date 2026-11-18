@@ -239,6 +239,13 @@ enum WipeValues {
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
     static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
+    /// A deleted, saved row's relationships: iOS 17.0 and 27 answer them, 18.0 traps ("Context is missing"), even when
+    /// they were read before the delete. Later 18 releases and 26 weren't tried, so they count as 18.0.
+    static var deletedRowsAnswerRelationships: Bool {
+        if #available(iOS 27, *) { return true }
+        if #available(iOS 18, *) { return false }
+        return true
+    }
 }
 
 @MainActor
@@ -483,7 +490,9 @@ struct TrainStoreWipeTests {
 
     /// Until the app's account-change handler runs, a live workout's controller and screens hold deleted rows, and
     /// deleting the object tells their observers, which a batch delete didn't. SwiftData answers for a deleted row from
-    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them.
+    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them. A
+    /// relationship is one on iOS 18.0 whatever was read before the delete, so there nothing may draw one
+    /// (`TrainCoordinator.releaseRows`); attributes and writes still answer.
     @Test(arguments: WipeValues.parkings)
     func aRowStillHeldStaysUsableAndNothingComesBack(_ parking: String?) throws {
         let disk = try StoreOnDisk()
@@ -496,12 +505,14 @@ struct TrainStoreWipeTests {
 
         disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        // Its relationships may answer empty or with the deleted rows, so only the reads themselves are pinned.
         #expect(session.title == "Upper")
-        #expect(session.wire.id == session.id)
         #expect(session.deletedSetIDs.isEmpty && session.deletedExerciseIDs.isEmpty)
-        #expect(exercise.wire.id == exercise.id)
         #expect(set.wire.id == set.id)
+        if WipeValues.deletedRowsAnswerRelationships {
+            // They may answer empty or with the deleted rows, so only the reads themselves are pinned.
+            #expect(session.wire.id == session.id)
+            #expect(exercise.wire.id == exercise.id)
+        }
         // What `SessionController` does with a row a sheet still shows.
         session.deletedSetIDs.append(set.id)
         session.deletedExerciseIDs.append(exercise.id)
@@ -510,6 +521,56 @@ struct TrainStoreWipeTests {
         set.reps = 3
         disk.store.save()
         try disk.expectNothingLeft()
+    }
+
+    /// The wipe's memory step (`AuthService.wipeSharedLocalData`): in the same turn the open workout and the banner's
+    /// session go, and the controller stops for good. The account change a runloop later brings nothing back.
+    @Test
+    func theWipesTurnLetsGoOfTheOpenWorkout() throws {
+        let rig = ReplaceRig()
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+                                           liveActivities: false)
+        coordinator.live = rig.controller
+        coordinator.refreshActive()
+        try #require(coordinator.active != nil)
+
+        rig.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now)
+        coordinator.releaseRows()
+
+        #expect(coordinator.live == nil)
+        #expect(coordinator.active == nil)
+        #expect(rig.controller.isReleased)
+        coordinator.accountChanged()
+        #expect(coordinator.live == nil && coordinator.active == nil)
+    }
+
+    /// The workout's screen through the wipe's turn, a rest running: the rest bar draws twice a second and reads the next
+    /// set, a relationship of a deleted row. On iOS 18.0 that trapped ("Context is missing") until the screen drew none.
+    @Test
+    func anOpenWorkoutDrawsNoDeletedRow() async throws {
+        let disk = try StoreOnDisk()
+        disk.session()
+        disk.relaunch()
+        let sync = TrainSyncService(store: disk.store, remote: { MockPlatformAPI() }, owner: { "test" },
+                                    debounce: .seconds(3600), monitorsNetwork: false)
+        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store),
+                                           liveActivities: false)
+        coordinator.sessionLayout = { .list }
+        coordinator.resume()
+        let controller = try #require(coordinator.live)
+        let exercise = try #require(controller.exercises.first)
+
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { _ in
+            controller.startRest(for: exercise, seconds: 120)
+            try await Task.sleep(for: .milliseconds(800))
+            disk.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now)
+            coordinator.releaseRows()
+            // Three of the rest bar's half-second draws.
+            try await Task.sleep(for: .milliseconds(1600))
+        }
+
+        #expect(controller.isReleased)
+        #expect(coordinator.live == nil)
     }
 
     // MARK: the sync side

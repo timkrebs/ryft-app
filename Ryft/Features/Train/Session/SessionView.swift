@@ -107,6 +107,16 @@ struct SessionView: View {
     }
 
     var body: some View {
+        // The wipe took this workout's rows (`TrainCoordinator.releaseRows`), and the cover may still be on its way
+        // out: none of them is read again.
+        if controller.isReleased {
+            Theme.background.ignoresSafeArea()
+        } else {
+            workout
+        }
+    }
+
+    private var workout: some View {
         VStack(spacing: 0) {
             header
                 // Backgrounded mid-workout: paused until the app is back.
