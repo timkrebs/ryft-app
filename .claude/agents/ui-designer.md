@@ -17,7 +17,7 @@ and Figma workflows don't apply.)
 ## Sources of truth
 `design/brand-board.png`, `Design/Theme.swift`, `Design/Typography.swift`, `Design/ChartStyle.swift`,
 `docs/CHART_STYLE.md`, existing components (`MetricGauge`, `RangeBar`, `DeltaLabel`, `ZoneBar`,
-`HypnogramPlot`, `StatusViews`), Apple HIG for iOS 17–27.
+`HypnogramPlot`, `StatusViews`), Apple HIG for iOS 18–27.
 
 ## What you deliver
 - **Spec** `docs/work/<ticket>/ui.md`: purpose of the screen, hierarchy (what the eye sees first, second),

@@ -19,6 +19,13 @@ review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback cr
 container reopen after the demo (below, Known issues), the Today first-data render (AC3) and a quiet cold-launch
 rerun (AC5).
 
+2026-11-18: the minimum is iOS 18.6 (ADR 0021, `chore/min-ios-18`) for the app, the widget and both test targets. CI
+stays on the newest runtime (`scripts/ci-simulator.sh`, 27.2 today). Every gate that asks for a run on iOS 17, 18 or
+"an older iOS" is one run on 18.6 (`platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`); runs on 17.0 and 18.0 stop.
+Gone with iOS 17: `SessionView`'s drag fallback, the availability checks around the start-workout control, and the
+tests' `#unavailable(iOS 18)` branches with the `withKnownIssue` wrappers they switched on. T0.1, T0.6 and the 18.0
+"Context is missing" trap aren't measured on 18.6 yet; until they are, code and tests treat 18.6 as 18.0.
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
@@ -31,7 +38,7 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 - **Follow-ups:** merged (#99). A bodyweight row's ✓ logs the added load it shows in Focused, a quiet RPE line sits with its row and leaves the field 44 pt, a clean edge beside the keypad at 320, the disabled chip no longer dims twice. With the flag off, removing an exercise with the keypad open closes the keypad.
 - **Verified on the simulator:** iOS 27.0, UI tests at 390 pt, renders at 320 and 390 pt in dark and light, default, AX1 and AX3, English and German. The keypad's fade also at xl, 320 pt.
 - **Not verified on a device:** nothing in T1 to T5 or the follow-ups has run on one. A real tap on a field under the RPE line hasn't been tried: it can't be done in process.
-- **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
+- **Before the flag goes on:** a run on iOS 18.6 (the oldest supported runtime, installed), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
 - **Open:** List shows a bodyweight row's added-load ghost but ✓ doesn't log it, unlike Focused (product decision). `topFade` leaves a small fragment of a cut line at 390 AX3 (predates #99, in `review.md`). The performance follow-ups are in `review.md`.
 
 ## Sign-out wipe
@@ -41,7 +48,7 @@ Recovery design, 8 tickets, not built: `docs/work/2026-11-05-wipe-recovery/desig
 `TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
 
 - **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
-- **Before the next External build:** run `TrainStoreWipeTests` once on iOS 17. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
+- **Before the next External build:** run `TrainStoreWipeTests` once on iOS 18.6. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
 - **Recovery ticket, not started:**
   - one stored id can't name two owners, and a second failure overwrites it;
   - there's no launch-time retry for "kept id, nobody signed in";
@@ -298,7 +305,7 @@ Verified: `make lint`, a dry run from `main` (1.0.0 → 1.1.0), CI on the PR. **
     tags on the merge; see the top). There's still no path for a hotfix from `release/X.Y`;
   - `docs/RELEASING.md` is missing, and `docs/APP_STORE.md` is stale;
   - `weekly.yml`'s 07:00 Berlin gate skips delayed runs;
-  - an iOS 17/18 check, which Xcode 27.1 can't run on simulators.
+  - an iOS 18.6 check (the runtime is installed).
 - **A3b** recorder, checkpoints and vault (plus the speed-gate nits N1–N3, Doppler mapping), **A4** (with the detail's map
   and charts, per-mile splits), **A5–A7**, **C1** once API.md publishes Activities.
 - **O2** "sign-out removes everything":
@@ -312,8 +319,8 @@ Verified: `make lint`, a dry run from `main` (1.0.0 → 1.1.0), CI on the PR. **
   - an export error shown after an account switch (cosmetic).
 - **A lint for Apple's required-reason APIs:** a file-timestamp read nearly shipped undeclared in O1, and nothing caught it
   automatically.
-- **iOS 17/18 (before the App Store 1.0):** the O1 upgrader check (including data only in the WAL) and `DateParsingTests`;
-  Xcode 27.1 offers no iOS 17/18 simulators, so this needs a device or an older Xcode. TestFlight testers are on iOS 27.
+- **iOS 18.6 (before the App Store 1.0):** the O1 upgrader check (including data only in the WAL) and `DateParsingTests`,
+  on the 18.6 simulator runtime. TestFlight testers are on iOS 27.
 - **Small, noted in the review logs:**
   - "Running" vs "Run" naming before `today.my_day` turns on;
   - German 24 h leading zeros in `Fmt.time`;
@@ -337,8 +344,7 @@ Updated 2026-10-27 with the user's answers.
    - 13 workout blocks in the sample vs the brief's 12.
 3. **TestFlight External:** on hold until the training import is live in the app (user, 2026-10-27). Build
    `20261026.173827` stays with Internal.
-4. **iOS 17/18:** the user's iPhone runs iOS 27.0.1, so it doesn't cover these. The app still declares iOS 17. Choose:
-   test on an iOS 17/18 device (or an older Xcode's simulators), or raise the minimum iOS before the App Store 1.0.
+4. **iOS 17/18:** decided 2026-11-18: the minimum is iOS 18.6 (ADR 0021).
 5. **Usage:** agent work resumes after the limits reset (Oct 28, 23:00) or are raised. The full I4 UI validation is
    first.
 
@@ -444,8 +450,8 @@ off the phone):
 **Still open on a device:** an export over AirDrop (the file stays until the share sheet closes, then `tmp` has no
 `RYFT-export-*.json`).
 
-**Before the TestFlight build that ships O1** (review N2): repeat the upgrader run on an iOS 17.x and an iOS 18.x simulator
-runtime (only iOS 27 is installed here). On a signed build: move the group's `Train.store` (+ wal/shm) into the app
+**Before the TestFlight build that ships O1** (review N2): repeat the upgrader run on the iOS 18.6 simulator
+runtime. On a signed build: move the group's `Train.store` (+ wal/shm) into the app
 container, add a marker table with `sqlite3`, delete the cleanup's marker, launch once. The group store must then have the
 marker table, also when it was only in the WAL, and the app container must be empty. If any runtime doesn't copy, the
 cleanup needs a guard first (e.g. keep the old copy until the group store has the account's rows).
@@ -506,8 +512,8 @@ Garmin Connect after 08:00).
   must still delete (or deliberately migrate) whatever is at that path before the container opens there.
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
 - **RFC 3339 fast path** (`perf: fast date parsing for cached reads`): its equivalence with `ISO8601DateFormatter` was verified
-  on iOS 27 only (millions of inputs, bit-identical). Run `DateParsingTests` once on an iOS 17 or 18 runtime or device before
-  the next release.
+  on iOS 27 only (millions of inputs, bit-identical). Run `DateParsingTests` once on the iOS 18.6 runtime before the next
+  release.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
 - **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.
@@ -654,7 +660,7 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
 - From outside the app's screens (`WorkoutLauncher`): the home-screen quick action (Start
   workout / Resume workout, kept current), App Intents with App Shortcuts ("Start a RYFT
   workout", "Resume my RYFT workout"; Siri, Spotlight, Shortcuts, the Action Button), the
-  Control Center / Lock Screen control (iOS 18+, `RyftWidgets/StartWorkoutControl.swift`). A
+  Control Center / Lock Screen control (`RyftWidgets/StartWorkoutControl.swift`). A
   start runs once the tabs are on screen for an account; before that (cold launch, onboarding,
   the Health explanation) it waits; signing out or another account drops it. No link starts a
   workout (any app could open one); `ryft://train/session` only resumes.
@@ -1552,6 +1558,6 @@ contract points are in `docs/API_REQUESTS.md`.
   mode.
 - The ring and strain numbers inside rings use fixed sizes so they fit the ring geometry.
 - On iOS 26+ the tab bar uses the system Liquid Glass style; the opaque Graphite bar applies
-  on iOS 17–18 only.
+  on iOS 18 only.
 - "Open Health permissions" opens the Health app; iOS has no deep link to the per-app read
   permissions.

@@ -14,7 +14,7 @@ catalogue — Core Data, Combine, UIKit-first patterns, third-party SDKs, Crashl
 apply here; RYFT's rules do.)
 
 ## Stack you work in
-Swift 5.10 language mode with approachable concurrency, SwiftUI, iOS 17+, Swift Charts, SwiftData read
+Swift 5.10 language mode with approachable concurrency, SwiftUI, iOS 18.6+, Swift Charts, SwiftData read
 models via `Repository`, `@Observable` view models, `AppEnvironment` seams, `supabase-swift` only.
 Liquid Glass on iOS 26+ where the system provides it; never a custom imitation.
 

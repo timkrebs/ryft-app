@@ -70,8 +70,8 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 
 | Requirement (guideline) | Status | Evidence |
 | --- | --- | --- |
-| Built with Xcode 26+ / iOS 26 SDK | ok | Xcode 27.1, iOS 27.1 SDK |
-| Deployment target iOS 17 (≥ 13 required) | ok | `IPHONEOS_DEPLOYMENT_TARGET = 17.0` (app, widget, tests) |
+| Built with Xcode 26+ / iOS 26 SDK | ok | Xcode 27.2, iOS 27.2 SDK |
+| Deployment target iOS 18.6 (≥ 13 required) | ok | `IPHONEOS_DEPLOYMENT_TARGET = 18.6` (app, widget, both test targets; ADR 0021) |
 | Release: no Developer section, no API key mode, no token / body / health-value logging; OSLog with privacy annotations | ok | `#if DEBUG` in `Settings`, `ProfileView`, `AuthService.staticBearer`. Logs carry only method, path, status and request ID, all `.public` |
 | `-O`, dSYMs, Release strip | ok | Release: `SWIFT_OPTIMIZATION_LEVEL = -O`, `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` |
 | `ITSAppUsesNonExemptEncryption = NO`: HTTPS (system TLS) only. SHA-256 is used for the Apple sign-in nonce and nothing is encrypted by the app, which is exempt | ok (fixed) | `Info.plist` |
