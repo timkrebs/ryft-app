@@ -5,6 +5,9 @@ import SwiftUI
 /// A 36 pt disc (`.regular`; `.large` 40 for a row's leading icon): no fill, a 1 pt ring in `textPrimary` at 16 % (the
 /// circle button's), the glyph `textPrimary` at 16 pt `.light` (about the board's 1.2 pt stroke). It does not scale with
 /// Dynamic Type. Hidden from VoiceOver unless the caller passes a label; then it is one image element with that label.
+///
+/// `.filled` (PR 6 B §6.1, T6B.0): the disc filled with `textPrimary` and the glyph in `background`, no ring: the one row
+/// that is "this one" (Plans' enrolled plan, with `checkmark`). The row says so in words too; the fill is never the only cue.
 struct IconDisc: View {
     enum Size {
         case regular, large
@@ -17,6 +20,9 @@ struct IconDisc: View {
         }
     }
 
+    /// The outline disc, or the filled one that marks the chosen row.
+    enum Style: Equatable, Sendable { case outline, filled }
+
     /// `nonisolated`: `Size` reads them (P2-D9).
     nonisolated static let regularDiameter: CGFloat = 36, largeDiameter: CGFloat = 40
     /// The ring: `CircleButton.borderOpacity`, 1 pt.
@@ -25,21 +31,31 @@ struct IconDisc: View {
 
     private let systemImage: String
     private let size: Size
+    private let style: Style
     private let accessibilityLabel: Text?
 
-    init(systemImage: String, size: Size = .regular, accessibilityLabel: Text? = nil) {
+    init(systemImage: String, size: Size = .regular, style: Style = .outline, accessibilityLabel: Text? = nil) {
         self.systemImage = systemImage
         self.size = size
+        self.style = style
         self.accessibilityLabel = accessibilityLabel
     }
+
+    /// The glyph's ink: `textPrimary`, or `background` on the filled disc (17.35:1 either way).
+    static func glyphInk(_ style: Style) -> Color { style == .filled ? Theme.background : Theme.textPrimary }
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: Self.glyphSize, weight: .light))
-            .foregroundStyle(Theme.textPrimary)
+            .foregroundStyle(Self.glyphInk(style))
             .frame(width: size.diameter, height: size.diameter)
+            .background {
+                if style == .filled { Circle().fill(Theme.textPrimary) }
+            }
             .overlay {
-                Circle().strokeBorder(Theme.textPrimary.opacity(Self.ringOpacity), lineWidth: Self.ringWidth)
+                if style == .outline {
+                    Circle().strokeBorder(Theme.textPrimary.opacity(Self.ringOpacity), lineWidth: Self.ringWidth)
+                }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel ?? Text(verbatim: ""))
@@ -60,6 +76,10 @@ struct IconDisc: View {
                 ForEach(["figure.run", "dumbbell", "bed.double", "heart", "bell", "applewatch"], id: \.self) {
                     IconDisc(systemImage: $0, size: .large)
                 }
+            }
+            HStack(spacing: 12) {
+                IconDisc(systemImage: "checkmark", style: .filled)
+                IconDisc(systemImage: "checkmark", size: .large, style: .filled)
             }
             // A row's leading icon on `surface`.
             HStack(spacing: 12) {

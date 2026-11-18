@@ -53,6 +53,7 @@ struct DebugComponentCatalog: View {
                     section("Nocturne · structures") { NocturneStructuresCatalog() }
                     section("Nocturne · foundation") { NocturneFoundationCatalog() }
                     section("Nocturne · tab bar") { NocturneTabBarCatalog() }
+                    section("Nocturne · train") { NocturneTrainCatalog() }
                 }
                 .padding(Theme.Metrics.screenPadding)
             }

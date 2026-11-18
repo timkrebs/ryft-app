@@ -17,6 +17,8 @@ enum ActivityListRowSpec {
     nonisolated static let valueSize: CGFloat = 20
     /// The chevron of a row that is a link with a chevron (Train's rows, a session): 12 pt, `textTertiary`.
     nonisolated static let chevronSize: CGFloat = 12
+    /// The value's caption ("load", B §7.1): under the value, flush with its trailing edge; from AX1 beside it, this far.
+    nonisolated static let captionGap: CGFloat = 0, stackedCaptionGap: CGFloat = 4
 }
 
 /// `[disc 36] 12 [title / meta] 12 [value] (12 [chevron])` on `surface`, radius 20: the title `callout` (15) in
@@ -24,6 +26,11 @@ enum ActivityListRowSpec {
 /// `textPrimary` at the right ("–" in `textSecondary` without one). From AX1 the value goes under the meta and the title wraps.
 /// Layout only: the caller makes it a link (`NavigationLink(value:)`), says what it opens (a hint) and names it (an identifier).
 /// One VoiceOver element whose label is `content.spoken`.
+///
+/// PR 6 B's options (T6B.0): `filledDisc` fills the disc in ink (`IconDisc.Style.filled`: Plans' enrolled plan, §6.1), and
+/// `valueCaption` puts a word under the value in `axis` (11) `textTertiary` (History's "load", §7.1). Both are drawing only:
+/// `spoken` still says everything. My Day's (source badges, the state mark, the dashed missing night, the card style) are
+/// T6B.6's.
 struct ActivityListRow: View {
     /// What a row says. A value type, so the screens build it in their models and tests read it.
     struct Content: Equatable {
@@ -37,6 +44,11 @@ struct ActivityListRow: View {
         var spoken: String
         /// A column for the value at all: activity rows have one, Train's link rows do not.
         var showsValue = true
+        /// The disc filled in ink with a `background` glyph: the row that is "this one" (Plans' enrolled plan, with
+        /// `checkmark`). `spoken` says so ("active").
+        var filledDisc = false
+        /// A word under the value ("load"); nil draws the value alone. In `spoken` as the caller words it.
+        var valueCaption: String?
     }
 
     enum Accessory: Equatable {
@@ -53,7 +65,7 @@ struct ActivityListRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: ActivityListRowSpec.spacing) {
-            IconDisc(systemImage: content.systemImage)
+            IconDisc(systemImage: content.systemImage, style: content.filledDisc ? .filled : .outline)
             VStack(alignment: .leading, spacing: ActivityListRowSpec.metaGap) {
                 Text(verbatim: content.title)
                     .font(.ryft(.callout))
@@ -89,10 +101,37 @@ struct ActivityListRow: View {
         .accessibilityLabel(Text(verbatim: content.spoken))
     }
 
-    private var value: some View {
+    /// The number, and its caption under it (beside it from AX1, where the value is under the meta).
+    @ViewBuilder private var value: some View {
+        if let caption = content.valueCaption {
+            if typeSize.isAccessibilitySize {
+                HStack(alignment: .firstTextBaseline, spacing: ActivityListRowSpec.stackedCaptionGap) {
+                    number
+                    captionText(caption)
+                }
+            } else {
+                VStack(alignment: .trailing, spacing: ActivityListRowSpec.captionGap) {
+                    number
+                    captionText(caption)
+                }
+            }
+        } else {
+            number
+        }
+    }
+
+    private var number: some View {
         Text(verbatim: content.value ?? Fmt.placeholder)
             .font(.ryftNumber(size: valueSize, weight: .light))
             .foregroundStyle(content.value == nil ? Theme.textSecondary : Theme.textPrimary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private func captionText(_ caption: String) -> some View {
+        Text(verbatim: caption)
+            .font(.ryft(.axis))
+            .foregroundStyle(Theme.textTertiary)
             .lineLimit(1)
             .fixedSize()
     }
@@ -117,6 +156,13 @@ private enum ActivityListRowPreview {
                spoken: "Walk, 12:05 PM, 24 minutes, No strain"), .none),
         (.init(systemImage: "list.bullet.rectangle", title: "My plans", meta: "Upper/Lower 4× · week 6", value: nil,
                spoken: "My plans, Upper/Lower 4× · week 6", showsValue: false), .chevron),
+        // PR 6 B: the enrolled plan's filled disc (Plans) and a value with its caption (History).
+        (.init(systemImage: "checkmark", title: "Upper/Lower 4×", meta: "Hypertrophy · 4 days/week · repeating", value: nil,
+               spoken: "Upper/Lower 4×, active, Hypertrophy, 4 days a week, repeating", showsValue: false,
+               filledDisc: true), .chevron),
+        (.init(systemImage: "dumbbell.fill", title: "Upper A", meta: "Fri, Nov 13 · 55m · 7,500 kg", value: "85.0",
+               spoken: "Upper A, Friday 13 November, 55 minutes, 7,500 kilograms, muscular load 85",
+               valueCaption: "load"), .chevron),
     ]
 }
 
