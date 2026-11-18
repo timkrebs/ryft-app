@@ -155,6 +155,12 @@ extension TrainStore {
         save()
     }
 
+    /// The keys of the documents whose key starts with `prefix` (Train's exercise histories, `train.history.`).
+    func documentKeys(prefix: String) -> [String] {
+        let d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) })
+        return ((try? context.fetch(d)) ?? []).map(\.key)
+    }
+
     /// When the document under `key` was saved; `nil` without one.
     func documentFetchedAt(key: String) -> Date? {
         var d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key == key })

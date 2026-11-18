@@ -210,19 +210,20 @@ final class TrainCoordinator {
     // MARK: the demo's workouts (ADR 0019)
 
     /// What ending the demo would discard: the sessions started in it that the store still has, in progress or
-    /// finished. Nil: nothing (no confirmation), or the store couldn't be read (the exit then changes nothing). Computed
-    /// each time, never stored.
-    var demoWorkouts: DemoWorkouts? {
-        guard let sessions = try? sync.fetchDemoSessions(), !sessions.isEmpty else { return nil }
-        return DemoWorkouts(count: sessions.count)
+    /// finished. Nil: nothing (no confirmation). Throws when the list names sessions and the store can't be read: then
+    /// nothing is known, and the exit mustn't run (review R12). Computed each time, never stored.
+    func demoWorkouts() throws -> DemoWorkouts? {
+        let sessions = try sync.fetchDemoSessions()
+        return sessions.isEmpty ? nil : DemoWorkouts(count: sessions.count)
     }
 
     /// Whether the demo's list names a session: Profile's VoiceOver hint. Observable, and no fetch.
     var hasDemoWorkouts: Bool { sync.hasDemoSessions }
 
     /// The demo ends (`ProfileViewModel.endDemo`, the launch sweep): its live workout stops and leaves the lock
-    /// screen, then every session started in it goes, with its ops. Nothing is sent. An account's workout, even one
-    /// that went on during the demo, isn't on the list and stays. Nothing is fetched while the list is empty. What's
+    /// screen, then every session started in it goes, with its ops and from the library's caches (the session list,
+    /// exercise histories). Nothing is sent. An account's workout, even one that went on during the demo, isn't on the
+    /// list and stays. Nothing is fetched while the list is empty. What's
     /// open is checked against the list itself, not against what the store found. `false`: the store couldn't be read,
     /// and nothing changed (the exit leaves Demo data on).
     @discardableResult
@@ -241,15 +242,17 @@ final class TrainCoordinator {
         }
         if let summary, ids.contains(summary.sessionID) { self.summary = nil }
         sync.discardDemoSessions(sessions)
+        library.forgetSessions(ids)
         refreshActive()
         return true
     }
 
-    /// RyftApp at launch: the list's one-time seed (`TrainSyncService.seedDemoSessions`), then the sweep. With Demo data
-    /// off the demo ended outside its switch (Debug launch arguments, `defaults write`), so its workouts go without
-    /// asking. A kill inside the switch's exit leaves Demo data on, so that launch is still in the demo.
-    func demoAtLaunch(demoMode: Bool, signedIn: Bool) {
-        sync.seedDemoSessions(demoMode: demoMode, signedIn: signedIn)
+    /// RyftApp at launch: the list's one-time seed (`TrainSyncService.seedDemoSessions`, never without protected data),
+    /// then the sweep. With Demo data off the demo ended outside its switch (Debug launch arguments, `defaults write`),
+    /// or the seed just listed what a demo before the list left, so its workouts go without asking. A kill inside the
+    /// switch's exit leaves Demo data on, so that launch is still in the demo.
+    func demoAtLaunch(demoMode: Bool, signedIn: Bool, protectedDataAvailable: Bool) {
+        sync.seedDemoSessions(signedIn: signedIn, protectedDataAvailable: protectedDataAvailable)
         if !demoMode { discardDemoWorkouts() }
     }
 

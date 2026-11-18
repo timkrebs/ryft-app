@@ -34,8 +34,8 @@ struct ProfileDemoExitTests {
         let ops = rig.ops([live.id]).map(\.seq)
         let list = rig.list
 
-        #expect(model.demoWorkouts == DemoWorkouts(count: 1))
-        #expect(model.demoWorkouts == DemoWorkouts(count: 1))
+        #expect(model.switchingDemoOff() == .confirm(DemoWorkouts(count: 1)))
+        #expect(model.switchingDemoOff() == .confirm(DemoWorkouts(count: 1)))
 
         #expect(model.demoMode)
         #expect(graph.settings.demoMode)
@@ -58,7 +58,7 @@ struct ProfileDemoExitTests {
         rig.finishLocally(finished)
         let live = rig.startWorkout("Live")
         let ids: Set<UUID> = [finished.id, live.id]
-        #expect(model.demoWorkouts == DemoWorkouts(count: 2))
+        #expect(model.switchingDemoOff() == .confirm(DemoWorkouts(count: 2)))
         let ends = rig.activity.ends
 
         await model.endDemo()
@@ -72,7 +72,7 @@ struct ProfileDemoExitTests {
         #expect(rig.list.isEmpty)
         #expect(rig.coordinator.active == nil && rig.coordinator.live == nil)
         #expect(rig.activity.ends == ends + 1) // the live workout's Live Activity
-        #expect(model.demoWorkouts == nil)
+        #expect(model.switchingDemoOff() == .exit)
         #expect(after.saved)
         #expect(try rig.store.stored(CachedDay.self, where: #Predicate { $0.day == "2026-11-10" }) == 1)
     }
@@ -84,7 +84,7 @@ struct ProfileDemoExitTests {
         let rig = DemoTrainRig(store: TrainStore(url: disk.url))
         let graph = try DemoExitGraph(persistence: rig.store, demo: true)
         let model = profile(graph, train: rig)
-        #expect(model.demoWorkouts == nil)
+        #expect(model.switchingDemoOff() == .exit)
         #expect(graph.repository.score("2026-11-01") == nil) // the demo's read-model store, made
 
         await model.setDemoMode(false)
@@ -121,14 +121,55 @@ struct ProfileDemoExitTests {
         let model = profile(graph, train: rig)
         let live = rig.startWorkout("Live")
         rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+        #expect(model.demoExitError == nil)
+        // The error is what the switch re-renders on: it reads on again, with the message under it (review R11).
+        let refused = Recorded<Bool>()
+        withObservationTracking { _ = model.demoExitError } onChange: { refused.append(true) }
 
         await model.setDemoMode(false)
 
         #expect(graph.settings.demoMode)
         #expect(model.demoMode)
+        #expect(model.demoExitError == ProfileViewModel.demoExitFailed)
+        #expect(refused.count == 1)
         #expect(rig.coordinator.live?.session.id == live.id)
         #expect(try rig.storedSessions([live.id]) == 1)
         #expect(rig.list == [live.id.uuidString])
+
+        // The store reads again: the next toggle that works clears it.
+        rig.sync.fetchSessions = { try $0.context.fetch($1) }
+        await model.setDemoMode(false)
+        #expect(!graph.settings.demoMode)
+        #expect(model.demoExitError == nil)
+        #expect(try rig.storedSessions([live.id]) == 0)
+    }
+
+    /// Review R12: the list names a workout but the store can't be read. That isn't "nothing to discard": no dialog, no
+    /// exit, and the switch says why. Turning Demo data on (here: again) clears the message.
+    @Test func aReadFailureWithListedWorkoutsNeitherAsksNorExits() async throws {
+        let rig = DemoTrainRig()
+        let graph = try DemoExitGraph(persistence: rig.store, demo: true)
+        let model = profile(graph, train: rig)
+        let finished = rig.startWorkout("Finished")
+        rig.finishLocally(finished)
+        let ops = rig.ops([finished.id]).map(\.seq)
+        rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+
+        #expect(model.switchingDemoOff() == .refused)
+
+        #expect(model.demoExitError == ProfileViewModel.demoExitFailed)
+        #expect(graph.settings.demoMode)
+        #expect(try rig.storedSessions([finished.id]) == 1)
+        #expect(rig.ops([finished.id]).map(\.seq) == ops)
+        #expect(rig.list == [finished.id.uuidString])
+
+        await model.setDemoMode(true)
+        #expect(model.demoExitError == nil)
+        // Nothing listed: nothing to read, so a store that can't be read doesn't stop the exit.
+        let empty = DemoTrainRig()
+        empty.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+        let other = try DemoExitGraph(persistence: empty.store, demo: true)
+        #expect(profile(other, train: empty).switchingDemoOff() == .exit)
     }
 
     /// The switch's VoiceOver hint follows the list while Profile is alive (review R3): a demo workout started from
@@ -214,11 +255,79 @@ struct ProfileDemoExitTests {
         let demoDay = DayDetail(score: DailyScore(day: day, readiness: 71, strain: 9), sleep: nil, workouts: [])
         await graph.repository.store(detail: demoDay).committed()
         #expect(written()?.kind == .score && written()?.readiness == 71)
+        // What the widget takes from the demo besides the store (review R16): its sync status (today being scored) and
+        // tonight's bedtime.
+        let bedtime = graph.env.clock.now().addingTimeInterval(3 * 3_600)
+        graph.state.syncStatus = SyncStatus(gate: nil, lastSyncAt: graph.env.clock.now(), lastSyncDevice: "iPhone",
+                                            latest: [:], today: TodayState(day: day, state: .pending, scoredAt: nil,
+                                                                           modelVersion: "demo"),
+                                            pendingDays: [day], expectedWithinSec: 60, resyncRequestedAt: nil)
+        graph.repository.tonightBedtime = bedtime
+        #expect(written()?.bedtime != nil)
+        #expect(graph.repository.todayStatus != nil)
         graph.api.failure = APIError.http(503, "down")
 
         await model.endDemo()
 
         #expect(!graph.settings.demoMode)
         #expect(written()?.readiness == nil)
+        #expect(written()?.bedtime == nil)
+        #expect(written()?.kind != .pending)
+        #expect(graph.state.syncStatus == nil)
+        #expect(graph.repository.todayStatus == nil)
+        #expect(graph.repository.tonightBedtime == nil)
+    }
+
+    /// Review R14: the exercise's detail after the exit shows nothing of the discarded workout, not its session, its
+    /// records or its chart point: in memory, for a new library on the store (a relaunch, offline), and on disk.
+    @Test func afterTheExitTheExerciseDetailShowsNoDiscardedWorkout() async throws {
+        let disk = try DemoExitDisk()
+        let store = TrainStore(url: disk.url)
+        let graph = try DemoExitGraph(persistence: store, demo: true)
+        let rig = DemoTrainRig(store: store, platform: graph.api)
+        let model = profile(graph, train: rig)
+        let bench = MockTrain.bench.id
+        let s = rig.startWorkout("Demo bench")
+        let id = s.id, day = DayFormat.string(from: s.startedAt)
+        // Heavier than the demo's own history: the records are this workout's.
+        let set = try #require(s.orderedExercises.first?.orderedSets.first)
+        set.reps = 3
+        set.weightKg = 300
+        set.completedAt = .now
+        let completed = await rig.sync.finish(s)
+        #expect(completed != nil) // on the demo's platform
+        rig.coordinator.close()
+        rig.coordinator.refreshActive()
+        let library = rig.coordinator.library
+        let detail = ExerciseDetailViewModel(exerciseID: bench, library: library, clock: graph.env.clock)
+        await detail.load() // the platform's history, cached for offline
+        func shows(_ h: ExerciseHistory?) -> Bool {
+            guard let h else { return false }
+            return h.sessions.contains { $0.sessionId == id } || h.prs.contains { $0.sessionId == id }
+                || h.e1rm.contains { $0.day == day }
+        }
+        #expect(detail.history?.sessions.contains { $0.sessionId == id } == true)
+        #expect(detail.records.contains { $0.sessionId == id })
+        #expect(detail.history?.e1rm.contains { $0.day == day } == true)
+        let others = detail.history?.sessions.filter { $0.sessionId != id }.count ?? 0
+        #expect(others > 0) // the demo's own history
+
+        await model.endDemo()
+
+        let cached = library.cachedHistory(for: bench)
+        #expect(cached != nil && !shows(cached))
+        // The rest of it stays.
+        #expect(cached?.sessions.count == others)
+        let relaunched = TrainLibrary(store: store, remote: { RecordingTrainSource() }, restore: false)
+        let offline = ExerciseDetailViewModel(exerciseID: bench, library: relaunched, clock: graph.env.clock)
+        await offline.load() // the platform can't be reached: the store's copy
+        #expect(offline.history != nil && !shows(offline.history))
+        #expect(!offline.records.contains { $0.sessionId == id })
+        let key = "train.history.\(bench.uuidString)"
+        let rows = try ModelContext(store.container).fetch(FetchDescriptor<CachedDocument>(predicate: #Predicate {
+            $0.key == key
+        }))
+        let onDisk = WireCoding.decode(ExerciseHistory.self, rows.first?.data)
+        #expect(onDisk != nil && !shows(onDisk))
     }
 }

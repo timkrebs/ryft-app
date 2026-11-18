@@ -525,12 +525,14 @@ struct ProfileView: View {
             Divider().overlay(Theme.separator)
             // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
             Toggle(isOn: Binding(get: { model.demoMode }, set: { on in
-                if on {
+                guard !on else {
                     Task { await model.setDemoMode(true) }
-                } else if let workouts = model.demoWorkouts {
-                    confirmDemoExit = workouts
-                } else {
-                    Task { await model.endDemo() }
+                    return
+                }
+                switch model.switchingDemoOff() {
+                case .confirm(let workouts): confirmDemoExit = workouts
+                case .exit: Task { await model.endDemo() }
+                case .refused: break // the switch stays on, and the message under it says why
                 }
             })) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -547,6 +549,9 @@ struct ProfileView: View {
             .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                 : Text("Turning it off discards the workouts logged with Demo data.",
                        comment: "Only while such workouts exist"))
+            if let error = model.demoExitError {
+                InlineMessage(message: error, systemImage: "exclamationmark.circle")
+            }
         }
     }
 

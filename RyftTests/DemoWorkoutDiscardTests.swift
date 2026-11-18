@@ -35,16 +35,16 @@ struct DemoWorkoutDiscardTests {
         rig.relaunch()
         #expect(rig.sync.hasDemoSessions)
         #expect(try rig.sync.fetchDemoSessions().isEmpty)
-        #expect(rig.coordinator.demoWorkouts == nil)
+        #expect(try rig.coordinator.demoWorkouts() == nil)
     }
 
-    @Test func theWorkoutsCountFinishedOnesAndTheOneInProgress() {
+    @Test func theWorkoutsCountFinishedOnesAndTheOneInProgress() throws {
         let rig = DemoTrainRig()
-        #expect(rig.coordinator.demoWorkouts == nil)
+        #expect(try rig.coordinator.demoWorkouts() == nil)
         rig.finishLocally(rig.startWorkout("One"))
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1))
+        #expect(try rig.coordinator.demoWorkouts() == DemoWorkouts(count: 1))
         rig.startWorkout("Two")
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 2))
+        #expect(try rig.coordinator.demoWorkouts() == DemoWorkouts(count: 2))
     }
 
     /// Every way a workout starts: what the factory saves first already finds its id on the list (review R4). A kill in
@@ -101,7 +101,7 @@ struct DemoWorkoutDiscardTests {
         #expect(rig.activity.ends == 1)
         #expect(rig.list.isEmpty)
         #expect(rig.store.completedSessions().isEmpty) // Strain, My Day and Train's history read these
-        #expect(rig.coordinator.demoWorkouts == nil)
+        #expect(try rig.coordinator.demoWorkouts() == nil)
 
         // Nothing for them reaches the platform afterwards, signed out or signed in.
         rig.demo = false
@@ -152,7 +152,8 @@ struct DemoWorkoutDiscardTests {
         rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
 
         #expect(!rig.coordinator.discardDemoWorkouts())
-        #expect(rig.coordinator.demoWorkouts == nil) // nothing to count: the switch goes straight to the exit
+        // Not "nothing to discard" (review R12): the switch mustn't go straight to the exit.
+        #expect(throws: StoreUnreadable.self) { try rig.coordinator.demoWorkouts() }
 
         #expect(rig.coordinator.live?.session.id == live.id)
         #expect(rig.coordinator.active?.id == live.id)
@@ -258,6 +259,38 @@ struct DemoWorkoutDiscardTests {
         #expect(rig.list.isEmpty)
     }
 
+    // MARK: no upload path for a listed workout (review R15)
+
+    /// A sweep that couldn't read the store leaves the demo's workout open with Demo data off. Logging on, finishing it,
+    /// or an op queued before ops had an owner: nothing for it is queued for the account or reaches its platform.
+    @Test func aListedWorkoutLeftOpenQueuesNothingForTheAccount() async throws {
+        let rig = DemoTrainRig()
+        let s = rig.startWorkout("Left open")
+        let id = s.id
+        rig.demo = false
+        rig.sync.demoModeChanged(false) // RyftApp's `.onChange`: the demo's ops go
+        rig.relaunch()
+        rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: true, protectedDataAvailable: true)
+        #expect(rig.list == [id.uuidString])
+        #expect(try rig.storedSessions([id]) == 1)
+        #expect(rig.ops([id]).isEmpty)
+
+        rig.sync.sessionChanged(s)
+        #expect(rig.ops([id]).isEmpty)
+        rig.store.enqueue(.put, sessionID: id, account: nil) // from a build before ops had an owner
+        _ = await rig.sync.finish(s)
+        await rig.sync.flush()
+
+        #expect(rig.ops([id]).map(\.account) == [nil]) // only the old one, never sent
+        #expect(rig.sync.pendingCount == 0)
+        #expect(await rig.source.requests(for: [id]).isEmpty)
+        // An account's workout still queues and goes.
+        let account = rig.startWorkout("The account's")
+        await rig.sync.flush()
+        #expect(await rig.source.requests(for: [account.id]) == [.put(account.id)])
+    }
+
     // MARK: the launch sweep (AC10)
 
     @Test func theLaunchSweepDiscardsWhatTheListNamesWithoutAsking() throws {
@@ -267,9 +300,9 @@ struct DemoWorkoutDiscardTests {
         // The demo ended outside the switch (a launch argument): the next launch has Demo data off.
         rig.demo = false
         rig.relaunch()
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1))
+        #expect(try rig.coordinator.demoWorkouts() == DemoWorkouts(count: 1))
 
-        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false, protectedDataAvailable: true)
 
         #expect(try rig.storedSessions([s.id]) == 0)
         #expect(rig.list.isEmpty)
@@ -285,7 +318,7 @@ struct DemoWorkoutDiscardTests {
         let list = rig.list
         rig.relaunch()
 
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
 
         #expect(try rig.storedSessions([finished.id, live.id]) == 2)
         #expect(rig.coordinator.active?.id == live.id)
@@ -303,7 +336,7 @@ struct DemoWorkoutDiscardTests {
         defer { NotificationCenter.default.removeObserver(observer) }
         #expect(!rig.sync.hasDemoSessions)
 
-        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: true)
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: true, protectedDataAvailable: true)
 
         #expect(saves.all.isEmpty)
         #expect(rig.coordinator.active?.id == account.id)
@@ -322,11 +355,11 @@ struct DemoWorkoutDiscardTests {
         rig.relaunch()
         #expect(rig.list.isEmpty && !rig.seeded)
 
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
 
         #expect(Set(rig.list) == [finished.id.uuidString, live.id.uuidString])
         #expect(rig.seeded)
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 2))
+        #expect(try rig.coordinator.demoWorkouts() == DemoWorkouts(count: 2))
         #expect(rig.coordinator.discardDemoWorkouts())
         #expect(try rig.storedSessions([finished.id, live.id]) == 0)
     }
@@ -337,25 +370,52 @@ struct DemoWorkoutDiscardTests {
         let s = rig.storeUnlisted("Maybe the account's", finished: true)
         rig.relaunch()
 
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: true)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: true, protectedDataAvailable: true)
 
         #expect(rig.list.isEmpty)
         #expect(rig.seeded)
         #expect(try rig.storedSessions([s.id]) == 1)
     }
 
-    /// Demo data off: the sessions are the account's, or were left by a demo no list knows. None is listed, none goes.
-    @Test func withDemoDataOffTheSeedListsNothing() throws {
+    /// Review R13: with nobody signed in the sessions are the demo's whatever Demo data is now (a demo before the list,
+    /// ended outside its switch). Demo data off, they're listed and the same launch's sweep discards them, unasked.
+    @Test func withDemoDataOffAndNobodySignedInTheSeedListsThemAndTheSweepDiscards() throws {
         let rig = DemoTrainRig()
         rig.demo = false
-        let s = rig.storeUnlisted("The account's", finished: true)
+        rig.account = nil
+        let finished = rig.storeUnlisted("A demo before the list", finished: true)
+        let live = rig.storeUnlisted("Left open", finished: false)
         rig.relaunch()
 
-        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false, protectedDataAvailable: true)
+
+        #expect(rig.seeded)
+        #expect(try rig.storedSessions([finished.id, live.id]) == 0)
+        #expect(rig.list.isEmpty)
+        #expect(rig.coordinator.active == nil)
+    }
+
+    /// Review R13: "nobody signed in" is only known with protected data. Before the first unlock `auth.lastUserID`
+    /// reads nil, so an account's stored sessions would look like the demo's: nothing is listed, nothing goes, and the
+    /// flag waits, on every branch. The first launch with protected data decides.
+    @Test(arguments: [(false, false), (false, true), (true, false), (true, true)])
+    func withoutProtectedDataTheSeedListsNothingAndSetsNoFlag(_ demoMode: Bool, _ signedIn: Bool) throws {
+        let rig = DemoTrainRig()
+        rig.demo = demoMode
+        let s = rig.storeUnlisted("Maybe the account's", finished: true)
+        rig.relaunch()
+
+        rig.coordinator.demoAtLaunch(demoMode: demoMode, signedIn: signedIn, protectedDataAvailable: false)
 
         #expect(rig.list.isEmpty)
-        #expect(rig.seeded)
+        #expect(!rig.seeded)
         #expect(try rig.storedSessions([s.id]) == 1)
+
+        rig.demo = true
+        rig.relaunch()
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: signedIn, protectedDataAvailable: true)
+        #expect(rig.seeded)
+        #expect(rig.list == (signedIn ? [] : [s.id.uuidString]))
     }
 
     /// Once: a later launch, in the demo and signed out again, adds nothing the store got meanwhile.
@@ -363,12 +423,12 @@ struct DemoWorkoutDiscardTests {
         let rig = DemoTrainRig()
         let first = rig.storeUnlisted("Before the list", finished: true)
         rig.relaunch()
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
         #expect(rig.list == [first.id.uuidString])
         let later = rig.storeUnlisted("After the seed", finished: true)
 
         rig.relaunch()
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
 
         #expect(rig.list == [first.id.uuidString])
         #expect(try rig.storedSessions([later.id]) == 1)
@@ -381,7 +441,7 @@ struct DemoWorkoutDiscardTests {
         let s = rig.storeUnlisted("Before the list", finished: true)
         rig.relaunch()
         rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
         #expect(rig.list.isEmpty && !rig.seeded)
 
         let disk = try DemoExitDisk()
@@ -390,11 +450,11 @@ struct DemoWorkoutDiscardTests {
         let lost = DemoTrainRig(store: TrainStore(url: inTheWay.appendingPathComponent("Train.store")))
         lost.storeUnlisted("In memory", finished: true)
         lost.relaunch()
-        lost.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        lost.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
         #expect(lost.list.isEmpty && !lost.seeded)
 
         rig.relaunch()
-        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false, protectedDataAvailable: true)
         #expect(rig.list == [s.id.uuidString] && rig.seeded)
     }
 }

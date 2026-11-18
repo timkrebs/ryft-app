@@ -347,17 +347,22 @@ enum MockTrainScoring {
 
     static func records(for id: UUID, in entries: [ExerciseHistorySession]) -> [PersonalRecord] {
         var out: [PersonalRecord] = []
-        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e.startedAt, $0) } }
+        // Each record names its set and session, as the platform's do (API.md, `prs`).
+        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e, $0) } }
+        func record(_ kind: PRKind, _ value: Double, _ at: (ExerciseHistorySession, SessionSet)) -> PersonalRecord {
+            PersonalRecord(exerciseId: id, kind: kind, value: value, setId: at.1.id, sessionId: at.0.sessionId,
+                           achievedAt: at.0.startedAt)
+        }
         if let best = all.max(by: { (E1RM.estimate(weightKg: $0.1.weightKg, reps: $0.1.reps) ?? 0)
                                     < (E1RM.estimate(weightKg: $1.1.weightKg, reps: $1.1.reps) ?? 0) }),
            let v = E1RM.estimate(weightKg: best.1.weightKg, reps: best.1.reps) {
-            out.append(PersonalRecord(exerciseId: id, kind: .e1rm, value: E1RM.rounded(v), achievedAt: best.0))
+            out.append(record(.e1rm, E1RM.rounded(v), best))
         }
         if let heavy = all.max(by: { ($0.1.weightKg ?? 0) < ($1.1.weightKg ?? 0) }), let kg = heavy.1.weightKg {
-            out.append(PersonalRecord(exerciseId: id, kind: .maxWeight, value: kg, achievedAt: heavy.0))
+            out.append(record(.maxWeight, kg, heavy))
         }
         if let reps = all.max(by: { ($0.1.reps ?? 0) < ($1.1.reps ?? 0) }), let r = reps.1.reps {
-            out.append(PersonalRecord(exerciseId: id, kind: .maxReps, value: Double(r), achievedAt: reps.0))
+            out.append(record(.maxReps, Double(r), reps))
         }
         return out
     }
