@@ -611,85 +611,52 @@ extension RefreshIssue {
 }
 
 /// The error card's Details (ui.md §3.4): what failed, status, code, request ID, time, data age,
-/// failures in a row; "Send to RYFT" (when Report a problem is wired) and "Copy details".
+/// failures in a row; "Send to RYFT" (when Report a problem is wired) and "Copy details". Nocturne (PR 6 A §A-16): the
+/// sheet's own header (the title, "Done" as the close circle), the facts as a grouped card, the two pills pinned so they are
+/// reachable at the opening (medium) detent, the caption under them.
 struct RefreshDetailsSheet: View {
     let issue: RefreshIssue
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.reportProblemDestination) private var reportProblem
     @Environment(\.locale) private var locale
     @State private var copied = false
+    @State private var sends = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: Theme.Metrics.sectionSpacing) {
-                    Card {
-                        VStack(alignment: .leading, spacing: 14) {
-                            DetailRow(title: "What failed", value: issue.resourceName)
-                            DetailRow(title: "HTTP status", value: issue.statusText ?? "—",
-                                      detail: issue.statusText == nil ? String(localized: "No response") : nil)
-                            DetailRow(title: "Code", value: issue.error.code ?? "—", monospaced: true)
-                            RequestIDRow(requestID: issue.error.requestID, answered: issue.error.status != nil)
-                            DetailRow(title: "Time", value: Self.time(issue.error.at, locale: locale))
-                            DetailRow(title: "Showing data from",
-                                      value: issue.dataFrom.map { Self.time($0, locale: locale) } ?? "—")
-                            DetailRow(title: "Failed in a row", value: issue.failures.formatted())
-                        }
-                    }
+            SubpageScaffold(Text("Details"), navigation: .close(label: Text("Done")), isSheet: true) {
+                GroupedCard {
+                    GroupedRow.value(Text("What failed"), value: Text(verbatim: issue.resourceName))
+                    GroupedRow.value(Text("HTTP status"), value: Text(verbatim: issue.statusText ?? "—"),
+                                     detail: issue.statusText == nil ? Text("No response") : nil)
+                    GroupedRow.value(Text("Code"), value: Text(verbatim: issue.error.code ?? "—").monospaced())
+                    RequestIDRow(requestID: issue.error.requestID, answered: issue.error.status != nil)
+                    GroupedRow.value(Text("Time"), value: Text(verbatim: Self.time(issue.error.at, locale: locale)))
+                    GroupedRow.value(Text("Showing data from"),
+                                     value: Text(verbatim: issue.dataFrom.map { Self.time($0, locale: locale) } ?? "—"))
+                    GroupedRow.value(Text("Failed in a row"), value: Text(issue.failures.formatted()))
                 }
-                .padding(.horizontal, Theme.Metrics.screenPadding)
-                .padding(.vertical, 16)
             }
-            .scrollIndicators(.hidden)
-            // Pinned: "Send to RYFT" (and Copy details) are reachable at the opening (medium) detent.
-            .safeAreaInset(edge: .bottom) { actions }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Text("Details"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+            .pinnedBar(footnote: reportProblem == nil ? nil : Text("Sends this and the last 20 requests. No health values.")) {
+                if reportProblem != nil {
+                    PillButton(Text("Send to RYFT")) { sends = true }
+                        .accessibilityIdentifier("refreshDetails.send")
+                }
+                PillButton(copied ? Text("Copied") : Text("Copy details"), style: .secondary) {
+                    // On this iPhone only, and not for long (`LocalPasteboard`).
+                    LocalPasteboard.copy(issue.copyText)
+                    copied = true
+                }
+                .disabled(copied)
+                .accessibilityIdentifier("refreshDetails.copy")
+            }
+            .navigationDestination(isPresented: $sends) {
+                if let reportProblem {
+                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
                 }
             }
         }
         .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-
-    /// "Send to RYFT" (only once Report a problem is wired), "Copy details", and what's sent.
-    private var actions: some View {
-        VStack(spacing: 10) {
-            if let reportProblem {
-                NavigationLink {
-                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
-                } label: {
-                    Text("Send to RYFT")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityIdentifier("refreshDetails.send")
-            }
-            PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
-                // On this iPhone only, and not for long (`LocalPasteboard`).
-                LocalPasteboard.copy(issue.copyText)
-                copied = true
-            }
-            if reportProblem != nil {
-                Text("Sends this and the last 20 requests. No health values.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, Theme.Metrics.screenPadding)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(Theme.background)
     }
 
     /// "14:07:12" today, else with the date; in the screen's locale (German shows 24-hour time).
@@ -699,97 +666,52 @@ struct RefreshDetailsSheet: View {
     }
 }
 
-/// A label and its value; at accessibility sizes the value goes under the label.
-private struct DetailRow: View {
-    let title: LocalizedStringKey
-    let value: String
-    var detail: String? = nil
-    var monospaced = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-        layout {
-            Text(title)
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-            if !typeSize.isAccessibilitySize { Spacer(minLength: 12) }
-            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
-                Text(value)
-                    .font(monospaced ? .system(.body, design: .monospaced) : .ryft(.body))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textPrimary)
-                if let detail {
-                    Text(detail)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// The request ID exactly as received, selectable, with a copy button; support searches for it.
+/// The request ID exactly as received, selectable, with a copy button; support searches for it. A row of the Details card:
+/// "Request ID", and under it the 36 characters in monospaced type (they don't fit beside the label) with the copy button at
+/// the end. VoiceOver reads the label and the ID as one element and offers "Copy request ID" as an action.
 private struct RequestIDRow: View {
     let requestID: String?
     /// Something answered (a status came back): a missing ID means a proxy answered first.
     let answered: Bool
     @State private var copied = false
 
-    @Environment(\.dynamicTypeSize) private var typeSize
-
     var body: some View {
         if let requestID {
-            // One row (ui.md §3.4): the label, the ID as received, the copy button at the trailing edge.
-            // At AX sizes the ID and its button go under the label.
-            let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-            layout {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                 Text("Request ID")
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize()
-                HStack(alignment: .center, spacing: 4) {
-                    Spacer(minLength: 0)
+                    .foregroundStyle(Theme.textPrimary)
+                HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
                     Text(verbatim: requestID)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary)
-                        .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(Theme.textTertiary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button(action: copy) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(copied ? Theme.accent : Theme.textSecondary)
-                            .frame(width: 44, height: 44)
+                            .font(.system(size: GroupedListSpec.glyphSize, weight: .regular))
+                            .foregroundStyle(copied ? Theme.textPrimary : Theme.textSecondary)
+                            .frame(width: Theme.Metrics.minHitTarget, height: Theme.Metrics.minHitTarget)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(copied ? "Copied" : "Copy request ID"))
                     // The glyph lines up with the other rows' values; its 44 pt target reaches into the padding.
-                    .padding(.trailing, -13)
+                    .padding(.vertical, -RequestIDRowSpec.buttonOverhang)
+                    .padding(.trailing, -RequestIDRowSpec.buttonOverhang)
                 }
             }
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .padding(.vertical, GroupedListSpec.textPadding)
+            .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+            .groupedRowHairline()
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("Copy request ID"), copy)
             .accessibilityIdentifier("refreshDetails.requestID")
         } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Request ID")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                Text("Not available")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                if answered {
-                    Text("A proxy answered before RYFT did.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            GroupedRow.value(Text("Request ID"), value: Text("Not available"),
+                             detail: answered ? Text("A proxy answered before RYFT did.") : nil)
         }
     }
 
@@ -802,6 +724,11 @@ private struct RequestIDRow: View {
             copied = false
         }
     }
+}
+
+private enum RequestIDRowSpec {
+    /// The copy button's 44 pt box reaches this far past its glyph into the row's padding.
+    static let buttonOverhang: CGFloat = 12
 }
 
 /// Under a day in a picker: scored (a dot), pending (a hollow dot), no data (nothing),
@@ -1712,24 +1639,26 @@ private enum PreviewIssue {
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Details sheet · with ID · dark") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
+#Preview("Details sheet · with ID") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
+                .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+        }
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Details sheet · no ID") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
+        }
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Details sheet · no request ID · AX3") {
+    RefreshDetailsSheet(issue: PreviewIssue.make(.busy, requestID: nil))
         .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
         .preferredColorScheme(.dark)
-}
-
-#Preview("Details sheet · with ID · light") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
-        .preferredColorScheme(.light)
-}
-
-#Preview("Details sheet · no ID · dark") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Details sheet · no ID · light · de") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy, requestID: nil))
-        .preferredColorScheme(.light)
-        .environment(\.locale, Locale(identifier: "de"))
+        .dynamicTypeSize(.accessibility3)
 }
