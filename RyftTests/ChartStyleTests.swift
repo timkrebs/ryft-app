@@ -47,7 +47,8 @@ struct ChartStyleTests {
         let d = try #require(MetricDelta.vsSevenDayMean(points))
         #expect(d.value == 10)
         #expect(d.percent == 20)
-        #expect(DeltaLabel.text(d, spec: .hrv) == "▲ +10 ms · +20 %")
+        // No-break spaces hold the arrow to the number and the number to its unit (it wraps only after "·").
+        #expect(DeltaLabel.text(d, spec: .hrv) == "▲\u{00A0}+10\u{00A0}ms · +20\u{00A0}%")
         #expect(DeltaLabel.color(d, spec: .hrv) == Theme.accent)
         #expect(DeltaLabel.color(d, spec: .rhr) == Theme.alert)
     }
@@ -59,8 +60,29 @@ struct ChartStyleTests {
     }
 
     @Test func scoresChangeInPointsWithoutPercent() {
-        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness) == "▲ +6")
-        #expect(DeltaLabel.text(MetricDelta(current: 41, reference: 63), spec: .recovery) == "▼ −22")
+        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness) == "▲\u{00A0}+6")
+        #expect(DeltaLabel.text(MetricDelta(current: 41, reference: 63), spec: .recovery) == "▼\u{00A0}−22")
+    }
+
+    /// N3 (T5.3 review): a change whose size rounds to nothing as written is flat, not "▲ +0", whatever its percentage.
+    @Test func aChangeThatRoundsToZeroIsSteady() {
+        let tiny = MetricDelta(current: 3.4, reference: 3)          // +13 %, but "+0" in whole points
+        #expect(!tiny.isFlat && DeltaLabel.isFlat(tiny, spec: .readiness))
+        #expect(DeltaLabel.text(tiny, spec: .readiness) == String(localized: "Steady"))
+        #expect(DeltaLabel.color(tiny, spec: .readiness) == Theme.textSecondary)
+        #expect(DeltaLabel.spoken(tiny, spec: .readiness, reference: nil) == String(localized: "No change"))
+        let nap = MetricDelta(current: 0.4, reference: 0.1)          // +300 %, "0m"
+        #expect(DeltaLabel.text(nap, spec: .napMin) == String(localized: "Steady"))
+        // One decimal place: 0.06 rounds to "0.1", a change.
+        #expect(!DeltaLabel.isFlat(MetricDelta(current: 0.36, reference: 0.3), spec: .strain))
+    }
+
+    /// N4 (T5.3 review): VoiceOver hears "vs 7 d" as "versus 7 days"; another reference as written.
+    @Test func theSevenDayReferenceIsSpokenInFull() {
+        let up = MetricDelta(current: 84, reference: 78)
+        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: String(localized: "vs 7 d"))
+                == "\(String(localized: "Up \("6")")) \(String(localized: "versus 7 days"))")
+        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: "vs baseline").hasSuffix(" vs baseline"))
     }
 
     @Test func rangeBarDerivesItsBandFromTheTrend() throws {
@@ -86,9 +108,9 @@ struct ChartStyleTests {
         #expect(DeltaLabel.text(delta, spec: .readiness) == String(localized: "Steady"))
         #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
         #expect(DeltaLabel.color(delta, spec: .readiness) == Theme.textSecondary)
-        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change vs 7 d")
+        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change versus 7 days")
         // A real change keeps its arrow and sign.
-        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲ +"))
+        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲\u{00A0}+"))
     }
 
     @Test func theDeltaIsNilOnlyWithoutAnEarlierPointInTheWeek() {

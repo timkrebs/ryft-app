@@ -27,7 +27,8 @@ struct InsightsShotsTests {
         }
     }
 
-    nonisolated static let names = ["scored", "not-set-up", "only-tile", "no-insights", "loading", "calibrating", "offline", "expanded", "7d"]
+    nonisolated static let names = ["scored", "not-set-up", "only-tile", "no-insights", "loading", "calibrating", "offline",
+                                    "not-loaded", "expanded", "7d"]
 
     /// The screen: "scored" is the live screen on the demo data, its series read first so the shot is the loaded page.
     private static func screen(_ name: String) async -> AnyView? {
@@ -37,7 +38,7 @@ struct InsightsShotsTests {
         return AnyView(InsightsView().previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US")))
     }
 
-    /// Name and page: the screen on the demo data, then the page's states (`InsightsPreview`).
+    /// Name and page: the page's states (`InsightsPreview`) and the not-set-up screen; "scored" is `screen(_:)`'s.
     private static func screens() -> [(String, AnyView)] {
         let english = Locale(identifier: "en_US")
         func page(_ content: InsightsPageContent) -> AnyView {
@@ -46,13 +47,13 @@ struct InsightsShotsTests {
                 .previewEnvironment().environment(\.locale, english))
         }
         return [
-            ("scored", AnyView(InsightsView().previewEnvironment().environment(\.locale, english))),
             ("not-set-up", AnyView(InsightsView().previewEnvironment(AppState.preview(empty: true)).environment(\.locale, english))),
             ("only-tile", page(InsightsPreview.content(insights: InsightsPreview.onlyTile))),
             ("no-insights", page(InsightsPreview.content(insights: []))),
             ("loading", page(InsightsPreview.content(loading: true))),
             ("calibrating", page(InsightsPreview.content(bands: false))),
             ("offline", page(InsightsPreview.content(issue: InsightsPreview.offline))),
+            ("not-loaded", page(InsightsPreview.content(notLoaded: true, issue: InsightsPreview.offline))),
             ("expanded", page(InsightsPreview.content(insights: [], expanded: [.readiness, .hrv]))),
             ("7d", page(InsightsPreview.content(range: .week))),
         ]

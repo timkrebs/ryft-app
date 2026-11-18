@@ -261,14 +261,20 @@ enum InsightsPreview {
     /// Every insight's link shows, as on the screen (where each leads to its chart, Behaviors or the session); taps do nothing.
     static let actions = InsightsPageActions(open: { _ in {} })
 
+    /// - Parameters:
+    ///   - loading: nothing cached, this page's read in flight (pending cards).
+    ///   - notLoaded: nothing cached, and the read answered with nothing (offline, or it failed): "Not loaded".
+    ///   - bands: `false` gives the banded cards 6 days of history: "Band needs 7 days of data".
     static func content(range: TrendRange = .month, insights: [Insight] = MockData.insights, dismissedAll: Bool = false,
-                        loading: Bool = false, hrvSeries: TrendSeries?? = nil, bands: Bool = true, issue: RefreshIssue? = nil,
-                        hasDataSource: Bool = true, expanded: Set<TrendMetric> = []) -> InsightsPageContent {
+                        loading: Bool = false, notLoaded: Bool = false, hrvSeries: TrendSeries?? = nil, bands: Bool = true,
+                        issue: RefreshIssue? = nil, hasDataSource: Bool = true,
+                        expanded: Set<TrendMetric> = []) -> InsightsPageContent {
         let today = Date.now
         func card(_ metric: TrendMetric) -> TrendCardContent {
-            let series: TrendSeries? = loading ? nil
+            let series: TrendSeries? = loading || notLoaded ? nil
                 : metric == .hrv ? (hrvSeries ?? MockData.trend(metric, range: range)) : MockData.trend(metric, range: range)
-            let monthly = bands && !loading ? MockData.trend(metric, range: .month) : nil
+            var monthly = series == nil ? nil : MockData.trend(metric, range: .month)
+            if !bands { monthly?.points = Array(MockData.trend(metric, range: .month).points.suffix(7)) }
             return .make(metric, range: range, series: series, monthly: metric.hasBand ? monthly : nil, isLoading: loading,
                          isStale: issue != nil, today: today)
         }
@@ -341,6 +347,10 @@ private struct InsightsPagePreview: View {
 
 #Preview("Insights · offline") {
     InsightsPagePreview(content: InsightsPreview.content(issue: InsightsPreview.offline))
+}
+
+#Preview("Insights · offline, not loaded") {
+    InsightsPagePreview(content: InsightsPreview.content(notLoaded: true, issue: InsightsPreview.offline))
 }
 
 #Preview("Insights · expanded card") {

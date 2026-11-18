@@ -71,7 +71,7 @@ enum InsightsLayout {
     nonisolated static let chevron: CGFloat = 12
     /// The note to the chevron, and the name to the note.
     nonisolated static let chevronGap: CGFloat = 6, noteGap: CGFloat = 8
-    /// The 30-day range behind the line: `textPrimary` at 6 % (readiness, resting HR), a metric colour at 12 %.
+    /// The usual range behind the line: `textPrimary` at 6 % (readiness, resting HR), a metric colour at 12 %.
     nonisolated static let inkBandOpacity = 0.06, metricBandOpacity = 0.12
     /// Expanded: the summary to the detailed chart (`TrendChart`, 150 high), the chart to Avg · Min · Max.
     nonisolated static let summaryToDetail: CGFloat = 14, detailChartHeight: CGFloat = 150, chartToStats: CGFloat = 12

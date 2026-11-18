@@ -92,11 +92,11 @@ struct NocturneTodaySleepA11yTests {
     func theLabelRowIsNotRead() async throws {
         try await today { w in
             let labels = w.nodes().map(\.label)
-            // (The Trends card further down says "Up 11 vs 7 d" inside its own label; the row under the gauge would lead with it.)
+            // (The Trends card further down says "Up 11 versus 7 days" inside its own label; the row under the gauge would lead with it.)
             #expect(!labels.contains { $0.hasPrefix("Readiness ·") || $0.hasPrefix("Up 11") || $0.hasPrefix("▲") || $0 == "vs 7 d" },
                     "\(labels)")
             let gauge = try node(w, "today.readinessGauge")
-            #expect(gauge.value?.hasPrefix("84, High, Up 11 vs 7 d. Recovery 82 percent, Sleep 94 percent, Strain 12") == true,
+            #expect(gauge.value?.hasPrefix("84, High, Up 11 versus 7 days. Recovery 82 percent, Sleep 94 percent, Strain 12") == true,
                     "\(gauge.value ?? "nil")")
         }
     }
