@@ -164,7 +164,10 @@ struct RyftApp: App {
                 // Dark only (NOCTURNE_STYLE §1). `UIUserInterfaceStyle` in Info.plist does the same for the
                 // launch screen, alerts, share sheets and the rest of UIKit's chrome.
                 .preferredColorScheme(.dark)
-                .tint(Theme.accent)
+                // Teal is recovery only (design.md §P5-1): controls, menus, pickers and links take the ink.
+                .tint(Theme.textPrimary)
+                // Every toggle is the Nocturne switch (§P5-1.4); a screen that needs another style sets its own.
+                .toggleStyle(.ryft)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
