@@ -49,6 +49,7 @@ struct DebugComponentCatalog: View {
                     section("Nocturne · sparkline") { nocturneSparklines }
                     section("Nocturne · hypnogram") { nocturneHypnograms }
                     section("Nocturne · header") { nocturneHeaders }
+                    section("Nocturne · controls") { NocturneControlsCatalog() }
                 }
                 .padding(Theme.Metrics.screenPadding)
             }

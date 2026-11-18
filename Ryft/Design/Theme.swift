@@ -129,6 +129,12 @@ enum Theme {
         static let pillHeight: CGFloat = 52
         /// The gap between items in a row or a stack (§2 "Abstand 12").
         static let itemSpacing: CGFloat = 12
+
+        // Nocturne controls (design.md §P5-1.4). Additive.
+
+        /// An outline that carries a state, where a hairline would be too faint: the toggle's off track
+        /// (`RyftToggleStyle`), a selected row's or chip's ring. Hue never carries the state; this line does.
+        static let controlOutline: CGFloat = 1.5
     }
 
     // MARK: motion
