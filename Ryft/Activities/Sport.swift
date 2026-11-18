@@ -95,8 +95,8 @@ extension Sport {
         }
     }
 
-    // The table. Symbols: ui.md §3.2 (`figure.run.treadmill` is iOS 18, so indoor runs use `figure.run`).
-    // Padel and ski touring use Apple's closest types (plan D1-8). Rowing has no GPS in v1.
+    // The table. Symbols: ui.md §3.2 (indoor runs keep `figure.run`; `figure.run.treadmill`, iOS 18, is allowed since
+    // ADR 0021 but not adopted). Padel and ski touring use Apple's closest types (plan D1-8). Rowing has no GPS in v1.
     var spec: Spec {
         switch self {
         case .running:
