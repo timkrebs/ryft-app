@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Small mark + wide-tracked "RYFT" wordmark, centred at the top of every screen.
+/// Small mark + "RYFT" wordmark, centred at the top of every screen.
 struct RyftHeader: View {
     var markSize: CGFloat = 20
 
@@ -17,14 +17,51 @@ struct RyftHeader: View {
     }
 }
 
-/// "RYFT" in wide-tracked uppercase.
+/// "RYFT" in Satoshi Light, tracked 0.32 em. The tracking is added after the last letter too, so the word is
+/// pulled back by that much on the right and sits optically where its letters are.
 struct Wordmark: View {
-    var size: CGFloat = 17
+    /// The wordmark style's size: `RyftTextStyle.wordmark` is the source of truth.
+    var size: CGFloat = RyftTextStyle.wordmark.size
+    /// In em. Only the launch sets another one: it animates from 0.9 to `Wordmark.tracking` (design.md §P3-4).
+    var tracking: CGFloat = Wordmark.tracking
+
+    /// Tracking in em.
+    static let tracking: CGFloat = 0.32
 
     var body: some View {
         Text(verbatim: "RYFT")
-            .font(.ryftNumber(size: size, weight: .medium))
-            .tracking(size * 0.32)
+            .font(.ryftNumber(size: size, weight: .light))
+            .tracking(size * tracking)
+            .padding(.trailing, -size * tracking)
+    }
+}
+
+/// The Nocturne header lock-up: the orbit mark, 10 pt of air, then the wordmark. At the default `markSize` of 26 pt
+/// the wordmark is 15 pt; both scale with `markSize`. Today's header passes `handOff: true`: the mark and the wordmark
+/// are then the launch's hand-off targets (`launchHandOffTarget`, design.md §P4-7), which report their frames to the
+/// launch and stay at opacity 0 while it draws them in flight. Only Today's header sets it.
+struct WordmarkLockup: View {
+    var markSize: CGFloat = 26
+    var handOff = false
+
+    var body: some View {
+        HStack(spacing: markSize * 10 / 26) {
+            RyftMark().frame(width: markSize, height: markSize)
+                .handOffTarget(.mark, if: handOff)
+            Wordmark(size: markSize * RyftTextStyle.wordmark.size / 26)
+                .handOffTarget(.wordmark, if: handOff)
+        }
+        .foregroundStyle(Theme.textPrimary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "RYFT"))
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func handOffTarget(_ role: LaunchHandOffRole, if active: Bool) -> some View {
+        if active { launchHandOffTarget(role) } else { self }
     }
 }
 
@@ -36,21 +73,53 @@ struct BrandLockup: View {
                 RyftMark().frame(width: 44, height: 44)
                 Wordmark(size: 32)
             }
-            Text("Your whole health.")
+            Text("Engineered for peak.", comment: "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up.")
                 .ryftLabelStyle()
-                .tracking(4)
         }
         .foregroundStyle(Theme.textPrimary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("RYFT — Your whole health."))
+        .accessibilityLabel(Text("RYFT — Engineered for peak.", comment: "The brand lock-up's VoiceOver label: the wordmark and the tagline."))
     }
 }
 
 #Preview("Header", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 28) {
             RyftHeader()
             BrandLockup()
         }
     }
+}
+
+#Preview("Wordmark lock-up", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 28) {
+            WordmarkLockup()
+            WordmarkLockup(markSize: 44)
+            Wordmark(size: 15)
+            Wordmark(size: 32)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+#Preview("Wordmark lock-up · hand-off target", traits: .sizeThatFitsLayout) {
+    // As the launch sees it: registered (nothing to show) and, while the mark is in flight, hidden in place.
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 28) {
+            WordmarkLockup(handOff: true)
+            WordmarkLockup(handOff: true)
+                .environment(\.launchHidesHandOffTargets, true)
+                .border(Theme.separator)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+#Preview("Wordmark lock-up · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        WordmarkLockup()
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

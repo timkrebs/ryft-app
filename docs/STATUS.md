@@ -31,6 +31,21 @@ English only (`chore/english-only`): the app has no German, the catalogs carry n
 
 2026-11-14: Alpine redesign dropped (user, 2026-11-14); the current look stays.
 
+2026-11-16: Nocturne approved (NOCTURNE_STYLE v0.2, `docs/work/2026-11-16-nocturne/`), five PRs. PR 1 (tokens, type,
+icon, dark-only; ADR 0016) is merged (#112). PR 2 (dot numeral, ruler, glow tile, dot and tick rows, circle and pill
+buttons; in the debug catalog only, no screen uses them yet) is merged (#113). PR 3 (orbit gauge v3, launch sequence;
+ADR 0017) is merged (#114) and shipped alone in TestFlight build `20261117.085425`. PR 4 (Today and Sleep, the launch's
+matched move; #117) and the AX3 fix for Welcome and the live workout (#115) are merged and reach TestFlight in one
+nightly with P1 (below, #116), as the user asked. PR 5 (Strain, Insights, Profile, the dot tab bar) and PR 6 (every
+remaining screen, `docs/work/2026-11-16-nocturne/audit.md`) follow. Simulator-verified only: the icon on a device Home
+Screen and the widget in system-light mode are not checked yet.
+
+2026-11-17: read-model writes off the main actor (P1, ADR 0018, `docs/work/2026-11-17-persistence-off-main/`): two
+review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback crash). Simulator-verified on iOS 17.0,
+18.0, 26.0 and 27.2; the consent and background checks on a device are on the user's list. Open: P1b, the iOS 17
+container reopen after the demo (below, Known issues), the Today first-data render (AC3) and a quiet cold-launch
+rerun (AC5).
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
@@ -138,7 +153,6 @@ All in en and de.
 
 **Follow-ups**
 - `pruneCollapsed()` at the top of `toggleCheck` (T2 review).
-- At AX3, the session header and the set-table columns wrap letter by letter.
 - `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise the same kg target (import ticket).
 - Catalog: the German for "Learning your baseline — %lld nights to go." is still `machine_translated`; for the localization-editor to review. German says baseline three ways ("Ausgangswerte", "Basis" in the gauge's VoiceOver, "Grundbedarf" for sleep).
 
@@ -1556,6 +1570,9 @@ contract points are in `docs/API_REQUESTS.md`.
 
 ## Known issues
 
+- iOS 17 only: after "try the demo, then sign in", the account's first new rows aren't saved until a relaunch (only
+  the newest SwiftData container of a schema takes inserts on iOS 17.0; T0.6). Measured fine on 18.0, 26.0 and 27.2;
+  17.1–17.6 unmeasured. A consent withdrawal still holds (kept outside SwiftData). Fix: P1b.
 - Satoshi isn't committed because of its licence (see README). Fresh clones render in SF
   Pro Rounded until `scripts/fetch-fonts.sh` runs.
 - Welcome and the auth screens are always dark (Graphite, as on the board), also in light

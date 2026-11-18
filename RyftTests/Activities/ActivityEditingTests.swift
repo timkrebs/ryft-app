@@ -172,7 +172,7 @@ struct ActivityDetailDeleteTests {
         let server = SportActivity(id: UUID(), sport: .cycling, origin: .recorded, start: start, end: start.addingTimeInterval(3_600),
                                    movingSec: 3_500, distanceM: 24_000, clientUpdatedAt: start, strain: 11,
                                    strainSource: .heartRate, scoringState: "scored")
-        g.state.repository.store(activities: [server], day: DayFormat.string(from: start))
+        g.state.repository.seed(.activities([server], day: DayFormat.string(from: start)))
         let model = ActivityDetailViewModel(route: ActivityRoute(id: server.id, day: start), state: g.state)
         #expect(model.activity?.id == server.id && model.isEditable && model.isRecorded)
         #expect(model.strainLine == .heartRate(11, source: nil))
@@ -269,7 +269,7 @@ struct AddSleepModelTests {
         let yesterday = DayFormat.shift(g.today, days: -1)
         let tracked = MockData.detail(for: yesterday)
         try #require(tracked.sleep != nil)
-        g.state.repository.store(detail: tracked)
+        g.state.repository.seed(.detail(tracked))
         let vm = myDay(g)
         #expect(vm.night(on: DayFormat.string(from: yesterday)) == .recorded)
         let model = AddSleepModel(env: g.env, editing: twoDaysBack, night: vm.night(on:))
@@ -287,7 +287,7 @@ struct AddSleepModelTests {
         g.api.activitySource.publishesActivities = false // never sent: the old night goes at once
         let yesterday = try addNight(g, daysBack: 1)
         // Today is loaded, without a night.
-        g.state.repository.store(detail: DayDetail(score: .empty(day: DayFormat.string(from: g.today)), sleep: nil, workouts: []))
+        g.state.repository.seed(.detail(DayDetail(score: .empty(day: DayFormat.string(from: g.today)), sleep: nil, workouts: [])))
         let model = AddSleepModel(env: g.env, editing: yesterday, night: myDay(g).night(on:))
         model.wake = model.wake.addingTimeInterval(86_400)
         model.bed = model.bed.addingTimeInterval(86_400)
@@ -449,7 +449,7 @@ struct ManualActivitiesFlagTests {
         let start = Calendar.current.startOfDay(for: clock.now()).addingTimeInterval(7 * 3_600)
         let run = SportActivity(id: UUID(), sport: .running, origin: .manual, start: start, end: start.addingTimeInterval(2_400),
                                 movingSec: 2_400, distanceM: 7_000, clientUpdatedAt: start, strain: 9, scoringState: "scored")
-        state.repository.store(activities: [run], day: DayFormat.string(from: start))
+        state.repository.seed(.activities([run], day: DayFormat.string(from: start)))
         let detail = ActivityDetailViewModel(route: ActivityRoute(id: run.id, day: start), state: state)
         #expect(detail.activity?.id == run.id)
 

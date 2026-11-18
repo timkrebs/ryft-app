@@ -25,7 +25,7 @@ struct LicensesView: View {
               url: "https://github.com/pointfreeco/swift-concurrency-extras"),
         Entry(name: "xctest-dynamic-overlay", license: "MIT", holder: "Point-Free",
               url: "https://github.com/pointfreeco/swift-issue-reporting"),
-        Entry(name: "Satoshi typeface", license: "ITF Free Font License", holder: "Indian Type Foundry (Fontshare)",
+        Entry(name: "Satoshi typeface (Light, Regular, Medium, Bold)", license: "ITF Free Font License", holder: "Indian Type Foundry (Fontshare)",
               url: "https://www.fontshare.com/fonts/satoshi"),
     ]
 
@@ -68,8 +68,4 @@ struct LicensesView: View {
 
 #Preview("Licences · dark") {
     NavigationStack { LicensesView() }.preferredColorScheme(.dark)
-}
-
-#Preview("Licences · light") {
-    NavigationStack { LicensesView() }.preferredColorScheme(.light)
 }

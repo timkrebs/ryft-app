@@ -11,7 +11,6 @@ struct SetTableColumns: Equatable {
     var numeral: CGFloat
     /// Page padding, into which the number's 44 pt hit area reaches.
     let padding: CGFloat
-    let headerTracking: CGFloat
     /// The 320 pt table, whatever the text size.
     var isCompact = false
     /// Off at the sizes where the fields need its room. RPE then moves to a line of the row.
@@ -23,10 +22,9 @@ struct SetTableColumns: Equatable {
     var quietLineLift: CGFloat { rowHeight - 48 }
 
     /// 390 pt class.
-    static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
+    static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16)
     /// 320 pt (Display Zoom).
-    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, headerTracking: 1,
-                                         isCompact: true)
+    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, isCompact: true)
 
     /// The table at a width and a text size (design.md §5.1). From AX1 the numerals grow, and at 320 the fourth column goes,
     /// because a field would be under the 66 pt that holds "102.5". From AX3 it goes everywhere.
@@ -85,7 +83,6 @@ struct SetRow: View {
     /// When a sideways drag last ended: the tap a button sees at its end isn't one.
     @State private var swipeEndedAt: Date = .distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     private static let revealWidth: CGFloat = 88
 
     private var ghost: (reps: Int?, kg: Double?) { controller.ghost(for: set, in: exercise) }
@@ -184,7 +181,7 @@ struct SetRow: View {
                     .overlay {
                         if rowState == .upcoming {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(FocusedRowInk.upcomingOutline(colorScheme), lineWidth: 1)
+                                .strokeBorder(FocusedRowInk.upcomingOutline(), lineWidth: 1)
                         }
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -211,7 +208,7 @@ struct SetRow: View {
                 .foregroundStyle(shown == nil || set.isCompleted ? Theme.textSecondary : Theme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: rpeLineIsQuiet ? .topLeading : .center)
                 .padding(.leading, rpeLineIsQuiet ? (columns?.number ?? 0) + (columns?.gap ?? 0) : 0)
-                .background(raisedFill.opacity(fieldOpacity(.rpe, focused: focused)),
+                .background(Theme.surfaceRaised.opacity(fieldOpacity(.rpe, focused: focused)),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
@@ -235,16 +232,10 @@ struct SetRow: View {
         return rowState == .active ? Theme.textPrimary : Theme.textSecondary
     }
 
-    /// The active row's fields and `#`. In light, `surfaceRaised` sits at 1.01:1 on the row's tint and `surface` at 1.28:1,
-    /// about dark's step, and it keeps the ghost above 4.5:1. List has no row state and stays as it is.
-    private var raisedFill: Color {
-        rowState == .active && colorScheme == .light ? Theme.surface : Theme.surfaceRaised
-    }
-
     /// The raised `#` of the active row, with its dot.
     private var activePill: some View {
         Capsule()
-            .fill(raisedFill)
+            .fill(Theme.surfaceRaised)
             .frame(width: min(columns?.number ?? 32, 32), height: min(columns?.number ?? 32, 32))
             .overlay(alignment: .topTrailing) {
                 Circle().fill(Theme.accent).frame(width: 5, height: 5)
@@ -409,7 +400,7 @@ struct SetRow: View {
 
     private func readOnlyField(_ stored: SetStoredValue) -> some View {
         Text(stored.text)
-            .font(.ryftNumber(size: columns?.numeral ?? 22))
+            .font(.ryftNumber(size: columns?.numeral ?? 22, weight: .regular))
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
@@ -425,7 +416,7 @@ struct SetRow: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(FocusedRowInk.estimate(active: rowState == .active, isDash: text == Fmt.placeholder, colorScheme))
+            .foregroundStyle(FocusedRowInk.estimate(isDash: text == Fmt.placeholder))
             .frame(width: columns?.fourth, height: 48)
             .contentShape(Rectangle())
             // As the RPE field in this cell: the first tap on an upcoming row makes it active. The value stays read-only.
@@ -469,7 +460,7 @@ struct SetRow: View {
                         .foregroundStyle(Theme.textSecondary)
                 } else {
                     Text(shown ?? ghost ?? emptyText(f))
-                        .font(.ryftNumber(size: numeralSize(f)))
+                        .font(.ryftNumber(size: numeralSize(f), weight: .regular))
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(columns == nil ? 0.6 : 0.75)
@@ -477,7 +468,7 @@ struct SetRow: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
-            .background(raisedFill.opacity(fieldOpacity(f, focused: focused)),
+            .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused)),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
@@ -651,15 +642,30 @@ struct ExerciseCard: View {
         }
     }
 
+    /// The column titles' widths: the list row's own (`SetRow` without Focused's `columns`), so each title sits over its
+    /// column. kg and Reps share what's left. Named so a hosted test can hold each title against its column.
+    enum TitleColumns {
+        static let number: CGFloat = 40
+        static let fourthMax: CGFloat = 64
+        static let check: CGFloat = 56
+        static let gap: CGFloat = 6
+    }
+
     private var columnTitles: some View {
-        HStack(spacing: 6) {
-            Text("Set").frame(width: 40)
+        HStack(spacing: TitleColumns.gap) {
+            Text("Set").frame(width: TitleColumns.number)
             if usesWeight { Text("kg").frame(maxWidth: .infinity) }
             Text("Reps").frame(maxWidth: .infinity)
-            Text("RPE").frame(maxWidth: 64)
-            Text("").frame(width: 56)
+            Text("RPE").frame(maxWidth: TitleColumns.fourthMax)
+            Text("").frame(width: TitleColumns.check)
         }
         .ryftLabelStyle(Theme.textTertiary)
+        // As Focused's `SetTableHeader`: the titles share the rows' columns, whose numbers have a fixed size, so they stop
+        // growing at XXXL and keep one line. At AX3 on a 402 pt iPhone "Set" broke inside the word ("Se/t"). VoiceOver
+        // reads each row as one element with its values named, so the titles are hidden from it.
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityHidden(true)
     }
 
@@ -720,14 +726,27 @@ private struct BracketShape: Shape {
 
 #Preview("Exercise card", traits: .sizeThatFitsLayout) {
     let c = TrainPreview.liveController()
-    return SchemePair {
-        VStack(spacing: 12) {
-            ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
-            SupersetBracket {
-                ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
-                    ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
-                }
+    return VStack(spacing: 12) {
+        ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
+        SupersetBracket {
+            ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
+                ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
             }
         }
     }
+    .padding(20)
+    .frame(width: 390)
+    .background(Theme.background)
+    .preferredColorScheme(.dark)
+}
+
+/// The column titles stay on one line, in the rows' columns.
+#Preview("Exercise card · AX3", traits: .sizeThatFitsLayout) {
+    let c = TrainPreview.liveController()
+    return ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }

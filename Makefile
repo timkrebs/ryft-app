@@ -17,12 +17,14 @@ build: config
 test: config
 	xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
-# The mark's tools compile the app's own geometry (Ryft/Design/RyftMark.swift) plus the icon's tile, colours
-# and scale (scripts/icon-spec.swift), so the icons and SVGs can't drift from what the app draws.
-MARK_SOURCES := scripts/icon-spec.swift Ryft/Design/RyftMark.swift
-ICON_COMPARE := build/icon-compare
+# The mark's SVG compiles the app's own geometry (Ryft/Design/RyftMark.swift), so it can't drift from what the app
+# draws. The app icon is the word "RYFT" in Satoshi Light (scripts/render-icon.swift + scripts/icon-spec.swift), not
+# the mark.
+MARK_SOURCES := Ryft/Design/RyftMark.swift
+ICON_SOURCES := scripts/icon-spec.swift
+ICON_PREVIEW := build/icon-preview
 
-.build/render-icon: scripts/render-icon.swift $(MARK_SOURCES)
+.build/render-icon: scripts/render-icon.swift $(ICON_SOURCES)
 	mkdir -p .build
 	swiftc -parse-as-library -o $@ $^
 
@@ -30,20 +32,16 @@ ICON_COMPARE := build/icon-compare
 	mkdir -p .build
 	swiftc -parse-as-library -o $@ $^
 
-# The three 1024 icons into the asset catalog with the outer ring spanning 0.869 of the tile (95 % of the previous
-# 0.915; Light and Dark in the readiness gauge's colours, Tinted white on black), and for comparison into
-# build/icon-compare/: the monochrome mark at 0.915 and the coloured ones at 0.915, 0.963 and 0.80 (nearer Apple's
-# icon grid), plus the rings-monochrome, dots-coloured alternative at 0.869. The tools read the colours from Ryft/Assets.xcassets, so they run from the repo root.
+# The app icon "M1" (Nocturne): "RYFT" in Satoshi Light, #F2F1EC on #0A0C0B, 0.02 em tracking, 27.3 % of the tile
+# (about 279 px on 1024), no mark. Light, Dark and Tinted are the same image, written as the three 1024 PNGs into the
+# asset catalog; the icon also scaled to 180, 120, 60 and 40 px into build/icon-preview/ for review. Needs
+# Ryft/Resources/Fonts/Satoshi-Light.otf (make fonts) and fails without it, never falling back to another face. The
+# tools read the colours from Ryft/Assets.xcassets, so they run from the repo root.
 icon: .build/render-icon
-	mkdir -p $(ICON_COMPARE)
-	.build/render-icon
-	.build/render-icon --mono --ring-span 0.915 --suffix -mono-0.915 $(ICON_COMPARE)
-	.build/render-icon --dots --suffix -dots-0.869 $(ICON_COMPARE)
-	.build/render-icon --ring-span 0.915 --suffix -0.915 $(ICON_COMPARE)
-	.build/render-icon --ring-span 0.963 --suffix -0.963 $(ICON_COMPARE)
-	.build/render-icon --ring-span 0.80 --suffix -0.80 $(ICON_COMPARE)
+	mkdir -p $(ICON_PREVIEW)
+	.build/render-icon --previews $(ICON_PREVIEW)
 
-# design/ryft-mark.svg and design/ryft-app-icon-{light,dark}.svg from the Swift geometry.
+# design/ryft-mark.svg from the Swift geometry.
 mark-svg: .build/mark-svg
 	.build/mark-svg
 
@@ -74,7 +72,7 @@ strings: build
 # String catalogs English only and complete, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
 # where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
-# the mark's SVGs match the Swift geometry (needs swiftc, i.e. macOS).
+# the mark's SVG matches the Swift geometry (needs swiftc, i.e. macOS).
 lint: check-entitlements check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
@@ -111,7 +109,7 @@ ARCHIVE := build/Ryft.xcarchive
 BUILD_NUMBER ?= $(shell sh scripts/build-number.sh)
 VERSION := $(shell tr -d '[:space:]' < VERSION)
 archive: config lint
-	@for f in Regular Medium Bold; do test -f Ryft/Resources/Fonts/Satoshi-$$f.otf || \
+	@for f in Light Regular Medium Bold; do test -f Ryft/Resources/Fonts/Satoshi-$$f.otf || \
 		{ echo "Satoshi-$$f.otf missing: run make fonts (otherwise the build falls back to SF Pro Rounded)"; exit 1; }; done
 	xcodebuild -scheme Ryft -configuration Release -destination 'generic/platform=iOS' \
 		-archivePath $(ARCHIVE) CURRENT_PROJECT_VERSION=$(BUILD_NUMBER) MARKETING_VERSION=$(VERSION) \

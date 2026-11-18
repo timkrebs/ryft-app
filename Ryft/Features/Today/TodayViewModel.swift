@@ -30,8 +30,9 @@ final class TodayViewModel {
     /// First-run coach marks: gauge → physiology → trends.
     let coachMarks: CoachMarks
 
-    /// Last night as Apple Health has it, and the newest record per source (`loadHealthFacts`).
-    private(set) var lastNightRaw: RawNight?
+    /// Last night as Apple Health has it (`loadHealthFacts`), kept on `AppState` so Sleep's pending night shows the same.
+    var lastNightRaw: RawNight? { state.lastNight }
+    /// The newest record per source (`loadHealthFacts`).
     private(set) var freshness: [SourceFreshness] = []
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
@@ -54,7 +55,10 @@ final class TodayViewModel {
     private var score: DailyScore? { facts.today }
 
     var hasDataSource: Bool { state.hasDataSource }
-    var greeting: String { ReadinessCopy.greeting(at: env.clock.now()) }
+    /// The first word of the account's name (`User.name`, `full_name`); nil when the sign-in gave none (R-N2).
+    var firstName: String? { ReadinessCopy.firstName(state.user?.name) }
+    /// "Good evening, Tim", or "Good evening" without a name.
+    var greeting: String { ReadinessCopy.greeting(at: env.clock.now(), name: firstName) }
     /// Says what the gauge shows, about the same day (ui.md §1.5).
     var sentence: String { content.sentence }
     var isOffline: Bool { !env.connectivity.isOnline }
@@ -91,6 +95,12 @@ final class TodayViewModel {
     var tileCaption: String? { content.tileCaption }
     /// Recovery's caption: the day or "calibrating" when there is one, else the band word.
     var recoveryCaption: String? { content.recoveryCaption }
+    /// The recovery tile's HRV series: the 7 days ending on the tiles' day, oldest first, nil for a day without one.
+    var hrvWeek: [Double?] { content.hrvWeek }
+    /// The sleep tile's 7 nights, the last the tiles' day (`.today`).
+    var sleepNights: [DotRow.Mark] { content.sleepWeek.marks }
+    /// The strain tile's band word ("of 21 · moderate"); nil without a strain.
+    var strainBand: TodayStrainBand? { content.strainBand }
 
     var status: Status? {
         if let step = gate { return Self.actionNeeded(step) }
@@ -135,7 +145,7 @@ final class TodayViewModel {
 
     /// The signed-out card's action: back to Welcome to sign in again.
     func signIn() async {
-        await env.auth.signOut(reason: .sessionExpired)
+        await state.signInAgain()
     }
 
     /// With onboarding, its facts decide (a sync paused only until the account is known
@@ -168,6 +178,7 @@ final class TodayViewModel {
         f.online = env.connectivity.isOnline
         f.gate = gate
         f.syncFailed = !state.isDemo && sync.lastError != nil && env.settings.isConfigured
+        f.loadIssue = state.refreshIssue?.reason
         f.isLoading = state.isLoading
         f.isDemo = state.isDemo
         f.syncs = !state.isDemo && env.auth.isSignedIn && env.settings.isConfigured && env.health.isAvailable
@@ -274,7 +285,7 @@ final class TodayViewModel {
         let sources = (try? await health.newestRecords(since: now.addingTimeInterval(-TodayStates.freshnessWindow))) ?? []
         // The catalog's first parse off the main actor, before the facts name these sources.
         if night != nil || !sources.isEmpty { _ = await TrackerCatalog.loadBundled() }
-        lastNightRaw = night
+        state.lastNight = night
         freshness = sources
     }
 
@@ -319,11 +330,8 @@ final class TodayViewModel {
 
     var showsTrain: Bool { env.flags.isOn(.trainEnabled) }
 
-    /// The redesigned Today, shipped dark behind `today.redesign`: last night's
-    /// hypnogram under the tiles.
-    var showsRedesign: Bool { env.flags.isOn(.todayRedesign) }
-    var lastNight: SleepDetail? { state.today?.sleep }
-
+    // `today.redesign` (last night's hypnogram under the tiles) stays in `Seams`, unused: Nocturne's Sleep tile and the
+    // Sleep tab show the night (L22).
     // TODO(physiology.card): reserved by the platform; read in Debug → Feature flags, no card yet.
 
     // MARK: push pre-prompt
@@ -354,7 +362,8 @@ struct TodayContent {
 
     private var tiles: TodayPresentation.Tiles { presentation.tiles }
 
-    /// Says what the gauge shows, about the same day (ui.md §1.5).
+    /// Says what the gauge shows, about the same day (ui.md §1.5). Empty when today couldn't load and nothing is cached:
+    /// the status row and the error card say why, and nothing has been shown to describe (VN2).
     var sentence: String {
         guard hasDataSource else { return String(localized: "Let's get you set up.") }
         if hero.isImporting { return String(localized: "Your history is on its way.") }
@@ -391,6 +400,9 @@ struct TodayContent {
             let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
             return String(localized: "Readiness from \(date), while your baselines are recalculated.")
         case .readiness, .firstImport:
+            // Nothing to show because the day couldn't load: no sentence. "Your scores appear after the first synced
+            // night" is what a failed load can't know, and the status row and the card already say why (VN2).
+            if facts.today == nil, facts.loadIssue != nil { return "" }
             return ReadinessCopy.sentence(score: facts.today)
         }
     }
@@ -430,13 +442,21 @@ struct TodayContent {
         return note.text + ". " + String(localized: "From \(date)")
     }
 
-    /// Hidden while nothing was ever scored (row E), like during the first import.
-    var showsTiles: Bool { !hero.isImporting && presentation.row != .firstImport }
-    var sleepText: String {
-        guard let day = tiles.source else { return Fmt.placeholder }
-        // Today's detail has the night when the row predates `sleep_actual_min`; an earlier day stands alone.
-        return Fmt.duration(minutes: day.sleepActualMin ?? (tiles.isEarlierDay ? nil : detailSleepMin))
+    /// Hidden while nothing was ever scored (row E), like during the first import, and beside a night being scored
+    /// with no scored day before it: there is no day for them to show (design.md §P4-5, "Pending, nothing scored").
+    var showsTiles: Bool {
+        guard !hero.isImporting, presentation.row != .firstImport else { return false }
+        if case .pending = presentation.gauge, tiles.source == nil { return false }
+        return true
     }
+    /// The night the Sleep tile shows, in minutes asleep; nil: "–".
+    var sleepMinutes: Int? {
+        guard let day = tiles.source else { return nil }
+        // Today's detail has the night when the row predates `sleep_actual_min`; an earlier day stands alone.
+        return day.sleepActualMin ?? (tiles.isEarlierDay ? nil : detailSleepMin)
+    }
+    /// "7:48" (`Fmt.clock`), the unit "h" beside it; "–" without a night.
+    var sleepText: String { Fmt.clock(minutes: sleepMinutes) }
     /// Not beside the baselines counter (`Tiles.withholdsRecovery`): "—" there.
     var recovery: Int? { tiles.recovery }
     var recoveryText: String { Fmt.percent(recovery) }
@@ -465,6 +485,116 @@ struct TodayContent {
     private static var calibratingCaption: String {
         String(localized: "today.tile.calibrating", defaultValue: "calibrating",
                comment: "Under each of Today's tiles while the baselines fill (still calibrating, not done).")
+    }
+
+    // MARK: Nocturne: label row, ruler, the tiles' week (design.md §P4-1, §P4-4)
+
+    /// Under the gauge: "Readiness · High" for a readiness in a band; "Readiness" alone while a calibration note owns the
+    /// line (`showsReadinessBand` false) or without a number; "Baselines" beside the baselines counter.
+    var readinessLabel: String {
+        if case .calibrating = hero { return String(localized: "Baselines") }
+        guard showsReadinessBand, let readiness else { return String(localized: "Readiness") }
+        let band = MetricSpec.scoreBand(readiness).label
+        return String(localized: "Readiness · \(band)",
+                      comment: "Under Today's gauge: \"Readiness\", then the band word (High, Moderate, Low).")
+    }
+
+    /// The readiness ruler's zone: the high band (`MetricSpec.scoreBand`, ≥ 67), always marked, not "the current band".
+    /// None where a number is not placed in a band: beside the baselines counter or under a calibration note.
+    var rulerZone: ClosedRange<Double>? {
+        guard showsReadinessBand else { return nil }
+        if case .calibrating = hero { return nil }
+        return RulerScale.zone(lo: TodayLayout.highBand, hi: 100)
+    }
+
+    /// The ruler's needle: the gauge's readiness; none while pending, calibrating or empty.
+    var rulerValue: Double? { readiness }
+
+    /// Under the ruler: "0 · low · moderate · high · 100" beside its zone, "0 · 100" without one.
+    var rulerLabels: [String] {
+        guard rulerZone != nil else { return ["0", "100"] }
+        return ["0", Self.rulerWord(.low), Self.rulerWord(.moderate), Self.rulerWord(.high), "100"]
+    }
+
+    /// The ruler's VoiceOver value (§P4-8 row 6): "84, high, on a scale from 0 to 100"; without a band "84, on a scale
+    /// from 0 to 100"; without a number "No readiness yet, on a scale from 0 to 100".
+    var rulerSpoken: String {
+        guard let readiness else {
+            return String(localized: "No readiness yet, on a scale from 0 to 100",
+                          comment: "VoiceOver value of Today's readiness ruler while there is no readiness (pending, calibrating, nothing scored).")
+        }
+        let value = Int(readiness.rounded())
+        guard rulerZone != nil else {
+            return String(localized: "\(value), on a scale from 0 to 100",
+                          comment: "VoiceOver value of Today's readiness ruler when the number is not placed in a band (calibrating).")
+        }
+        let word = Self.rulerWord(TodayContent.band(readiness))
+        return String(localized: "\(value), \(word), on a scale from 0 to 100",
+                      comment: "VoiceOver value of Today's readiness ruler: the readiness, its band in lower case (low, moderate, high).")
+    }
+
+    /// `MetricSpec.scoreBand`'s thresholds (≥ 67 high, ≥ 34 moderate, else low), as the ruler names them.
+    enum Band: Equatable { case low, moderate, high }
+
+    static func band(_ readiness: Double) -> Band {
+        switch Int(readiness.rounded()) {
+        case 67...: return .high
+        case 34...: return .moderate
+        default: return .low
+        }
+    }
+
+    /// The ruler's scale words, lower case (the band words, as a scale).
+    static func rulerWord(_ band: Band) -> String {
+        switch band {
+        case .low:
+            return String(localized: "today.ruler.low", defaultValue: "low",
+                          comment: "Scale word under Today's readiness ruler, lower case: the low band (under 34).")
+        case .moderate:
+            return String(localized: "today.ruler.moderate", defaultValue: "moderate",
+                          comment: "Scale word under Today's readiness ruler, lower case: the moderate band (34 to 66).")
+        case .high:
+            return String(localized: "today.ruler.high", defaultValue: "high",
+                          comment: "Scale word under Today's readiness ruler, lower case: the high band (67 and up).")
+        }
+    }
+
+    /// The 7 days the tiles' series cover, oldest first, ending on the tiles' day (the same day for all three, ui.md §1):
+    /// today's, or the latest scored day while today's isn't. A day the cache has no row for is nil.
+    var week: [DailyScore?] {
+        let end = tiles.source.flatMap { DayFormat.date(from: $0.day) } ?? facts.now
+        var byDay: [String: DailyScore] = [:]
+        for score in facts.prior + [facts.today].compactMap({ $0 }) { byDay[score.day] = score }
+        if let source = tiles.source { byDay[source.day] = source }
+        return DayFormat.days(endingAt: end, count: TodayLayout.weekDays).map { byDay[$0] }
+    }
+
+    /// The recovery tile's sparkline (§P4-4 T10): each day's `hrv_ms`, the last the tiles' day; a gap is nil, never
+    /// interpolated. Fewer than two values draw the pending line (`Sparkline.isPending`).
+    var hrvWeek: [Double?] { week.map { $0?.hrvMs } }
+
+    /// The sleep tile's dots (§P4-4 T12, L24).
+    var sleepWeek: TodaySleepWeek { TodaySleepWeek(week) }
+
+    /// The tiles' day's strain, and its band word.
+    var strain: Double? { tiles.source?.strain }
+    var strainBand: TodayStrainBand? { strain.map(TodayStrainBand.init) }
+
+    /// The visible date in the sub-line: "Sunday, Nov 15" (`EEEE, MMM d`) in the screen's locale.
+    static func subLineDate(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.abbreviated).day())
+    }
+
+    /// The same date for VoiceOver: "Sunday, November 15".
+    static func spokenDate(_ date: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        date.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.wide).day())
+    }
+
+    /// "Sunday, Nov 15 · Your health is in balance." (§P4-1 row 3); the date alone without a sentence.
+    func subLine(locale: Locale = .autoupdatingCurrent) -> String {
+        let date = Self.subLineDate(facts.now, locale: locale)
+        let sentence = sentence
+        return sentence.isEmpty ? date : "\(date) · \(sentence)"
     }
 
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score); not while
@@ -536,6 +666,9 @@ struct TodaySyncFacts: Equatable {
     /// The gate the account is behind (onboarding's word, or a refused upload's).
     var gate: OnboardingCoordinator.Step?
     var syncFailed = false
+    /// Why a read failed past `RefreshPolicy`'s threshold (`AppState.refreshIssue`: the status line's "Couldn't load
+    /// today" and the error card), or nil. With nothing to show, the sub-line is the date alone (VN2).
+    var loadIssue: RefreshIssue.Reason?
     var isLoading = false
     var isDemo = false
     /// A signed-in account on a configured platform with Apple Health: its data syncs.

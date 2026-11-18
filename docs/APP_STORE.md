@@ -93,7 +93,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Tap targets ≥ 44 pt. Segmented pickers and filter chips were 36 pt, and the inline-message buttons were text-sized | ok (fixed) | `SegmentedPicker`, `FilterChip`, `InlineMessage` (`minHeight: 44`); `LinkRow` in About |
-| VoiceOver labels and values on rings, tiles, stage bars and set rows | ok | `ScoreRing`, `MetricTile`, `StageBar`, `SetRow` |
+| VoiceOver labels and values on rings, tiles, the hypnogram, stage rows and set rows | ok | `ScoreRing`, `MetricTile`, Sleep → Day's hypnogram tile, `StageRow`, `SetRow` |
 | Swift Charts: `accessibilityChartDescriptor` (Audio Graphs) on trends, e1RM and the workout heart rate | ok (fixed) | `Design/ChartAccessibility.swift` (`SeriesChartDescriptor`), attached in `TrendChart`, `E1RMChart`, `WorkoutDetailView`. The summary label and value stay for plain VoiceOver |
 | Colour never the only carrier of meaning: the recovery band gets a word ("High", "Moderate", "Low") | ok (fixed) | `Theme.bandLabel`, shown as the `MetricTile` caption on Today and read by VoiceOver ("82%, High") |
 | Text contrast ≥ 4.5:1 in both appearances. Before the fix: `TextTertiary` 2.7 (light) / 3.3 (dark); in light mode Accent 2.8, Warning 2.6, Alert 3.9 and AccentSecondary 3.5 | ok (fixed) | Light variants Accent `#107561`, Warning `#7E6316`, Alert `#B04436`, AccentSecondary `#3E6F65`; TextTertiary alpha 0.60 / 0.55. Labels on teal use `Theme.onAccent` (white in light, Graphite in dark). Dark brand colours unchanged |

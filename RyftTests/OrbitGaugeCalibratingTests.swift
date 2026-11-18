@@ -51,10 +51,11 @@ import Testing
         let cap = capDegrees(dial: 160)
         let visible = G.segments(required: 7, dial: 160)[0].sweep + 2 * cap
         #expect(abs(visible - 44.57) < 0.01)
-        // design.md: centrelines 40.5 deg, the first starting at 11.05 deg and then every 49.57 deg.
-        #expect(abs(G.segments(required: 7, dial: 160)[0].sweep - 40.5) < 0.05)
-        #expect(abs(G.segments(required: 7, dial: 160)[0].start - 11.05) < 0.01)
-        #expect(abs(G.segments(required: 7, dial: 160)[1].start - 60.62) < 0.01)
+        // Gauge v3 at `.large` (S 172, a 2.32 pt stroke on the 78.06 pt orbit, caps of 0.85 deg): centrelines 42.87 deg,
+        // the first starting at 9.85 deg and then every 49.57 deg.
+        #expect(abs(G.segments(required: 7, dial: 160)[0].sweep - 42.872) < 0.005)
+        #expect(abs(G.segments(required: 7, dial: 160)[0].start - 9.8497) < 0.005)
+        #expect(abs(G.segments(required: 7, dial: 160)[1].start - 59.421) < 0.005)
     }
 
     @Test func segmentsRunClockwiseInOrderAndNeverWrapPastTheTop() {

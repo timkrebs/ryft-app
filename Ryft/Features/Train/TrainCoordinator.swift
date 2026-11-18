@@ -348,6 +348,9 @@ enum WorkoutLauncher {
 @MainActor
 final class QuickActionSceneDelegate: NSObject, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // A link, a notification, a quick action or Handoff opened the app: what it opens comes at once, without the
+        // launch sequence (ADR 0017). Routing is unchanged.
+        if connectionOptions.carriesPurpose { LaunchInterruptions.post(.purposeLaunch) }
         guard let item = connectionOptions.shortcutItem else { return }
         _ = WorkoutLauncher.handle(item)
     }

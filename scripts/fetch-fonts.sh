@@ -9,7 +9,7 @@ trap 'rm -rf "$tmp"' EXIT
 curl -fsSL -o "$tmp/satoshi.zip" "https://api.fontshare.com/v2/fonts/download/satoshi"
 unzip -q "$tmp/satoshi.zip" -d "$tmp"
 mkdir -p Ryft/Resources/Fonts
-for w in Regular Medium Bold; do
+for w in Light Regular Medium Bold; do
   cp "$(find "$tmp" -name "Satoshi-$w.otf" | head -1)" Ryft/Resources/Fonts/
 done
 echo "Satoshi installed in Ryft/Resources/Fonts."

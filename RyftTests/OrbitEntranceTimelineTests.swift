@@ -104,7 +104,7 @@ import UIKit
         let modes: [OrbitGaugeMode] = [.scored(.previewScored), .calibrating(OrbitGaugeCalibration(nights: 3)),
                                        .pending(previous: .previewScored)]
         let empty = png(Color.clear.frame(width: 172, height: 172))
-        for scheme in [ColorScheme.dark, .light] {
+        for scheme in [ColorScheme.dark] {
             let first = png(OrbitGauge(mode: modes[index], size: .large, animatesFill: false, breathes: false,
                                        entrance: .assemble, frozenAt: 0), scheme: scheme)
             #expect(first != nil && first == png(Color.clear.frame(width: 172, height: 172), scheme: scheme), "\(index) \(scheme)")

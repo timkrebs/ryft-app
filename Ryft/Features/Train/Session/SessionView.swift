@@ -43,6 +43,32 @@ private struct CompactTextCap: ViewModifier {
     }
 }
 
+/// List's Finish at the accessibility sizes, on the buttons' own row: one word on one line. It shrinks only where even that
+/// row is too narrow for it (AX5 at 320 pt), and never breaks inside the word.
+private struct ListFinishLabel: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn { content.lineLimit(1).minimumScaleFactor(0.5) } else { content }
+    }
+}
+
+/// The session's title: one line beside the buttons; on its own full-width line (List at the accessibility sizes) it wraps
+/// whole instead of being cut.
+private struct SessionTitleLines: ViewModifier {
+    let wraps: Bool
+
+    func body(content: Content) -> some View {
+        if wraps {
+            content
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            content.lineLimit(1)
+        }
+    }
+}
+
 /// The live session, optimised for sweaty thumbs: 56 pt targets, large
 /// monospaced numbers, haptics on set check and rest end, the screen stays on.
 /// Nothing destructive happens without a confirmation.
@@ -167,71 +193,105 @@ struct SessionView: View {
     /// §5.1: at AX3 `…` and Finish keep 48, at 320 too.
     private var headerButton: CGFloat { isCompactHeader && typeSize < .accessibility3 ? 44 : 48 }
 
+    /// List at the accessibility sizes: the buttons get a row of their own and the title and clock the full width under it.
+    /// Side by side, Finish broke into "Finis/h" and at the largest sizes the title was cut. Focused keeps its one row (§5.1).
+    private var stacksHeader: Bool { controller.layout == .list && typeSize.isAccessibilitySize }
+
     private var header: some View {
-        HStack(spacing: isCompactHeader ? 6 : 8) {
-            Button {
-                coordinator.close()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(width: headerButton, height: headerButton)
-                    .background(Theme.surface, in: Circle())
-            }
-            .accessibilityLabel(Text("Minimise"))
-            .accessibilityHint(Text("The workout keeps running"))
-
-            VStack(spacing: 0) {
-                Text(controller.session.title)
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(Fmt.clock(controller.elapsed(at: context.date)))
-                        .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(isCompactHeader ? 1 : nil)
-                        .minimumScaleFactor(isCompactHeader ? 0.8 : 1)
+        Group {
+            if stacksHeader {
+                // VoiceOver keeps the one-row order (Minimise, the title and clock, More, Finish), not the drawn one.
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        minimiseButton.accessibilitySortPriority(4)
+                        Spacer(minLength: 8)
+                        moreMenu.accessibilitySortPriority(2)
+                        finishButton.accessibilitySortPriority(1)
+                    }
+                    titleAndClock.accessibilitySortPriority(3)
+                }
+                .accessibilityElement(children: .contain)
+            } else {
+                HStack(spacing: isCompactHeader ? 6 : 8) {
+                    minimiseButton
+                    titleAndClock
+                    moreMenu
+                    finishButton
                 }
             }
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
-
-            Menu {
-                Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
-                Button("Discard workout", systemImage: "trash", role: .destructive) { confirmDiscard = true }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(width: headerButton, height: headerButton)
-                    .background(Theme.surface, in: Circle())
-            }
-            .accessibilityLabel(Text("More"))
-
-            Button {
-                confirmFinish = true
-            } label: {
-                Group {
-                    if controller.isFinishing { ProgressView().tint(finishInk) } else { Text("Finish") }
-                }
-                .font(.ryft(.headline))
-                .foregroundStyle(finishInk)
-                .modifier(FocusedFinishLabel(isOn: controller.layout == .focused, isCompact: isCompactHeader))
-                .padding(.horizontal, isCompactHeader ? 14 : 18)
-                .frame(minHeight: headerButton)
-                .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
-                // The capsule's own edge is under 1.2:1 on the background, in either scheme.
-                .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
-            }
-            .disabled(controller.isFinishing)
-            .accessibilityIdentifier("session.finish")
         }
         .padding(.horizontal, isCompactHeader ? 12 : 16)
         .padding(.vertical, 8)
+    }
+
+    private var minimiseButton: some View {
+        Button {
+            coordinator.close()
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: headerButton, height: headerButton)
+                .background(Theme.surface, in: Circle())
+        }
+        .accessibilityLabel(Text("Minimise"))
+        .accessibilityHint(Text("The workout keeps running"))
+    }
+
+    private var titleAndClock: some View {
+        VStack(spacing: 0) {
+            Text(controller.session.title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .modifier(SessionTitleLines(wraps: stacksHeader))
+                .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(Fmt.clock(controller.elapsed(at: context.date)))
+                    .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(isCompactHeader ? 1 : nil)
+                    .minimumScaleFactor(isCompactHeader ? 0.8 : 1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
+            Button("Discard workout", systemImage: "trash", role: .destructive) { confirmDiscard = true }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: headerButton, height: headerButton)
+                .background(Theme.surface, in: Circle())
+        }
+        .accessibilityLabel(Text("More"))
+    }
+
+    private var finishButton: some View {
+        Button {
+            confirmFinish = true
+        } label: {
+            Group {
+                if controller.isFinishing { ProgressView().tint(finishInk) } else { Text("Finish") }
+            }
+            .font(.ryft(.headline))
+            .foregroundStyle(finishInk)
+            .modifier(FocusedFinishLabel(isOn: controller.layout == .focused, isCompact: isCompactHeader))
+            .modifier(ListFinishLabel(isOn: stacksHeader))
+            .padding(.horizontal, isCompactHeader ? 14 : 18)
+            .frame(minHeight: headerButton)
+            .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
+            // The capsule's own edge is under 1.2:1 on the background, in either scheme.
+            .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
+        }
+        .disabled(controller.isFinishing)
+        .accessibilityIdentifier("session.finish")
     }
 
     private var finishInk: Color { controller.finishIsFilled ? Theme.onAccent : Theme.accent }
@@ -626,6 +686,13 @@ struct SessionSummarySheet: View {
 #Preview("Live session · light") {
     SessionView(controller: TrainPreview.liveController())
         .previewEnvironment(scheme: .light)
+}
+
+/// The buttons on a row of their own, the title under them; the table's column titles on one line.
+#Preview("Live session · AX3") {
+    SessionView(controller: TrainPreview.liveController())
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("Live session · keypad") {

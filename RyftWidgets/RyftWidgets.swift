@@ -4,18 +4,23 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// The brand palette (the app's asset catalog isn't in this bundle; only the orbit's colorsets are copied in).
+/// The brand palette (the app's asset catalog isn't in this bundle; only the orbit's colorsets are copied in). The
+/// same values as the app's Nocturne tokens (ADR 0016); the widget, like the app, is dark-only.
 enum Brand {
-    static let graphite = Color(red: 0x0B / 255, green: 0x0F / 255, blue: 0x0E / 255)
-    static let slate = Color(red: 0x1A / 255, green: 0x22 / 255, blue: 0x26 / 255)
-    static let mist = Color(red: 0xE8 / 255, green: 0xE7 / 255, blue: 0xE3 / 255)
-    static let teal = Color(red: 0x3F / 255, green: 0xD1 / 255, blue: 0xB4 / 255)
+    /// `Theme.graphite`, the screen.
+    static let graphite = Color(red: 0x0A / 255, green: 0x0C / 255, blue: 0x0B / 255)
+    /// `Theme.slate`, the neutral tile.
+    static let slate = Color(red: 0x12 / 255, green: 0x15 / 255, blue: 0x14 / 255)
+    /// `Theme.mist`, the text colour.
+    static let mist = Color(red: 0xF2 / 255, green: 0xF1 / 255, blue: 0xEC / 255)
+    /// `Theme.teal`, the recovery teal.
+    static let teal = Color(red: 0x63 / 255, green: 0xD2 / 255, blue: 0xB4 / 255)
     static let deepLink = URL(string: "ryft://train/session")
 
-    /// Text on the widget's background: Mist in dark, Graphite in light.
-    static func ink(_ scheme: ColorScheme) -> Color { scheme == .dark ? mist : graphite }
-    /// The widget's background: Graphite in dark, Mist in light, like the app.
-    static func background(_ scheme: ColorScheme) -> Color { scheme == .dark ? graphite : mist }
+    /// Text on the widget's background.
+    static let ink = mist
+    /// The widget's background.
+    static let background = graphite
 }
 
 struct RestTimerLiveActivity: Widget {
@@ -79,9 +84,8 @@ private struct LockScreenView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.resting ? "REST" : "WORKOUT")
+                    Text(context.state.resting ? "Rest" : "Workout")
                         .font(.caption2.weight(.semibold))
-                        .tracking(2)
                         .foregroundStyle(Brand.teal)
                     Text(context.attributes.sessionTitle)
                         .font(.caption)

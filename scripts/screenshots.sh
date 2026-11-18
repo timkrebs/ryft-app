@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the app, runs it in the simulator with mock data and captures one
-# screenshot per tab (dark and light) into docs/screenshots/. Screens demo mode
+# screenshot per tab (dark; the app is dark-only) into docs/screenshots/. Screens demo mode
 # never reaches (the onboarding steps, Profile → Sign-in methods) are opened
 # directly with the Debug launch argument `-RyftScreen` (RyftApp → DebugScreen).
 #
@@ -44,19 +44,18 @@ xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged 
 xcrun simctl install "$DEVICE" "$APP"
 mkdir -p "$OUT"
 
-for scheme in dark light; do
-  for tab in $TABS; do
-    xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
-    case $tab in
-      notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight|report-problem*|refresh-details*) set -- -RyftScreen "$tab" ;;
-      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines|nightGap|scoringSlow|blockedHRV|blockedNoNight|blockedOura|learningHRV|learningRestingHR|learningRestingHRScored|blockedEarly)
-        set -- -RyftTab today -RyftScenario "$tab" ;;
-      *) set -- -RyftTab "$tab" ;;
-    esac
-    name="$tab-$scheme"
-    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -appearance "$scheme" -AppleICUForce12HourTime NO >/dev/null
-    sleep "${SHOT_DELAY:-3}"
-    xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1
-    echo "$OUT/$name.png"
-  done
+# Dark only (ADR 0016): the files keep their `-dark` suffix so existing links still resolve.
+for tab in $TABS; do
+  xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
+  case $tab in
+    notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight|report-problem*|refresh-details*) set -- -RyftScreen "$tab" ;;
+    import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines|nightGap|scoringSlow|blockedHRV|blockedNoNight|blockedOura|learningHRV|learningRestingHR|learningRestingHRScored|blockedEarly)
+      set -- -RyftTab today -RyftScenario "$tab" ;;
+    *) set -- -RyftTab "$tab" ;;
+  esac
+  name="$tab-dark"
+  xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -AppleICUForce12HourTime NO >/dev/null
+  sleep "${SHOT_DELAY:-3}"
+  xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1
+  echo "$OUT/$name.png"
 done

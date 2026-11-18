@@ -19,7 +19,6 @@ struct WidgetOrbitGauge: View {
     /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
     var prominentNumber = false
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
@@ -71,23 +70,24 @@ struct WidgetOrbitGauge: View {
 
     /// The ink of the centre: full, or dimmed for a dash, a previous day's number and the " / 7".
     private func numberStyle(dimmed: Bool) -> AnyShapeStyle {
-        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink(scheme)) }
+        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink) }
         if prominentNumber { return AnyShapeStyle(dimmed ? .secondary : .primary) }
-        return AnyShapeStyle(dimmed ? Brand.ink(scheme).opacity(0.4) : Brand.ink(scheme))
+        return AnyShapeStyle(dimmed ? Brand.ink.opacity(0.4) : Brand.ink)
     }
 
-    /// The app's colours in full colour. Tinted, clear and lock-screen renderings turn every colour into one ink
-    /// whose opacity is all that's left: an opaque track would outshine the arcs, so it becomes faint.
+    /// The app's colours in full colour, the v3 tracks included. Tinted, clear and lock-screen renderings turn every
+    /// colour into one ink whose opacity is all that's left: there the tracks are one faint white (as before v3), so the
+    /// 7 % middle ring doesn't vanish and no track outshines the arcs.
     private var palette: OrbitGaugePalette {
         var p = OrbitGaugePalette.assets
-        if renderingMode != .fullColor { p.track = Color.white.opacity(0.25) }
+        if renderingMode != .fullColor { p.flatTrack = Color.white.opacity(0.25) }
         return p
     }
 }
 
 #Preview("WidgetOrbitGauge", traits: .sizeThatFitsLayout) {
     HStack(spacing: 16) {
-        ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
+        ForEach([ColorScheme.dark], id: \.self) { scheme in
             VStack(spacing: 12) {
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
@@ -104,7 +104,7 @@ struct WidgetOrbitGauge: View {
                                  size: .custom(dial: 44), showsNumber: false)
             }
             .padding(16)
-            .background(Brand.background(scheme))
+            .background(Brand.background)
             .environment(\.colorScheme, scheme)
         }
     }

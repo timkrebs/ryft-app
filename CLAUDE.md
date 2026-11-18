@@ -16,14 +16,15 @@ is `../ROADMAP.md`; the user pastes one milestone per session.
 
 ## Rules
 - Swift 5.10, SwiftUI, iOS 17+, async/await, Swift Charts. Dependencies: only
-  `supabase-swift`. Dark theme first; palette and type live in `Design/Theme.swift`.
+  `supabase-swift`. Dark only (ADR 0016); palette and type live in `Design/Theme.swift`.
 - Wire models in `Networking/Models.swift` mirror `docs/API.md` exactly (snake_case via
   the shared decoder). For every new shape add a fixture-decoding test using the JSON
   example from `API.md`. If you need data the API does not provide, write the request
   into `docs/API_REQUESTS.md` — do not invent fields.
 - Keep the sync design: anchored HealthKit queries, page → upload → persist anchor,
   background delivery, `BGAppRefreshTask`. Extend `HealthKitManager` only for new types.
-- Every screen and component gets a `#Preview` with mock data in dark and light.
+- Every screen and component gets a `#Preview` with mock data in dark (the app is dark-only,
+  ADR 0016; light previews go as files are touched).
   **Before committing UI, capture the Previews and compare with the brand board**
   (hierarchy, spacing, colours, the orbit mark). Fix what differs, then commit.
 - Build must succeed with zero warnings in our code; HealthKit only works on a device,
