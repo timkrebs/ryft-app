@@ -60,7 +60,7 @@ struct TodayViewModelTests {
         clock.set(Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!)
         #expect(vm.greeting == String(localized: "Good evening"))
         state.user = MockData.user
-        #expect(vm.greeting == String(localized: "Good evening, \("Tim")"))
+        #expect(vm.greeting == String(localized: "Good evening, \("Alex")"))
     }
 
     /// Nothing cached at all: the card shows after one failed pass (a blank Today is the alternative).
@@ -583,11 +583,11 @@ struct TodayNightAndScoringTests {
     }
 
     private func watch(_ newest: Date) -> SourceFreshness {
-        SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C2D3E", newest: newest, deviceModel: "Watch")
+        SourceFreshness(source: "Alex's Apple Watch", bundleID: "com.apple.health.4B1C2D3E", newest: newest, deviceModel: "Watch")
     }
 
     private func phone(_ newest: Date) -> SourceFreshness {
-        SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: newest, deviceModel: "iPhone")
+        SourceFreshness(source: "Alex's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: newest, deviceModel: "iPhone")
     }
 
     private func status(_ state: ScoringState, now: Date, pending: [String]? = nil, latestSleep: Date? = nil,
@@ -680,7 +680,7 @@ struct TodayNightAndScoringTests {
     @Test func theWatchIsACandidateWithItsOwnSentence() throws {
         let f = facts { $0.freshness = [watch(at(22, 10, daysAgo: 1)), connect(at(20, 0, daysAgo: 1))] }
         let gap = try #require(TodayStates.nightGap(f))
-        #expect(gap.kind == .appleDevice && gap.name == "Tim's Apple Watch" && gap.storeURL == nil)
+        #expect(gap.kind == .appleDevice && gap.name == "Alex's Apple Watch" && gap.storeURL == nil)
         let hint = try #require(TodayStates.watchHint(f))
         #expect(hint.action { _ in true } == nil)
         #expect(hint.text(now: f.now) == String(

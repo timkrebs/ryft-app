@@ -197,7 +197,7 @@ final class WipeHarness {
 
     func signIn(_ id: UUID) async {
         client.signInSession = .preview(id: id)
-        _ = await auth.logIn(email: "tim@example.com", password: "0123456789")
+        _ = await auth.logIn(email: "alex@example.com", password: "0123456789")
     }
 
     /// Rows of every read-model table, read through a fresh context (what the file holds, not a memo).

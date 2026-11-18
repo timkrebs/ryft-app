@@ -20,7 +20,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     /// `true` models a project with "Confirm email" on: sign-up returns no session.
     var requiresEmailConfirmation = false
     /// The account's sign-in methods; linking Apple adds one.
-    var methods = [SignInMethod(provider: "email", email: "tim@example.com", addedAt: nil)]
+    var methods = [SignInMethod(provider: "email", email: "alex@example.com", addedAt: nil)]
     /// Linking failures (`identity_already_exists`, `manual_linking_disabled`).
     var linkError: Error?
     /// Runs inside `signOut()`, before the session is dropped; a test can hold the call here.
@@ -148,7 +148,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     func linkApple(idToken: String, nonce: String) async throws -> Session {
         try locked {
             if let linkError { throw linkError }
-            methods.append(SignInMethod(provider: "apple", email: "tim@privaterelay.appleid.com", addedAt: .now))
+            methods.append(SignInMethod(provider: "apple", email: "alex@privaterelay.appleid.com", addedAt: .now))
             guard let stored else { throw AuthError.sessionMissing }
             return stored
         }
@@ -164,10 +164,10 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
 extension Session {
     /// A non-expiring fake session for previews and tests.
     static func preview(id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-                        email: String? = "tim@privaterelay.appleid.com",
+                        email: String? = "alex@privaterelay.appleid.com",
                         accessToken: String = "preview-token", provider: String = "apple") -> Session {
         let user = Auth.User(id: id, appMetadata: ["provider": .string(provider)],
-                             userMetadata: ["full_name": "Tim Krebs"], aud: "authenticated",
+                             userMetadata: ["full_name": "Alex Doe"], aud: "authenticated",
                              email: email, createdAt: .now, updatedAt: .now)
         return Session(accessToken: accessToken, tokenType: "bearer", expiresIn: 3600,
                        expiresAt: Date.distantFuture.timeIntervalSince1970, refreshToken: "preview-refresh",

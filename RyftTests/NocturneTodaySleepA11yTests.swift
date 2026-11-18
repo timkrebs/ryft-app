@@ -128,7 +128,7 @@ struct NocturneTodaySleepA11yTests {
             let greeting = try #require(w.nodes().first { $0.label.hasPrefix("Good ") })
             let parts = greeting.label.components(separatedBy: ". ")
             #expect(parts.count == 3, "greeting, date, sentence: \(greeting.label)")
-            #expect(parts[0].hasSuffix(", Tim"), "\(parts[0])")
+            #expect(parts[0].hasSuffix(", Alex"), "\(parts[0])")
             #expect(["Good morning", "Good afternoon", "Good evening"].contains { parts[0].hasPrefix($0) })
             #expect(greeting.label.hasSuffix("Your health is in balance."), "\(greeting.label)")
             // The visible sub-line has the date short and the sentence after a dot; neither is a second element.

@@ -40,7 +40,7 @@ import UIKit
                 }
                 .background(Theme.surface)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Good evening, Tim").font(.ryft(.title)).foregroundStyle(Theme.textPrimary)
+                    Text("Good evening, Alex").font(.ryft(.title)).foregroundStyle(Theme.textPrimary)
                     Text("Tuesday, 16 November · scored at 06:42").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
                 }
                 VStack(alignment: .leading, spacing: 10) {

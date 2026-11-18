@@ -859,14 +859,14 @@ struct RawHealthTests {
     @Test func eachSourceCountsItsNewerOfHeartRateAndSleep() {
         let garminHR = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t)
         let garminSleep = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t.addingTimeInterval(3_600))
-        let watchHR = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t.addingTimeInterval(600),
+        let watchHR = SourceFreshness(source: "Alex's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t.addingTimeInterval(600),
                                       deviceModel: "Watch")
-        let watchSleep = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t)
+        let watchSleep = SourceFreshness(source: "Alex's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t)
         // The iPhone writes no heart rate, only its sleep schedule's in-bed time.
-        let phoneSleep = SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A", newest: t.addingTimeInterval(7_200),
+        let phoneSleep = SourceFreshness(source: "Alex's iPhone", bundleID: "com.apple.health.3F0A", newest: t.addingTimeInterval(7_200),
                                          deviceModel: "iPhone")
         let merged = SourceFreshness.newestPerSource([[garminHR, watchHR], [garminSleep, watchSleep, phoneSleep]])
-        #expect(merged.map(\.source) == ["Connect", "Tim's Apple Watch", "Tim's iPhone"])
+        #expect(merged.map(\.source) == ["Connect", "Alex's Apple Watch", "Alex's iPhone"])
         #expect(merged[0].newest == garminSleep.newest) // sleep is newer: an app that only wrote the night counts
         #expect(merged[1].newest == watchHR.newest && merged[1].deviceModel == "Watch") // the model from either
         #expect(merged[2].isPhone && !merged[1].isPhone && !merged[0].isPhone)
@@ -891,7 +891,7 @@ struct RawHealthTests {
                          sourceBundleId: bundle)
         }
         let night = try #require(RawNight.from([segment(0, 400, "Connect", "com.garmin.connect.mobile"),
-                                                segment(10, 100, "Tim's iPhone", "com.apple.health.3F0A")]))
+                                                segment(10, 100, "Alex's iPhone", "com.apple.health.3F0A")]))
         #expect(night.source == "Connect" && night.bundleID == "com.garmin.connect.mobile")
         #expect(night.ref == SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil))
     }
@@ -1552,7 +1552,7 @@ struct ReportProblemTests {
         for line in lines.dropFirst() {
             #expect(line.wholeMatch(of: /[a-z_]+ [a-z_]+(?: [a-z0-9_]+=[a-z_]+)+/) != nil, "\(line)")
         }
-        for leak in ["Connect", "com.", "iPhone", "Tim", ":"] { #expect(!check.contains(leak), "\(leak)") }
+        for leak in ["Connect", "com.", "iPhone", "Alex", ":"] { #expect(!check.contains(leak), "\(leak)") }
         model.includeDiagnostics = false
         #expect(model.payload().diagnostics == nil)
     }
@@ -2208,7 +2208,7 @@ struct ReportProblemTests {
         #expect(!syncText.contains("422") && !syncText.contains("sample out of range")) // free text stays home
         let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
         #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
-        #expect(!sent.contains("Connect") && !sent.contains("com.garmin") && !sent.contains("Tim's"))
+        #expect(!sent.contains("Connect") && !sent.contains("com.garmin") && !sent.contains("Alex's"))
         // Copy diagnostics carries the same codes on one line.
         let copied = profile.syncDetails.diagnostics
         #expect(copied.contains("sync check: checked \(DayFormat.string(from: env.clock.now())) · garmin needs_fix "))
@@ -2953,13 +2953,13 @@ struct DevicesAndDiagnosticsTests {
         var user = MockData.user
         user.sources = [
             UserSource(name: "Connect", bundleId: "com.garmin.connect.mobile", kinds: [.hr, .sleep, .steps], lastSeen: .now),
-            UserSource(name: "Tim's Apple Watch", bundleId: "com.apple.health.81E2", kinds: [.hrv], lastSeen: .now),
+            UserSource(name: "Alex's Apple Watch", bundleId: "com.apple.health.81E2", kinds: [.hrv], lastSeen: .now),
             UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep], lastSeen: .now),
         ]
         state.user = user
         let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
 
-        #expect(model.sources.map(\.name) == ["Garmin Connect", "Tim's Apple Watch", "Sleep Cycle"])
+        #expect(model.sources.map(\.name) == ["Garmin Connect", "Alex's Apple Watch", "Sleep Cycle"])
         #expect(model.sources.map(\.known) == [true, true, false]) // Apple's own devices aren't "unknown"
         let kinds = ["heart rate", "sleep", "steps"].formatted(.list(type: .and))
         #expect(model.sources.first?.kinds == "H" + kinds.dropFirst())
@@ -3171,7 +3171,7 @@ struct TrackerSetupScreensTests {
         let store = TrackerSelectionStore(env: env)
         let garmin = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: .now)
         let oura = SourceFreshness(source: "Oura", bundleID: "com.ouraring.oura", newest: .now)
-        let phone = SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A", newest: .now,
+        let phone = SourceFreshness(source: "Alex's iPhone", bundleID: "com.apple.health.3F0A", newest: .now,
                                     deviceModel: "iPhone")
         let unknown = SourceFreshness(source: "Sleep Cycle", bundleID: "com.lexwarelabs.goodmorning", newest: .now)
         let all = [garmin, oura, phone, unknown]
@@ -3192,7 +3192,7 @@ struct TrackerSetupScreensTests {
         let store = TrackerSelectionStore(env: env)
         let now = Date.now
         // The Apple Watch chosen, its source without a model: the night hint keeps its candidate.
-        let watch = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.81E2",
+        let watch = SourceFreshness(source: "Alex's Apple Watch", bundleID: "com.apple.health.81E2",
                                     newest: now.addingTimeInterval(-9 * 3_600))
         store.set(["apple_watch"])
         #expect(store.worn([watch]) == [watch])
