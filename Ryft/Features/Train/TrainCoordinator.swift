@@ -46,8 +46,9 @@ final class TrainCoordinator {
         self.clock = clock
         self.liveActivity = liveActivity ?? (liveActivities ? RestActivityController.shared : nil)
         active = self.sync.store.activeSession()
-        // An activity left from a workout that's over (or an older version) goes.
-        liveActivity?.endAll(except: active?.id)
+        // An activity left from a workout that's over (or an older version) goes. `self.`: the parameter of the same
+        // name is nil in the app, where the stored property holds the system's controller.
+        self.liveActivity?.endAll(except: active?.id)
     }
 
     // MARK: quick start
