@@ -101,14 +101,12 @@ struct RyftApp: App {
                                 settled: { [repository = state.repository] in
                                     await repository.settledBeforeCompletion()
                                 },
-                                compact: { [repository = state.repository, activities = state.env.activities,
-                                            auth = state.env.auth, train = TrainCoordinator.shared,
-                                            bedtime = screens.bedtime] in
+                                compact: { [repository = state.repository, env = state.env, train = TrainCoordinator.shared, bedtime = screens.bedtime] in
                                     await repository.compact()
                                     // A background-only run reaches an owed wipe here.
-                                    await auth.finishOwedWipe(train: train, bedtime: bedtime)
+                                    await env.auth.finishOwedWipe(train: train, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
-                                    activities.deleteExpiredParked()
+                                    env.activities.deleteExpiredParked()
                                 })
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
