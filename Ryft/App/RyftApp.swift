@@ -132,7 +132,6 @@ struct RyftApp: App {
         LaunchInterruptions.post = { [launch] in launch.send(.interrupted($0)) }
         // "Open in" never interrupts a workout: the file waits (ui.md E7).
         screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
-        Self.configureAppearance()
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
         // The coordinator already holds the last run's session: it lets go of it, or a banner reads a deleted row.
@@ -429,31 +428,6 @@ struct RyftApp: App {
         let healthIntroDone: Bool
         let inviteBlocked: Bool
     }
-
-    // MARK: appearance
-
-    /// Inactive tab items in TextPrimary at 50 %.
-    private static func configureAppearance() {
-        let inactive = UIColor { traits in
-            let base = UIColor(named: "TextPrimary") ?? .label
-            return base.resolvedColor(with: traits).withAlphaComponent(0.5)
-        }
-        UITabBarItem.appearance().setTitleTextAttributes([.foregroundColor: inactive], for: .normal)
-        UITabBar.appearance().unselectedItemTintColor = inactive
-        if #unavailable(iOS 26) {
-            // Pre-Liquid-Glass: an opaque Graphite bar like the board.
-            let bar = UITabBarAppearance()
-            bar.configureWithOpaqueBackground()
-            bar.backgroundColor = UIColor(named: "Background")
-            bar.shadowColor = UIColor(named: "Separator")
-            for layout in [bar.stackedLayoutAppearance, bar.inlineLayoutAppearance, bar.compactInlineLayoutAppearance] {
-                layout.normal.iconColor = inactive
-                layout.normal.titleTextAttributes = [.foregroundColor: inactive]
-            }
-            UITabBar.appearance().standardAppearance = bar
-            UITabBar.appearance().scrollEdgeAppearance = bar
-        }
-    }
 }
 
 /// Welcome until there's a session (or demo data); then what onboarding still needs
@@ -582,7 +556,7 @@ struct RootView: View {
     }
 
     private var tabBar: some View {
-        tabView
+        RootTabs()
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
             .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0) }
             .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet() }
@@ -595,25 +569,40 @@ struct RootView: View {
                     .interactiveDismissDisabled(!onboarding.canDefer(step))
             }
     }
+}
 
-    private var tabView: some View {
+/// The five tabs (design.md §P5-2): still a `TabView`, so each tab keeps its stack and scroll while another shows, but its
+/// system bar is hidden and `RyftTabBar` is drawn over the bottom edge, each tab ending at its top (`ryftTab()`). Tapping
+/// the selected tab bumps its stack ID (`AppState.reselect`): the tab is rebuilt at its root, scrolled to the top. Its own
+/// view so the hosted tests and shots draw the same host as the app.
+struct RootTabs: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
         TabView(selection: Bindable(state).selectedTab) {
-            TodayView()
-                .tabItem { Label("Today", systemImage: "house.fill") }
-                .tag(AppTab.today)
-            SleepView()
-                .tabItem { Label("Sleep", systemImage: "moon.fill") }
-                .tag(AppTab.sleep)
-            StrainView()
-                .tabItem { Label("Strain", systemImage: "bolt.fill") }
-                .tag(AppTab.strain)
-            InsightsView()
-                .tabItem { Label("Insights", systemImage: "chart.bar.fill") }
-                .tag(AppTab.insights)
-            ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.fill") }
-                .tag(AppTab.profile)
+            tab(.today) { TodayView() }
+            tab(.sleep) { SleepView() }
+            tab(.strain) { StrainView() }
+            tab(.insights) { InsightsView() }
+            tab(.profile) { ProfileView() }
         }
+        .ryftTabBar(RyftTabBar(items: RyftTabBar.appTabs, selection: state.selectedTab.rawValue,
+                               select: { state.selectedTab = AppTab(rawValue: $0) ?? state.selectedTab },
+                               reselect: { if let tab = AppTab(rawValue: $0) { state.reselect(tab) } }))
+    }
+
+    private func tab<Content: View>(_ tab: AppTab, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .id(state.stackID(for: tab))
+            .ryftTab()
+            .tag(tab)
+    }
+}
+
+extension RyftTabBar {
+    /// The app's five tabs, in `AppTab` order, identified `tab.<rawValue>`.
+    static var appTabs: [Item] {
+        AppTab.allCases.map { Item(tab: $0.rawValue, title: $0.title, identifier: $0.identifier) }
     }
 }
 
@@ -931,4 +920,12 @@ struct SplashView: View {
 
 #Preview("App · dark") {
     RootView().previewEnvironment()
+}
+
+#Preview("Tabs · Today") {
+    RootTabs().previewEnvironment()
+}
+
+#Preview("Tabs · Today · AX3") {
+    RootTabs().previewEnvironment().environment(\.dynamicTypeSize, .accessibility3)
 }

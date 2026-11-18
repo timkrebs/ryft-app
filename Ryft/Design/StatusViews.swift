@@ -1,8 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// Common screen frame: RYFT header at the top, scrolling content, Graphite
-/// background, pull-to-refresh (sync + reload).
+/// A tab's root page: the RYFT header at the top (or the screen's own), scrolling content on the screen colour,
+/// pull-to-refresh (sync + reload), no navigation bar.
+///
+/// The tab bar (`RyftTabBar`, design.md §P5-2) is not over the page: the tab ends at the bar's top (`ryftTab()`), so the
+/// page's viewport does too, and nothing sits under the bar at the end of the scroll; the 32 pt under the content are the
+/// air under the last card, not room for the bar. A re-tap on the selected tab rebuilds the tab (`AppState.reselect`), so
+/// the page starts at the top again: nothing to expose or wire here.
 struct ScreenScaffold<Content: View>: View {
     @Environment(ScreenModels.self) private var screens
     /// The centred `RyftHeader` above the content. Today and Sleep in Nocturne draw their own `ScreenHeader` as the

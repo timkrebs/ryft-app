@@ -11,12 +11,30 @@ import os
 
 enum AppTab: String, CaseIterable, Hashable {
     case today, sleep, strain, insights, profile
+
+    /// The tab's name in the tab bar and for VoiceOver (`RyftTabBar`).
+    var title: LocalizedStringResource {
+        switch self {
+        case .today: return LocalizedStringResource("Today", comment: "Tab bar: the Today tab.")
+        case .sleep: return LocalizedStringResource("Sleep", comment: "Tab bar: the Sleep tab.")
+        case .strain: return LocalizedStringResource("Strain", comment: "Tab bar: the Strain tab.")
+        case .insights: return LocalizedStringResource("Insights", comment: "Tab bar: the Insights tab.")
+        case .profile: return LocalizedStringResource("Profile", comment: "Tab bar: the Profile tab.")
+        }
+    }
+
+    /// The tab bar item's handle for UI tests: `tab.today`, `tab.sleep`, …
+    var identifier: String { "tab.\(rawValue)" }
 }
 
 @MainActor
 @Observable
 final class AppState {
+    /// The tab on screen; the single source for the tab bar, deep links and `-RyftTab`.
     var selectedTab: AppTab
+    /// Each tab's stack identity (`RootTabs` puts it on the tab's root as `.id`). `reselect` bumps one: that tab's stack
+    /// is rebuilt at its root with its scroll at the top, which is what tapping the selected tab did in the system bar.
+    private(set) var tabStackIDs: [AppTab: Int] = [:]
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
     var syncStatus: SyncStatus? {
@@ -53,6 +71,18 @@ final class AppState {
         env.reads.onChange = { [weak self] change in self?.readsChanged(change) }
         self.repository.onDaysChanged = { [weak self] in self?.readsChanged(.record) }
         readsChanged(.record)
+    }
+
+    // MARK: tabs
+
+    /// `tab`'s stack identity: 0 until its first `reselect`.
+    func stackID(for tab: AppTab) -> Int { tabStackIDs[tab, default: 0] }
+
+    /// The selected tab tapped again (design.md §P5-2): its stack goes back to the root and its scroll to the top. Only
+    /// `tab`'s identity changes, so the other tabs keep their stacks and scroll positions. The models live in
+    /// `ScreenModels`, so the rebuild drops nothing but the views' own state (a pushed path, an open dialog's flag).
+    func reselect(_ tab: AppTab) {
+        tabStackIDs[tab, default: 0] += 1
     }
 
     private var now: Date { env.clock.now() }
