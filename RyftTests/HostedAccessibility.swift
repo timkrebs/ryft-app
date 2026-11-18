@@ -235,9 +235,9 @@ final class HostedWindow {
     // MARK: waiting
 
     /// Waits until `condition` holds, polling the run loop (SwiftUI lays out between turns; a window gives no event).
-    /// `timeout` is how long it takes when nothing stalls; a slow runner gets the same number of polls (`HostedSettling`).
+    /// `timeout` is how long it may poll when nothing stalls; a slow runner gets the same number of polls (`HostedSettling`).
     func wait(_ what: String, timeout: Duration = .seconds(5), until condition: () -> Bool) async throws {
-        try await HostedSettling.until(what, polls: Int(timeout / .milliseconds(25)), condition: condition)
+        try await HostedSettling.until(what, polls: Int(timeout / HostedSettling.pollInterval), condition: condition)
     }
 
     /// Waits until the layout stopped moving: every frame and the page's scroll offset the same for 500 ms (twice a scroll's

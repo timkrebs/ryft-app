@@ -18,58 +18,64 @@ enum HostedSettling {
 
     /// The time between two samples when nothing stalls.
     static let interval = Duration.milliseconds(50)
-    /// Samples in a row that must agree. Each one came after the main actor had run its turn, so a stall in the middle of an
-    /// animation shows as a change, not as a quiet layout.
+    /// Comparisons in a row that must find the sample equal to the one before: 5 of them, so 6 equal samples counting the first.
+    /// Each one came after the main actor had run its turn, so a stall in the middle of an animation shows as a change, not as
+    /// a quiet layout.
     static let quietSamples = 5
     /// How long the layout must have stood still: twice a scroll's 250 ms animation. When nothing stalls this is what
     /// decides (about 10 samples), on a stalled runner the samples do.
     static let quietFor = Duration.milliseconds(500)
-    /// The most a wait may take whatever the runner does: half a unit test's 60 s limit, so the failure names its cause
-    /// instead of the test timing out without a word.
+    /// The most one call may take whatever the runner does, per call and not per test: a test that waits several times can still
+    /// use more than this in all. Half a unit test's 60 s limit, so a single wait fails naming its cause instead of the test
+    /// timing out without a word.
     static let wallLimit = Duration.seconds(30)
+    /// The time between two polls of `wait` when nothing stalls.
+    static let pollInterval = Duration.milliseconds(25)
 
     /// Samples until `quietSamples` in a row are equal and `quietFor` has passed since the last change. Throws
     /// `HostedWindow.HostError.timeout` naming what moved when more than `movingSamples` samples differed from the one before,
-    /// or when `wallLimit` passed first.
+    /// or when `wallLimit` passed first. `now` is the clock, injectable so a test can move time by hand.
     @MainActor
     static func untilQuiet(movingSamples: Int, quietFor: Duration = HostedSettling.quietFor, wallLimit: Duration = HostedSettling.wallLimit,
-                           sample: () -> [Entry],
+                           now: () -> ContinuousClock.Instant = { .now }, sample: () -> [Entry],
                            pause: () async throws -> Void = { try await Task.sleep(for: HostedSettling.interval) }) async throws {
-        let start = ContinuousClock.now
+        let start = now()
         var last = sample(), quiet = 0, moving = 0, taken = 0, lastMove = "", lastChange = start
-        while quiet < quietSamples || ContinuousClock.now - lastChange < quietFor {
-            if moving > movingSamples || ContinuousClock.now - start >= wallLimit {
-                let seconds = seconds(ContinuousClock.now - start)
+        while quiet < quietSamples || now() - lastChange < quietFor {
+            if moving > movingSamples || now() - start >= wallLimit {
+                let elapsed = seconds(now() - start)
                 let why = moving > movingSamples
                     ? "still moving, \(moving) changing samples of \(taken)"
-                    : "ran out of time, \(taken) samples in \(seconds) s and the last \(quiet) quiet"
+                    : "ran out of time, \(taken) samples in \(elapsed) s and the last \(quiet) quiet"
                 throw HostedWindow.HostError.timeout("the layout to settle (\(why); last change: \(lastMove.isEmpty ? "none" : lastMove))")
             }
             try await pause()
-            let now = sample()
+            let current = sample()
             taken += 1
-            if now == last {
+            if current == last {
                 quiet += 1
             } else {
                 quiet = 0
                 moving += 1
-                lastChange = ContinuousClock.now
-                lastMove = describe(from: last, to: now)
+                lastChange = now()
+                lastMove = describe(from: last, to: current)
             }
-            last = now
+            last = current
         }
     }
 
-    /// Polls `condition` until it holds. Gives up after `polls` checks that found it false, or when `wallLimit` passed first:
-    /// a slow runner makes fewer polls in the same time, and the condition may need every one of them.
+    /// Polls `condition` until it holds. Gives up when `polls` pauses have passed without it holding (`polls + 1` checks, the first
+    /// one before any pause) or when `wallLimit` passed first: a slow runner makes fewer polls in the same time, and the
+    /// condition may need every one of them. `now` is the clock, injectable like `untilQuiet`'s.
     @MainActor
-    static func until(_ what: String, polls: Int, wallLimit: Duration = HostedSettling.wallLimit, condition: () -> Bool,
-                      pause: () async throws -> Void = { try await Task.sleep(for: .milliseconds(25)) }) async throws {
-        let start = ContinuousClock.now
+    static func until(_ what: String, polls: Int, wallLimit: Duration = HostedSettling.wallLimit,
+                      now: () -> ContinuousClock.Instant = { .now }, condition: () -> Bool,
+                      pause: () async throws -> Void = { try await Task.sleep(for: HostedSettling.pollInterval) }) async throws {
+        let start = now()
         var taken = 0
         while !condition() {
-            if taken >= polls || ContinuousClock.now - start >= wallLimit {
-                throw HostedWindow.HostError.timeout("\(what) (\(taken) polls in \(seconds(ContinuousClock.now - start)) s)")
+            if taken >= polls || now() - start >= wallLimit {
+                throw HostedWindow.HostError.timeout("\(what) (\(taken) polls in \(seconds(now() - start)) s)")
             }
             try await pause()
             taken += 1
