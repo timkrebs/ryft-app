@@ -51,6 +51,7 @@ struct DebugComponentCatalog: View {
                     section("Nocturne · header") { nocturneHeaders }
                     section("Nocturne · controls") { NocturneControlsCatalog() }
                     section("Nocturne · structures") { NocturneStructuresCatalog() }
+                    section("Nocturne · foundation") { NocturneFoundationCatalog() }
                 }
                 .padding(Theme.Metrics.screenPadding)
             }
