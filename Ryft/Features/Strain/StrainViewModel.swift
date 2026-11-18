@@ -1,9 +1,10 @@
 import Foundation
 import Observation
 
-/// Strain for the selected day: the week strip, the gauge with its 7-day
-/// comparison, movement, zones and the day's activities (workouts merged with
-/// logged sessions). "Today" comes from the environment's clock.
+/// Strain for the selected day (Nocturne, design.md §P5-3): the week strip, the board (numeral, ruler, zones, tiles) with
+/// its 7-day comparison, and the day's activities (workouts merged with logged sessions, or My Day's rows behind
+/// `today.my_day`). "Today" comes from the environment's clock. What the screen shows is decided here and in `StrainBoard`,
+/// so the view only lays it out.
 @MainActor
 @Observable
 final class StrainViewModel {
@@ -14,7 +15,15 @@ final class StrainViewModel {
     /// A deep link's Train screen; the view pushes it and clears it.
     var requestedRoute: TrainRoute?
     private(set) var isLoading = false
-    private(set) var error: String?
+    /// The day couldn't load and nothing is cached: the app's calm sentence, its Details and its button (never the system's
+    /// error text, R3-N3).
+    private(set) var failure: SleepLoadFailure?
+    /// The failure's sentence, nil without one.
+    var error: String? { failure?.message }
+    /// The day whose load finished (with or without data): before it, an uncached day shows its outlines, not "no strain".
+    private var loadedDay: Date?
+    /// A strip tap changed the day: once it has loaded, VoiceOver hears the new day (`takeStepAnnouncement`).
+    private var announcesStep = false
 
     /// One day of the week strip (`DateStrip`, shared with My Day).
     typealias StripDay = DateStrip.Day
@@ -27,6 +36,8 @@ final class StrainViewModel {
 
     private var calendar: Calendar { .current }
     private var today: Date { calendar.startOfDay(for: state.env.clock.now()) }
+    /// The strip's first day: today and the six before it.
+    private var oldestDay: Date { DayFormat.shift(today, days: -(DateStrip.length - 1)) }
 
     /// The selected day as cached (SwiftData); `load()` revalidates it.
     var detail: DayDetail? { state.cachedDayDetail(for: date) }
@@ -34,27 +45,29 @@ final class StrainViewModel {
     var isToday: Bool { calendar.isDate(date, inSameDayAs: today) }
     /// Strength training behind `train.enabled`.
     var showsTrain: Bool { state.env.flags.isOn(.trainEnabled) }
+    /// The Train section: today only (§P5-3.7 "Another day").
+    var showsTrainSection: Bool { isToday && showsTrain }
+    /// "Today", "Yesterday", "Mon, 16 Nov": the header's spoken day and the step announcement.
     var title: String { Fmt.dayTitle(date, today: today) }
     var hasNoHealthData: Bool { state.hasNoHealthData }
+    var isDemo: Bool { state.isDemo }
+    /// The hero numeral's style (Profile's "Hero numbers": Dots or Thin).
+    var numeralStyle: DotNumeral.Style { state.env.settings.heroNumerals.style }
 
     private var score: DailyScore? { detail?.score ?? state.score(for: date) }
     var strain: Double? { score?.strain }
 
-    /// Against the mean of the seven days before the selected one.
-    var strainDelta: MetricDelta? {
-        let prior = (1...7).compactMap { state.score(for: DayFormat.shift(date, days: -$0))?.strain }
-        return .against(strain, prior: prior)
+    /// The strains of the seven days before the selected one, those that are cached.
+    private var priorStrains: [Double] {
+        (1...7).compactMap { state.score(for: DayFormat.shift(date, days: -$0))?.strain }
     }
+
+    /// Against the mean of the seven days before the selected one; only with 3 or more of them (D5-4).
+    var strainDelta: MetricDelta? { StrainHero.delta(strain, prior: priorStrains) }
 
     var week: [StripDay] {
         DateStrip.week(endingAt: today, selected: date) { state.score(for: $0) }
     }
-
-    /// `DayDetail.strain`, else the score.
-    var stepsText: String { Fmt.integer((detail?.strain?.steps ?? score?.steps).map(Double.init)) }
-    var activeKcalText: String { Fmt.integer((detail?.strain?.activeKcal ?? score?.activeKcal).map(Double.init)) }
-    var zoneMinutes: [Double]? { detail?.strain?.zoneMin.map(Double.init) }
-    var trimpText: String? { detail?.strain.map { "TRIMP \($0.trimp)" } }
 
     /// "Cardio 9.2 · Strength 4.1": the day's strain split in proportion to the
     /// heart-rate TRIMP and the strength sessions' muscular TRIMP (the platform
@@ -74,6 +87,25 @@ final class StrainViewModel {
             String(localized: "Cardio \(Fmt.strain($0.cardio)) · Strength \(Fmt.strain($0.strength))")
         }
     }
+
+    /// Nothing cached for the day and its load hasn't answered yet (running, or not started: the first frame).
+    private var awaitsDay: Bool {
+        detail == nil && state.hasDataSource && (isLoading || loadedDay != date)
+    }
+
+    /// The board for the selected day (§P5-3.1, §P5-3.7).
+    var board: StrainBoard {
+        StrainBoard(detail: detail, score: score, prior: priorStrains, split: strainSplitText, isLoading: awaitsDay,
+                    failure: failure)
+    }
+
+    /// The refresh card or the one-line status under the strip (§P5-3.7).
+    var status: StrainStatus? {
+        StrainStatus.decide(issue: state.refreshIssue, isOnline: state.env.connectivity.isOnline, isDemo: state.isDemo,
+                            hasDataSource: state.hasDataSource, hasCachedDay: detail != nil, staleSince: state.staleSince)
+    }
+
+    // MARK: the list
 
     /// The list is My Day's rows without the night (`today.my_day`, ADR 0006): RYFT's activities show too.
     var showsMyDayList: Bool { state.env.flags.isOn(.todayMyDay) }
@@ -108,9 +140,47 @@ final class StrainViewModel {
         return items.sorted { $0.start < $1.start }
     }
 
-    func select(_ day: Date) {
-        date = calendar.startOfDay(for: day)
+    /// The rows Strain shows (§P5-3.6): My Day's behind `today.my_day`, else the workouts merged with their sessions; one
+    /// row look for every kind.
+    func rows(locale: Locale = .autoupdatingCurrent) -> [StrainRow] {
+        if showsMyDayList {
+            let day = date
+            return dayItems.compactMap { item in
+                StrainRow(item, day: day, workout: { [self] in workout($0) }, locale: locale)
+            }
+        }
+        return activities.map { StrainRow($0, locale: locale) }
     }
+
+    // MARK: selection
+
+    /// Shows `day`, kept within the strip's week (today and the six days before).
+    func select(_ day: Date) {
+        date = min(max(calendar.startOfDay(for: day), oldestDay), today)
+    }
+
+    /// A strip tap: shows the day, and announces it once it has loaded.
+    func step(to day: Date) {
+        let before = date
+        select(day)
+        if date != before { announcesStep = true }
+    }
+
+    /// "Yesterday. Strain 9.8 of 21"; "Mon, 16 Nov. No strain recorded for this day."
+    var stepAnnouncement: String {
+        let board = board
+        if let failure = board.failure { return "\(title). \(failure.message)" }
+        return "\(title). \(board.hero.numeralLabel ?? board.hero.caption)"
+    }
+
+    /// The announcement a strip tap asked for, once; nil otherwise.
+    func takeStepAnnouncement() -> String? {
+        guard announcesStep else { return nil }
+        announcesStep = false
+        return stepAnnouncement
+    }
+
+    // MARK: loading
 
     private func refreshActivities() async {
         guard showsMyDayList else { return }
@@ -126,83 +196,110 @@ final class StrainViewModel {
 
     /// Revalidates the selected day (no request when it's cached and fresh).
     func load() async {
-        error = nil
+        failure = nil
         guard state.hasDataSource else { return }
+        let day = date
         isLoading = detail == nil
         defer { isLoading = false }
         // My Day's list needs the day's activities as well, side by side (cached and fresh: nothing is sent).
         async let activities: Void = refreshActivities()
         do {
-            _ = try await state.dayDetail(for: date)
+            _ = try await state.dayDetail(for: day)
             await activities
             await nameTrackers()
+            loadedDay = day
         } catch where error.isCancellation {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return
         } catch {
-            if detail == nil { self.error = error.localizedDescription }
+            loadedDay = day
+            if detail == nil {
+                failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
+                                           isDemo: state.isDemo, at: state.env.clock.now())
+            }
         }
+    }
+
+    /// A signed-out failure's "Sign in": Today's (`AppState.signInAgain`).
+    func signIn() async {
+        await state.signInAgain()
     }
 }
 
-/// One workout: its stats, heart-rate curve and zones (`GET /v1/workouts/{id}`).
-@MainActor
-@Observable
-final class WorkoutDetailViewModel {
-    let workout: Workout
-    private let state: AppState
-    private(set) var loaded = false
+/// What Strain says about the data's freshness, under the header (§P5-3.7): Today's refresh card when a refresh needs the
+/// user (signed out, an outdated app, failures with old data), else a one-line status while the day's cache is shown
+/// offline or stale.
+enum StrainStatus: Equatable {
+    case issue(RefreshIssue)
+    case line(SyncLine)
 
-    struct Stat: Identifiable, Equatable {
-        let title: String
-        let value: String
-        var id: String { title }
+    static func decide(issue: RefreshIssue?, isOnline: Bool, isDemo: Bool, hasDataSource: Bool, hasCachedDay: Bool,
+                       staleSince: Date?) -> StrainStatus? {
+        if let issue { return .issue(issue) }
+        guard hasDataSource, !isDemo else { return nil }
+        // Offline with nothing cached is the board's own failure sentence; with the day cached, the line says why it
+        // doesn't change.
+        if !isOnline { return hasCachedDay ? .line(.offline) : nil }
+        return staleSince.map { .line(.stale(since: $0)) }
+    }
+}
+
+/// One row of Strain's list: what it says, where it goes and how UI tests find it.
+struct StrainRow: Identifiable, Equatable {
+    enum Destination: Equatable {
+        case workout(Workout)
+        case session(UUID)
+        case activity(ActivityRoute)
+        /// A My Day item without a detail of its own: the same row, not a link.
+        case none
     }
 
-    init(workout: Workout, state: AppState) {
-        self.workout = workout
-        self.state = state
-    }
+    /// "workout.<uuid>", "session.<uuid>", "activity.<uuid>": the same in both list modes.
+    let id: String
+    let content: ActivityListRow.Content
+    let destination: Destination
 
-    var title: String { ActivityStyle.name(for: workout.activity) }
-    var icon: String { ActivityStyle.icon(for: workout.activity) }
-    /// "Monday, 19 Oct · 06:40–07:32".
-    var when: String {
-        "\(workout.start.formatted(.dateTime.weekday(.wide).day().month())) · \(Fmt.time(workout.start))–\(Fmt.time(workout.end))"
-    }
+    /// `strain.row.workout.<uuid>`.
+    var identifier: String { "strain.row.\(id)" }
 
-    var stats: [Stat] {
-        var out = [
-            Stat(title: String(localized: "Strain"), value: Fmt.strain(workout.strain)),
-            Stat(title: String(localized: "Duration"), value: Fmt.duration(seconds: workout.duration)),
-            Stat(title: String(localized: "TRIMP"), value: Fmt.integer(detail?.trimp)),
-            Stat(title: String(localized: "Avg HR"), value: Fmt.integer(workout.avgHr)),
-            Stat(title: String(localized: "Max HR"), value: Fmt.integer(workout.maxHr)),
-            Stat(title: String(localized: "Calories"), value: Fmt.integer(workout.energyKcal)),
-        ]
-        if workout.distanceM != nil {
-            out.append(Stat(title: String(localized: "Distance"), value: Fmt.distance(meters: workout.distanceM)))
+    /// What the row opens, for VoiceOver; nil when it opens nothing.
+    var hint: String? {
+        switch destination {
+        case .workout: return String(localized: "Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail.")
+        case .session: return String(localized: "Opens the session", comment: "VoiceOver: a My Day row opens the Train session.")
+        case .activity: return String(localized: "Opens the activity", comment: "VoiceOver hint: a My Day row opens the activity's detail.")
+        case .none: return nil
         }
-        return out
     }
 
-    var averageText: String? { workout.avgHr.map { String(localized: "avg \(Int($0.rounded())) bpm") } }
-    var durationText: String { Fmt.duration(seconds: workout.duration) }
-    var heartRate: [HRPoint]? {
-        guard let hr = detail?.hr, hr.count > 1 else { return nil }
-        return hr
-    }
-    /// Cached curve and zones (SwiftData), once fetched.
-    var detail: WorkoutDetail? { state.cachedWorkoutDetail(workout) }
-    var isLoading: Bool { detail == nil && !loaded }
-    var zones: [Double]? {
-        guard let z = detail?.zoneMin, z.count == 5 else { return nil }
-        return z
+    /// The list without `today.my_day`.
+    init(_ item: ActivityItem, locale: Locale) {
+        switch item {
+        case .workout(let w, let session):
+            id = "workout.\(w.id.uuidString)"
+            content = StrainRows.workout(w, session: session, locale: locale)
+            destination = .workout(w)
+        case .session(let s):
+            id = "session.\(s.id.uuidString)"
+            content = StrainRows.session(s, locale: locale)
+            destination = .session(s.id)
+        }
     }
 
-    /// Without a detail endpoint answer, the list's fields stand in.
-    func load() async {
-        _ = await state.workoutDetail(workout)
-        loaded = true
+    /// A My Day row; nil for a workout the day no longer holds (and for the night, which Strain doesn't list).
+    init?(_ item: MyDayItem, day: Date, workout: (UUID) -> Workout?, locale: Locale) {
+        switch item.kind {
+        case .workout(let wid):
+            guard let w = workout(wid) else { return nil }
+            destination = .workout(w)
+        case .session(let sid):
+            destination = .session(sid)
+        case .activity(let aid):
+            destination = item.opensDetail ? .activity(ActivityRoute(id: aid, day: day)) : .none
+        case .sleep, .missingSleep:
+            return nil
+        }
+        id = item.id
+        content = StrainRows.myDay(item, locale: locale)
     }
 }
