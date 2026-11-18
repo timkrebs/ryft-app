@@ -172,7 +172,8 @@ struct SleepHypnogramTile: View {
     }
 }
 
-/// The hypnogram's slot while there is no night to draw (loading, no night): a `surface` outline, 168 high, its title.
+/// The hypnogram's slot while there is no night to draw (loading, no night): the placeholder outline (`PlaceholderOutline`),
+/// 168 high, its title.
 struct SleepHypnogramOutline: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: SleepLayout.hypnogramRadius, style: .continuous)
@@ -180,10 +181,7 @@ struct SleepHypnogramOutline: View {
             .ryftLabelStyle(Theme.textTertiary)
             .padding(GlowTileSpec.padding(for: .hypnogram))
             .frame(maxWidth: .infinity, minHeight: SleepLayout.hypnogramHeight, alignment: .topLeading)
-            .background {
-                shape.fill(Theme.surface)
-                shape.strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline)
-            }
+            .background { PlaceholderOutline(shape) }
             .accessibilityHidden(true)
     }
 }

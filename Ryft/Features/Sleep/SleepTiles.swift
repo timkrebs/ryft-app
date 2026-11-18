@@ -229,8 +229,11 @@ struct SleepNeutralTile: View {
         .padding(padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            shape.fill(Theme.surface)
-            if isOutline { shape.strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline) }
+            if isOutline {
+                PlaceholderOutline(shape)
+            } else {
+                shape.fill(Theme.surface)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(tile.title))

@@ -135,6 +135,12 @@ enum Theme {
         /// An outline that carries a state, where a hairline would be too faint: the toggle's off track
         /// (`RyftToggleStyle`), a selected row's or chip's ring. Hue never carries the state; this line does.
         static let controlOutline: CGFloat = 1.5
+
+        // MARK: T5.0-B
+
+        /// The least height of a row in a grouped card (`GroupedRow`, design.md §P5-6.1, PR 6 A's `listRowHeight`): 46. A row
+        /// with a second line or a leading icon disc grows with them.
+        static let listRowHeight: CGFloat = 46
     }
 
     // MARK: motion
