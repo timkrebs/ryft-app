@@ -235,28 +235,20 @@ final class HostedWindow {
     // MARK: waiting
 
     /// Waits until `condition` holds, polling the run loop (SwiftUI lays out between turns; a window gives no event).
+    /// `timeout` is how long it takes when nothing stalls; a slow runner gets the same number of polls (`HostedSettling`).
     func wait(_ what: String, timeout: Duration = .seconds(5), until condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            guard ContinuousClock.now < deadline else { throw HostError.timeout(what) }
-            try await Task.sleep(for: .milliseconds(25))
-        }
+        try await HostedSettling.until(what, polls: Int(timeout / .milliseconds(25)), condition: condition)
     }
 
-    /// Waits until the layout stopped moving: every frame and the page's scroll offset the same for 500 ms, twice a scroll's
-    /// 250 ms animation, so a runner that stalls in the middle of one doesn't read as quiet.
+    /// Waits until the layout stopped moving: every frame and the page's scroll offset the same for 500 ms (twice a scroll's
+    /// 250 ms animation) and for 5 samples, so a runner that stalls in the middle of one doesn't read as quiet. `timeout` is
+    /// how long the layout may keep moving when nothing stalls; a slow runner takes fewer samples in the same time, not more
+    /// moving ones, so it gets as long as it needs up to `HostedSettling.wallLimit`. A layout that never rests fails naming
+    /// what moved.
     func settle(timeout: Duration = .seconds(6)) async throws {
-        func snapshot() -> String {
-            nodes().map { "\($0.label)@\($0.frame)" }.joined(separator: "|") + "|\(pageScrollView()?.contentOffset ?? .zero)"
-        }
-        var last = snapshot(), same = 0
-        let deadline = ContinuousClock.now + timeout
-        while same < 10 {
-            guard ContinuousClock.now < deadline else { throw HostError.timeout("the layout to settle") }
-            try await Task.sleep(for: .milliseconds(50))
-            let now = snapshot()
-            same = now == last ? same + 1 : 0
-            last = now
+        try await HostedSettling.untilQuiet(movingSamples: Int(timeout / HostedSettling.interval)) {
+            nodes().map { HostedSettling.Entry(label: $0.label, frame: "\($0.frame)") }
+                + [HostedSettling.Entry(label: "page scroll", frame: "\(pageScrollView()?.contentOffset ?? .zero)")]
         }
     }
 }
