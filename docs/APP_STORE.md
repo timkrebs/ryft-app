@@ -100,7 +100,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Dynamic Type: text styles everywhere; rings keep fixed sizes, and text never clips | ok (fixed) | `Typography.swift` (`relativeTo:`). Rendered at AX 3: the Today tiles truncated ("RECOV…"), so they now stack at accessibility sizes. German "Überspringen" on the rest timer no longer wraps |
 | Reduce Motion: rings, counters, the pulsing dot and the summary celebration | ok | `accessibilityReduceMotion` checks |
 | Standard navigation: tab bar, system back, pull to refresh, system share sheet | ok | `RootView`, `ScreenScaffold`, Export |
-| Localisation: English and German complete, no stale keys | ok (fixed) | `make lint` (`scripts/lint-strings.py`) over Localizable, InfoPlist and the widget catalogs: 151 problems → 0 |
+| Localisation: English complete (RYFT is English only), no stale keys | ok (fixed) | `make lint` (`scripts/lint-strings.py`) over Localizable, InfoPlist and the widget catalogs: 151 problems → 0 |
 | Accessibility Nutrition Label answers | — | see below |
 
 ### Accessibility Nutrition Label (to enter in App Store Connect)
@@ -168,7 +168,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    `<TEAMID>.dev.timkrebs.ryft` on `/auth/*`. Then add `https://ryftapp.de/auth/callback`
    to Supabase's redirect URLs and switch `SupabaseConfig.redirectURL`. `ryft://` stays as
    the fallback.
-9. **Screenshots.** 6.9" and 6.5", dark theme, English and German, generated from the demo
+9. **Screenshots.** 6.9" and 6.5", dark theme, English, generated from the demo
    account (`scripts/screenshots.sh`). Show the app in use, not the login (2.3.3).
    Promotional text, keywords, description: say that it integrates with Apple Health (2.5.1).
 10. **App Review notes.**

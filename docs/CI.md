@@ -81,9 +81,9 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     created fresh on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
     the newest runtime's first regular iPhone, never "iPhone Duo") and deleted at the end of the job with its clones. A fresh device has no paired Apple
     Watch: parallel testing clones the device, and cloning a paired one fails on runner
-    images without the watchOS runtime. It is booted before the tests start. The iOS 18.6 gate (ADR 0021) uses the
-    explicit destination `platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`, because `scripts/ci-simulator.sh`
-    always takes the newest runtime.
+    images without the watchOS runtime. It is booted before the tests start. CI runs only this newest runtime; the iOS 18.6 gate
+    (ADR 0021) is a manual run outside CI, with the explicit destination
+    `platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`, because `scripts/ci-simulator.sh` always takes the newest runtime.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
     artifacts
 - **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run, writes

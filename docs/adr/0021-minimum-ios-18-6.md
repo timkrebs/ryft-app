@@ -44,7 +44,9 @@
      iOS", that means one run on 18.6. The destination is `platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`, because
      the 18.6 runtime has no iPhone 17 Pro.
    - Runs on 17.0 and 18.0 stop.
-   - The first 18.6 run measures T0.1, T0.6 and the 18.0 trap. Its results go into the facts suites and STATUS.
+   - The first 18.6 run measures T0.1, T0.6 and the 18.0 trap. Its results go into STATUS and this ADR. Recording them
+     in `ReadModelContextFactsTests` (a T0.1 report line like T0.6's, an `(18, 6)` arm for T0.6, the unreachable 17.0 arm
+     and its cases retired) is a follow-up (STATUS → Open).
 
 ## Consequences
 
@@ -94,7 +96,8 @@ never because of the deployment target. So removing them is cleanup, and review 
 
 Adopting any of them is a change of its own.
 
-**Tooling.** The project builds with Xcode 26 or newer. App Store builds need the iOS 26 SDK anyway
+**Tooling.** The project builds with Xcode 26.1 or newer (AlarmKit's alert init is iOS 26.1 SDK); CI and releases use
+Xcode 27.2 (`.xcode-version`). App Store builds need the iOS 26 SDK anyway
 (`docs/APP_STORE.md`).
 
 **The first 18.6 run** (2026-11-18, the iPhone 16 Pro simulator, Xcode 27.2): 243 of 244 tests pass in the suites this

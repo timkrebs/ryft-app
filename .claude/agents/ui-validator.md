@@ -18,7 +18,8 @@ You are a strict visual QA engineer. You assume the change is wrong until the sc
 2. Build and launch demo mode in the simulator; capture every changed screen and state with
    `make screenshots` or `xcrun simctl io booted screenshot`, in: dark + light, English (the only language),
    Dynamic Type default and `accessibility-extra-extra-extra-large`
-   (`xcrun simctl ui booted content_size …`). Save under `docs/work/<ticket>/shots/` via Bash only.
+   (`xcrun simctl ui booted content_size …`), plus one capture with `-AppleLocale de_DE` (English text, German region:
+   24-hour times, decimal comma, which follow the region). Save under `docs/work/<ticket>/shots/` via Bash only.
 3. Look at each image (Read the PNG) and compare with `design/brand-board.png` and neighbouring screens:
    hierarchy, spacing rhythm (card 18 / tile 16 / screen 20 / section 24), type styles, colours from tokens
    only, tabular numerals, truncation, overlap, clipped text at AX sizes, English at the largest Dynamic Type

@@ -45,6 +45,9 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 - **Follow-ups:** merged (#99). A bodyweight row's ✓ logs the added load it shows in Focused, a quiet RPE line sits with its row and leaves the field 44 pt, a clean edge beside the keypad at 320, the disabled chip no longer dims twice. With the flag off, removing an exercise with the keypad open closes the keypad.
 - **Verified on the simulator:** iOS 27.0, UI tests at 390 pt, renders at 320 and 390 pt in dark and light, default, AX1 and AX3, English and German. The keypad's fade also at xl, 320 pt.
 - **Not verified on a device:** nothing in T1 to T5 or the follow-ups has run on one. A real tap on a field under the RPE line hasn't been tried: it can't be done in process.
+- **Facts suite after ADR 0021:** `ReadModelContextFactsTests` still has the 17.0 arm and its `.onlyTheNewestTakesInserts`
+  cases (unreachable at 18.6), no `(18, 6)` arm for T0.6 (measured: every container takes inserts), and T0.1 asserts only
+  on iOS 27 and reports nothing, so an 18.6 run can't measure it. Add a T0.1 report line, record 18.6, retire 17.0.
 - **Before the flag goes on:** a run on iOS 18.6 (the oldest supported runtime, installed), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
 - **Open:** List shows a bodyweight row's added-load ghost but ✓ doesn't log it, unlike Focused (product decision). `topFade` leaves a small fragment of a cut line at 390 AX3 (predates #99, in `review.md`). The performance follow-ups are in `review.md`.
 

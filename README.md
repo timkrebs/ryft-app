@@ -15,7 +15,7 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 
 ## Requirements
 
-- Xcode 26 or newer (App Store builds need the iOS 26 SDK; built with Xcode 27.2), iOS 18.6+
+- Xcode 26.1 or newer (AlarmKit needs the iOS 26.1 SDK; built and tested with Xcode 27.2, see `.xcode-version`), iOS 18.6+
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
