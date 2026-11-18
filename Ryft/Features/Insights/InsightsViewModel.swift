@@ -20,7 +20,7 @@ struct InsightsArrangement: Equatable {
 }
 
 /// Insight cards (dismissible for the day) and a trend card per metric for the selected range, with the 30-day series
-/// behind the bands of readiness, HRV, time asleep and resting HR.
+/// behind the usual ranges of readiness, HRV, time asleep and resting HR.
 @MainActor
 @Observable
 final class InsightsViewModel {
@@ -32,19 +32,15 @@ final class InsightsViewModel {
     /// The cards open in place (§P5-5.2, D5-8). Kept here, so a rebuilt tab keeps them.
     private(set) var expanded: Set<TrendMetric> = []
 
-    /// Each metric's series for the selected range, as cached (SwiftData).
-    var series: [TrendMetric: TrendSeries] {
-        Dictionary(uniqueKeysWithValues: TrendMetric.allCases.compactMap { m in
-            state.cachedTrend(m, range: range).map { (m, $0) }
-        })
-    }
-
-    /// The 30-day series behind the bands (readiness, HRV, time asleep, resting HR), whatever the range.
-    var monthly: [TrendMetric: TrendSeries] {
-        Dictionary(uniqueKeysWithValues: TrendMetric.banded.compactMap { m in
-            state.cachedTrend(m, range: .month).map { (m, $0) }
-        })
-    }
+    /// Bumped by each `load()`. `.task(id:)` starts the new range's load before the old one unwinds, so only the newest
+    /// load sets `isLoadingTrends` and `loadedRange`.
+    @ObservationIgnored private var loadGeneration = 0
+    /// The newest load is running.
+    private(set) var isLoadingTrends = false
+    /// The range whose newest load finished; until then a card with nothing cached is pending, not "Not loaded".
+    private(set) var loadedRange: TrendRange?
+    /// A card with nothing cached waits for this page's read of the selected range.
+    var trendsPending: Bool { isLoadingTrends || loadedRange != range }
 
     /// Behaviors section (M5); nil in tests that don't need it.
     let journal: JournalStore?
@@ -114,18 +110,15 @@ final class InsightsViewModel {
 
     // MARK: trends
 
-    /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`, R-N5): banded metrics only.
-    func band(for metric: TrendMetric) -> ClosedRange<Double>? {
-        metric.hasBand ? TrendCardContent.band(monthly[metric]) : nil
-    }
-
     /// One metric's card for the selected range: two cached reads at most (the range's series, and the 30-day one behind a
-    /// band).
+    /// usual range). Nothing cached is pending while this page's read of the range, or any other read (`AppState.isLoading`),
+    /// runs; "Not loaded" after.
     /// `isStale`: the page's refresh issue, read once for all cards.
     func card(_ metric: TrendMetric, isStale: Bool? = nil) -> TrendCardContent {
         let own = state.cachedTrend(metric, range: range)
         let month = metric.hasBand ? (range == .month ? own : state.cachedTrend(metric, range: .month)) : nil
-        return TrendCardContent.make(metric, range: range, series: own, monthly: month, isLoading: state.isLoading,
+        return TrendCardContent.make(metric, range: range, series: own, monthly: month,
+                                     isLoading: trendsPending || state.isLoading,
                                      isStale: isStale ?? (refreshIssue != nil), today: state.env.clock.now())
     }
 
@@ -154,13 +147,14 @@ final class InsightsViewModel {
         return metric
     }
 
-    /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day series behind the bands.
+    /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day series behind the usual ranges, alongside
+    /// the journal's reads. Only the newest load marks the range loaded.
     func load() async {
         guard state.hasDataSource else { return }
-        if let journal {
-            if journal.availability == .unknown { await journal.load() }
-            await journal.loadImpacts()
-        }
+        loadGeneration += 1
+        let generation = loadGeneration
+        isLoadingTrends = true
+        async let journalLoaded: Void = loadJournal()
         let state = state
         let r = range
         await withTaskGroup(of: Void.self) { group in
@@ -173,5 +167,17 @@ final class InsightsViewModel {
                 }
             }
         }
+        if generation == loadGeneration {
+            isLoadingTrends = false
+            // A cancelled load (the page went away) leaves the range unanswered: pending again on return.
+            if !Task.isCancelled { loadedRange = r }
+        }
+        await journalLoaded
+    }
+
+    private func loadJournal() async {
+        guard let journal else { return }
+        if journal.availability == .unknown { await journal.load() }
+        await journal.loadImpacts()
     }
 }

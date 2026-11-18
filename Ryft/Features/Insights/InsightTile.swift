@@ -37,7 +37,7 @@ private struct InsightTilePreviews: View {
         ?? Insight(id: "hrv-best-30d", severity: .info, title: "Best HRV in 30 days", body: "", metric: "hrv")
     private static let long = Insight(
         id: "readiness-up", severity: .info, title: "Readiness up three mornings in a row",
-        body: "Your readiness has been above its 30-day range since Sunday, after three nights of more than 7 hours asleep. "
+        body: "Your readiness has been above its usual range since Sunday, after three nights of more than 7 hours asleep. "
             + "Resting heart rate is back at its baseline.", metric: "readiness")
 
     var body: some View {

@@ -1,6 +1,6 @@
 // An Insights trend card (docs/work/2026-11-16-nocturne/design.md §P5-5.2, §P5-5.3, D5-8): `surface`, radius 24, 132 high at
 // least, padding 14 / 16. The head row (the name, a note, a 12 pt chevron), 2 below the latest value in 26 Light with its unit and
-// the change against the 7 days before, 6 below the `TrendLine` over the 30-day range. A tap opens the card in place: the detailed
+// the change "vs 7 d" (Today's rule), 6 below the `TrendLine` over the usual range. A tap opens the card in place: the detailed
 // `TrendChart` (150 high, axes, scrubbing, the baseline) and Avg · Min · Max. Fed with `TrendCardContent`, so previews and tests
 // show every state.
 import SwiftUI
@@ -119,11 +119,12 @@ struct TrendCard: View {
     }
 
     /// `DeltaLabel`'s words in the card's colour (§P5-5.2's table), then "vs 7 d": one paragraph, so at AX3 it wraps after
-    /// "·" or before "vs 7 d", never between a number and its unit.
+    /// "·" or before "vs 7 d" (DeltaLabel keeps a number with its unit), never inside the reference.
     private func deltaLine(_ delta: MetricDelta) -> Text {
-        var change = AttributedString(TrendCardContent.keepingUnitsTogether(DeltaLabel.text(delta, spec: content.spec)))
-        change.foregroundColor = content.style.deltaColor(delta, polarity: content.spec.polarity)
-        var reference = AttributedString(" " + TrendCardContent.keepingUnitsTogether(TrendCardContent.deltaReference))
+        var change = AttributedString(DeltaLabel.text(delta, spec: content.spec))
+        change.foregroundColor = content.style.deltaColor(delta, spec: content.spec)
+        let unbroken = TrendCardContent.deltaReference.replacingOccurrences(of: " ", with: DeltaLabel.noBreakSpace)
+        var reference = AttributedString(" " + unbroken)
         reference.foregroundColor = Theme.textTertiary
         return Text(change + reference)
     }
