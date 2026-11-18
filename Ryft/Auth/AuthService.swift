@@ -915,6 +915,8 @@ final class AuthService {
     /// stops the SDK's events, a sign-in and `finishOwedWipe` from trying again. A return and a leaving account still run
     /// a pass, and none can end the debt.
     private func resumeOwedWipe(stored: Session?) -> (publish: Session?, endsStored: Bool) {
+        // First, so the pass below opens the store on a resolved ledger (the launch order, `TrainStore.shared`).
+        ledger.resolvedAtLaunch = true
         guard let owed = ledger.entry else { return (stored, false) }
         switch WipeResume.decide(owed, stored: stored?.user.id.uuidString, now: now()) {
         case .forget:

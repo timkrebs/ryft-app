@@ -610,12 +610,29 @@ struct OwedWipeLaunchTests {
         return saves.filter { $0.context == context }.map(\.deleted).reduce(0, +)
     }
 
+    /// What the store holds as the launch's pass starts on it, through a fresh context: what's left for the object wipe.
+    /// Every OS shows it, unlike `didSave`, whose deleted identifiers iOS 17 leaves out.
+    private func rowsAtThePass(during launch: () -> Void, in rig: WipingAuth) -> [StoreOnDisk.Rows] {
+        var rows: [StoreOnDisk.Rows] = []
+        rig.atThePass = { [unowned rig] in
+            if let found = try? rig.disk.inFreshContext { rows.append(found) }
+        }
+        defer { rig.atThePass = nil }
+        launch()
+        return rows
+    }
+
     @Test func aResumeAfterAReplaceDeletesNoObjects() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         owe(rig, .user)
-        let deleted = deletions(during: { rig.relaunch(signedInAs: nil) }, in: rig)
+        var atThePass: [StoreOnDisk.Rows] = []
+        let deleted = deletions(during: {
+            atThePass = rowsAtThePass(during: { rig.relaunch(signedInAs: nil) }, in: rig)
+        }, in: rig)
         #expect(rig.wipes.count == 1, "the wipe still ran")
+        #expect(atThePass == [.none], "the replace left the pass nothing to delete")
+        // iOS 17 counts 0 here whatever the pass deletes: the line above is what checks it there.
         #expect(deleted == 0)
     }
 
@@ -626,8 +643,17 @@ struct OwedWipeLaunchTests {
         rig.disk.session(checked: true)
         owe(rig, .user)
         let file = try inode(rig)
-        let deleted = deletions(during: { rig.relaunchWithTheStoreFirst(signedInAs: nil) }, in: rig)
-        #expect(deleted == 9)
+        var atThePass: [StoreOnDisk.Rows] = []
+        let deleted = deletions(during: {
+            atThePass = rowsAtThePass(during: { rig.relaunchWithTheStoreFirst(signedInAs: nil) }, in: rig)
+        }, in: rig)
+        #expect(atThePass == [.init(sessions: 1, exercises: 2, sets: 6)])
+        withKnownIssue("iOS 17: ModelContext.didSave carries no deleted identifiers, so this can't see the deletes") {
+            #expect(deleted == 9)
+        } when: {
+            if #unavailable(iOS 18) { return true }
+            return false
+        }
         #expect(try inode(rig) == file)
         #expect(rig.ledgerOnDisk == nil)
         try rig.disk.expectNothingLeft()
@@ -640,6 +666,92 @@ struct OwedWipeLaunchTests {
         try WipeEntries.fromAW1Build(reason: .user, account: a, since: WipeValues.earlier).write(to: rig.ledgerFile)
         rig.relaunchWithTheStoreFirst(signedInAs: WipeValues.accountA)
         #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
+    }
+
+    // MARK: the launch order
+
+    /// What Debug's check in `TrainStore.shared` holds the app to: the service reads the ledger first, so the pass it runs
+    /// at launch opens the store on that answer, and nothing else has the store open yet.
+    @Test func theServiceResolvesTheLedgerBeforeItsPassOpensTheStore() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        owe(rig, .user)
+        var atTheWipe: [(resolved: Bool, open: Bool)] = []
+        rig.atTheWipe = { [unowned rig] _ in atTheWipe.append((rig.ledgerResolvedAtLaunch, rig.disk.isOpen)) }
+        rig.relaunch(signedInAs: nil)
+        #expect(atTheWipe.map(\.resolved) == [true])
+        #expect(atTheWipe.map(\.open) == [false], "the pass is what opens it")
+    }
+
+    /// With nothing owed there's no pass, and the ledger is read all the same.
+    @Test func aLaunchWithNothingOwedResolvesTheLedger() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        #expect(rig.wipes.isEmpty)
+        #expect(rig.ledgerResolvedAtLaunch)
+    }
+
+    /// Only a process that never launches the app skips the check.
+    @Test func theCheckSkipsOnlyTheTestHostAndPreviews() {
+        #expect(!TrainStore.opensInLaunchOrder(false, environment: [:]))
+        #expect(TrainStore.opensInLaunchOrder(true, environment: [:]))
+        #expect(TrainStore.opensInLaunchOrder(false, environment: ["XCTestConfigurationFilePath": "/tmp/ryft.xctestconfiguration"]))
+        #expect(TrainStore.opensInLaunchOrder(false, environment: ["XCODE_RUNNING_FOR_PREVIEWS": "1"]))
+        #expect(!TrainStore.opensInLaunchOrder(false, environment: ["XCODE_RUNNING_FOR_PREVIEWS": "0"]))
+    }
+
+    // MARK: the read models' writer
+
+    /// The app's read side on the rig's store, bound to its service as RyftApp binds it.
+    private func appState(_ rig: WipingAuth) -> AppState {
+        let defaults = UserDefaults(suiteName: "ryft.tests.wipe.\(UUID().uuidString)") ?? .standard
+        let api = MockPlatformAPI()
+        let env = AppEnvironment(settings: Settings(defaults: defaults), health: MockHealthStore(), liveAPI: api, demoAPI: api,
+                                 auth: rig.auth, persistence: rig.disk.store, clock: rig.clock, notifier: MockNotifier(),
+                                 flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
+                                 demoOverride: false)
+        let state = AppState(env: env)
+        // Without an override the Repository would publish to the app group's widget file.
+        state.repository.widgetFile = nil
+        state.bindAccountHooks(rig.auth, apiStatus: APIStatus())
+        return state
+    }
+
+    /// Batches queued for the account's store before the first frame's pass (rebaseline §2.2 b): the pass advances the
+    /// epoch, so the batch in the writer and the one behind it are dropped, and its `onWipe` retires the writer, whose
+    /// context saw the store before the pass.
+    @Test func batchesQueuedBeforeTheFirstFramesPassAreDropped() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        owe(rig, .sessionExpired)
+        rig.relaunch(signedInAs: nil)
+        #expect(rig.wipes.isEmpty, "parked: the pass waits for the first frame")
+        let state = appState(rig)
+        let repository = state.repository, store = rig.disk.store.epoch.store, epoch = rig.disk.store.epoch.current
+        await repository.store(scores: [DailyScore(day: "2026-10-18", strain: 6)]).committed()
+        #expect(await repository.writerEpochs()[store] == epoch)
+        let hold = WriterHold()
+        repository.writeHooks.job = { _ in hold.pass() }
+        let held = repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-19", strain: 7), sleep: nil, workouts: []))
+        #expect(await eventually(timeout: .seconds(5)) { hold.entered == 1 })
+        let queued = repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-20", strain: 8), sleep: nil, workouts: []))
+
+        #expect(await rig.firstFrame())
+        hold.open()
+
+        #expect(rig.wipes.count == 1 && rig.answers == [true])
+        #expect(rig.disk.store.epoch.current == epoch + 1)
+        #expect(await held.committed().dropped)
+        #expect(await queued.committed().dropped)
+        #expect(hold.entered == 1, "the batch behind it never reached the writer")
+        #expect(try ModelContext(rig.disk.store.container).fetchCount(FetchDescriptor<CachedDay>()) == 0)
+        var retired = false
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !retired, ContinuousClock.now < deadline {
+            retired = await repository.writerEpochs()[store] == nil
+            if !retired { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        #expect(retired, "the writer of the epoch before the pass is gone")
+        #expect(rig.ledgerOnDisk == nil)
     }
 
     // MARK: a session a kill left stored

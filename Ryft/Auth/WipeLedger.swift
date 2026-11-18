@@ -60,6 +60,9 @@ final class WipeLedger {
     var forStoreStep: OwedWipe?
     /// The store step left files behind, so this launch can't call the debt paid, whatever the wipe answers.
     var storeStepLeftFiles = false
+    /// `AuthService.init` has read the ledger for this launch, entry or not, so `forStoreStep` is its answer. Set before
+    /// the launch's pass opens the store. In Debug, `TrainStore.shared` checks it.
+    var resolvedAtLaunch = false
 
     init(file: URL?) {
         self.file = file

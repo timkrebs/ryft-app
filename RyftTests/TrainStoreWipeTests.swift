@@ -45,6 +45,8 @@ final class StoreOnDisk {
     /// A kill: nothing has the store open, as at the start of a launch.
     func close() { store = nil }
 
+    var isOpen: Bool { store != nil }
+
     var orphans: OrphanedStoreCleanup.Locations { .init(orphanFolder: appContainer, groupContainer: folder) }
 
     /// The launch's way in, as in `TrainStore.shared`. Whatever opens first wins.
@@ -762,6 +764,8 @@ final class WipingAuth {
     var duringDeletion: (@MainActor () async -> Void)?
     /// Runs as the store's wipe starts, with what it was asked for.
     var atTheWipe: (@MainActor (AuthService.Wipe) -> Void)?
+    /// Runs once that wipe has opened the store, before the store's own wipe.
+    var atThePass: (@MainActor () -> Void)?
     /// Every wipe asked for, over relaunches.
     private(set) var wipes: [AuthService.Wipe] = []
     /// What each one answered.
@@ -790,6 +794,8 @@ final class WipingAuth {
     var ledgerFile: URL { disk.folder.appendingPathComponent("account-wipe.json") }
     /// What the next launch would read.
     var ledgerOnDisk: OwedWipe? { WipeLedger(file: ledgerFile).entry }
+    /// The service of this launch has read its ledger (`TrainStore.shared`'s launch-order check).
+    var ledgerResolvedAtLaunch: Bool { ledger.resolvedAtLaunch }
 
     /// The hooks read `duringDeletion` and `atTheWipe` when they run. A new ledger, as in a new process: nothing of the
     /// old one's memory carries over.
@@ -806,6 +812,7 @@ final class WipingAuth {
                                }
                                // As in the app: at launch it's this wipe that first opens the store.
                                disk.open(ledger: ledger, now: clock.now())
+                               self?.atThePass?()
                                let widget = self?.widget
                                let answer = widget == nil ? disk.store.wipe(wipe) : AuthService.steps(of: wipe, before: {}, store: {
                                    AuthService.storeStep($0, widget: widget, store: { disk.store.wipe($0) }, memory: {})

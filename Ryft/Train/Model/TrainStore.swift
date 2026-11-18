@@ -11,7 +11,8 @@ import OSLog
 final class TrainStore {
     /// Every route to the store passes the launch's store step first: an owed wipe that can't wait for the object wipe
     /// replaces the files before the container opens (`StoreReset`).
-    static let shared = TrainStore(opening: liveConfiguration(), ledger: .live, orphans: .current(), now: Date())
+    static let shared = TrainStore(opening: liveConfiguration(), ledger: .live, orphans: .current(), now: Date(),
+                                   checksLaunchOrder: true)
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
@@ -58,10 +59,23 @@ final class TrainStore {
     }
 
     private convenience init(opening config: ModelConfiguration, ledger: WipeLedger,
-                             orphans: OrphanedStoreCleanup.Locations, now: Date) {
+                             orphans: OrphanedStoreCleanup.Locations, now: Date, checksLaunchOrder: Bool = false) {
+        // The launch order, in Debug: `AuthService.shared` resolves the ledger before anything opens the app's store.
+        // Opened first, the store step replaces nothing (`forStoreStep` is still nil), and whatever opened it could
+        // build on it, a Repository included, before the launch's pass inside `AuthService.init`, which runs without
+        // `onWipe`. UISmoke launches this way.
+        assert(!checksLaunchOrder || Self.opensInLaunchOrder(ledger.resolvedAtLaunch,
+                                                             environment: ProcessInfo.processInfo.environment),
+               "TrainStore.shared opened before AuthService.shared resolved the wipe ledger")
         ledger.storeStepLeftFiles = StoreReset.run(entry: ledger.forStoreStep, store: config.url, orphans: orphans,
                                                    now: now).leftFiles
         self.init(configuration: config)
+    }
+
+    /// Debug's launch-order check. The unit-test host and previews open the store in any order: they never launch the
+    /// app (`AppLauncher`).
+    nonisolated static func opensInLaunchOrder(_ ledgerResolved: Bool, environment: [String: String]) -> Bool {
+        ledgerResolved || environment["XCTestConfigurationFilePath"] != nil || environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
     private init(configuration config: ModelConfiguration) {
