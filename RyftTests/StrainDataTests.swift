@@ -106,16 +106,36 @@ struct StrainScreenDecisionTests {
         #expect(Calendar.current.isDate(first.date, inSameDayAs: DayFormat.shift(today, days: -6)))
     }
 
-    @Test func selectClampsToTheWeek() {
+    /// The strip's taps stay in its week; a deep link's day only stops at today (review, deviation 3).
+    @Test func theStripClampsToTheWeekADeepLinkOnlyToToday() {
         let (vm, state) = model()
         let today = Calendar.current.startOfDay(for: state.env.clock.now())
+        vm.step(to: DayFormat.shift(today, days: 3))
+        #expect(Calendar.current.isDate(vm.date, inSameDayAs: today), "no future day")
+        vm.step(to: DayFormat.shift(today, days: -10))
+        #expect(Calendar.current.isDate(vm.date, inSameDayAs: DayFormat.shift(today, days: -6)), "the strip's first day")
+
         vm.select(DayFormat.shift(today, days: 3))
         #expect(Calendar.current.isDate(vm.date, inSameDayAs: today), "no future day")
         vm.select(DayFormat.shift(today, days: -10))
-        #expect(Calendar.current.isDate(vm.date, inSameDayAs: DayFormat.shift(today, days: -6)), "the strip's first day")
+        #expect(vm.date == DayFormat.shift(today, days: -10), "older than the strip: that day")
+        #expect(!vm.week.contains { $0.isSelected }, "no strip cell selected")
         vm.select(DayFormat.shift(today, days: -2).addingTimeInterval(3_600 * 15))
         #expect(Calendar.current.isDate(vm.date, inSameDayAs: DayFormat.shift(today, days: -2)))
         #expect(vm.date == Calendar.current.startOfDay(for: vm.date), "the start of the day")
+    }
+
+    /// The shown day is named: the header's spoken value always, the date line under it on another day (review S4).
+    @Test func theShownDayIsNamed() {
+        let (vm, state) = model()
+        let today = Calendar.current.startOfDay(for: state.env.clock.now())
+        #expect(vm.title == String(localized: "Today"))
+        #expect(vm.dateLine == nil, "today: no line, as in the draft")
+        vm.step(to: DayFormat.shift(today, days: -1))
+        #expect(vm.title == String(localized: "Yesterday"))
+        let yesterday = DayFormat.shift(today, days: -1)
+        #expect(vm.dateLine == yesterday.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+        #expect(StrainPageContent.dateLine(today, today: today) == nil)
     }
 
     @Test(arguments: [(9.9, "light"), (10, "moderate"), (13.9, "moderate"), (14, "high"), (17.9, "high"), (18, "all out")])
@@ -286,9 +306,39 @@ struct StrainStateTests {
         let board = StrainBoard(detail: detail(strain: 9, zones: []), score: nil, prior: [], split: nil, isLoading: false,
                                 failure: nil)
         #expect(board.lacksZones)
+        #expect(board.zonesMissing == .sentence(StrainBoard.noZonesSentence))
         #expect(StrainBoard.noZonesSentence == "Your watch didn't record heart-rate zones for this day.")
         let full = StrainBoard(detail: detail(strain: 9), score: nil, prior: [], split: nil, isLoading: false, failure: nil)
         #expect(!full.lacksZones)
+    }
+
+    /// Review S2: today the absence isn't final; while the platform scores, nothing is said to be missing.
+    @Test func theAbsenceCopyFollowsTheDaysScoring() {
+        func board(_ scoring: StrainBoard.DayScoring) -> StrainBoard {
+            StrainBoard(detail: detail(strain: nil, zones: []), score: nil, prior: [], split: nil, isLoading: false,
+                        failure: nil, scoring: scoring)
+        }
+        let final = board(.final)
+        #expect(final.hero.caption == StrainBoard.noStrainSentence)
+        #expect(final.zonesMissing == .sentence(StrainBoard.noZonesSentence) && final.lacksZones)
+
+        let today = board(.today)
+        #expect(today.hero.caption == "No strain yet today.")
+        #expect(today.zonesMissing == .sentence("No heart-rate zones yet today.") && today.lacksZones)
+
+        let pending = board(.pending)
+        #expect(pending.hero.caption == String(localized: "Scoring your latest data"))
+        #expect(pending.hero.caption != StrainBoard.noStrainSentence)
+        #expect(!pending.lacksZones, "the rows with \"–\", not the short tile")
+        #expect(pending.zonesMissing == .pending(String(localized: "Scoring your latest data")))
+        #expect(pending.zones.rows.allSatisfy { $0.value == Fmt.placeholder })
+    }
+
+    @Test(arguments: [(ScoringState?.none, true, StrainBoard.DayScoring.today), (.scored, true, .today),
+                      (.waitingForSleep, true, .today), (.pending, true, .pending), (.pending, false, .pending),
+                      (.scored, false, .final), (.stale, false, .final), (nil, false, .final)])
+    func theDaysScoring(state: ScoringState?, isToday: Bool, expected: StrainBoard.DayScoring) {
+        #expect(StrainBoard.DayScoring(state, isToday: isToday) == expected)
     }
 
     @Test func noWorkoutsIsAnEmptyList() {
@@ -410,8 +460,12 @@ struct WorkoutBoardTests {
         let w = workout()
         let loading = WorkoutBoard(workout: w, detail: nil, isLoading: true)
         #expect(loading.plot == nil && !loading.lacksZones, "outlines, not \"no zones\"")
+        #expect(loading.isOutline && !loading.lacksSeries)
+        let failed = WorkoutBoard(workout: w, detail: nil, isLoading: false, failure: SleepLoadFailure(reason: .busy))
+        #expect(failed.isOutline, "couldn't load: outlines")
+        #expect(!failed.lacksZones && !failed.lacksSeries, "never \"no zones\" or \"no series\" without a detail")
         let noSeries = WorkoutBoard(workout: w, detail: detail(w, hr: []), isLoading: false)
-        #expect(noSeries.plot == nil)
+        #expect(noSeries.plot == nil && noSeries.lacksSeries && !noSeries.isOutline)
         let one = WorkoutBoard(workout: w, detail: detail(w, hr: [HRPoint(t: w.start, bpm: 120)]), isLoading: false)
         #expect(one.plot == nil, "a curve needs two points")
         let noZones = WorkoutBoard(workout: w, detail: detail(w, zones: []), isLoading: false)

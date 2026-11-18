@@ -69,9 +69,7 @@ enum MockData {
         var rng = SeededRandom(seed: UInt64(w.id.uuidString.suffix(8), radix: 16) ?? 7)
         let samples = Int(w.duration / 30)
         let avg = w.avgHr ?? 130
-        var hr: [HRPoint] = []
-        var zones = [Double](repeating: 0, count: 5)
-        for i in 0...max(1, samples) {
+        var curve: [Double] = (0...max(1, samples)).map { i in
             let p = Double(i) / Double(max(1, samples))
             // Warm-up ramp, a working block with gentle intervals, cool-down.
             let shape: Double
@@ -80,7 +78,20 @@ enum MockData {
             case 0.88...: shape = 1 - 0.25 * ((p - 0.88) / 0.12)
             default: shape = 1 + 0.07 * sin(p * 24)
             }
-            let bpm = min(Double(maxHR) - 4, avg * shape + rng.next(in: -3...3))
+            return min(Double(maxHR) - 4, avg * shape + rng.next(in: -3...3))
+        }
+        // A push around the highest interval, so the curve's peak is the workout's max heart rate (the Max tile and the
+        // chart's "peak" agree): a smooth rise over a few minutes, nothing above the max.
+        if let top = w.maxHr, let peak = curve.indices.max(by: { curve[$0] < curve[$1] }) {
+            let lift = top - curve[peak]
+            curve = curve.enumerated().map { i, bpm in
+                let d = Double(i - peak) / 6
+                return min(top, bpm + lift * exp(-d * d))
+            }
+        }
+        var hr: [HRPoint] = []
+        var zones = [Double](repeating: 0, count: 5)
+        for (i, bpm) in curve.enumerated() {
             hr.append(HRPoint(t: w.start.addingTimeInterval(Double(i) * 30), bpm: bpm.rounded()))
             let hrr = (bpm - restingHR) / (Double(maxHR) - restingHR)
             let zone = Int(((hrr - 0.5) * 10).rounded(.down))

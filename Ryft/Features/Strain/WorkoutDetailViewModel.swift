@@ -9,6 +9,8 @@ final class WorkoutDetailViewModel {
     let workout: Workout
     private let state: AppState
     private(set) var loaded = false
+    /// Why the last load brought no detail; nil after an answer.
+    private var loadFailure: SleepLoadFailure?
 
     init(workout: Workout, state: AppState) {
         self.workout = workout
@@ -18,16 +20,37 @@ final class WorkoutDetailViewModel {
     /// Cached curve and zones (SwiftData), once fetched.
     var detail: WorkoutDetail? { state.cachedWorkoutDetail(workout) }
     var isLoading: Bool { detail == nil && !loaded }
+    /// Loaded and still no detail: it couldn't load (outlines and the app's calm sentence with its button, as Strain's
+    /// failed day), never "no zones" or "no series". Signed out without demo data, nothing was asked: Sign in.
+    var failure: SleepLoadFailure? {
+        guard loaded, detail == nil else { return nil }
+        return loadFailure ?? SleepLoadFailure(reason: state.hasDataSource ? .unexpected : .signedOut, isDemo: state.isDemo)
+    }
     /// Offline (not demo): the status line under the header; the cached detail stays in full ink.
     var isOffline: Bool { !state.isDemo && !state.env.connectivity.isOnline }
     var numeralStyle: DotNumeral.Style { state.env.settings.heroNumerals.style }
 
-    var board: WorkoutBoard { WorkoutBoard(workout: workout, detail: detail, isLoading: isLoading) }
+    var board: WorkoutBoard { WorkoutBoard(workout: workout, detail: detail, isLoading: isLoading, failure: failure) }
 
-    /// Without a detail endpoint answer, the list's fields stand in.
+    /// Fetches the curve and zones (none when cached and fresh). Until they arrive the list's fields stand in; a retry
+    /// shows the outlines again until it answers.
     func load() async {
-        _ = await state.workoutDetail(workout)
+        loaded = false
+        loadFailure = nil
+        do {
+            try await state.repository.refreshWorkout(workout.id)
+        } catch where error.isCancellation {
+            // The page went away: nothing to show.
+            return
+        } catch {
+            loadFailure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
+                                           isDemo: state.isDemo, at: state.env.clock.now())
+        }
         loaded = true
+    }
+
+    func signIn() async {
+        await state.signInAgain()
     }
 }
 
@@ -37,6 +60,11 @@ struct WorkoutBoard: Equatable {
     let detail: WorkoutDetail?
     /// The detail hasn't answered and nothing is cached: the zones tile and the chart are outlines.
     let isLoading: Bool
+    /// The detail couldn't load and nothing is cached: the outlines, and this in the zones tile's place.
+    var failure: SleepLoadFailure?
+
+    /// No detail (loading or failed): the zones tile and the chart card are outlines.
+    var isOutline: Bool { detail == nil && (isLoading || failure != nil) }
 
     /// "Run".
     var title: String { ActivityStyle.name(for: workout.activity) }
@@ -63,8 +91,11 @@ struct WorkoutBoard: Equatable {
     /// The workout's zone minutes (its TRIMP is a tile, not in the head row).
     var zones: StrainZones { StrainZones(minutes: detail?.zoneMin) }
 
-    /// The detail answered without zones: the short tile.
-    var lacksZones: Bool { !isLoading && zones.minutes == nil }
+    /// The detail answered without zones: the short tile and its sentence (never for a detail that didn't load).
+    var lacksZones: Bool { detail != nil && zones.minutes == nil }
+
+    /// The detail answered without a curve of two points: the card's sentence.
+    var lacksSeries: Bool { detail != nil && plot == nil }
 
     static var noZonesSentence: String {
         String(localized: "No heart-rate zones for this workout.", comment: "A workout's zones tile without zone data.")

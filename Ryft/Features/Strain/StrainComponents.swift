@@ -184,9 +184,27 @@ struct StrainHeroView: View {
 /// loads it is a flat outline with five unlit rows. One VoiceOver element: "Heart-rate zones", then the minutes, each zone,
 /// TRIMP and the footnote.
 struct StrainZonesTile: View {
+    /// What the tile says without zone data.
+    enum Missing: Equatable {
+        /// The short tile with this sentence ("Your watch didn't record heart-rate zones for this day.").
+        case sentence(String)
+        /// Being scored: the five rows with "–", no sentence; VoiceOver hears this ("Scoring your latest data").
+        case pending(String)
+
+        var spoken: String {
+            switch self {
+            case .sentence(let s), .pending(let s): s
+            }
+        }
+
+        var isPending: Bool {
+            if case .pending = self { return true }
+            return false
+        }
+    }
+
     let zones: StrainZones
-    /// What the short tile says without zone data.
-    let missingSentence: String
+    let missing: Missing
     var isOutline = false
     /// Previews and tests; nil follows the system.
     var reduceTransparency: Bool?
@@ -215,14 +233,14 @@ struct StrainZonesTile: View {
                                                                   style: .continuous)) }
                 .accessibilityHidden(true)
         } else {
-            let hasZones = zones.minutes != nil
-            GlowTile(Theme.metricStrain, kind: .zones, minHeight: hasZones ? nil : StrainLayout.zonesShortHeight,
+            let rows = zones.minutes != nil || missing.isPending
+            GlowTile(Theme.metricStrain, kind: .zones, minHeight: rows ? nil : StrainLayout.zonesShortHeight,
                      reduceTransparency: reduceTransparency) {
-                content(rows: hasZones)
+                content(rows: rows)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Heart-rate zones"))
-            .accessibilityValue(Text(verbatim: zones.spokenValue(missing: missingSentence)))
+            .accessibilityValue(Text(verbatim: zones.spokenValue(missing: missing.spoken)))
             .accessibilityIdentifier("\(identifierPrefix).zones")
         }
     }
@@ -233,8 +251,8 @@ struct StrainZonesTile: View {
             if rows {
                 ZoneBlock(zones: (isOutline ? StrainZones(minutes: nil) : zones).rows.map(Self.zone),
                           scaleMax: StrainZones.scaleMax, accessibilityLabel: Text("Heart-rate zones"))
-            } else {
-                Text(verbatim: missingSentence)
+            } else if case .sentence(let sentence) = missing {
+                Text(verbatim: sentence)
                     .ryftGlowLabelStyle()
                     .fixedSize(horizontal: false, vertical: true)
             }

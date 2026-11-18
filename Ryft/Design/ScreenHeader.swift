@@ -35,14 +35,21 @@ enum ScreenHeaderSpec {
 /// it wraps rather than truncating at large sizes.
 struct ScreenHeaderTitle: View {
     let text: Text
+    /// What VoiceOver reads after the title (Strain's shown day, "Yesterday"); nil: the title alone.
+    var value: Text?
 
     var body: some View {
-        text
+        let title = text
             .font(.ryft(.title))
             .tracking(ScreenHeaderSpec.titleTracking)
             .foregroundStyle(Theme.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isHeader)
+        if let value {
+            title.accessibilityValue(value)
+        } else {
+            title
+        }
     }
 }
 
@@ -132,10 +139,12 @@ extension ScreenHeader where Leading == WordmarkLockup, Center == EmptyView {
 extension ScreenHeader where Leading == ScreenHeaderTitle, Center == EmptyView {
     /// A titled screen's header (Strain, Insights): the title leading, `trailing` at the inset. `trailingLayout` says what the
     /// slot holds: a `CircleButton` (`.button`) or a control as wide as its content (`.wide`: on the title's line, under it
-    /// from AX1). An empty trailing slot keeps the row's 40 pt.
-    init(title: Text, trailingLayout: ScreenHeaderSpec.Trailing = .button, @ViewBuilder trailing: () -> Trailing) {
+    /// from AX1). An empty trailing slot keeps the row's 40 pt. `value`: what VoiceOver reads after the title (Strain's
+    /// shown day); nil reads the title alone.
+    init(title: Text, value: Text? = nil, trailingLayout: ScreenHeaderSpec.Trailing = .button,
+         @ViewBuilder trailing: () -> Trailing) {
         style = .title(trailingLayout)
-        leading = ScreenHeaderTitle(text: title)
+        leading = ScreenHeaderTitle(text: title, value: value)
         center = EmptyView()
         self.trailing = trailing()
     }
