@@ -277,6 +277,20 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
+- **Ending the demo** (ADR 0019, `docs/work/2026-11-18-ios17-demo-exit/design.md`). Profile's switch is the only way out
+  in production. Train has no demo store of its own, so the workouts started in the demo are named by a list:
+  `TrainCoordinator.start` adds a session's id (`train.demoSessions` in defaults, ids only) when the binding is demo's,
+  and `TrainSyncService` owns it. Turning the switch off with such a workout asks first (`ProfileViewModel.demoWorkouts`,
+  computed from the list and the store, never stored); cancel changes nothing. `ProfileViewModel.endDemo()` then runs
+  one main-actor step with no `await` up to the refresh:
+  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes and its Live Activity ends,
+     every listed session goes with its ops, and nothing is sent (not even a `DELETE`). The list keeps only ids a fresh
+     context still finds. An account's workout is never on the list, even if it went on during the demo.
+  2. The switch goes off, and `reset()` drops what the demo showed.
+  3. The flags, the scoring words and the import's demo leftovers, then the refresh.
+
+  A launch with Demo data off and a non-empty list (the demo ended outside the switch) discards without asking. The
+  iOS 17 reopen of the account's store that ADR 0019 also decided isn't built: the minimum becomes iOS 18.0.
 
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
 (Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.

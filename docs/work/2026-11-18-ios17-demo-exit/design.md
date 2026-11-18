@@ -1,5 +1,10 @@
 # Ending the demo: its workouts go, and iOS 17 saves again (P1b)
 
+**Amended 2026-11-18:** the user made iOS 18.0 the minimum (its own PR), so the iOS 17 work is not built: the reopen
+(§6.2 and its gate, ticket 1) and the one demo store (ticket 6). P1b ships the discard, the exit step without the
+reopen, and the confirmation. T0, measured before the decision: T0.7 passed on 17.0, 18.0, 26.0 and 27.2; T0.8 found the
+Repository's demo store refusing inserts on 17.0 once `ActivityStore` had made its own (18.0 and later: both save).
+
 **Status:** proposed. ios-architect, 2026-11-18, against `origin/main` 9af6049, on branch `fix/ios17-demo-exit`. ADR:
 `docs/adr/0019-ending-the-demo-discards-its-workouts-and-on-ios-17-reopens-the-account-store.md` (new). ADR 0018 gets a
 pointer to it.
@@ -618,6 +623,21 @@ session as an object of the old container.
   where demo Train and journal reads use the demo's store. A cheap partial fix in this PR would remove the documents the
   demo overwrote (`train.plans`, `train.today`, `train.sessions`, `train.history.*`, `journal.*`) at the exit and
   refresh the library and journal. Exercise and plan rows that exist only in the demo can't be told apart without D3.
+
+  **Answer (lead, 2026-11-18):** the partial fix only if it stays contained ("nothing the account owns and nothing
+  unsent may go"), else a follow-up. **Outcome (sync-engineer, P1b): a follow-up**, recorded in STATUS → Open. The
+  partial fix isn't safe as one small commit:
+  - a `CachedDocument` doesn't record who wrote it, so removing `train.*` and `journal.*` by key also takes the copies
+    the demo never overwrote: an account that turned the demo on in Profile loses its offline journal, plans and
+    histories until it is online again;
+  - the demo's library and journal loads in flight at the exit aren't guarded (§6.6) and can write the documents back
+    after the removal;
+  - the in-memory copies (`JournalStore.days`, `behaviors`, `impacts`; `TrainLibrary.catalog`, `today`, `histories`)
+    need a reset of their own in two more types; `TrainLibrary.wipe()` isn't one, because it also clears the account's
+    paused plan;
+  - exercise and plan rows that exist only in the demo still can't be told apart.
+
+  D3 (the demo's Train and journal reads and writes in the demo's store) fixes all four at once.
 - **Q4 (lead):** if T0.8 confirms F8, does ticket 6 go into this PR (my recommendation) or one of its own before it?
 - **Q5 (lead):** should the Live Activity's end be tested? `RestActivityController` has no seam, so AC7 checks it
   through the coordinator's call and a manual run. A protocol seam would be a small addition.

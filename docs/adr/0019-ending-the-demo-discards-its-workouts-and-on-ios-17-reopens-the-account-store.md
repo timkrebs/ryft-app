@@ -1,6 +1,9 @@
 # 0019 — Ending the demo discards its workouts, and on iOS 17 reopens the account's store
 
-- Status: proposed (2026-11-18, `docs/work/2026-11-18-ios17-demo-exit/design.md`). The T0 gate (design §7) runs first.
+- Status: accepted (2026-11-18, `docs/work/2026-11-18-ios17-demo-exit/design.md`) for decision 1, built in P1b.
+- **Amended 2026-11-18: minimum iOS 18.0, so the iOS 17 reopen is not built** (decisions 2 and 4, and decision 3's
+  reopen step; the user's decision, its own PR). The T0 gate had passed (T0.7 on 17.0, 18.0, 26.0 and 27.2); the
+  measurements stay in the design note. The exit is the discard, the switch, `reset()` and the refresh.
 - Deciders: the user (the demo's workouts are discarded after a confirmation, 2026-11-17); ios-lead (the reopen is iOS 17
   only); proposed by ios-architect; sync-engineer builds it
 - Amends: ADR 0018. The account's `ModelContainer` is no longer one instance for the life of the process: on iOS 17 it
