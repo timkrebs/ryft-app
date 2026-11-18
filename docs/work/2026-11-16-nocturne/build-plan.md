@@ -1,4 +1,4 @@
- and `Theme.recovery` too (lead, at integration). `SafariView` still reads `Accent` (T6.0 changes its tint)# Nocturne build plan: PR 5 and PR 6 (2026-11-18)
+# Nocturne build plan: PR 5 and PR 6 (2026-11-18)
 
 The lead's contract for every agent that builds Nocturne. It sits on top of the four specs in this folder:
 - `design.md` §P5 (PR 5);

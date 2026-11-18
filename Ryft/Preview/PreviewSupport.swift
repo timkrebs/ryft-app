@@ -55,6 +55,6 @@ extension View {
             .environment(TrainPreview.coordinator)
             .environment(state.env.connectivityMonitor)
             .preferredColorScheme(scheme)
-            .tint(Theme.accent)
+            .tint(Theme.textPrimary)
     }
 }
