@@ -2237,6 +2237,11 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-28 | The chart's y ticks 120 / 150 / 180 | Three ticks a round step apart covering the curve: 120 / 150 / 180 for the draft's series, 120 / 140 / 160 for the demo's (T5.2) | The scale follows the data |
 | D5-29 | Zones head and row meta at 0.55 | The glow-label ink (78 %) or `textTertiary` (T5.2) | No 0.55 token; 0.55 fails 4.5:1 in the glow tile (D5-7) |
 | D5-30 | The heart-rate chart at one size | From AX1: 200 pt tall, every other clock tick, "peak 159" in the card's head instead of over its dot (T5.2) | At AX3 the clock labels collide and the peak note overlaps the head |
+| D5-31 | The HRV note "Morning, RMSSD" | "SDNN" (T5.3) | The HRV RYFT reads from Apple Health is SDNN |
+| D5-32 | A change on every trend card in the metric's colour | Grey for metrics with no good direction: naps, active energy, strain (T5.3) | Inventing a direction would turn less activity red |
+| D5-33 | A 30-day min–max band | The usual range: mean ± 1 SD of the 30-day values before the newest, from 7 of them; below that "Band needs 7 days of data". The expanded chart draws it at TrendChart's 10 % (T5.3 review) | Min–max with the newest inside filled the chart box and could never read above or below |
+| D5-34 | "vs 7 d" from each range's own series | Today's rule (`MetricDelta.vsSevenDayMean`) over the 7 days ending on the newest value, the same in every range; duration changes keep `DeltaLabel`'s "+17m" style, not the board's "0:17" (T5.3 review, lead) | Insights, Today and Sleep agree on one number and one format |
+| D5-35 | Range control always shown; no stale note | "Not set up" hides the range control; a failed refresh shows "As of <MMM d>"; nothing loaded and nothing in flight shows "Not loaded" (T5.3) | Nothing to range over; never claim "no data" for a read that didn't happen |
 
 ### Questions for the lead
 
