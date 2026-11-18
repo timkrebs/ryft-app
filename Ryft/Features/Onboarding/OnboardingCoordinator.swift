@@ -526,6 +526,19 @@ final class OnboardingCoordinator {
         errorDetails = nil
     }
 
+    /// The banner's words for a failure the step has none of its own for: `APIError`'s (written for RYFT), except a
+    /// failure to reach the platform, whose system text ("The Internet connection appears to be offline.") becomes RYFT's
+    /// (PR 6 A §A-7, the sentence `AuthMessage` uses).
+    nonisolated static func fallbackMessage(for error: Error) -> String {
+        let unreachable: Bool
+        if case .transport? = error as? APIError {
+            unreachable = true
+        } else {
+            unreachable = error is URLError || (error as NSError).domain == NSURLErrorDomain
+        }
+        return unreachable ? String(localized: "No connection. Check your internet and try again.") : error.localizedDescription
+    }
+
     // MARK: private
 
     private func perform(_ body: @MainActor () async throws -> Void,
@@ -539,7 +552,7 @@ final class OnboardingCoordinator {
         } catch where error.isCancellation {
             return false
         } catch {
-            errorMessage = message(error) ?? error.localizedDescription
+            errorMessage = message(error) ?? Self.fallbackMessage(for: error)
             errorDetails = error.diagnosticDetails
             return false
         }
