@@ -42,7 +42,7 @@ enum Theme {
     static let accent = Color("Accent")
     /// Recovery, the orbit's teal: the same colour as `accent` (one accent per screen, and it is the recovery
     /// metric's colour), so the legend reads `recovery`, `metricSleep`, `metricStrain`.
-    static let recovery = Color("Accent")
+    static let recovery = Color("Recovery")
     /// Text and icons on an `accent` fill (buttons, checks): `#0A0C0B`, 10.7:1.
     static let onAccent = Color("OnAccent")
     /// Volt `#D8FF4F`, the signal. Only for the ruler's needle, the readiness marker in the inner ring, the

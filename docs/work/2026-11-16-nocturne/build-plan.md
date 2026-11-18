@@ -1,4 +1,4 @@
-# Nocturne build plan: PR 5 and PR 6 (2026-11-18)
+ and `Theme.recovery` too (lead, at integration). `SafariView` still reads `Accent` (T6.0 changes its tint)# Nocturne build plan: PR 5 and PR 6 (2026-11-18)
 
 The lead's contract for every agent that builds Nocturne. It sits on top of the four specs in this folder:
 - `design.md` §P5 (PR 5);
@@ -118,6 +118,8 @@ The merge set is PR 5 → PR 6 A → PR 6 B → PR 6 C → the gate, all on one 
 - Zero warnings in the strict build (`RYFT_STRICT_WARNINGS=YES` and the grep in `CLAUDE.md`'s CI), `make lint`, `make style`,
   and the Unit plan for the files you touched.
 - Reduce Motion, VoiceOver labels, and Dynamic Type up to AX3 (the specs' AX rules).
+- Real names: replace any real person's name, email or device name you find in a file you own (previews, fixtures, doc comments; e.g. `tim@example.com`, "Tim's iPhone") with synthetic ones (Alex Doe, `alex@example.com`). `dev.timkrebs.ryft` bundle IDs stay.
+- New strings so far, for the PR 5 strings pass: "In progress" (PillButton busy VoiceOver value).
 - Never re-serialise `Localizable.xcstrings`. A ticket that needs a new string lists the key and its English value in its
   report; the localization-editor adds them.
 - Commits and PR text carry **no** "Generated with Claude Code" line and **no** Co-Authored-By trailer.
