@@ -1,11 +1,13 @@
 import Foundation
 
 /// Creates local sessions: from a plan day (with today's targets), as a repeat
-/// of an earlier session, or empty.
+/// of an earlier session, or empty. `id`: the new session's, given when it must be recorded before the row is saved
+/// (`TrainCoordinator`'s starts, ADR 0019).
 @MainActor
 enum SessionFactory {
-    static func fromPlan(day: PlanDay, today: PlanToday?, library: [Exercise], in store: TrainStore) -> LocalSession {
-        let s = LocalSession(title: day.name, planDayId: day.id)
+    static func fromPlan(day: PlanDay, today: PlanToday?, library: [Exercise], id: UUID = UUID(),
+                         in store: TrainStore) -> LocalSession {
+        let s = LocalSession(id: id, title: day.name, planDayId: day.id)
         store.context.insert(s)
         for pe in day.exercises.sorted(by: { $0.position < $1.position }) {
             let e = add(pe.exercise, to: s, sets: 0, rest: pe.restSec, in: store)
@@ -28,8 +30,9 @@ enum SessionFactory {
     }
 
     /// Same exercises and number of sets; last time's numbers appear ghosted.
-    static func repeating(_ last: TrainSession, library: [Exercise], in store: TrainStore) -> LocalSession {
-        let s = LocalSession(title: last.title.isEmpty ? String(localized: "Workout") : last.title)
+    static func repeating(_ last: TrainSession, library: [Exercise], id: UUID = UUID(),
+                          in store: TrainStore) -> LocalSession {
+        let s = LocalSession(id: id, title: last.title.isEmpty ? String(localized: "Workout") : last.title)
         store.context.insert(s)
         for old in last.exercises.sorted(by: { $0.position < $1.position }) {
             guard let ex = library.first(where: { $0.id == old.exerciseId }) else { continue }
@@ -41,8 +44,8 @@ enum SessionFactory {
         return s
     }
 
-    static func empty(in store: TrainStore) -> LocalSession {
-        let s = LocalSession(title: String(localized: "Workout"))
+    static func empty(id: UUID = UUID(), in store: TrainStore) -> LocalSession {
+        let s = LocalSession(id: id, title: String(localized: "Workout"))
         store.insert(s)
         return s
     }

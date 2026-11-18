@@ -347,8 +347,10 @@ final class AppState {
         env.uploader.accountChanged()
         env.activities.accountChanged()
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
-        // And what demo's training import put on the demo platform.
+        // And what demo's training import put on the demo platform, and the workouts logged on it (ADR 0019): one the
+        // exit discarded doesn't come back with Demo data on again.
         (env.demoAPI as? MockPlatformAPI)?.trainImportSource.reset()
+        (env.demoAPI as? MockPlatformAPI)?.trainSource?.reset()
         readsChanged(.record)
     }
 

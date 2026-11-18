@@ -20,8 +20,9 @@ final class TrainStore {
     var context: ModelContext { container.mainContext }
     /// On disk. False in memory: asked for (tests, previews, demo data), or the file couldn't be opened.
     let isDurable: Bool
-    /// Asked for a file and got memory (`init`): what's in that file is out of reach, so a wipe can't take it.
-    private let lostItsFile: Bool
+    /// Asked for a file and got memory (`init`): what's in that file is out of reach, so a wipe can't take it, and
+    /// what this store doesn't find may still be there (the demo's list isn't pruned against it, ADR 0019).
+    let lostItsFile: Bool
 
     convenience init(inMemory: Bool = false) {
         // In memory, each instance gets its own name, so tests and previews never share a store.
