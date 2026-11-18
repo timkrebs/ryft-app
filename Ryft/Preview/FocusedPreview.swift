@@ -2,7 +2,8 @@ import Foundation
 
 /// Mock sessions for the Focused layout's previews and shots: synthetic values only (day "Upper", 75 × 10, 80 × 6). Each
 /// has its own store and sync, so a scenario's rows can't reach another's context. 102.5 is the widest number the table has
-/// to hold (design.md §2.5).
+/// to hold (design.md §2.5). `draft` and `draftList` are the approved Nocturne drafts' states (PR 6 B `b-04`, `b-02`) on the
+/// plan's own numbers, for the screens' compare-with-the-draft shots.
 @MainActor
 enum FocusedPreview {
     enum Scenario {
@@ -33,6 +34,11 @@ enum FocusedPreview {
         case restRunning
         /// `midSession` the moment a rest ended. Its "Rest over" holds: see `HeldClock`.
         case restOver
+        /// `b-04`: "Upper A" at 23 min, Bench press done, Barbell row on screen ("4 × 8 @ 62.5 kg", "Rest 2:30", the note),
+        /// set 1 logged at 62.5 × 8, set 2 active, last time 4 × 60 × 8 on Tue, Nov 10, a rest running with 1:54 left.
+        case draft
+        /// `b-02`, the List layout: "Upper A", Bench press's set 1 logged (80 × 5), set 2 active, a rest running, 1:54 left.
+        case draftList
     }
 
     /// Never reaches the end of a wait: a shot of "Rest over" can't miss its one second on a slow Mac.
@@ -65,7 +71,8 @@ enum FocusedPreview {
         let settings = Settings(defaults: UserDefaults(suiteName: "ryft.focused.preview") ?? .standard)
         settings.setColumn = column
         let controller = SessionController(session: session, sync: sync, liveActivity: nil,
-                                           clock: scenario == .restOver ? HeldClock() : SystemClock(), layout: .focused, settings: settings)
+                                           clock: scenario == .restOver ? HeldClock() : SystemClock(),
+                                           layout: scenario == .draftList ? .list : .focused, settings: settings)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
         if scenario == .longNote {
             controller.pageExercise?.notes = "Slow on the way down, pause at the bottom and keep the elbows in the whole way up"
@@ -75,6 +82,8 @@ enum FocusedPreview {
             controller.activate(ex.orderedSets[2])
         }
         if scenario == .restRunning, let ex = controller.pageExercise { controller.startRest(for: ex, seconds: 114) }
+        if scenario == .draft, let ex = controller.pageExercise { controller.startRest(for: ex, seconds: 114) }
+        if scenario == .draftList, let ex = controller.exercises.first { controller.startRest(for: ex, seconds: 114) }
         if scenario == .restOver, let ex = controller.pageExercise {
             controller.startRest(for: ex, seconds: 15)
             controller.adjustRest(by: -RestTimer.maxRest)
@@ -119,7 +128,42 @@ enum FocusedPreview {
             return s
         case .empty:
             return SessionFactory.empty(in: store)
+        case .draft:
+            return draft(in: store)
+        case .draftList:
+            return draftList(in: store)
         }
+    }
+
+    /// The drafts' "last time": Tuesday 10 November 2026, 18:00.
+    static let draftLastTimeDate = DateComponents(calendar: .current, year: 2026, month: 11, day: 10, hour: 18).date ?? .now
+
+    /// `b-04`: the plan's Upper A (Barbell row's target 4 × 8 @ 62.5, rest 150 s), Bench press done at its ghosts.
+    private static func draft(in store: TrainStore) -> LocalSession {
+        let s = upper(in: store)
+        s.title = MockTrain.upperA.name
+        let list = s.orderedExercises
+        for set in list[0].orderedSets { logGhost(set, of: list[0]) }
+        let row = list[1]
+        row.lastTime = (0..<4).map { SessionSet(setIndex: $0, reps: 8, weightKg: 60, completedAt: draftLastTimeDate) }
+        row.notes = "Slow on the way down"
+        log(row.orderedSets[0], reps: 8, kg: 62.5)
+        s.currentExerciseID = row.id
+        return s
+    }
+
+    /// `b-02`: the List layout's first exercise under way, Bench press's set 1 at 80 × 5.
+    private static func draftList(in store: TrainStore) -> LocalSession {
+        let s = upper(in: store)
+        s.title = MockTrain.upperA.name
+        log(s.orderedExercises[0].orderedSets[0], reps: 5, kg: 80)
+        return s
+    }
+
+    /// Checked off at its ghost, as a thumb on ✓ does.
+    private static func logGhost(_ set: LocalSet, of ex: LocalSessionExercise) {
+        let ghost = ex.ghost(forSetAt: set.setIndex)
+        log(set, reps: ghost.reps ?? 8, kg: ghost.kg)
     }
 
     private static func upper(in store: TrainStore) -> LocalSession {

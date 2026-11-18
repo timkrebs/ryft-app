@@ -116,7 +116,7 @@ enum MockTrain {
             pe(32, row, 2, 5, 5, 5, .kg, 65, rest: 150),
         ]),
         PlanDay(id: uuid(2, 11), dayIndex: 1, name: "Day B", exercises: [
-            pe(33, squat, 0, 5, 5, 5, .kg, 100, rest: 180), pe(34, ohp, 1, 5, 5, 5, .kg, 50, rest: 180),
+            pe(33, squat, 0, 5, 5, 5, .kg, 100, rest: 180), pe(34, ohp, 1, 5, 5, 5, .kg, 50, rest: 150),
             pe(35, deadlift, 2, 1, 5, 5, .kg, 130, rest: 240),
         ]),
     ])
@@ -165,10 +165,20 @@ enum MockTrain {
                                        startedAt: DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -38),
                                        currentWeek: 6, currentDayIndex: 0, status: .active)
 
-    static func catalog(enrolled: Bool = true) -> PlansOverview {
+    /// The same enrolment, paused (Plans' outline tile, `b-25`). `GET /v1/plans` reports only an active one; a library
+    /// whose catalog holds this reads it as paused (`TrainLibrary.pausedPlanID`), so a preview needs no stored key.
+    static var pausedEnrollment: Enrollment {
+        var e = enrollment
+        e.status = .paused
+        return e
+    }
+
+    /// `enrolled`: the active enrolment. `paused` (wins over `enrolled`): the paused one. `mine: false`: no plans of the
+    /// user's own (Plans' empty "My plans", "Plans you make or copy appear here.").
+    static func catalog(enrolled: Bool = true, paused: Bool = false, mine: Bool = true) -> PlansOverview {
         PlansOverview(builtin: plans.filter(\.isBuiltin).map(PlanSummary.init),
-                      mine: plans.filter { !$0.isBuiltin }.map(PlanSummary.init),
-                      active: enrolled ? enrollment : nil)
+                      mine: mine ? plans.filter { !$0.isBuiltin }.map(PlanSummary.init) : [],
+                      active: paused ? pausedEnrollment : enrolled ? enrollment : nil)
     }
 
     static var planToday: PlanToday { planToday(for: upperA, enrollment: enrollment) }
@@ -275,6 +285,20 @@ enum MockTrain {
         history.filter { DayFormat.string(from: $0.startedAt) == day }.map(SessionSummary.init)
     }
 
+    /// The exercise page's "no trend yet" (`b-15` states): only the latest session with `id`, so one e1RM point; its
+    /// records as that one session set them.
+    static func firstTimeHistory(for id: UUID) -> ExerciseHistory {
+        let latest = history.last { $0.exercises.contains { $0.exerciseId == id } }
+        return exerciseHistory(for: id, sessions: latest.map { [$0] } ?? [])
+    }
+
+    /// The exercise page without its records card: the 90 days of `id`, `prs` empty.
+    static func historyWithoutRecords(for id: UUID) -> ExerciseHistory {
+        var h = exerciseHistory(for: id, sessions: history)
+        h.prs = []
+        return h
+    }
+
     static func exerciseHistory(for id: UUID, sessions: [TrainSession]) -> ExerciseHistory {
         let relevant = sessions.filter { $0.status == .completed && $0.exercises.contains { $0.exerciseId == id } }
             .sorted { $0.startedAt < $1.startedAt }
@@ -291,17 +315,19 @@ enum MockTrain {
 
     // MARK: previews
 
-    /// An in-progress Upper A with two sets checked off, as on the gym floor.
+    /// An in-progress Upper A with `checked` sets checked off in order (two by default, as on the gym floor; six for the
+    /// resume banner's "Upper A · 23 min · 6 sets done", `b-23`), each at its ghost.
     @MainActor
-    static func liveSession(in store: TrainStore, started: TimeInterval = -23 * 60) -> LocalSession {
+    static func liveSession(in store: TrainStore, started: TimeInterval = -23 * 60, checked: Int = 2) -> LocalSession {
         let s = SessionFactory.fromPlan(day: upperA, today: planToday, library: exercises, in: store)
         s.startedAt = Date.now.addingTimeInterval(started)
-        let first = s.orderedExercises[0]
-        for set in first.orderedSets.prefix(2) {
-            let ghost = first.ghost(forSetAt: set.setIndex)
+        let sets = s.orderedExercises.flatMap { ex in ex.orderedSets.map { (ex, $0) } }.prefix(checked)
+        for (n, (ex, set)) in sets.enumerated() {
+            let ghost = ex.ghost(forSetAt: set.setIndex)
             set.reps = ghost.reps
             set.weightKg = ghost.kg
-            set.completedAt = .now.addingTimeInterval(-200 + Double(set.setIndex) * 150)
+            // 150 s apart, the last 50 s ago (with two: −200 and −50, as before).
+            set.completedAt = .now.addingTimeInterval(-50 - Double(sets.count - 1 - n) * 150)
         }
         s.restEndsAt = .now.addingTimeInterval(95)
         s.restTotal = 180
@@ -309,14 +335,32 @@ enum MockTrain {
         return s
     }
 
-    /// A finished session as `…/complete` returns it, for the summary sheet.
+    /// A finished session as `…/complete` returns it, for the summary sheet: the latest Upper A with the two records the
+    /// approved summary shows (`b-09`): Bench press's estimated 1RM 93.5 kg (its 80 × 5) and Barbell row's 8 reps.
     static var completed: TrainSession {
         var s = history[history.count - 1]
         s.notes = "Felt strong, last set grindy."
         s.prs = [
-            PersonalRecord(exerciseId: bench.id, kind: .e1rm, value: 96.5, sessionId: s.id, achievedAt: .now),
-            PersonalRecord(exerciseId: row.id, kind: .maxWeight, value: 70, sessionId: s.id, achievedAt: .now),
+            PersonalRecord(exerciseId: bench.id, kind: .e1rm, value: 93.5, sessionId: s.id, achievedAt: .now),
+            PersonalRecord(exerciseId: row.id, kind: .maxReps, value: 8, sessionId: s.id, achievedAt: .now),
         ]
+        return s
+    }
+
+    /// The summary without its records card.
+    static var completedWithoutRecords: TrainSession {
+        var s = completed
+        s.prs = []
+        return s
+    }
+
+    /// Finished, the platform's scores not there yet: no strain, no muscular load (the summary's unlit numeral; a session
+    /// detail without strain).
+    static var completedUnscored: TrainSession {
+        var s = completed
+        s.strain = nil
+        s.muscularTrimp = nil
+        s.prs = []
         return s
     }
 }
@@ -373,6 +417,15 @@ enum MockTrainScoring {
 final class MockTrainSource: TrainDataSource, @unchecked Sendable {
     static let shared = MockTrainSource()
 
+    /// What the platform holds at the start and after `reset()`.
+    enum Start: Sendable {
+        /// Demo data: the plans, the active Upper/Lower enrolment and 90 days of history.
+        case demo
+        /// A new account (T6B.0, PR 6 B's empty states): the built-in plans only, no plan of the user's, no enrolment, no
+        /// session. History's and My plans' empty states, Today's Train card without a plan.
+        case empty
+    }
+
     /// What the demo can change: as at launch until it does.
     private struct State {
         var customExercises: [Exercise] = []
@@ -382,10 +435,24 @@ final class MockTrainSource: TrainDataSource, @unchecked Sendable {
                                                         uniquingKeysWith: { a, _ in a })
 
         var allPlans: [Plan] { MockTrain.plans.filter(\.isBuiltin) + myPlans }
+
+        init(_ start: Start) {
+            guard start == .empty else { return }
+            myPlans = []
+            enrollment = nil
+            sessions = [:]
+        }
     }
 
     private let lock = NSLock()
-    private var state = State()
+    private let start: Start
+    private var state: State
+
+    /// `shared` is demo data's; a preview of another state makes its own.
+    init(start: Start = .demo) {
+        self.start = start
+        state = State(start)
+    }
 
     private func locked<T>(_ body: (inout State) throws -> T) rethrows -> T {
         try lock.withLock { try body(&state) }
@@ -393,7 +460,7 @@ final class MockTrainSource: TrainDataSource, @unchecked Sendable {
 
     /// Back to launch (`AppState.reset`: Demo data switched, the account changed): what the demo logged, saved, created
     /// or enrolled in goes, so a workout the exit discarded doesn't come back with Demo data on again.
-    func reset() { locked { $0 = State() } }
+    func reset() { locked { $0 = State(start) } }
 
     func exercises() async throws -> [Exercise] { locked { MockTrain.exercises + $0.customExercises } }
 
