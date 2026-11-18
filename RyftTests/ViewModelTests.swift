@@ -1727,10 +1727,10 @@ struct InsightsViewModelTests {
 
         await vm.load()
 
-        #expect(vm.series.count == TrendMetric.allCases.count)
-        #expect(vm.monthly[.hrv]?.range == TrendRange.month.rawValue)
-        #expect(vm.band(for: .hrv) != nil)
-        #expect(vm.band(for: .strain) == nil)
+        #expect(TrendMetric.allCases.allSatisfy { state.cachedTrend($0, range: .week) != nil })
+        #expect(state.cachedTrend(.hrv, range: .month)?.range == TrendRange.month.rawValue)
+        #expect(vm.card(.hrv).band != nil)
+        #expect(vm.card(.strain).band == nil)
     }
 
     @Test func emptyMessageDependsOnWhy() async {
