@@ -31,7 +31,9 @@ struct HealthAccessHint: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 // Neutral (Nocturne, design.md §P5-1.2): an outline pill, no teal.
-                PillButton(Text("Open Health"), style: .secondary) { HealthLinks.open(with: openURL) }
+                PillButton(Text("Open Health"), style: .secondary, systemImage: PillButton.Icon.linkOut) {
+                    HealthLinks.open(with: openURL)
+                }
                     .accessibilityIdentifier("health.openHealth")
             }
         }

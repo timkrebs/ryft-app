@@ -62,8 +62,10 @@ private struct HealthPermissionScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // Decoration: VoiceOver starts at the title, the first heading.
                 WordmarkLockup()
                     .frame(height: OnboardingSpec.headerHeight)
+                    .accessibilityHidden(true)
                 HealthIllustration()
                     .padding(.top, OnboardingSpec.titleGap)
                 ScreenHeaderTitle(text: Text("Connect Apple Health"))

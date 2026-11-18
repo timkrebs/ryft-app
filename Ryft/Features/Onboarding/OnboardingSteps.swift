@@ -60,12 +60,15 @@ struct OnboardingScreen<Content: View>: View {
     private let title: Text
     private let lead: Text
     private let showsLockup: Bool
+    private let dismissible: Bool
     private let content: Content
 
-    init(title: Text, lead: Text, showsLockup: Bool, @ViewBuilder content: () -> Content) {
+    /// `dismissible`: the step can wait (`OnboardingCoordinator.canDefer`); as a sheet only then does it show the grabber.
+    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, @ViewBuilder content: () -> Content) {
         self.title = title
         self.lead = lead
         self.showsLockup = showsLockup
+        self.dismissible = dismissible
         self.content = content()
     }
 
@@ -73,9 +76,11 @@ struct OnboardingScreen<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if showsLockup {
+                    // Decoration: VoiceOver starts at the step's title, its first heading.
                     WordmarkLockup()
                         .frame(height: OnboardingSpec.headerHeight)
                         .padding(.bottom, OnboardingSpec.titleGap)
+                        .accessibilityHidden(true)
                 }
                 ScreenHeaderTitle(text: title)
                 lead
@@ -97,7 +102,7 @@ struct OnboardingScreen<Content: View>: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)
-        .presentationDragIndicator(.visible)
+        .presentationDragIndicator(dismissible ? .visible : .hidden)
     }
 }
 
@@ -199,7 +204,7 @@ struct InviteCodeView: View {
     var body: some View {
         OnboardingScreen(title: Text("Enter your invite code"),
                          lead: Text("RYFT is invite-only during the beta. The person who invited you has a code for you, like RYFT-7K3M-QX9P."),
-                         showsLockup: model.isFirstRun) {
+                         showsLockup: model.isFirstRun, dismissible: model.canDefer(.invite)) {
             GroupedCard {
                 FormField(Text("Invite code"), isFocused: focused) {
                     TextField(text: Bindable(model).inviteCode, prompt: Text(verbatim: "RYFT-XXXX-XXXX").fieldPrompt()) {
@@ -255,6 +260,10 @@ struct InviteCodeView: View {
         }
         .onChange(of: launchCovers) { _, covers in
             if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: covers) { focused = true }
+        }
+        // A refused code (422): back to the field, to correct it.
+        .onChange(of: model.errorMessage) { _, message in
+            if message != nil { focused = true }
         }
     }
 }
@@ -313,23 +322,42 @@ struct ConsentView: View {
             .padding(.top, ConsentSpec.checkboxGap)
             .accessibilityIdentifier("consent.checkbox")
             OnboardingError(model: model)
+            // Agree records the version on screen: with none known (the config didn't load), it waits for one.
+            if model.policyVersion == nil, model.policyRead == .failed {
+                InlineMessage(message: String(localized: "The privacy policy version didn't load. You can agree once it's shown."),
+                              systemImage: "doc.badge.clock",
+                              retry: { await model.loadPolicyIfMissing() },
+                              identifier: "consent.policyVersion")
+                    .padding(.top, OnboardingSpec.actionGap)
+            }
             PillButton(model.isWorking ? Text("Saving your consent…") : Text("Agree and continue"),
                        systemImage: PillButton.Icon.confirm, busy: model.isWorking) {
                 await model.agree()
             }
-            .disabled(!agreed)
+            .disabled(!agreed || model.policyVersion == nil)
             .padding(.top, model.errorMessage == nil ? ConsentSpec.primaryGap : OnboardingSpec.actionGap)
             .accessibilityIdentifier("consent.agree")
             LaterButton(title: "Not now") { model.later(.consent) }
                 .disabled(model.isWorking)
                 .padding(.top, OnboardingSpec.quietGap)
-            Text("Nothing is synced until you agree. Privacy policy version \(model.policyVersion ?? "–").")
+            policyCaption
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, OnboardingSpec.actionGap)
         }
         .safariSheet($legal)
+        .task { await model.loadPolicyIfMissing() }
+    }
+
+    /// What agreeing records: the policy version, or that it is still on its way.
+    private var policyCaption: Text {
+        if let version = model.policyVersion {
+            return Text("Nothing is synced until you agree. Privacy policy version \(version).")
+        }
+        return model.policyRead == .loading
+            ? Text("Nothing is synced until you agree. Loading the privacy policy version…")
+            : Text("Nothing is synced until you agree.")
     }
 }
 
@@ -464,6 +492,7 @@ struct OnboardingStepPreview: View {
     let step: OnboardingCoordinator.Step
     /// About you after the birth year was saved: the values, editable.
     var saved = false
+    /// Demo data: consent's version comes from the mock config, read by the step itself (`loadPolicyIfMissing()`).
     @State private var model = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
 
     var body: some View {

@@ -230,8 +230,37 @@ final class OnboardingCoordinator {
 
     // MARK: the policy
 
-    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to.
-    var policyVersion: String? { consent.latestPolicyVersion }
+    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to. Where
+    /// the record keeps nothing (demo data, a store not readable before the first unlock), the version consent's own
+    /// read brought.
+    var policyVersion: String? { consent.latestPolicyVersion ?? readPolicyVersion }
+
+    /// The version `loadPolicyIfMissing()` read, for when the record couldn't keep it.
+    private var readPolicyVersion: String?
+
+    /// Consent's read of the policy version when none is known yet (`loadPolicyIfMissing()`).
+    enum PolicyRead: Equatable { case idle, loading, failed }
+
+    private(set) var policyRead: PolicyRead = .idle
+
+    /// Agree can run: a policy version is on screen (the one `agree()` records) and nothing else runs.
+    var canAgree: Bool { policyVersion != nil && !isWorking }
+
+    /// The consent step opened with no policy version: one `GET /v1/config` (joined with any read in flight), so the
+    /// version agreed to is always one the screen showed. A failure leaves Agree off and the step offers Try again.
+    func loadPolicyIfMissing() async {
+        guard policyVersion == nil, policyRead != .loading else { return }
+        policyRead = .loading
+        do {
+            let config = try await consent.fetchConfig(userInitiated: true)
+            readPolicyVersion = config?.privacyPolicyVersion ?? readPolicyVersion
+            policyRead = policyVersion == nil ? .failed : .idle
+        } catch where error.isCancellation {
+            policyRead = .idle
+        } catch {
+            policyRead = .failed
+        }
+    }
 
     /// Where the policy is published; the in-app Safari sheet opens it.
     var policyPage: LegalPage {
@@ -440,17 +469,20 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// `POST /v1/me/consent` for the policy in force, then the first sync.
+    /// `POST /v1/me/consent` for the policy version on screen, then the first sync. Nothing without a version shown
+    /// (`canAgree`); a stale one is checked first, and a newer policy than the one shown is shown, not agreed to.
     @discardableResult
     func agree() async -> Bool {
+        guard let version = policyVersion else { return false }
         let ok = await perform {
-            let version: String
-            if let v = self.consent.latestPolicyVersion, self.consent.isPolicyFresh(at: self.env.clock.now()) {
-                version = v
-            } else {
-                let fresh = try await self.consent.fetchConfig(userInitiated: true)
-                guard let v = fresh?.privacyPolicyVersion else { throw APIError.http(422, "no policy version") }
-                version = v
+            if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
+                // Nil: nothing was sent (offline, a Retry-After window).
+                guard let fresh = try await self.consent.fetchConfig(userInitiated: true) else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                guard fresh.privacyPolicyVersion == version else {
+                    throw APIError.http(422, "the policy changed since it was shown")
+                }
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
             // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
@@ -526,9 +558,9 @@ final class OnboardingCoordinator {
         errorDetails = nil
     }
 
-    /// The banner's words for a failure the step has none of its own for: `APIError`'s (written for RYFT), except a
-    /// failure to reach the platform, whose system text ("The Internet connection appears to be offline.") becomes RYFT's
-    /// (PR 6 A §A-7, the sentence `AuthMessage` uses).
+    /// The banner's words for a failure the step has none of its own for (PR 6 A §A-7): not reaching the platform says
+    /// so (the sentence `AuthMessage` uses); anything else, a server's message or an answer that didn't decode included,
+    /// says only that it didn't work. The details (request ID) stay behind Details.
     nonisolated static func fallbackMessage(for error: Error) -> String {
         let unreachable: Bool
         if case .transport? = error as? APIError {
@@ -536,7 +568,8 @@ final class OnboardingCoordinator {
         } else {
             unreachable = error is URLError || (error as NSError).domain == NSURLErrorDomain
         }
-        return unreachable ? String(localized: "No connection. Check your internet and try again.") : error.localizedDescription
+        return unreachable ? String(localized: "No connection. Check your internet and try again.")
+            : String(localized: "Something went wrong. Please try again.")
     }
 
     // MARK: private

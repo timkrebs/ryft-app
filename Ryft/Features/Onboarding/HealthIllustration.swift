@@ -19,6 +19,8 @@ struct HealthIllustration: View {
     var size: CGFloat = HealthIllustrationSpec.side
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The launch's mark still covers the screen (ADR 0017): the line draws once it has handed over, where it can be seen.
+    @Environment(\.launchCoversRoot) private var launchCovers
     @State private var drawn = false
 
     private var scale: CGFloat { size / HealthIllustrationSpec.side }
@@ -37,10 +39,13 @@ struct HealthIllustration: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
-        .onAppear {
-            guard !drawn else { return }
-            withAnimation(Theme.Motion.respecting(reduceMotion, HealthIllustrationSpec.drawIn)) { drawn = true }
-        }
+        .onAppear(perform: drawIn)
+        .onChange(of: launchCovers) { drawIn() }
+    }
+
+    private func drawIn() {
+        guard !drawn, !launchCovers else { return }
+        withAnimation(Theme.Motion.respecting(reduceMotion, HealthIllustrationSpec.drawIn)) { drawn = true }
     }
 
     /// How much of the pulse is drawn: all of it once it has drawn in, and from the start under Reduce Motion.
