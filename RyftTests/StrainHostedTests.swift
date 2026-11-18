@@ -59,7 +59,23 @@ struct StrainHostedTests {
             #expect(row.hint == "Opens the workout")
             #expect(row.traits.contains(.button))
             #expect(nodes.contains { $0.label == "Activities" && $0.traits.contains(.header) })
-            #expect(nodes.contains { $0.label == "Strain" && $0.traits.contains(.header) })
+            let title = try #require(nodes.first { $0.label == "Strain" && $0.traits.contains(.header) })
+            #expect(title.value == String(localized: "Today"), "the header names the shown day")
+        }
+    }
+
+    /// Review S4: another day is named twice, the header's spoken value and the date line under it (VoiceOver hears the
+    /// value, the line is hidden from it); the date line sits under the header, above the strip.
+    @Test func anotherDayIsNamed() async throws {
+        let day = DayFormat.shift(StrainPreview.today, days: -3)
+        let content = StrainPreview.content(day: day)
+        let line = try #require(content.dateLine)
+        try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0, page(content)) { w in
+            try await w.settle()
+            let nodes = w.nodes()
+            let title = try #require(nodes.first { $0.label == "Strain" && $0.traits.contains(.header) })
+            #expect(title.value == Fmt.dayTitle(day, today: StrainPreview.today))
+            #expect(!nodes.contains { $0.label == line }, "the line is the header's value, not a second element")
         }
     }
 
@@ -93,12 +109,32 @@ struct StrainHostedTests {
     }
 
     @Test func noZonesSaysWhy() async throws {
+        let earlier = DayFormat.shift(StrainPreview.today, days: -2)
         try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0,
-                                   page(StrainPreview.content(zones: false, workouts: false))) { w in
+                                   page(StrainPreview.content(day: earlier, zones: false, workouts: false))) { w in
             try await w.settle()
             let zones = try #require(w.nodes().first { $0.identifier == "strain.zones" })
             #expect(zones.value == StrainBoard.noZonesSentence)
             #expect(w.nodes().contains { $0.label == "No workouts recorded on this day." })
+        }
+        // Today the day isn't over (review S2).
+        try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0,
+                                   page(StrainPreview.content(zones: false, workouts: false))) { w in
+            try await w.settle()
+            let zones = try #require(w.nodes().first { $0.identifier == "strain.zones" })
+            #expect(zones.value == StrainBoard.noZonesTodaySentence)
+        }
+    }
+
+    /// Review S2: while the platform scores, the tile keeps its rows ("–") and says so, with no absence sentence.
+    @Test func aPendingDaySaysItIsScoring() async throws {
+        try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0,
+                                   page(StrainPreview.content(pending: true))) { w in
+            try await w.settle()
+            let nodes = w.nodes()
+            let zones = try #require(nodes.first { $0.identifier == "strain.zones" })
+            #expect(zones.value == String(localized: "Scoring your latest data"))
+            #expect(!nodes.contains { $0.label == StrainBoard.noStrainSentence || $0.label == StrainBoard.noStrainTodaySentence })
         }
     }
 
@@ -135,6 +171,23 @@ struct StrainHostedTests {
         }
     }
 
+    /// Review S3: couldn't load is the calm sentence with Try again in the zones tile's place, and the chart's outline;
+    /// never "no zones" or "no series".
+    @Test func theWorkoutThatCouldntLoad() async throws {
+        let failure = SleepLoadFailure(reason: .busy, details: "HTTP 503")
+        try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0,
+                                   workout(WorkoutPreview.board(failure: failure))) { w in
+            try await w.settle()
+            let nodes = w.nodes()
+            let ids = Set(nodes.compactMap(\.identifier))
+            #expect(nodes.contains { $0.label == failure.message }, "\(nodes.map(\.label))")
+            #expect(ids.contains("workout.failure.retry"), "Try again in \(ids.sorted())")
+            #expect(!ids.contains("workout.zones") && !ids.contains("workout.chart"))
+            #expect(!nodes.contains { $0.label == String(localized: "No heart-rate series available for this workout.") })
+            #expect(ids.contains("workout.numeral"), "the list's strain shows")
+        }
+    }
+
     // MARK: shots
 
     @Test func writeShots() async throws {
@@ -148,7 +201,13 @@ struct StrainHostedTests {
             ("strain-anotherday-offline", AnyView(page(StrainPreview.content(day: DayFormat.shift(StrainPreview.today, days: -2),
                                                                              status: .line(.offline))))),
             ("workout", AnyView(workout(WorkoutPreview.board(session: true)))),
+            ("strain-pending", AnyView(page(StrainPreview.content(pending: true)))),
+            ("strain-tendaysago", AnyView(page(StrainPreview.content(day: DayFormat.shift(StrainPreview.today, days: -10))))),
+            ("strain-train-inprogress", AnyView(NavigationStack {
+                StrainPage(content: StrainPreview.content()).environment(StrainPreview.liveTrain)
+            })),
             ("workout-loading", AnyView(workout(WorkoutPreview.board(loading: true)))),
+            ("workout-failed", AnyView(workout(WorkoutPreview.board(failure: failure)))),
             ("workout-noseries-nozones-offline", AnyView(workout(WorkoutPreview.board(series: false, zones: false), offline: true))),
             ("start-sheet", AnyView(StartWorkoutSheet().environment(Self.idle))),
             ("today-train-card", AnyView(ScrollView { TrainTodayCard().padding(20) }.background(Theme.background)
