@@ -1,13 +1,13 @@
 import SwiftUI
-import Charts
 
 /// Sleep's measurements in Day mode (Nocturne, docs/work/2026-11-16-nocturne/design.md §P4-2, §P4-11 test 1): the board's
 /// gaps and sizes, bottom of one element to the top of the next.
 enum SleepLayout {
     /// The header row (`ScreenHeaderSpec.height`).
     static let headerHeight: CGFloat = 40
-    /// The mode picker under the header (L20, D4-3).
-    static let pickerGap: CGFloat = 12
+    /// The mode picker under the header (L20, D4-3), 40 high (`SegmentedPickerSpec.inkFill`, §P5-7.1; PR 4's was 52, so
+    /// Day's content sits 12 higher than on the board).
+    static let pickerGap: CGFloat = 12, pickerHeight: CGFloat = 40
     /// The numeral under the picker (the board's: under the header).
     static let numeralGap: CGFloat = 22
     static let captionGap: CGFloat = 12
@@ -30,12 +30,11 @@ enum SleepLayout {
     static let tileNoteMinimumScale: CGFloat = 0.9
     /// The cards under the tiles (need, stages, details).
     static let cardGap: CGFloat = 12
-    /// Week, Month and Bedtime keep their section spacing under the picker.
-    static let rangeGap: CGFloat = Theme.Metrics.sectionSpacing
 }
 
 /// Sleep: Day (the night in Nocturne: numeral, ruler, hypnogram, tiles, then the need, the stages and the details), Week /
-/// Month (nightly bars) and Bedtime, under one header and the mode picker.
+/// Month (the average, bed and wake times, the nightly stages and the nights) and Bedtime (tonight's bedtime for your goal),
+/// under one header and the mode picker.
 struct SleepView: View {
     @Environment(AppState.self) private var state
     @Environment(ScreenModels.self) private var screens
@@ -50,12 +49,30 @@ struct SleepView: View {
                     SleepDay(board: model.board, sleep: model.sleep, score: model.score, night: model.date,
                              numeralStyle: model.numeralStyle, showsHealthHint: model.hasNoHealthData,
                              failure: model.failure, retry: { await model.load() }, signIn: { await model.signIn() })
-                case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
-                case .plan: SleepPlannerSection(model: model.planner)
+                case .week, .month:
+                    SleepRangeSection(board: model.rangeBoard, numeralStyle: model.numeralStyle,
+                                      showsHealthHint: model.hasNoHealthData, notice: notice,
+                                      retry: { await model.load() }, signIn: { await model.signIn() })
+                case .plan:
+                    SleepBedtimeSection(board: model.bedtimeBoard(screens.bedtime),
+                                        wake: Binding(get: { model.planner.wake }, set: { model.planner.setWake($0) }),
+                                        numeralStyle: model.numeralStyle, notice: notice,
+                                        retry: { await model.planner.load() })
+                        // Bedtime & wake's own plan (its reminders and alarm) when there is a schedule and no plan yet.
+                        .task {
+                            let bedtime = screens.bedtime
+                            if bedtime.schedule != nil, bedtime.plan == nil { await bedtime.refresh() }
+                        }
                 }
             }
         }
         .task(id: TaskKey(mode: model.mode, refreshed: state.lastUpdated)) { await model.load() }
+    }
+
+    /// Today's calm card under the picker outside Day, while reads fail or the data is old.
+    private var notice: SleepModeNotice {
+        SleepModeNotice(issue: model.refreshIssue, isDemo: model.isDemo, retry: { await model.retryRefresh() },
+                        signIn: { await model.signIn() })
     }
 
     private struct TaskKey: Equatable {
@@ -72,7 +89,8 @@ struct SleepView: View {
     }
 }
 
-/// The page: the header, the mode picker 12 under it, then the mode's content (Day 22 under the picker, the others 24).
+/// The page: the header, the mode picker 12 under it, then the mode's content: Day's numeral 22 under the picker; Week, Month
+/// and Bedtime place their notice and numeral themselves (`SleepModesLayout`).
 struct SleepPage<Content: View>: View {
     let header: SleepHeaderContent
     @Binding var mode: SleepMode
@@ -87,7 +105,7 @@ struct SleepPage<Content: View>: View {
                 SleepModePicker(selection: $mode, modes: modes)
                     .padding(.top, SleepLayout.pickerGap)
                 content()
-                    .padding(.top, mode == .day ? SleepLayout.numeralGap : SleepLayout.rangeGap)
+                    .padding(.top, mode == .day ? SleepLayout.numeralGap : 0)
             }
         }
     }
@@ -139,8 +157,9 @@ struct SleepHeader: View {
     }
 }
 
-/// The mode picker (§P4-2 row 2): Day · Week · Month · Bedtime as segments; from AX1 one row, a menu with the current
-/// mode, because the segments truncate their titles there (§P4-8). PR 5 restyles both.
+/// The mode picker (§P4-2 row 2, §P5-7.1): Day · Week · Month · Bedtime as `SegmentedPicker`'s ink fill (40 high, the selected
+/// segment `textPrimary` with `background` text); from AX1 one row, `SegmentedMenu` with the current mode, because the
+/// segments truncate their titles there (§P4-8).
 struct SleepModePicker: View {
     @Binding var selection: SleepMode
     let modes: [SleepMode]
@@ -149,34 +168,10 @@ struct SleepModePicker: View {
 
     var body: some View {
         if typeSize.isAccessibilitySize {
-            Menu {
-                ForEach(modes) { mode in
-                    Button {
-                        selection = mode
-                    } label: {
-                        if mode == selection {
-                            Label(mode.title, systemImage: "checkmark")
-                        } else {
-                            Text(mode.title)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(selection.title)
-                    Image(systemName: "chevron.down")
-                        .imageScale(.small)
-                        .accessibilityHidden(true)
-                }
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: Theme.Metrics.minHitTarget)
-                .background(Theme.surface, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .accessibilityIdentifier("sleep.mode")
+            SegmentedMenu(selection: $selection, options: modes, title: \.title)
+                .accessibilityIdentifier("sleep.mode")
         } else {
-            SegmentedPicker(selection: $selection, options: modes, title: \.title)
+            SegmentedPicker(selection: $selection, options: modes, look: .inkFill, title: \.title)
         }
     }
 }
@@ -396,10 +391,10 @@ struct SleepNightCards: View {
     }
 }
 
-/// Thin rounded progress bar in the accent colour.
+/// Thin rounded progress bar, in the sleep colour by default (§P5-7.4).
 struct ProgressBar: View {
     let value: Double?
-    var color: Color = Theme.accent
+    var color: Color = Theme.metricSleep
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: Double = 0
@@ -418,156 +413,5 @@ struct ProgressBar: View {
         }
         .onChange(of: value) { _, v in shown = min(max(v ?? 0, 0), 1) }
         .accessibilityHidden(true)
-    }
-}
-
-/// Week / Month: nightly stacked bars, averages, bedtime consistency.
-struct SleepRangeSection: View {
-    let range: SleepRange?
-    let isLoading: Bool
-
-    var body: some View {
-        if let range {
-            let summary = SleepRangeSummary(range: range)
-            VStack(spacing: Theme.Metrics.sectionSpacing) {
-                averages(summary)
-                chart(summary)
-                consistency(summary)
-                nights(summary)
-            }
-        } else if isLoading {
-            ProgressView().tint(Theme.accent).padding(.top, 40)
-        } else {
-            InlineMessage(message: String(localized: "No sleep data for this range yet."), systemImage: "moon.zzz")
-        }
-    }
-
-    private func averages(_ summary: SleepRangeSummary) -> some View {
-        HStack(spacing: 10) {
-            average(title: "Avg sleep", value: summary.averageSleep)
-            average(title: "Avg quality", value: summary.averageQuality)
-            average(title: "Consistency", value: summary.averageConsistency)
-        }
-    }
-
-    private func average(title: LocalizedStringKey, value: String) -> some View {
-        VStack(spacing: 8) {
-            Text(title).ryftLabelStyle().lineLimit(1).minimumScaleFactor(0.8)
-            Text(value)
-                .font(.ryft(.metric))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    private func chart(_ summary: SleepRangeSummary) -> some View {
-        let order = SleepRangeSummary.stageOrder
-        let names = order.map(\.title) + (summary.hasUnstaged ? [SleepRangeSummary.asleep] : [])
-        let colors = order.map(Theme.color(for:)) + (summary.hasUnstaged ? [Theme.accentSecondary] : [])
-        let window = summary.window
-        let end = summary.end
-        let scale = ChartStyle.niceScale([summary.tallestNight, summary.averageHours ?? 0, 0], steps: ChartStyle.hourSteps)
-        return Card {
-            VStack(alignment: .leading, spacing: 12) {
-                ChartHeader(spec: .sleepMin, value: summary.totals.last?.value, delta: .vsSevenDayMean(summary.totals),
-                            window: window.title)
-                Chart {
-                    ForEach(summary.bars) { b in
-                        BarMark(x: .value("Night", b.date, unit: .day), y: .value("Hours", b.hours))
-                            .foregroundStyle(by: .value("Stage", b.stage))
-                            .cornerRadius(1)
-                    }
-                    if let avg = summary.averageHours {
-                        BaselineRule(value: avg, label: String(localized: "avg \(summary.averageSleep)"))
-                    }
-                }
-                .chartForegroundStyleScale(domain: names, range: colors)
-                .chartLegend(position: .bottom, alignment: .leading, spacing: 12)
-                // Bars fill whole day bins: the domain runs to the end of the last day.
-                .chartXScale(domain: window.start(endingAt: end)...DayFormat.shift(Calendar.current.startOfDay(for: end), days: 1))
-                .chartYScale(domain: scale.domain)
-                .chartXAxis {
-                    ChartStyle.xAxis(window.ticks(endingAt: end), format: window.format, centered: window == .week)
-                }
-                .chartYAxis { ChartStyle.yAxis(scale.ticks, unit: "h") { $0.formatted(.number.precision(.fractionLength(0...1))) } }
-                .frame(height: 200)
-                .chartAppear()
-                .accessibilityLabel(Text("Sleep per night"))
-                .accessibilityValue(Text("Average \(summary.averageSleep)"))
-            }
-        }
-    }
-
-    private func consistency(_ summary: SleepRangeSummary) -> some View {
-        let color: Color
-        switch summary.regularity {
-        case .steady: color = Theme.accent
-        case .fair: color = Theme.accentSecondary
-        case .irregular: color = Theme.warning
-        case .unknown: color = Theme.textTertiary
-        }
-        return Card {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: "bed.double.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(color)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Bedtime and wake time")
-                            .font(.ryft(.headline))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(summary.consistencyHint)
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                if !summary.bedtimes.isEmpty {
-                    BedtimeStrip(bedtimes: summary.bedtimes, rowHeight: summary.bedtimes.count > 10 ? 7 : 14)
-                }
-            }
-        }
-    }
-
-    /// Each night with its consistency and nap.
-    private func nights(_ summary: SleepRangeSummary) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                CardHeader(title: "\(summary.nights) nights")
-                ForEach(summary.nightRows) { row in
-                    HStack(spacing: 10) {
-                        Text(row.title)
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textPrimary)
-                        Spacer()
-                        if let nap = row.nap {
-                            Label(nap, systemImage: "powersleep")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                        Text(row.total)
-                            .font(.ryft(.callout).monospacedDigit())
-                            .foregroundStyle(Theme.textPrimary)
-                        Label(row.consistency ?? Fmt.placeholder, systemImage: "metronome")
-                            .font(.ryft(.caption).monospacedDigit())
-                            .foregroundStyle(Theme.textTertiary)
-                            .frame(minWidth: 44, alignment: .trailing)
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(row.title))
-                    .accessibilityValue(Text(String(localized: "\(row.total) asleep, quality \(row.quality)")
-                                             + (row.consistency.map { ", " + String(localized: "consistency \($0)") } ?? "")
-                                             + (row.nap.map { ", " + String(localized: "nap \($0)") } ?? "")))
-                }
-            }
-        }
     }
 }
