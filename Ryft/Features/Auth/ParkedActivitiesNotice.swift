@@ -76,11 +76,17 @@ extension AppEnvironment {
 }
 
 #Preview("Parked notice", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             ParkedActivitiesNotice(parked: .init(count: 3, until: nil)) {}
             ParkedActivitiesNotice(parked: .init(count: 1, until: .now.addingTimeInterval(29 * 86_400))) {}
         }
-        .padding()
     }
+}
+
+#Preview("Parked notice · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        ParkedActivitiesNotice(parked: .init(count: 3, until: .now.addingTimeInterval(29 * 86_400))) {}
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
