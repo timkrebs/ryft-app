@@ -12,6 +12,7 @@
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
 import Observation
+import SwiftData
 
 @MainActor
 @Observable
@@ -76,10 +77,24 @@ final class TrainSyncService {
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
 
+    /// The sessions started while the binding was demo's (`sessionStarting`), by id: what ending the demo discards
+    /// (ADR 0019). Ids only, never a title, a time or a health value; pruned against the store. Kept in `defaults`;
+    /// this copy is what's read, and it's observable (Profile's VoiceOver hint follows it with no fetch per render).
+    private(set) var demoSessionIDs: [UUID] = []
+    private let defaults: UserDefaults
+    nonisolated static let demoSessionsKey = "train.demoSessions"
+    /// Set once the first launch with the list has seeded it (`seedDemoSessions`), whatever it found.
+    nonisolated static let demoSessionsSeededKey = "train.demoSessionsSeeded"
+    /// Reads the store's sessions for the demo's list; tests make it throw.
+    @ObservationIgnored var fetchSessions: @MainActor (TrainStore, FetchDescriptor<LocalSession>) throws -> [LocalSession]
+        = { try $0.context.fetch($1) }
+
     /// `owner` goes with `remote`: by default both follow the live environment's account and Demo data switch.
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, owner: (@MainActor () -> String?)? = nil,
          debounce: Duration = .seconds(2), finishWait: Duration = .seconds(10), monitorsNetwork: Bool = true,
-         connectivity: ConnectivityMonitor? = nil) {
+         connectivity: ConnectivityMonitor? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        demoSessionIDs = (defaults.stringArray(forKey: Self.demoSessionsKey) ?? []).compactMap(UUID.init(uuidString:))
         self.connectivity = connectivity ?? .shared
         self.finishWait = finishWait
         self.store = store ?? .shared
@@ -128,7 +143,10 @@ final class TrainSyncService {
         s.pendingCompletion = true
         s.restEndsAt = nil
         enqueuePut(for: s.id)
-        store.enqueue(.complete, sessionID: s.id, bodyweightKg: bodyweightKg, account: owner())
+        let owner = owner()
+        if queues(s.id, for: owner) {
+            store.enqueue(.complete, sessionID: s.id, bodyweightKg: bodyweightKg, account: owner)
+        }
         refreshCount()
         debounceTask?.cancel()
         let generation = generation
@@ -144,6 +162,17 @@ final class TrainSyncService {
     /// Signed out or another account: the replay and the 2 s wait stop, and nothing of the previous
     /// account's shows (summary, error). An answer still in flight for it is dropped (`generation`).
     func accountChanged() {
+        stopReplay()
+        holds = []
+        lastCompletion = nil
+        lastError = nil
+        // As in `init`: a launch wipe calls this while `AppEnvironment.live` is being built, and the default owner reads it.
+        Task { [weak self] in self?.refreshCount() }
+    }
+
+    /// The replay and the 2 s wait stop, and the generation moves: an answer in flight is dropped before it touches a
+    /// row. The ops stay queued and go at the next trigger.
+    private func stopReplay() {
         accountCount += 1
         debounceTask?.cancel()
         debounceTask = nil
@@ -153,11 +182,104 @@ final class TrainSyncService {
         isFlushing = false
         flushAgain = false
         inFlightSeq = nil
-        holds = []
-        lastCompletion = nil
+    }
+
+    // MARK: the demo's sessions (ADR 0019)
+
+    private func setDemoSessionIDs(_ ids: [UUID]) {
+        guard ids != demoSessionIDs else { return }
+        demoSessionIDs = ids
+        if ids.isEmpty {
+            defaults.removeObject(forKey: Self.demoSessionsKey)
+        } else {
+            defaults.set(ids.map(\.uuidString), forKey: Self.demoSessionsKey)
+        }
+    }
+
+    /// `TrainCoordinator`'s starts, before the new session's row is made: one started while the binding is demo's goes
+    /// on the list, whatever happens to its ops later. A kill before the row is saved leaves an id the store doesn't
+    /// have, which nothing counts and the next discard prunes; the other order could leave a demo session unlisted.
+    func sessionStarting(_ id: UUID) {
+        guard owner() == Self.demoOwner, !demoSessionIDs.contains(id) else { return }
+        setDemoSessionIDs(demoSessionIDs + [id])
+    }
+
+    /// Whether any session is on the list (the launch sweep asks before it fetches anything; Profile's hint).
+    var hasDemoSessions: Bool { !demoSessionIDs.isEmpty }
+
+    /// Whether an op for session `id` is queued for, and sent by, `owner` (review R15). A session on the demo's list is
+    /// the demo's whatever the switch says now: its ops are only ever bound to "demo", and with Demo data off none is
+    /// queued or sent (one left open by a sweep that couldn't read the store waits for the next discard, never for an
+    /// account). Other sessions follow the binding (an account's that went on during the demo: STATUS → Open, F1).
+    private func queues(_ id: UUID, for owner: String?) -> Bool {
+        owner == Self.demoOwner || !demoSessionIDs.contains(id)
+    }
+
+    /// The first launch of a build with the list, once (`demoSessionsSeededKey`). Workouts logged in the demo before it
+    /// aren't on the list. With nobody signed in (`signedIn` also counts an account `auth.lastUserID` still names) the
+    /// store holds no account's Train rows: sign-out and expiry wipe Train, and a failed wipe keeps the account's id. So
+    /// every stored session is the demo's, Demo data on or not, and goes on the list; with Demo data off the same
+    /// launch's sweep discards them without asking (ADR 0019's leftovers). Signed in, the account's are there too and
+    /// can't be told apart: nothing is added (STATUS, Known issues). Done once whatever it found.
+    ///
+    /// That holds only while the defaults can be read: before the first unlock `auth.lastUserID` reads nil, and the
+    /// Keychain session may be unreadable too, so "nobody signed in" could be an account whose rows are stored. Without
+    /// protected data, or with memory in place of the store's file (what's in the file is out of reach), or a store that
+    /// can't be read, nothing is seeded and the flag isn't set: a later launch decides (review R13).
+    func seedDemoSessions(signedIn: Bool, protectedDataAvailable: Bool) {
+        guard protectedDataAvailable, !store.lostItsFile, !defaults.bool(forKey: Self.demoSessionsSeededKey) else {
+            return
+        }
+        if !signedIn {
+            guard let stored = try? fetchSessions(store, FetchDescriptor<LocalSession>()) else { return }
+            let ids = demoSessionIDs
+            setDemoSessionIDs(ids + stored.map(\.id).filter { !ids.contains($0) })
+        }
+        defaults.set(true, forKey: Self.demoSessionsSeededKey)
+    }
+
+    /// The sessions on the list that the store has, in progress or finished: the list is never trusted on its own.
+    /// Nothing is fetched while it's empty. Throws when the store can't be read (the discard then changes nothing).
+    func fetchDemoSessions() throws -> [LocalSession] {
+        let ids = demoSessionIDs
+        guard !ids.isEmpty else { return [] }
+        return try fetchSessions(store, FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) }))
+    }
+
+    /// The demo ends (`TrainCoordinator.discardDemoWorkouts`, which fetched `sessions` and closed what showed them, and
+    /// then takes the ids out of Train's library caches): they go, with their ops, and nothing is sent, not even a
+    /// `DELETE` (their only other copy was on the demo's in-memory platform, which `AppState.reset` starts over). The
+    /// replay stops first, so a demo answer in flight never touches a deleted row. Then the list keeps only the ids a
+    /// fresh context on the store still finds: the file decides, not the main context, so a delete the store refused is
+    /// tried again at the next launch. A store in memory in place of its file only drops what it deleted: those rows were
+    /// made in this process, and what it doesn't find may still be in the file.
+    func discardDemoSessions(_ sessions: [LocalSession]) {
+        let ids = demoSessionIDs
+        guard !ids.isEmpty else { return }
+        stopReplay()
+        let listed = Set(ids)
+        let gone = Set(sessions.map(\.id)).intersection(listed)
+        // One by one, so ops only inserted are found too (a batch delete skips them).
+        for op in store.pendingOps() where gone.contains(op.sessionId) { store.context.delete(op) }
+        for session in sessions where gone.contains(session.id) {
+            // Read now: reading either list on a deleted row is a fatal error unless it was resolved before the delete.
+            _ = (session.deletedSetIDs, session.deletedExerciseIDs)
+            // Cascades to its exercises and sets.
+            store.context.delete(session)
+        }
+        holds.subtract(gone)
+        if let id = lastCompletion?.id, listed.contains(id) { lastCompletion = nil }
         lastError = nil
-        // As in `init`: a launch wipe calls this while `AppEnvironment.live` is being built, and the default owner reads it.
-        Task { [weak self] in self?.refreshCount() }
+        store.save()
+        if store.lostItsFile {
+            setDemoSessionIDs(ids.filter { !gone.contains($0) })
+        } else {
+            let fresh = ModelContext(store.container)
+            let kept = (try? fresh.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
+                .map { Set($0.map(\.id)) } ?? listed
+            setDemoSessionIDs(ids.filter { kept.contains($0) })
+        }
+        refreshCount()
     }
 
     /// Discard (after confirmation): gone locally; a `DELETE` if the server has a copy.
@@ -183,6 +305,10 @@ final class TrainSyncService {
     private func enqueuePut(for id: UUID) {
         // One queued PUT per session and binding is enough: it sends the document as it is then.
         let owner = owner()
+        guard queues(id, for: owner) else {
+            store.save()
+            return
+        }
         let last = store.pendingOps().last { $0.sessionId == id }
         if let last, last.kind == .put, last.seq != inFlightSeq, Self.belongs(last, to: owner) {
             store.save()
@@ -300,9 +426,11 @@ final class TrainSyncService {
                 passedOver.insert(op.seq)
                 continue
             }
-            // The binding is checked and the client read in the same step: an op goes only through its own.
+            // The binding is checked and the client read in the same step: an op goes only through its own. One for a
+            // session on the demo's list goes only through the demo's, whatever it's bound to (an op queued before ops
+            // had an owner, review R15).
             let owner = owner()
-            guard Self.belongs(op, to: owner) else {
+            guard Self.belongs(op, to: owner), queues(op.sessionId, for: owner) else {
                 passedOver.insert(op.seq)
                 continue
             }
@@ -414,7 +542,7 @@ final class TrainSyncService {
     /// account's while it's on) don't show as waiting here.
     private func refreshCount() {
         let owner = owner()
-        pendingCount = store.pendingOps().filter { Self.belongs($0, to: owner) }.count
+        pendingCount = store.pendingOps().filter { Self.belongs($0, to: owner) && queues($0.sessionId, for: owner) }.count
     }
 
     // MARK: network

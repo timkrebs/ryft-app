@@ -115,7 +115,8 @@ private final class Armed: Sendable {
 struct ReadModelOffMainTests {
     /// The proof the design rests on (T0.1, decision 8): a write submitted from the main actor, through the Repository,
     /// gets a writer made off the main thread and runs its SwiftData job off it, and the main actor only awaits a
-    /// continuation. Both halves, because the OS decides by the maker on iOS 17.0 and by the awaiter on 27.2.
+    /// continuation. Both halves, because the OS decided by the maker on iOS 17.0 (iOS 18 reportedly too; unmeasured on
+    /// 18.6) and decides by the awaiter on 27.2.
     @Test func aWriteSubmittedFromTheMainActorRunsOffIt() async {
         let repo = Repository(env: .test())
         let made = Recorded<Bool>(), jobs = Recorded<Bool>()
@@ -251,13 +252,8 @@ struct ReadModelQueueTests {
         #expect(writers.count == 2) // one writer per store
         #expect(repo.day(a) != nil && repo.day(c) != nil && repo.day(b) == nil)
         let accountDays = try cachedDays(in: env.persistence).map(\.day)
-        withKnownIssue("T0.6: on iOS 17 the account's store is the older of two containers, and takes no inserts") {
-            #expect(account?.saved == true)
-            #expect(accountDays == [b])
-        } when: {
-            if #unavailable(iOS 18) { return true }
-            return false
-        }
+        #expect(account?.saved == true)
+        #expect(accountDays == [b])
     }
 
     /// `seed` writes on a context of its own: never while the writer may hold the same rows.
@@ -468,14 +464,8 @@ struct ReadModelWipeRaceTests {
         }
         let lastAccountUser = accountAfter.last(where: \.user).map { 1800 + $0.n }
         let accountUsers = try cachedUsers(in: h.persistence).map(\.birthYear)
-        withKnownIssue("T0.6: on iOS 17 the account's store is the older of two containers (demo data's is newer), and takes no inserts") {
-            #expect(Set(rows.map(\.day)) == Set(accountAfter.filter { !$0.user }.map(\.day)))
-            #expect(accountUsers == [lastAccountUser].compactMap { $0 })
-        } when: {
-            guard demo else { return false }
-            if #unavailable(iOS 18) { return true }
-            return false
-        }
+        #expect(Set(rows.map(\.day)) == Set(accountAfter.filter { !$0.user }.map(\.day)))
+        #expect(accountUsers == [lastAccountUser].compactMap { $0 })
 
         // What reads see: the account's store, or with demo data on demo data's newest store.
         let read = demo ? h.repository.storeID : account
@@ -721,8 +711,9 @@ extension ReadModelWipeRaceTests {
         #expect(try h.rowCount() == 0)
     }
 
-    /// A refused save isn't rolled back (on iOS 17.0 SwiftData traps there, T0.6): its writer goes, so the refused
-    /// change can't ride along with the next batch's save, and the next batch gets a writer of its own.
+    /// A refused save isn't rolled back (on iOS 17.0 SwiftData trapped there, T0.6; unmeasured on 18.6): its writer
+    /// goes, so the refused change can't ride along with the next batch's save, and the next batch gets a writer of its
+    /// own.
     @Test func aRefusedBatchLeavesNothingForTheNextOne() async throws {
         let h = WipeHarness()
         let made = Recorded<Bool>()

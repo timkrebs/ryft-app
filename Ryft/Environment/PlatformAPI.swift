@@ -194,6 +194,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     let activitySource: MockActivitiesSource
     /// The training import's batch endpoint (`TrainImportAPI`); what it stored is listed with the sessions and plans.
     let trainImportSource: MockTrainImportSource
+    /// Train's platform, when it's the mock (`AppState.reset` starts it over).
+    var trainSource: MockTrainSource? { train as? MockTrainSource }
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []

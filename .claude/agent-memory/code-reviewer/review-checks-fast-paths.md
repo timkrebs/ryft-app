@@ -13,11 +13,12 @@ From the P1 "fast date parsing" review (58e624e, 2026-10-23); nothing blocked, a
 - Pre-1970 fractions: ICU adds the non-negative ms to the whole-second field instant (`-1000 + 999 = -1`), not toward zero.
 - ICU leniency (declined inputs only): Feb 30 rolls, hour 24 = next midnight, `+24:00` reads as `+02:00`, `z`, fullwidth
   digits, leading/trailing space, `.-5` all accepted; `1582-10-14` is Julian. A fast path must *decline* all of these.
-- **Older iOS risk:** CI and local sims are iOS 27 only, deployment is 17.0. Reason from ICU/CF history (formula and
-  truncation unchanged for years); flag as risk, ask for a one-off run on an older runtime/device or a STATUS.md note.
+- **Older iOS risk:** CI runs iOS 27; deployment is 18.6 (ADR 0021); an 18.6 runtime is installed locally. Reason
+  from ICU/CF history (formula and truncation unchanged for years); flag as risk, ask for a one-off run on an older
+  runtime/device or a STATUS.md note.
 
 Technique (minutes, no app build): `git show <sha>:file` into my scratch dir + `main.swift`; compile for macOS and for
-the sim (`-target arm64-apple-ios17.0-simulator -sdk $(xcrun --sdk iphonesimulator --show-sdk-path)`), run with
+the sim (`-target arm64-apple-ios18.6-simulator -sdk $(xcrun --sdk iphonesimulator --show-sdk-path)`), run with
 `xcrun simctl spawn`; `SIMCTL_CHILD_TZ=…` sets the process zone. Bit-compare `timeIntervalSinceReferenceDate.bitPattern`
 plus an independent oracle (Fliegel–Van Flandern JDN). Every day 1583–9999 (3.07 M) takes ~5.5 min per platform.
 Mutants: python extracts the Swift Testing tables + generator into a plain harness (27 mutants in ~2 min). Run spawn

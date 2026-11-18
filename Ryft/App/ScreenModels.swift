@@ -41,8 +41,10 @@ final class ScreenModels {
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
 
+    /// `train`: the live workout's coordinator, which Profile asks what ending the demo would discard (nil in tests
+    /// and previews that don't need it).
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
-         apiStatus: APIStatus? = nil, trainSync: TrainSyncService? = nil) {
+         apiStatus: APIStatus? = nil, trainSync: TrainSyncService? = nil, train: TrainCoordinator? = nil) {
         self.coordinator = coordinator
         self.state = state
         self.sync = sync
@@ -101,7 +103,7 @@ final class ScreenModels {
             }
         }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
-                                   devices: devices)
+                                   devices: devices, train: train)
         state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Train's reads share the pipeline's budget and per-resource record.

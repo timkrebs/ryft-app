@@ -62,8 +62,10 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,
   lighter type, labels in sentence case, and a new app icon, the RYFT wordmark.
+- The app is called RYFT on the Home Screen, in notifications and in Settings, as on its icon.
 - RYFT is English only: on a device set to German, the app shows English. Numbers and dates keep your region's format.
 - Profile → Training: "Jump to next exercise" is now "Advance to the next exercise". It works as before, and your
   choice stays.
@@ -111,6 +113,9 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 - Launch is smoother: saving data no longer holds up the screen.
+- Turning off Demo data now discards the workouts logged with it, after asking. If they can't be read, Demo data stays
+  on and Profile says so. Workouts logged with Demo data before this update are discarded too if nobody is signed in
+  when it first opens; if you're signed in then, they stay.
 
 ### Fixed
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in
