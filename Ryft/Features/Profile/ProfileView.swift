@@ -16,6 +16,8 @@ struct ProfileView: View {
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
     @State private var showWithdrawConfirm = false
+    /// Demo data switched off while workouts logged in the demo exist: what the confirmation counts (ADR 0019).
+    @State private var confirmDemoExit: DemoWorkouts?
     @State private var legal: LegalPage?
     @State private var editing: BodySetting?
 
@@ -121,6 +123,26 @@ struct ProfileView: View {
             Button("Delete account instead", role: .destructive) { showDeleteConfirm = true }
         } message: {
             Text("RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time.")
+        }
+        // Cancel keeps the demo running: nothing is called. Confirm works out again what goes (`endDemo`).
+        .confirmationDialog(Text("Turn off Demo data?",
+                                 comment: "Profile → Demo data switched off while workouts logged in the demo exist"),
+                            isPresented: Binding(get: { confirmDemoExit != nil },
+                                                 set: { if !$0 { confirmDemoExit = nil } }),
+                            titleVisibility: .visible, presenting: confirmDemoExit) { _ in
+            Button(role: .destructive) {
+                Task { await model.endDemo() }
+            } label: {
+                Text("Discard and turn off", comment: "Deletes them and turns Demo data off")
+            }
+            .accessibilityIdentifier("profile.demo.discard")
+            Button(role: .cancel) {} label: {
+                Text("Keep Demo data", comment: "Demo data stays on; nothing is deleted")
+            }
+            .accessibilityIdentifier("profile.demo.keep")
+        } message: { workouts in
+            Text("The \(workouts.count) workouts you logged with Demo data will be discarded. This can't be undone.",
+                 comment: "The count includes one in progress. They're deleted from this iPhone; they only ever reached the demo's sample platform.")
         }
     }
 
@@ -501,7 +523,17 @@ struct ProfileView: View {
             }
 
             Divider().overlay(Theme.separator)
-            Toggle(isOn: Binding(get: { model.demoMode }, set: { on in Task { await model.setDemoMode(on) } })) {
+            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
+            let demoWorkouts = model.demoMode ? model.demoWorkouts : nil
+            Toggle(isOn: Binding(get: { model.demoMode }, set: { on in
+                if on {
+                    Task { await model.setDemoMode(true) }
+                } else if let workouts = model.demoWorkouts {
+                    confirmDemoExit = workouts
+                } else {
+                    Task { await model.endDemo() }
+                }
+            })) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Demo data")
                         .font(.ryft(.body))
@@ -512,6 +544,10 @@ struct ProfileView: View {
                 }
             }
             .tint(Theme.accent)
+            .accessibilityIdentifier("profile.demoMode")
+            .accessibilityHint(demoWorkouts == nil ? Text(verbatim: "")
+                : Text("Turning it off discards the workouts logged with Demo data.",
+                       comment: "Only while such workouts exist"))
         }
     }
 
