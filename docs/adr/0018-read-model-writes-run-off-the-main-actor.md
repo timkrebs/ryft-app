@@ -1,6 +1,9 @@
 # 0018 — Read-model writes run off the main actor, in order, through one writer per store
 
 - Status: accepted (2026-11-17, `docs/work/2026-11-17-persistence-off-main/design.md`; Nocturne PR 3 review row 22)
+- Amended by: ADR 0019 (proposed 2026-11-18). On iOS 17 the account's `ModelContainer` is reopened in place after the demo,
+  so "never a second container" holds per container instance; a cached writer is reused only for the container it was
+  made on (`docs/work/2026-11-18-ios17-demo-exit/design.md`).
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer builds it
 - Applies to: `Ryft/Persistence/` (`Repository`, `ReadModels.swift`, `ReadModelWrite.swift`, `ReadModelWriter.swift`,
   `StoreEpoch.swift`), `Ryft/Environment/Seams.swift` (`Persistence`), `Ryft/Train/Model/TrainStore.swift` (`epoch`,
