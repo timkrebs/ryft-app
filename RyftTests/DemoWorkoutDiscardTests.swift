@@ -3,180 +3,19 @@ import SwiftData
 import Testing
 @testable import Ryft
 
-// P1b ticket 2 (docs/work/2026-11-18-ios17-demo-exit/design.md §6.2, §6.3, ADR 0019): the workouts started in the demo
-// are on one list, and ending the demo discards them with their ops, sending nothing; an account's workout stays.
-// Synthetic values only.
+// P1b ticket 2 (docs/work/2026-11-18-ios17-demo-exit/design.md §6.2, §6.3, §6.9, ADR 0019): the workouts started in the
+// demo are on one list, and ending the demo discards them with their ops, sending nothing; an account's workout stays.
+// The list is seeded once for workouts logged before it. Synthetic values only.
 
-/// Train's platform as both bindings see it: records each session request by id, and can hold a `PUT` until the test
-/// answers it.
-actor RecordingTrainSource: TrainDataSource {
-    enum Call: Equatable {
-        case put(UUID), complete(UUID), delete(UUID)
-
-        var id: UUID {
-            switch self {
-            case .put(let id), .complete(let id), .delete(let id): id
-            }
-        }
-    }
-
-    private(set) var calls: [Call] = []
-    private var holdsPuts = false
-    private var held: [CheckedContinuation<SessionPutResult, Never>] = []
-    /// Held `PUT`s answered so far.
-    private(set) var answered = 0
-
-    func holdPuts() { holdsPuts = true }
-    var heldCount: Int { held.count }
-
-    /// Answers the held `PUT`s with `result`, and lets later ones through.
-    func release(_ result: @Sendable (TrainSession) -> SessionPutResult, for doc: TrainSession) {
-        holdsPuts = false
-        let waiting = held
-        held = []
-        for c in waiting { c.resume(returning: result(doc)) }
-        answered += waiting.count
-    }
-
-    func requests(for ids: Set<UUID>) -> [Call] { calls.filter { ids.contains($0.id) } }
-
-    func putSession(_ s: TrainSession) async throws -> SessionPutResult {
-        calls.append(.put(s.id))
-        guard holdsPuts else { return .saved(s) }
-        return await withCheckedContinuation { held.append($0) }
-    }
-
-    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
-        calls.append(.complete(id))
-        throw APIError.http(404, "not here")
-    }
-
-    func deleteSession(id: UUID) async throws { calls.append(.delete(id)) }
-
-    func exercises() async throws -> [Exercise] { MockTrain.exercises }
-    func createExercise(_ e: Exercise) async throws -> Exercise { e }
-    func exerciseHistory(id: UUID) async throws -> ExerciseHistory { throw APIError.http(404, "not here") }
-    func plans() async throws -> PlansOverview { throw APIError.http(404, "not here") }
-    func plan(id: UUID) async throws -> Plan { throw APIError.http(404, "not here") }
-    func savePlan(_ p: Plan) async throws -> Plan { p }
-    func deletePlan(id: UUID) async throws {}
-    func enroll(planID: UUID) async throws -> Enrollment { throw APIError.http(404, "not here") }
-    func pauseEnrollment() async throws {}
-    func planToday() async throws -> PlanToday? { nil }
-    func sessions(from: Date, to: Date) async throws -> [SessionSummary] { [] }
-    func session(id: UUID) async throws -> TrainSession { throw APIError.http(404, "not here") }
-}
-
-/// What the coordinator asked of the Live Activity.
-@MainActor
-final class RecordingLiveActivity: WorkoutLiveActivity {
-    private(set) var ends = 0
-    private(set) var shown: [UUID] = []
-
-    func workout(session: UUID, title: String, startedAt: Date, next: String) { shown.append(session) }
-    // swiftlint:disable:next function_parameter_count
-    func show(session: UUID, title: String, startedAt: Date, endsAt: Date, total: TimeInterval, exercise: String,
-              next: String) { shown.append(session) }
-    func finish(session: UUID, next: String) {}
-    func end() { ends += 1 }
-    func endAll(except session: UUID?) {}
-}
-
-/// Train as the app wires it, on one store: the binding follows `demo` (the Demo data switch) and `account` (who is
-/// signed in), and one recording platform answers both bindings. The list lives in a defaults suite of its own.
-@MainActor
-final class DemoTrainRig {
-    nonisolated static let account = "account-a"
-
-    /// The Demo data switch and who is signed in, as the binding reads them.
-    final class Binding {
-        var demo = true
-        var account: String? = DemoTrainRig.account
-        var owner: String? { demo ? TrainSyncService.demoOwner : account }
-    }
-
-    let store: TrainStore
-    let defaults: UserDefaults
-    let source = RecordingTrainSource()
-    let activity = RecordingLiveActivity()
-    let binding = Binding()
-    var demo: Bool {
-        get { binding.demo }
-        set { binding.demo = newValue }
-    }
-    var account: String? {
-        get { binding.account }
-        set { binding.account = newValue }
-    }
-    private(set) var sync: TrainSyncService
-    private(set) var coordinator: TrainCoordinator
-
-    /// `store`: in memory when nil (a default can't call the main actor's initializer).
-    init(store: TrainStore? = nil) {
-        let store = store ?? TrainStore(inMemory: true)
-        self.store = store
-        defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
-        (sync, coordinator) = Self.make(store: store, defaults: defaults, source: source, binding: binding,
-                                        activity: activity)
-    }
-
-    private static func make(store: TrainStore, defaults: UserDefaults, source: RecordingTrainSource, binding: Binding,
-                             activity: RecordingLiveActivity) -> (TrainSyncService, TrainCoordinator) {
-        let sync = TrainSyncService(store: store, remote: { source }, owner: { binding.owner },
-                                    debounce: .seconds(3600), monitorsNetwork: false, defaults: defaults)
-        sync.gate = { _ in nil }
-        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store), liveActivities: false,
-                                           liveActivity: activity)
-        // Not the live graph's flags: their first use opens `TrainStore.shared` mid-test. On iOS 17.0, still the
-        // deployment target, that newer container stops a set made after it joining a session made before
-        // (NSInvalidArgumentException).
-        coordinator.sessionLayout = { .list }
-        coordinator.jumpToNext = { false }
-        return (sync, coordinator)
-    }
-
-    /// A new process on the same store and defaults: a new outbox and coordinator, as at launch.
-    func relaunch() {
-        (sync, coordinator) = Self.make(store: store, defaults: defaults, source: source, binding: binding,
-                                        activity: activity)
-    }
-
-    /// A session started the way every production one is (`TrainCoordinator.start`), with one bench set logged and
-    /// its `PUT` queued.
-    @discardableResult
-    func startWorkout(_ title: String) -> LocalSession {
-        coordinator.startEmpty()
-        let s = coordinator.active ?? SessionFactory.empty(in: store)
-        s.title = title
-        SessionFactory.add(MockTrain.bench, to: s, sets: 1, in: store)
-        sync.sessionChanged(s)
-        return s
-    }
-
-    /// The live workout finished here, and closed: completed, its ops as `uploaded` says.
-    func finishLocally(_ s: LocalSession) {
-        s.status = .completed
-        s.endedAt = s.startedAt.addingTimeInterval(1_800)
-        store.save()
-        coordinator.close()
-        coordinator.refreshActive()
-    }
-
-    var list: [String] { defaults.stringArray(forKey: TrainSyncService.demoSessionsKey) ?? [] }
-
-    func storedSessions(_ ids: Set<UUID>) throws -> Int {
-        try store.stored(LocalSession.self, where: #Predicate { ids.contains($0.id) })
-    }
-
-    func ops(_ ids: Set<UUID>) -> [PendingTrainOp] { store.pendingOps().filter { ids.contains($0.sessionId) } }
-}
+/// Thrown by a store that can't be read (`TrainSyncService.fetchSessions`).
+private struct StoreUnreadable: Error {}
 
 @Suite("P1b: the demo's workouts are discarded when it ends", .serialized)
 @MainActor
 struct DemoWorkoutDiscardTests {
     // MARK: the list
 
-    @Test func aSessionStartedInTheDemoIsOnTheListAndOneStartedForTheAccountIsNot() {
+    @Test func aSessionStartedInTheDemoIsOnTheListAndOneStartedForTheAccountIsNot() throws {
         let rig = DemoTrainRig()
         let demo = rig.startWorkout("Demo")
         #expect(rig.list == [demo.id.uuidString])
@@ -185,26 +24,51 @@ struct DemoWorkoutDiscardTests {
         rig.demo = false
         let account = rig.startWorkout("Account")
         #expect(rig.list == [demo.id.uuidString])
-        #expect(rig.sync.demoSessions().map(\.id) == [demo.id])
-        #expect(!rig.sync.demoSessions().contains { $0.id == account.id })
+        #expect(try rig.sync.fetchDemoSessions().map(\.id) == [demo.id])
+        #expect(try !rig.sync.fetchDemoSessions().contains { $0.id == account.id })
     }
 
     /// The list is never trusted on its own: an id the store doesn't have isn't a workout.
-    @Test func theListCountsOnlyWhatTheStoreHas() {
+    @Test func theListCountsOnlyWhatTheStoreHas() throws {
         let rig = DemoTrainRig()
         rig.defaults.set([UUID().uuidString], forKey: TrainSyncService.demoSessionsKey)
+        rig.relaunch()
         #expect(rig.sync.hasDemoSessions)
-        #expect(rig.sync.demoSessions().isEmpty)
+        #expect(try rig.sync.fetchDemoSessions().isEmpty)
         #expect(rig.coordinator.demoWorkouts == nil)
     }
 
-    @Test func theWorkoutsCountFinishedOnesAndSayWhetherOneIsInProgress() {
+    @Test func theWorkoutsCountFinishedOnesAndTheOneInProgress() {
         let rig = DemoTrainRig()
         #expect(rig.coordinator.demoWorkouts == nil)
         rig.finishLocally(rig.startWorkout("One"))
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1, inProgress: false))
+        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1))
         rig.startWorkout("Two")
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 2, inProgress: true))
+        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 2))
+    }
+
+    /// Every way a workout starts: what the factory saves first already finds its id on the list (review R4). A kill in
+    /// between leaves an id the store doesn't have, which nothing counts.
+    @Test(arguments: ["empty", "today", "planDay", "repeat"])
+    func theIdIsListedBeforeTheRowIsSaved(_ start: String) throws {
+        let rig = DemoTrainRig()
+        let listed = Recorded<[String]>()
+        // Posted on the saving thread, the main one here.
+        let observer = NotificationCenter.default.addObserver(forName: ModelContext.willSave, object: rig.store.context,
+                                                              queue: nil) { _ in
+            MainActor.assumeIsolated { listed.append(rig.list) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        switch start {
+        case "empty": rig.coordinator.startEmpty()
+        case "today": rig.coordinator.startFromToday()
+        case "planDay": rig.coordinator.start(day: MockTrain.lowerA)
+        default: rig.coordinator.repeatSession(try #require(MockTrain.history.last))
+        }
+        let id = try #require(rig.coordinator.active?.id)
+        #expect(!listed.all.isEmpty)
+        #expect(listed.all.first == [id.uuidString])
+        #expect(rig.list == [id.uuidString])
     }
 
     // MARK: the discard (AC7)
@@ -256,6 +120,84 @@ struct DemoWorkoutDiscardTests {
         rig.coordinator.summary = FinishSummary(sessionID: s.id, completed: nil)
         rig.coordinator.discardDemoWorkouts()
         #expect(rig.coordinator.summary == nil)
+    }
+
+    /// What's open is checked against the list, not against what the store found (review R6): a summary of a listed
+    /// workout whose row is already gone closes too.
+    @Test func aSummaryGoesByTheListEvenWhenTheStoreHasNoRow() {
+        let rig = DemoTrainRig()
+        let s = rig.startWorkout("Gone")
+        rig.finishLocally(s)
+        let id = s.id
+        rig.store.dropOps(for: id)
+        rig.store.delete(s)
+        rig.store.save()
+        rig.coordinator.summary = FinishSummary(sessionID: id, completed: nil)
+
+        #expect(rig.coordinator.discardDemoWorkouts())
+
+        #expect(rig.coordinator.summary == nil)
+        #expect(rig.list.isEmpty)
+    }
+
+    /// Fails closed (review R6): a store that can't be read changes nothing, open workout, rows, ops and list alike.
+    @Test func aStoreThatCantBeReadDiscardsNothing() throws {
+        let rig = DemoTrainRig()
+        let finished = rig.startWorkout("Finished")
+        rig.finishLocally(finished)
+        let live = rig.startWorkout("Live")
+        let ids: Set<UUID> = [finished.id, live.id]
+        let ops = rig.ops(ids).map(\.seq)
+        let list = rig.list
+        rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+
+        #expect(!rig.coordinator.discardDemoWorkouts())
+        #expect(rig.coordinator.demoWorkouts == nil) // nothing to count: the switch goes straight to the exit
+
+        #expect(rig.coordinator.live?.session.id == live.id)
+        #expect(rig.coordinator.active?.id == live.id)
+        #expect(rig.activity.ends == 0)
+        #expect(try rig.storedSessions(ids) == 2)
+        #expect(rig.ops(ids).map(\.seq) == ops)
+        #expect(rig.list == list)
+    }
+
+    /// In memory after the file failed to open, the store can't say what the file still holds (review R5): the discard
+    /// takes what it finds and drops only those ids; the rest stay listed for a launch that opens the file.
+    @Test func aStoreThatLostItsFileDropsOnlyWhatItDeleted() throws {
+        let disk = try DemoExitDisk()
+        let inTheWay = disk.folder.appendingPathComponent("file")
+        try Data([1]).write(to: inTheWay)
+        let lost = TrainStore(url: inTheWay.appendingPathComponent("Train.store"))
+        #expect(lost.lostItsFile)
+        let rig = DemoTrainRig(store: lost)
+        let found = rig.startWorkout("Found")
+        rig.finishLocally(found)
+        let onlyInTheFile = UUID()
+        rig.defaults.set([found.id.uuidString, onlyInTheFile.uuidString], forKey: TrainSyncService.demoSessionsKey)
+        rig.relaunch()
+
+        #expect(rig.coordinator.discardDemoWorkouts())
+
+        #expect(try rig.storedSessions([found.id]) == 0)
+        #expect(rig.list == [onlyInTheFile.uuidString])
+        #expect(rig.sync.demoSessionIDs == [onlyInTheFile])
+    }
+
+    /// On its file, an id the store doesn't have (a kill before the row was saved) is pruned with the rest.
+    @Test func onItsFileTheListKeepsNothingTheStoreDoesntHave() throws {
+        let disk = try DemoExitDisk()
+        let rig = DemoTrainRig(store: TrainStore(url: disk.url))
+        let s = rig.startWorkout("Saved")
+        rig.finishLocally(s)
+        rig.defaults.set([s.id.uuidString, UUID().uuidString], forKey: TrainSyncService.demoSessionsKey)
+        rig.relaunch()
+
+        #expect(rig.coordinator.discardDemoWorkouts())
+
+        #expect(try rig.storedSessions([s.id]) == 0)
+        #expect(rig.list.isEmpty)
+        #expect(!rig.sync.hasDemoSessions)
     }
 
     /// The replay stops before anything is deleted: a demo `PUT` answered after the discard (with a 409, whose merge
@@ -325,12 +267,29 @@ struct DemoWorkoutDiscardTests {
         // The demo ended outside the switch (a launch argument): the next launch has Demo data off.
         rig.demo = false
         rig.relaunch()
-        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1, inProgress: false))
+        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 1))
 
-        rig.coordinator.discardDemoWorkouts()
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false)
 
         #expect(try rig.storedSessions([s.id]) == 0)
         #expect(rig.list.isEmpty)
+    }
+
+    /// The launch condition (review R8): with Demo data still on (a kill inside the exit, or a launch in the demo) the
+    /// demo's workouts stay, the one in progress too.
+    @Test func aLaunchInTheDemoDiscardsNothing() throws {
+        let rig = DemoTrainRig()
+        let finished = rig.startWorkout("Finished")
+        rig.finishLocally(finished)
+        let live = rig.startWorkout("Live")
+        let list = rig.list
+        rig.relaunch()
+
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+
+        #expect(try rig.storedSessions([finished.id, live.id]) == 2)
+        #expect(rig.coordinator.active?.id == live.id)
+        #expect(rig.list == list)
     }
 
     /// With the list empty the sweep reads nothing and writes nothing: no save at launch.
@@ -344,11 +303,98 @@ struct DemoWorkoutDiscardTests {
         defer { NotificationCenter.default.removeObserver(observer) }
         #expect(!rig.sync.hasDemoSessions)
 
-        rig.coordinator.discardDemoWorkouts()
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: true)
 
         #expect(saves.all.isEmpty)
         #expect(rig.coordinator.active?.id == account.id)
         #expect(rig.coordinator.live != nil)
         #expect(try rig.storedSessions([account.id]) == 1)
+    }
+
+    // MARK: the seed for upgraders (review R1, design §6.9)
+
+    /// In the demo with nobody signed in, every stored session is the demo's: the first launch with the list puts them
+    /// all on it, finished or in progress, and the exit can discard them.
+    @Test func signedOutInTheDemoTheFirstLaunchListsEveryStoredSession() throws {
+        let rig = DemoTrainRig()
+        let finished = rig.storeUnlisted("Before the list", finished: true)
+        let live = rig.storeUnlisted("Still going", finished: false)
+        rig.relaunch()
+        #expect(rig.list.isEmpty && !rig.seeded)
+
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+
+        #expect(Set(rig.list) == [finished.id.uuidString, live.id.uuidString])
+        #expect(rig.seeded)
+        #expect(rig.coordinator.demoWorkouts == DemoWorkouts(count: 2))
+        #expect(rig.coordinator.discardDemoWorkouts())
+        #expect(try rig.storedSessions([finished.id, live.id]) == 0)
+    }
+
+    /// Signed in, the account's sessions are there too and can't be told apart: none is listed (STATUS, Known issues).
+    @Test func signedInTheSeedListsNothing() throws {
+        let rig = DemoTrainRig()
+        let s = rig.storeUnlisted("Maybe the account's", finished: true)
+        rig.relaunch()
+
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: true)
+
+        #expect(rig.list.isEmpty)
+        #expect(rig.seeded)
+        #expect(try rig.storedSessions([s.id]) == 1)
+    }
+
+    /// Demo data off: the sessions are the account's, or were left by a demo no list knows. None is listed, none goes.
+    @Test func withDemoDataOffTheSeedListsNothing() throws {
+        let rig = DemoTrainRig()
+        rig.demo = false
+        let s = rig.storeUnlisted("The account's", finished: true)
+        rig.relaunch()
+
+        rig.coordinator.demoAtLaunch(demoMode: false, signedIn: false)
+
+        #expect(rig.list.isEmpty)
+        #expect(rig.seeded)
+        #expect(try rig.storedSessions([s.id]) == 1)
+    }
+
+    /// Once: a later launch, in the demo and signed out again, adds nothing the store got meanwhile.
+    @Test func theSeedRunsOnce() throws {
+        let rig = DemoTrainRig()
+        let first = rig.storeUnlisted("Before the list", finished: true)
+        rig.relaunch()
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        #expect(rig.list == [first.id.uuidString])
+        let later = rig.storeUnlisted("After the seed", finished: true)
+
+        rig.relaunch()
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+
+        #expect(rig.list == [first.id.uuidString])
+        #expect(try rig.storedSessions([later.id]) == 1)
+    }
+
+    /// A store that can't be read, or memory in place of the file, can't say what's stored: no seed yet, and the next
+    /// launch tries again.
+    @Test func theSeedWaitsForAStoreItCanRead() throws {
+        let rig = DemoTrainRig()
+        let s = rig.storeUnlisted("Before the list", finished: true)
+        rig.relaunch()
+        rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        #expect(rig.list.isEmpty && !rig.seeded)
+
+        let disk = try DemoExitDisk()
+        let inTheWay = disk.folder.appendingPathComponent("file")
+        try Data([1]).write(to: inTheWay)
+        let lost = DemoTrainRig(store: TrainStore(url: inTheWay.appendingPathComponent("Train.store")))
+        lost.storeUnlisted("In memory", finished: true)
+        lost.relaunch()
+        lost.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        #expect(lost.list.isEmpty && !lost.seeded)
+
+        rig.relaunch()
+        rig.coordinator.demoAtLaunch(demoMode: true, signedIn: false)
+        #expect(rig.list == [s.id.uuidString] && rig.seeded)
     }
 }

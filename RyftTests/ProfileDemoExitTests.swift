@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 import Testing
 @testable import Ryft
@@ -7,6 +8,9 @@ import Testing
 // off. What it would discard is asked, never stored; nothing changes until the exit runs; the exit discards, switches
 // off, and the account's first write after it lands. Each graph has a Demo data setting of its own, never the test
 // host's. Synthetic values only.
+
+/// Thrown by a store that can't be read (`TrainSyncService.fetchSessions`).
+private struct StoreUnreadable: Error {}
 
 @Suite("P1b: turning Demo data off", .serialized)
 @MainActor
@@ -30,8 +34,8 @@ struct ProfileDemoExitTests {
         let ops = rig.ops([live.id]).map(\.seq)
         let list = rig.list
 
-        #expect(model.demoWorkouts == DemoWorkouts(count: 1, inProgress: true))
-        #expect(model.demoWorkouts == DemoWorkouts(count: 1, inProgress: true))
+        #expect(model.demoWorkouts == DemoWorkouts(count: 1))
+        #expect(model.demoWorkouts == DemoWorkouts(count: 1))
 
         #expect(model.demoMode)
         #expect(graph.settings.demoMode)
@@ -54,7 +58,7 @@ struct ProfileDemoExitTests {
         rig.finishLocally(finished)
         let live = rig.startWorkout("Live")
         let ids: Set<UUID> = [finished.id, live.id]
-        #expect(model.demoWorkouts == DemoWorkouts(count: 2, inProgress: true))
+        #expect(model.demoWorkouts == DemoWorkouts(count: 2))
         let ends = rig.activity.ends
 
         await model.endDemo()
@@ -107,5 +111,114 @@ struct ProfileDemoExitTests {
         #expect(graph.settings.demoMode)
         #expect(try rig.storedSessions([account.id]) == 1)
         #expect(rig.coordinator.active?.id == account.id)
+    }
+
+    /// Fails closed (review R6): a store that can't be read leaves Demo data on and the demo's workout open, so nothing
+    /// half-happens.
+    @Test func aStoreThatCantBeReadLeavesDemoDataOn() async throws {
+        let rig = DemoTrainRig()
+        let graph = try DemoExitGraph(persistence: rig.store, demo: true)
+        let model = profile(graph, train: rig)
+        let live = rig.startWorkout("Live")
+        rig.sync.fetchSessions = { _, _ in throw StoreUnreadable() }
+
+        await model.setDemoMode(false)
+
+        #expect(graph.settings.demoMode)
+        #expect(model.demoMode)
+        #expect(rig.coordinator.live?.session.id == live.id)
+        #expect(try rig.storedSessions([live.id]) == 1)
+        #expect(rig.list == [live.id.uuidString])
+    }
+
+    /// The switch's VoiceOver hint follows the list while Profile is alive (review R3): a demo workout started from
+    /// elsewhere brings it, the discard takes it, and each change reaches an observer.
+    @Test func theHintFollowsTheListWhileProfileIsOpen() async throws {
+        let rig = DemoTrainRig()
+        let graph = try DemoExitGraph(persistence: rig.store, demo: true)
+        let model = profile(graph, train: rig)
+        #expect(!model.showsDemoExitHint)
+
+        let started = Recorded<Bool>()
+        withObservationTracking { _ = model.showsDemoExitHint } onChange: { started.append(true) }
+        rig.startWorkout("From a quick action")
+        #expect(started.count == 1)
+        #expect(model.showsDemoExitHint)
+
+        let discarded = Recorded<Bool>()
+        withObservationTracking { _ = model.showsDemoExitHint } onChange: { discarded.append(true) }
+        #expect(rig.coordinator.discardDemoWorkouts())
+        #expect(discarded.count == 1)
+        #expect(!model.showsDemoExitHint)
+
+        // Outside the demo there's nothing to hint, whatever the list says.
+        rig.startWorkout("Again")
+        #expect(model.showsDemoExitHint)
+        graph.settings.demoMode = false
+        #expect(!model.showsDemoExitHint)
+    }
+
+    /// Review R2: after the exit Train's history and "Last: …" name no discarded workout, offline (the cached list) or
+    /// read again, and the demo's platform started over, so Demo data on again in the same run shows none either.
+    @Test func afterTheExitTrainShowsNoDiscardedWorkoutNotEvenInTheDemoAgain() async throws {
+        let disk = try DemoExitDisk()
+        let store = TrainStore(url: disk.url)
+        let graph = try DemoExitGraph(persistence: store, demo: true)
+        let rig = DemoTrainRig(store: store, platform: graph.api)
+        let model = profile(graph, train: rig)
+        let s = rig.startWorkout("Demo squat")
+        let id = s.id
+        let completed = await rig.sync.finish(s)
+        #expect(completed != nil) // on the demo's platform
+        rig.coordinator.close()
+        rig.coordinator.refreshActive()
+        let library = rig.coordinator.library
+        let history = TrainHistoryViewModel(library: library)
+        let today = TrainTodayViewModel(library: library, store: store, clock: graph.env.clock)
+        await history.load() // the platform's list, cached for offline
+        #expect(history.sessions.contains { $0.id == id })
+        #expect(today.historyDetail?.hasPrefix("Last: Demo squat") == true)
+        let before = try await graph.platform.sessions(from: .distantPast, to: .distantFuture)
+        #expect(before.contains { $0.id == id })
+
+        await model.endDemo()
+
+        #expect(!library.cachedSessions().contains { $0.id == id })
+        #expect(today.historyDetail?.contains("Demo squat") != true)
+        let after = try await graph.platform.sessions(from: .distantPast, to: .distantFuture)
+        #expect(!after.contains { $0.id == id })
+        // The rest of the cached list stays: the demo platform's own history isn't the discard's.
+        #expect(!library.cachedSessions().isEmpty)
+
+        await model.setDemoMode(true)
+        await history.load()
+
+        #expect(!history.sessions.contains { $0.id == id })
+        #expect(today.historyDetail?.contains("Demo squat") != true)
+    }
+
+    /// Review R7: the lock-screen widget doesn't keep the demo's score after the exit, even when the account's first
+    /// read fails.
+    @Test func theWidgetLetsGoOfTheDemosScoreAtTheExit() async throws {
+        let disk = try DemoExitDisk()
+        let rig = DemoTrainRig(store: TrainStore(url: disk.url))
+        let graph = try DemoExitGraph(persistence: rig.store, demo: true)
+        let model = profile(graph, train: rig)
+        let file = disk.folder.appendingPathComponent("readiness.json")
+        graph.repository.widgetFile = file
+        graph.repository.reloadWidget = {}
+        func written() -> ReadinessSnapshot? {
+            (try? Data(contentsOf: file)).flatMap { try? ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: $0) }
+        }
+        let day = DayFormat.string(from: graph.env.clock.now())
+        let demoDay = DayDetail(score: DailyScore(day: day, readiness: 71, strain: 9), sleep: nil, workouts: [])
+        await graph.repository.store(detail: demoDay).committed()
+        #expect(written()?.kind == .score && written()?.readiness == 71)
+        graph.api.failure = APIError.http(503, "down")
+
+        await model.endDemo()
+
+        #expect(!graph.settings.demoMode)
+        #expect(written()?.readiness == nil)
     }
 }

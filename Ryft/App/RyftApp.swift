@@ -119,9 +119,12 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
-        // The demo ended outside its switch (Debug launch arguments, `defaults write`): its workouts go without asking
-        // (ADR 0019). A kill inside the switch's exit leaves Demo data on, so that launch is still in the demo.
-        if !Settings.shared.demoMode { TrainCoordinator.shared.discardDemoWorkouts() }
+        // The demo's workouts (ADR 0019): the list's one-time seed for workouts logged before it, then, with Demo data
+        // off, the sweep. "Signed in" also counts the account `auth.lastUserID` still names (`AccountScope`): its session
+        // may only be unreadable now (a Keychain before the first unlock), or its wipe failed, and its workouts must never
+        // be seeded as the demo's.
+        TrainCoordinator.shared.demoAtLaunch(demoMode: Settings.shared.demoMode,
+                                             signedIn: AuthService.shared.isSignedIn || AccountScope.current() != nil)
         let workoutActive = TrainCoordinator.shared.active != nil
         WorkoutLauncher.updateShortcutItems(resume: workoutActive)
         // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's

@@ -281,17 +281,23 @@ final class ProfileViewModel {
     /// confirmation's count). Nil: nothing, and no confirmation.
     var demoWorkouts: DemoWorkouts? { train?.demoWorkouts }
 
+    /// The switch's VoiceOver hint ("Turning it off discards …"): in the demo, while its list names a workout. It
+    /// follows the list as workouts start and go, Profile open or not, with no fetch per render.
+    var showsDemoExitHint: Bool { demoMode && train?.hasDemoWorkouts == true }
+
     /// The demo ends (design.md §6.1, ADR 0019). Everything up to the refresh is one main-actor step with no `await`:
     /// 1. the demo's workouts go, worked out again now (one a quick action started meanwhile goes too), and Train reads
-    ///    its open workout again: the account's, if one was in progress before the demo, or none;
+    ///    its open workout again: the account's, if one was in progress before the demo, or none. If the store can't be
+    ///    read, nothing changes and Demo data stays on: no half exit;
     /// 2. the switch goes off;
-    /// 3. what the demo showed goes (`reset()`);
+    /// 3. what the demo showed goes (`reset()`), and the widget shows the account's again, not the demo's score;
     /// 4. the flags, the scoring words and the import's demo leftovers;
     /// 5. the account's first read after the demo, the refresh.
     func endDemo() async {
-        train?.discardDemoWorkouts()
+        if let train, !train.discardDemoWorkouts() { return }
         settings.demoMode = false
         state.reset()
+        state.repository.publishWidget()
         demoModeChanged(false)
         await state.refresh()
     }

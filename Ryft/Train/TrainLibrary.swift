@@ -184,6 +184,15 @@ final class TrainLibrary {
                     remote: store.document([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
+    /// The demo's discard (ADR 0019): these sessions leave the cached list Train's history and "Last: …" read
+    /// offline. Only these ids; the rest of the list, and when it was fetched, stay.
+    static func forgetSessions(_ ids: Set<UUID>, in store: TrainStore) {
+        guard !ids.isEmpty, let list = store.document([SessionSummary].self, key: sessionsKey) else { return }
+        let kept = list.filter { !ids.contains($0.id) }
+        guard kept.count != list.count else { return }
+        store.saveDocument(kept, key: sessionsKey, at: store.documentFetchedAt(key: sessionsKey) ?? .now)
+    }
+
     /// Pure (My Day's assembler calls it off the main actor).
     nonisolated static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
         let localIDs = Set(local.map(\.id))

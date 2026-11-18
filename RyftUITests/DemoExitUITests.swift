@@ -2,7 +2,8 @@ import XCTest
 
 /// P1b (ADR 0019, design §8 AC11): Profile → Demo data off with a demo workout in progress asks first. Keep leaves the
 /// demo and its workout; Discard turns Demo data off, and with no account signed in (UI test simulators have none) that
-/// is Welcome. Demo mode (no server, no HealthKit), English; every wait is on a condition, never a sleep.
+/// is Welcome. A relaunch in the demo, keeping Train's store, finds no workout to resume: the discard took it, not
+/// only the screen. Demo mode (no server, no HealthKit), English; every wait is on a condition, never a sleep.
 final class DemoExitUITests: XCTestCase {
     private let patience: TimeInterval = 20
 
@@ -10,10 +11,12 @@ final class DemoExitUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch() -> XCUIApplication {
+    /// `resetTrain`: start without sessions or a queue. Without it Train keeps what the last launch stored.
+    private func launch(resetTrain: Bool = true) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
         app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-coachMarks.today.done", "YES",
-                               "-RyftResetTrain", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+                               "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            + (resetTrain ? ["-RyftResetTrain", "YES"] : [])
         app.launch()
         return app
     }
@@ -90,5 +93,12 @@ final class DemoExitUITests: XCTestCase {
         again.tap()
         XCTAssertTrue(app.buttons["Log in"].waitForExistence(timeout: patience), "Welcome")
         XCTAssertFalse(app.tabBars.firstMatch.exists, "no tabs without the demo or an account")
+
+        // Demo data on again, Train's store kept: Start, and no workout to resume.
+        app.terminate()
+        let relaunched = launch(resetTrain: false)
+        let startAgain = relaunched.buttons["train.start"]
+        XCTAssertTrue(startAgain.waitForExistence(timeout: patience), "Start on Strain after the relaunch")
+        XCTAssertFalse(relaunched.buttons["train.resume"].exists, "the discarded workout doesn't come back")
     }
 }

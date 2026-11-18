@@ -524,7 +524,6 @@ struct ProfileView: View {
 
             Divider().overlay(Theme.separator)
             // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
-            let demoWorkouts = model.demoMode ? model.demoWorkouts : nil
             Toggle(isOn: Binding(get: { model.demoMode }, set: { on in
                 if on {
                     Task { await model.setDemoMode(true) }
@@ -545,7 +544,7 @@ struct ProfileView: View {
             }
             .tint(Theme.accent)
             .accessibilityIdentifier("profile.demoMode")
-            .accessibilityHint(demoWorkouts == nil ? Text(verbatim: "")
+            .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                 : Text("Turning it off discards the workouts logged with Demo data.",
                        comment: "Only while such workouts exist"))
         }

@@ -77,16 +77,24 @@ final class TrainSyncService {
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
 
-    /// The sessions started while the binding was demo's (`sessionStarted`), by id: what ending the demo discards
-    /// (ADR 0019). Ids only, never a title, a time or a health value; pruned against the store.
+    /// The sessions started while the binding was demo's (`sessionStarting`), by id: what ending the demo discards
+    /// (ADR 0019). Ids only, never a title, a time or a health value; pruned against the store. Kept in `defaults`;
+    /// this copy is what's read, and it's observable (Profile's VoiceOver hint follows it with no fetch per render).
+    private(set) var demoSessionIDs: [UUID] = []
     private let defaults: UserDefaults
-    static let demoSessionsKey = "train.demoSessions"
+    nonisolated static let demoSessionsKey = "train.demoSessions"
+    /// Set once the first launch with the list has seeded it (`seedDemoSessions`), whatever it found.
+    nonisolated static let demoSessionsSeededKey = "train.demoSessionsSeeded"
+    /// Reads the store's sessions for the demo's list; tests make it throw.
+    @ObservationIgnored var fetchSessions: @MainActor (TrainStore, FetchDescriptor<LocalSession>) throws -> [LocalSession]
+        = { try $0.context.fetch($1) }
 
     /// `owner` goes with `remote`: by default both follow the live environment's account and Demo data switch.
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, owner: (@MainActor () -> String?)? = nil,
          debounce: Duration = .seconds(2), finishWait: Duration = .seconds(10), monitorsNetwork: Bool = true,
          connectivity: ConnectivityMonitor? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        demoSessionIDs = (defaults.stringArray(forKey: Self.demoSessionsKey) ?? []).compactMap(UUID.init(uuidString:))
         self.connectivity = connectivity ?? .shared
         self.finishWait = finishWait
         self.store = store ?? .shared
@@ -174,11 +182,9 @@ final class TrainSyncService {
 
     // MARK: the demo's sessions (ADR 0019)
 
-    private var demoSessionIDs: [UUID] {
-        (defaults.stringArray(forKey: Self.demoSessionsKey) ?? []).compactMap(UUID.init(uuidString:))
-    }
-
     private func setDemoSessionIDs(_ ids: [UUID]) {
+        guard ids != demoSessionIDs else { return }
+        demoSessionIDs = ids
         if ids.isEmpty {
             defaults.removeObject(forKey: Self.demoSessionsKey)
         } else {
@@ -186,53 +192,77 @@ final class TrainSyncService {
         }
     }
 
-    /// `TrainCoordinator.start`: a session started while the binding is demo's goes on the list, whatever happens to
-    /// its ops later.
-    func sessionStarted(_ s: LocalSession) {
-        guard owner() == Self.demoOwner else { return }
-        let ids = demoSessionIDs
-        guard !ids.contains(s.id) else { return }
-        setDemoSessionIDs(ids + [s.id])
+    /// `TrainCoordinator`'s starts, before the new session's row is made: one started while the binding is demo's goes
+    /// on the list, whatever happens to its ops later. A kill before the row is saved leaves an id the store doesn't
+    /// have, which nothing counts and the next discard prunes; the other order could leave a demo session unlisted.
+    func sessionStarting(_ id: UUID) {
+        guard owner() == Self.demoOwner, !demoSessionIDs.contains(id) else { return }
+        setDemoSessionIDs(demoSessionIDs + [id])
     }
 
-    /// Whether any session is on the list (the launch sweep asks before it fetches anything).
+    /// Whether any session is on the list (the launch sweep asks before it fetches anything; Profile's hint).
     var hasDemoSessions: Bool { !demoSessionIDs.isEmpty }
 
-    /// The sessions on the list that the store has, in progress or finished: the list is never trusted on its own.
-    /// Nothing is fetched while it's empty.
-    func demoSessions() -> [LocalSession] {
-        let ids = demoSessionIDs
-        guard !ids.isEmpty else { return [] }
-        return (try? store.context.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
-            ?? []
+    /// The first launch of a build with the list, once (`demoSessionsSeededKey`). Workouts logged in the demo before it
+    /// aren't on the list. In the demo with nobody signed in, every stored session is the demo's (sign-out and expiry
+    /// wipe Train), so they all go on it. Signed in, the account's are there too and can't be told apart: nothing is
+    /// added (STATUS, Known issues). Done once whatever it found, unless the store couldn't be read: then the next
+    /// launch tries again.
+    func seedDemoSessions(demoMode: Bool, signedIn: Bool) {
+        guard !defaults.bool(forKey: Self.demoSessionsSeededKey) else { return }
+        if demoMode, !signedIn {
+            // Memory in place of the file: what's in the file is out of reach, so the seed waits for it.
+            guard !store.lostItsFile, let stored = try? fetchSessions(store, FetchDescriptor<LocalSession>()) else {
+                return
+            }
+            let ids = demoSessionIDs
+            setDemoSessionIDs(ids + stored.map(\.id).filter { !ids.contains($0) })
+        }
+        defaults.set(true, forKey: Self.demoSessionsSeededKey)
     }
 
-    /// The demo ends: its sessions go, with their ops, and nothing is sent, not even a `DELETE` (their only other copy
-    /// was on the demo's in-memory platform, which goes with it). The replay stops first, so a demo answer in flight
-    /// never touches a deleted row. Then the list keeps only the ids a fresh context on the store still finds: the file
-    /// decides, not the main context, so a delete the store refused is tried again at the next launch.
-    func discardDemoSessions() {
+    /// The sessions on the list that the store has, in progress or finished: the list is never trusted on its own.
+    /// Nothing is fetched while it's empty. Throws when the store can't be read (the discard then changes nothing).
+    func fetchDemoSessions() throws -> [LocalSession] {
+        let ids = demoSessionIDs
+        guard !ids.isEmpty else { return [] }
+        return try fetchSessions(store, FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) }))
+    }
+
+    /// The demo ends (`TrainCoordinator.discardDemoWorkouts`, which fetched `sessions` and closed what showed them): they
+    /// go, with their ops, and nothing is sent, not even a `DELETE` (their only other copy was on the demo's in-memory
+    /// platform, which `AppState.reset` starts over). The replay stops first, so a demo answer in flight never touches a
+    /// deleted row. Every listed id leaves Train's cached history list. Then the list keeps only the ids a fresh context
+    /// on the store still finds: the file decides, not the main context, so a delete the store refused is tried again at
+    /// the next launch. A store in memory in place of its file only drops what it deleted: those rows were made in this
+    /// process, and what it doesn't find may still be in the file.
+    func discardDemoSessions(_ sessions: [LocalSession]) {
         let ids = demoSessionIDs
         guard !ids.isEmpty else { return }
         stopReplay()
-        let sessions = demoSessions()
-        let gone = Set(sessions.map(\.id))
+        let listed = Set(ids)
+        let gone = Set(sessions.map(\.id)).intersection(listed)
         // One by one, so ops only inserted are found too (a batch delete skips them).
         for op in store.pendingOps() where gone.contains(op.sessionId) { store.context.delete(op) }
-        for session in sessions {
+        for session in sessions where gone.contains(session.id) {
             // Read now: reading either list on a deleted row is a fatal error unless it was resolved before the delete.
             _ = (session.deletedSetIDs, session.deletedExerciseIDs)
             // Cascades to its exercises and sets.
             store.context.delete(session)
         }
         holds.subtract(gone)
-        if let id = lastCompletion?.id, ids.contains(id) { lastCompletion = nil }
+        if let id = lastCompletion?.id, listed.contains(id) { lastCompletion = nil }
         lastError = nil
         store.save()
-        let fresh = ModelContext(store.container)
-        let kept = (try? fresh.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
-            .map { Set($0.map(\.id)) } ?? Set(ids)
-        setDemoSessionIDs(ids.filter { kept.contains($0) })
+        TrainLibrary.forgetSessions(listed, in: store)
+        if store.lostItsFile {
+            setDemoSessionIDs(ids.filter { !gone.contains($0) })
+        } else {
+            let fresh = ModelContext(store.container)
+            let kept = (try? fresh.fetch(FetchDescriptor<LocalSession>(predicate: #Predicate { ids.contains($0.id) })))
+                .map { Set($0.map(\.id)) } ?? listed
+            setDemoSessionIDs(ids.filter { kept.contains($0) })
+        }
         refreshCount()
     }
 
