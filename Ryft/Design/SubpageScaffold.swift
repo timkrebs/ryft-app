@@ -247,7 +247,7 @@ enum PinnedBarSpec {
 /// top (the tab bar's), 12 above and below its content, 20 at the sides. An optional caption above says why the primary is
 /// disabled (12 pt `textSecondary`); an optional footnote under it says what happens (12 pt `textTertiary`); a quiet text
 /// action ("Not now") goes in the content under the pill. Use it with `.pinnedBar { … }`, which keeps the page scrollable
-/// above it. (A §3 calls it `PinnedBar`; that name is taken by onboarding's private bar until area A moves onto this one.)
+/// above it. (A §3 calls it `PinnedBar`; the type keeps this name, and onboarding uses it too.)
 struct PinnedActionBar<Content: View>: View {
     private let caption: Text?
     private let footnote: Text?
@@ -353,12 +353,42 @@ final class InteractivePopGestureKeeper: NSObject, UIGestureRecognizerDelegate {
         }
         pop.isEnabled = true
         if pop.delegate !== keeper { pop.delegate = keeper }
+        // iOS 26's swipe from anywhere in the content takes the drags the edge swipe doesn't (a slow one); UIKit's
+        // delegate refuses it without a bar, too.
+        if #available(iOS 26.0, *), let content = navigationController.interactiveContentPopGestureRecognizer {
+            content.isEnabled = true
+            if content.delegate !== keeper { content.delegate = keeper }
+        }
     }
 
-    /// A page to go back to, and no push or pop running: a swipe on the root page would leave the stack stuck.
+    /// A page to go back to, and no push or pop running: a swipe on the root page would leave the stack stuck. The
+    /// content swipe also has to start sideways towards the trailing edge, and not on something that scrolls sideways
+    /// and can still scroll back (a carousel keeps its own swipe).
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let navigationController else { return false }
-        return navigationController.viewControllers.count > 1 && navigationController.transitionCoordinator == nil
+        guard let navigationController, navigationController.viewControllers.count > 1,
+              navigationController.transitionCoordinator == nil else { return false }
+        if gestureRecognizer === navigationController.interactivePopGestureRecognizer { return true }
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else { return false }
+        let velocity = pan.velocity(in: view)
+        let forward = view.effectiveUserInterfaceLayoutDirection == .rightToLeft ? -velocity.x : velocity.x
+        guard forward > 0, abs(velocity.x) > abs(velocity.y) else { return false }
+        return !Self.scrollsBackSideways(at: pan.location(in: view), in: view)
+    }
+
+    /// A scroll view under `point` that is wider than its frame and not at its leading end.
+    private static func scrollsBackSideways(at point: CGPoint, in view: UIView) -> Bool {
+        var candidate = view.hitTest(point, with: nil)
+        while let current = candidate, current !== view {
+            if let scroll = current as? UIScrollView, scroll.contentSize.width > scroll.bounds.width + 0.5 {
+                let rightToLeft = scroll.effectiveUserInterfaceLayoutDirection == .rightToLeft
+                let leadingEnd = rightToLeft
+                    ? scroll.contentSize.width + scroll.adjustedContentInset.right - scroll.bounds.width
+                    : -scroll.adjustedContentInset.left
+                if abs(scroll.contentOffset.x - leadingEnd) > 0.5 { return true }
+            }
+            candidate = current.superview
+        }
+        return false
     }
 }
 
