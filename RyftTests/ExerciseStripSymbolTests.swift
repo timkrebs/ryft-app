@@ -3,11 +3,12 @@ import UIKit
 @testable import Ryft
 
 /// design.md §4b: every glyph the strip and the exercise page draw exists as an SF Symbol, and on the deployment target
-/// (iOS 17), not just on the runtime that runs the test. A runtime newer than the target answers `UIImage(systemName:)`
-/// for symbols the target lacks, so the existence check alone can't prove the second half: `introduced` carries the
-/// release each symbol shipped in (the Mac's `CoreGlyphs` `name_availability.plist`, year to iOS version).
+/// (iOS 18.6), not just on the runtime that runs the test. A runtime newer than the target answers
+/// `UIImage(systemName:)` for symbols the target lacks, so the existence check alone can't prove the second half:
+/// `introduced` carries the release each symbol shipped in (the Mac's `CoreGlyphs` `name_availability.plist`, year to
+/// iOS version).
 struct ExerciseStripSymbolTests {
-    static let deploymentTarget = 17.0
+    static let deploymentTarget = 18.6
 
     /// Symbol name -> the iOS release that introduced it.
     static let introduced: [String: Double] = [

@@ -33,6 +33,7 @@
         "SyncCheckUITests",
         "CalibrationNoteUITests",
         "MyDayUITests",
+        "DemoExitUITests",
         "AddActivityUITests\/testAddActivitySavesAPendingRowAddedByYouWithoutItsNotes",
         "ImportUITests\/testImportPlanAndHistoryFromDemoFiles",
         "LaunchSequenceUITests\/testUITestLaunchesSkipIt",

@@ -9,7 +9,7 @@ Used for P1 (fast RFC 3339 parsing, 2026-10-23, `perf/fast-date-parsing`):
 
 - **Release numbers in seconds.** Code that compiles standalone (the contract set: `Networking/Models.swift`,
   `DateParsing.swift`, `SleepMath.swift`, `App/Formatting.swift`) builds for the simulator with
-  `xcrun swiftc -swift-version 5 -O -wmo -parse-as-library -target arm64-apple-ios17.0-simulator -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" …`
+  `xcrun swiftc -swift-version 5 -O -wmo -parse-as-library -target arm64-apple-ios18.6-simulator -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" …`
   and runs with `xcrun simctl spawn <udid> <binary> <args>` (host paths readable; the "incompatible sysroot" clang
   warning is harmless). "Before" = `git show origin/main:<file>` compiled the same way. Same -O/WMO as Release, the
   simulator's own Foundation. Add `setvbuf(stdout, nil, _IOLBF, 0)`: a trap loses buffered output.

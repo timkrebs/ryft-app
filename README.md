@@ -15,7 +15,7 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 
 ## Requirements
 
-- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.2), iOS 17+
+- Xcode 26.1 or newer (AlarmKit needs the iOS 26.1 SDK; built and tested with Xcode 27.2, see `.xcode-version`), iOS 18.6+
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
@@ -147,7 +147,7 @@ The sandbox APNs key on the platform serves Debug builds; TestFlight uses produc
 
 **Live Activities** (the Train rest timer) need no capability and no push: the app sets
 `NSSupportsLiveActivities = YES` in `Info.plist` and starts, updates and ends the activity
-locally. The UI lives in the **RyftWidgetsExtension** target (`RyftWidgets/`, iOS 17), which is
+locally. The UI lives in the **RyftWidgetsExtension** target (`RyftWidgets/`, iOS 18.6), which is
 embedded in the app. For device builds the extension needs its own App ID,
 `dev.timkrebs.ryft.RyftWidgets`, under the same team. `RestTimerAttributes` is declared in
 both targets (`Ryft/Train/RestActivity.swift` and `RyftWidgets/RestTimerAttributes.swift`) and

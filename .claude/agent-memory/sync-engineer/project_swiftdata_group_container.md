@@ -27,7 +27,8 @@ Seen 2026-10-23 (O1, orphaned `Train.store`, commit fcd3695 on `fix/orphaned-sto
 - **External storage and batch deletes** (I5 review, 2026-10-26): `PendingImport.payload` is `.externalStorage`
   (files in `.<store>_SUPPORT/_EXTERNAL_DATA/` beside the store). On the iOS 27 simulator both `context.delete(model:)`
   and deleting objects one by one removed the file at `save()` (probe: 0 files immediately). The wipe deletes jobs one
-  by one anyway (iOS 17 target). Test on disk with `TrainStore(url:)` in a temp folder, never the app's own store.
+  by one anyway (iOS 18.6 target, unmeasured there). Test on disk with `TrainStore(url:)` in a temp folder, never the
+  app's own store.
 - **Flaky Unit test seen:** `SyncSeamTests/drainsEveryStreamAndCommitsAfterUpload` failed once in the full plan (passed on
   rerun); it asserts `Settings.shared.lastSync`, which parallel syncs in other tests also write.
 

@@ -56,6 +56,21 @@ struct RestTimerAttributes: ActivityAttributes {
     }
 }
 
+/// The workout's Live Activity as the coordinator and the live session drive it: `RestActivityController` in the app, a
+/// recorder in tests (the demo's discard ends it, ADR 0019).
+@MainActor
+protocol WorkoutLiveActivity: AnyObject {
+    func workout(session: UUID, title: String, startedAt: Date, next: String)
+    // swiftlint:disable:next function_parameter_count
+    func show(session: UUID, title: String, startedAt: Date, endsAt: Date, total: TimeInterval, exercise: String,
+              next: String)
+    func finish(session: UUID, next: String)
+    func end()
+    func endAll(except session: UUID?)
+}
+
+extension RestActivityController: WorkoutLiveActivity {}
+
 /// The workout on the lock screen and in the Dynamic Island, from the session's start to its
 /// end: elapsed time and the next set, and the countdown while resting. Local only: started,
 /// updated and ended from the app, no push.
