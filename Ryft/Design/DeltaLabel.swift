@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// "▲ +4 ms · +8 %": arrow, signed change, and the percentage for raw
-/// physiology. The colour comes from direction × the metric's polarity: teal when
-/// the change is good, Alert when it's bad, secondary ink when the metric has no
+/// physiology. The colour comes from direction × the metric's polarity (design.md §P5-5.2): the metric's own colour when
+/// the change is good (the legend: recovery teal, sleep violet), `alert` when it's bad, secondary ink when the metric has no
 /// good direction. Under 2 % it reads "Steady" (spoken "No change"); without a delta
 /// nothing renders, so no "—" ever stands in for a value. The arrow and sign carry the
 /// meaning, so it never rests on colour alone.
@@ -52,9 +52,16 @@ struct DeltaLabel: View {
         if d.isFlat { return Theme.textSecondary }
         switch spec.polarity {
         case .neutral: return Theme.textSecondary
-        case .higherIsBetter: return d.value > 0 ? Theme.accent : Theme.alert
-        case .lowerIsBetter: return d.value < 0 ? Theme.accent : Theme.alert
+        case .higherIsBetter: return d.value > 0 ? goodColor(spec) : Theme.alert
+        case .lowerIsBetter: return d.value < 0 ? goodColor(spec) : Theme.alert
         }
+    }
+
+    /// A good change's ink: the metric's colour (readiness, recovery and HRV teal, sleep violet: unchanged for Today's
+    /// readiness). A metric drawn in a warning hue (resting HR and heart rate `alert`, active energy `warning`, until
+    /// `MetricSpec` moves them to ink) takes `textPrimary` instead, so a good change is never red or amber.
+    static func goodColor(_ spec: MetricSpec) -> Color {
+        spec.color == Theme.alert || spec.color == Theme.warning ? Theme.textPrimary : spec.color
     }
 
     static func spoken(_ d: MetricDelta, spec: MetricSpec, reference: String?) -> String {
@@ -74,7 +81,7 @@ struct DeltaLabel: View {
 }
 
 #Preview("DeltaLabel", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: "vs 7 d")
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: "vs 7 d")
@@ -100,7 +107,7 @@ struct DeltaLabel: View {
 }
 
 #Preview("DeltaLabel · up, down, flat, none", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
             DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: String(localized: "vs 7 d"))
             DeltaLabel(spec: .readiness, delta: MetricDelta(current: 70, reference: 78), reference: String(localized: "vs 7 d"))
@@ -113,14 +120,13 @@ struct DeltaLabel: View {
     }
 }
 
-#Preview("DeltaLabel · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("DeltaLabel · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
             DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
             ChartHeader(spec: .readiness, value: 80, delta: MetricDelta(current: 80, reference: 79.6))
             ChartHeader(spec: .readiness, value: 80, delta: nil)
         }
     }
-    .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
 }

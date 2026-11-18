@@ -2,7 +2,7 @@
 // "Glow"): the metric colour under a radial `background` overlay, so the tile's edge glows in the legend's colour and
 // its text sits in the dark core. Each kind has the board's own ellipse and stops: the glow is as bright as the board
 // (user, 2026-11-16, superseding P2-D1). Under Reduce Transparency it is flat `surface` with a 2 pt border in the metric
-// colour.
+// colour; so is an `.idea` tile taller than 420 pt (§P5-5.1, D5-20).
 import SwiftUI
 
 /// The glow tile's measurements. A separate, non-generic type: `GlowTile` is generic and cannot hold static stored
@@ -10,9 +10,11 @@ import SwiftUI
 enum GlowTileSpec {
     /// The board's tiles (§P4-3). `twoUp`: Today's Recovery and Sleep, 169 × 124. `strain`: Today's strain tile, 350 × 96.
     /// `hypnogram`: Sleep's, 350 × 168. `panel`: PR 2's ellipse, for a large tile (Insights "An idea", PR 5), the 2-up's
-    /// fallback when it is wide or tall, and the `init(_:radius:)` shim.
+    /// fallback when it is wide or tall, and the `init(_:radius:)` shim. `zones`: Strain's and the workout's zones tile, 350 × 176
+    /// (§P5-3.3). `idea`: Insights' insight tile, 350 × 120, flat above 420 pt (§P5-5.1).
     enum Kind: CaseIterable, Sendable {
         case twoUp, strain, hypnogram, panel
+        case zones, idea
     }
 
     /// The PR 2 radii, for the `init(_:radius:)` shim: `tile` 24, `hero` 28. New callers name a `Kind`.
@@ -90,6 +92,13 @@ enum GlowTileSpec {
         case .panel:
             return Shape(rx: 0.90, ry: 1.10, cy: 0.55, stops: stops(0.34, 0.68),
                          radius: Theme.Metrics.heroTileRadius, minHeight: 172)
+        case .zones:
+            // The hypnogram's ellipse and stops (the board's zones tile), 176 high.
+            return Shape(rx: 0.90, ry: 0.95, cy: 0.55, stops: stops(0.34, 0.68),
+                         radius: Theme.Metrics.heroTileRadius, minHeight: zonesMinHeight)
+        case .idea:
+            return Shape(rx: 0.90, ry: 0.95, cy: 0.55, stops: stops(0.34, 0.68),
+                         radius: Theme.Metrics.heroTileRadius, minHeight: ideaMinHeight)
         }
     }
 
@@ -107,9 +116,20 @@ enum GlowTileSpec {
     static let twoUpMaxSize = CGSize(width: 200, height: 160)
 
     /// Content padding: 14 top, 16 at the sides, 12 at the bottom on the board's kinds (their value rows, the compact ruler
-    /// and the hypnogram's totals sit 12 above the bottom); the panel keeps PR 2's 14.
+    /// and the hypnogram's totals sit 12 above the bottom); the panel and the zones tile 14 below; the idea tile 16 / 18.
     static func padding(for kind: Kind) -> EdgeInsets {
-        EdgeInsets(top: 14, leading: 16, bottom: kind == .panel ? 14 : 12, trailing: 16)
+        switch kind {
+        case .idea: return EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+        case .panel, .zones: return EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+        case .twoUp, .strain, .hypnogram: return EdgeInsets(top: 14, leading: 16, bottom: 12, trailing: 16)
+        }
+    }
+
+    /// Whether a `kind` tile at `size` draws flat (`surface` and the 2 pt border, the Reduce Transparency look) whatever the
+    /// setting: an `.idea` taller than `ideaFlatAbove`, where the glow's corners would put its full-ink text under 4.5:1
+    /// (4.81 at 420, D5-20). The other kinds always glow.
+    static func drawsFlat(_ kind: Kind, size: CGSize) -> Bool {
+        kind == .idea && size.height > ideaFlatAbove
     }
 
     /// PR 2's padding, the panel's: the shim draws with it.
@@ -118,6 +138,13 @@ enum GlowTileSpec {
     static let twoUpMinHeight: CGFloat = 124, heroMinHeight: CGFloat = 172
     /// A label outside the recovery tile: `textPrimary` at 78 %. The flat variant's border width.
     static let labelOpacity = 0.78, flatBorder: CGFloat = 2
+
+    // MARK: T5.0-B
+
+    /// The zones tile's and the idea tile's minimum heights (§P5-3.3, §P5-5.1).
+    static let zonesMinHeight: CGFloat = 176, ideaMinHeight: CGFloat = 120
+    /// The height above which an `.idea` tile is flat (`drawsFlat(_:size:)`).
+    static let ideaFlatAbove: CGFloat = 420
 
     /// The glow label's opacity at a text size, without a tile's colour: 78 % up to xxxLarge, full `textPrimary` from
     /// AX1 (P2-D7). Outside a glow tile `ryftGlowLabelStyle()` falls back to it.
@@ -157,7 +184,7 @@ struct GlowTile<Content: View>: View {
     /// - Parameters:
     ///   - metric: the legend colour (`Theme.recovery`, `metricSleep`, `metricStrain`).
     ///   - kind: the board's tile; it sets the ellipse, the stops, the radius, the padding and the minimum height.
-    ///   - minHeight: `nil` is the kind's (124, 96, 168, 172).
+    ///   - minHeight: `nil` is the kind's (124, 96, 168, 172, 176, 120).
     ///   - reduceTransparency: previews and tests; `nil` follows the system.
     init(_ metric: Color, kind: GlowTileSpec.Kind, minHeight: CGFloat? = nil,
          reduceTransparency: Bool? = nil, @ViewBuilder content: () -> Content) {
@@ -193,15 +220,32 @@ struct GlowTile<Content: View>: View {
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
             .background {
                 if forcedReduceTransparency ?? systemReduceTransparency {
-                    shape.fill(Theme.surface)
-                        .overlay { shape.strokeBorder(metric, lineWidth: GlowTileSpec.flatBorder) }
+                    flat(shape)
+                } else if kind == .idea {
+                    // Only the idea tile reads its size: it is flat above 420 pt.
+                    GeometryReader { proxy in
+                        if GlowTileSpec.drawsFlat(kind, size: proxy.size) {
+                            flat(shape)
+                        } else {
+                            glow(shape)
+                        }
+                    }
                 } else {
-                    shape.fill(metric)
-                        .overlay { GlowOverlay(kind: kind) }
+                    glow(shape)
                 }
             }
             .clipShape(shape)
             .accessibilityElement(children: .contain)
+    }
+
+    private func flat(_ shape: RoundedRectangle) -> some View {
+        shape.fill(Theme.surface)
+            .overlay { shape.strokeBorder(metric, lineWidth: GlowTileSpec.flatBorder) }
+    }
+
+    private func glow(_ shape: RoundedRectangle) -> some View {
+        shape.fill(metric)
+            .overlay { GlowOverlay(kind: kind) }
     }
 }
 
@@ -358,4 +402,59 @@ private struct GlowPreviewText: View {
             }
         }
     }
+}
+
+/// The zones tile's and the idea tile's text, as Strain and Insights carry it (the screens build their own).
+private struct GlowPreviewIdea: View {
+    let body_: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(Theme.signal).frame(width: 6, height: 6)
+                Text(verbatim: "Insight").font(.ryft(.label))
+            }
+            Text(verbatim: "Your HRV is up 12 % on last week").font(.ryftNumber(size: 17, weight: .light))
+            Text(verbatim: body_).font(.ryft(.label)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+#Preview("GlowTile · zones and idea", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(spacing: 12) {
+            GlowTile(Theme.metricStrain, kind: .zones) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(verbatim: "Heart-rate zones").ryftGlowLabelStyle()
+                    Spacer(minLength: 0)
+                    Text(verbatim: "48 min").font(.ryft(.caption))
+                }
+            }
+            GlowTile(Theme.recovery, kind: .idea) {
+                GlowPreviewIdea(body_: "Three nights over 7 h in a row. Recovery follows.")
+            }
+            // 440 high: above 420 the idea tile is flat (surface and the 2 pt border), whatever the setting.
+            GlowTile(Theme.recovery, kind: .idea, minHeight: 440) {
+                GlowPreviewIdea(body_: "Taller than 420: drawn flat.")
+            }
+            GlowTile(Theme.metricStrain, kind: .zones, reduceTransparency: true) {
+                Text(verbatim: "Heart-rate zones · Reduce Transparency").ryftGlowLabelStyle()
+            }
+        }
+    }
+}
+
+#Preview("GlowTile · zones and idea · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(spacing: 12) {
+            GlowTile(Theme.metricStrain, kind: .zones) {
+                Text(verbatim: "Heart-rate zones").ryftGlowLabelStyle()
+            }
+            GlowTile(Theme.recovery, kind: .idea) {
+                GlowPreviewIdea(body_: "Three nights over 7 h in a row. Recovery follows. A long body at AX3 grows the tile past 420, "
+                                + "where it is drawn flat.")
+            }
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
