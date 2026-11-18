@@ -1,23 +1,33 @@
 import SwiftUI
 import UIKit
 
-/// Rounded Slate surface used for every grouped block.
+/// The card's numbers (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2): the grouped card's radius, 22, and 16
+/// inside, so a `Card` and a `GroupedCard` on one page have the same corners and the same text inset.
+enum CardSpec {
+    // TODO(T6.0, lead): set `Theme.Metrics.cardRadius` to 22 and `cardPadding` to 16 and point these at them; the screens
+    // that read the two tokens directly (InsightCard, CoachMarks, Today's tiles, the exercise pages, Add activity) still
+    // draw 18 / 18 until then.
+    static let radius = Theme.Metrics.neutralTileRadius
+    static let padding: CGFloat = 16
+}
+
+/// The `surface` card every grouped block sits on: radius 22, 16 inside, no stroke.
 struct Card<Content: View>: View {
-    var padding: CGFloat = Theme.Metrics.cardPadding
+    var padding: CGFloat = CardSpec.padding
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
     }
 }
 
 /// Card title row: "Trends" … "7 days ›".
 struct CardHeader: View {
     let title: LocalizedStringKey
-    var trailing: LocalizedStringKey? = nil
+    var trailing: LocalizedStringKey?
     var showsChevron = false
 
     var body: some View {
@@ -42,7 +52,7 @@ struct CardHeader: View {
 struct StatRow: View {
     let title: LocalizedStringKey
     let value: String
-    var detail: String? = nil
+    var detail: String?
     var valueColor: Color = Theme.textPrimary
 
     var body: some View {
@@ -77,8 +87,18 @@ struct PressableButtonStyle: ButtonStyle {
     }
 }
 
-/// A choice in a multi-select grid ("What do you wear?", ui.md §2.2): symbol, name, a trailing mark. Selected is
-/// carried by the border, the check's shape and the VoiceOver trait, never by colour alone.
+/// The selectable tile's numbers (PR 6 A §A-11): the grouped card's radius; selected draws a 1.5 pt `textPrimary` border
+/// at 90 % (15.6:1 against `background`, where c-07's 30 % border was 2.3:1, under the 3:1 a state needs).
+enum SelectableTileSpec {
+    static let radius = Theme.Metrics.neutralTileRadius
+    static let minHeight: CGFloat = 56
+    static let borderWidth = Theme.Metrics.controlOutline
+    static let borderOpacity = 0.9
+}
+
+/// A choice in a multi-select grid ("What do you wear?", ui.md §2.2): symbol, name, a trailing mark, on `surface` whether
+/// chosen or not. Selected is carried by the border, the check's shape, the glyph's ink and the VoiceOver trait, never by
+/// colour alone, and never by teal.
 struct SelectableTile: View {
     let symbol: String
     let title: String
@@ -108,7 +128,7 @@ struct SelectableTile: View {
             HStack(spacing: Self.spacing) {
                 Image(systemName: symbol)
                     .font(.system(size: glyph, weight: .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                     .frame(width: glyphColumn)
                     .accessibilityHidden(true)
                 Text(verbatim: title)
@@ -119,17 +139,20 @@ struct SelectableTile: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: mark, weight: .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
+                    .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.vertical, 12)
             .padding(.horizontal, Self.padding)
-            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-            .background(isSelected ? Theme.surfaceRaised : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-                .strokeBorder(isSelected ? Theme.accent : Theme.separator, lineWidth: isSelected ? 1.5 : Theme.Metrics.hairline))
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: SelectableTileSpec.minHeight, alignment: .leading)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: SelectableTileSpec.radius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: SelectableTileSpec.radius, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(SelectableTileSpec.borderOpacity),
+                                  lineWidth: SelectableTileSpec.borderWidth)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: SelectableTileSpec.radius, style: .continuous))
             .animation(Theme.Motion.respecting(reduceMotion), value: isSelected)
         }
         .buttonStyle(PressableButtonStyle())
@@ -167,7 +190,7 @@ enum CapabilityState: Equatable, Sendable {
 
     var tint: Color {
         switch self {
-        case .yes: return Theme.accent
+        case .yes: return Theme.textPrimary
         case .partial: return Theme.textSecondary
         case .no, .unverified, .notAvailable: return Theme.textTertiary
         }
@@ -228,7 +251,7 @@ struct CapabilityRow: View {
         }
         // A reason under the name gets room above and below it.
         .padding(.vertical, detail == nil ? 0 : 6)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: Theme.Metrics.listRowHeight, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spokenTitle ?? title))
         .accessibilityValue(Text(verbatim: [stateWord, detail].compactMap { $0 }.joined(separator: ". ")))
@@ -251,7 +274,7 @@ struct CapabilityRow: View {
 }
 
 #Preview("Card", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         Card {
             VStack(alignment: .leading, spacing: 14) {
                 CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
@@ -298,21 +321,19 @@ private struct CapabilityRowStates: View {
 }
 
 #Preview("SelectableTile · states", traits: .sizeThatFitsLayout) {
-    SchemePair { SelectableTileStates() }
+    DarkPreview { SelectableTileStates() }
 }
 
-#Preview("SelectableTile · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair { SelectableTileStates() }
-        .environment(\.locale, Locale(identifier: "de"))
+#Preview("SelectableTile · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { SelectableTileStates() }
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("CapabilityRow · states", traits: .sizeThatFitsLayout) {
-    SchemePair { CapabilityRowStates() }
+    DarkPreview { CapabilityRowStates() }
 }
 
-#Preview("CapabilityRow · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair { CapabilityRowStates() }
-        .environment(\.locale, Locale(identifier: "de"))
+#Preview("CapabilityRow · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { CapabilityRowStates() }
         .environment(\.dynamicTypeSize, .accessibility3)
 }

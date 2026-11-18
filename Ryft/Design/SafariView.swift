@@ -30,7 +30,9 @@ struct SafariView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let vc = SFSafariViewController(url: url)
-        vc.preferredControlTintColor = UIColor(named: "Accent")
+        // Nocturne (PR 6 A B8, C §4.16): the bar's controls in ink on the app's background, never teal.
+        vc.preferredControlTintColor = UIColor(named: "TextPrimary")
+        vc.preferredBarTintColor = UIColor(named: "Background")
         return vc
     }
 
