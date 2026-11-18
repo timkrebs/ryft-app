@@ -190,7 +190,7 @@ import Testing
         let cells = try #require(DotNumeral.cells("84", glyphGap: 8))
         #expect(cells.lit.count + cells.unlit.count == 70)
         #expect(cells.lit.count == 17 + 14)
-        #expect(cells.lit.allSatisfy { !cells.unlit.contains($0) })   // not Set: CGPoint is Hashable only from iOS 18
+        #expect(cells.lit.allSatisfy { !cells.unlit.contains($0) })   // pairwise; at 18.6 a Set would do too
         // The 8's top-left corner is unlit at (2.5, 2.5); its first lit dot is column 1.
         #expect(cells.unlit.contains(CGPoint(x: 2.5, y: 2.5)))
         #expect(cells.lit.contains(CGPoint(x: 9.5, y: 2.5)))

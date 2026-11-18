@@ -62,6 +62,7 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,
   lighter type, labels in sentence case, and a new app icon, the RYFT wordmark.
 - The app is called RYFT on the Home Screen, in notifications and in Settings, as on its icon.
