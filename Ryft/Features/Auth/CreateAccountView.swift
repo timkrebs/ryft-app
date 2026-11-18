@@ -29,7 +29,7 @@ struct CreateAccountView: View {
             GroupedCard {
                 AuthTextField(title: "Name", text: $name, field: .name, focus: $focus, contentType: .name,
                               capitalization: .words) { focus = .email }
-                AuthTextField(title: "Email", text: $email, field: .email, focus: $focus, contentType: .emailAddress,
+                AuthTextField(title: "Email", text: $email, field: .email, focus: $focus, contentType: .username,
                               keyboard: .emailAddress) { focus = .password }
                 PasswordField(title: "Password", text: $password, focus: $focus, isNew: true) {
                     if isValid { Task { await submit() } }

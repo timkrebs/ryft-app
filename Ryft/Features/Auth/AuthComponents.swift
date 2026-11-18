@@ -94,6 +94,9 @@ struct AuthScreen<Content: View>: View {
 /// A text row of a signed-out form (`FormField` in a `GroupedCard`): the label above the value, the focus bar while it has
 /// the keyboard. VoiceOver reads it as one field named by its label.
 struct AuthTextField: View {
+    /// No placeholder: the label is above the value, and without a prompt iOS would repeat the label in the empty field.
+    static var noPrompt: Text { Text(verbatim: "") }
+
     let title: LocalizedStringKey
     @Binding var text: String
     let field: AuthField
@@ -106,7 +109,7 @@ struct AuthTextField: View {
 
     var body: some View {
         FormField(Text(title), isFocused: focus.wrappedValue == field) {
-            TextField(text: $text, prompt: nil) { Text(title) }
+            TextField(text: $text, prompt: Self.noPrompt) { Text(title) }
                 .textContentType(contentType)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(capitalization)
@@ -122,6 +125,8 @@ struct AuthTextField: View {
 /// button labelled "Show password" / "Hide password"; it doesn't scale and shows the Large Content Viewer. Showing the
 /// password keeps the keyboard where it was.
 struct PasswordField: View {
+    private static var noPrompt: Text { AuthTextField.noPrompt }
+
     let title: LocalizedStringKey
     @Binding var text: String
     let focus: FocusState<AuthField?>.Binding
@@ -136,9 +141,9 @@ struct PasswordField: View {
         FormField(Text(title), isFocused: focus.wrappedValue == .password) {
             Group {
                 if revealed {
-                    TextField(text: $text, prompt: nil) { Text(title) }
+                    TextField(text: $text, prompt: Self.noPrompt) { Text(title) }
                 } else {
-                    SecureField(text: $text, prompt: nil) { Text(title) }
+                    SecureField(text: $text, prompt: Self.noPrompt) { Text(title) }
                 }
             }
             .textContentType(isNew ? .newPassword : .password)
@@ -202,11 +207,25 @@ struct AuthErrorMessage: View {
 }
 
 extension View {
-    /// The first field of a pushed form takes the keyboard once the push has finished. The wait is the environment's clock,
-    /// so a test decides whether it ends.
+    /// The first field of a pushed form takes the keyboard once the push has finished, on the form's first appearance
+    /// only: coming back to it (Check your inbox → "Use another email") leaves the focus to the user. The wait is the
+    /// environment's clock, so a test decides whether it ends.
     func authFocus(_ focus: FocusState<AuthField?>.Binding, on field: AuthField, clock: AppClock) -> some View {
-        task {
+        modifier(AuthFocus(focus: focus, field: field, clock: clock))
+    }
+}
+
+private struct AuthFocus: ViewModifier {
+    let focus: FocusState<AuthField?>.Binding
+    let field: AuthField
+    let clock: AppClock
+    @State private var didFocus = false
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard !didFocus else { return }
             do { try await clock.sleep(for: AuthScreenSpec.focusDelay) } catch { return }
+            didFocus = true
             focus.wrappedValue = field
         }
     }
