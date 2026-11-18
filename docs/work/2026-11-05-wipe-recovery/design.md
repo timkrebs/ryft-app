@@ -318,7 +318,8 @@ Tests:
   runs. A clock behind `since` doesn't expire it.
 - With an app-container copy present, neither store holds a row after the relaunch.
 - With `wipeLocalData` always false over three launches, the device steps ran once.
-- A resume after a successful replace does no object deletes (`ModelContext.didSave` is empty).
+- A resume after a successful replace does no object deletes: a fresh context counts no rows as the pass starts, on every
+  OS. `ModelContext.didSave` is empty too, which only iOS 18 and later can show: iOS 17 leaves out deleted identifiers.
 - Bedtime: after a resume, the mock notifier has no pending reminder of A.
 
 **W3.** The hold, in `AuthService.publish`, which throws so `logIn`, `signUp` and `handle` report failure. The same-account
@@ -390,6 +391,7 @@ Tests:
 - B or A signing in during an interrupted sign-out's SDK call: held, with entry A kept and no id left.
 - A's wipe fails, B is held and leaves, A signs in and works, relaunch: no entry, no replace, and A's work is there.
 - Both routes of the same-account rule, each with the wipe true and false.
+- `make lint`: the one key, in English only (RYFT is English only since #105).
 
 **W4.** The guard in `publishWidget`, the reorder in `wipeSharedLocalData`, `endNow()`, and a pure
 `keptLiveActivity(active:hasAccount:owed:)`. Removing delivered notifications. A hold over a published A leaving A's push

@@ -116,7 +116,6 @@ Store "What's New".
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in
   the workout are no longer broken or cut, and the Start workout options show their whole detail.
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.
-- If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
 - A sign-out or account deletion that RYFT couldn't finish on this iPhone, because the app was closed or the iPhone refused,
   finishes the next time you open RYFT. Until it has, a different account can't sign in on this iPhone, and RYFT says so.
 - Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
