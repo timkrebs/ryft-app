@@ -21,12 +21,15 @@ first-data render (AC3) and a quiet cold-launch rerun (AC5). P1b followed on 202
 2026-11-18: P1b, ending the demo (ADR 0019 as amended, `docs/work/2026-11-18-ios17-demo-exit/`). Turning Demo data
 off discards the workouts started in it, finished or in progress, after a confirmation when there are any; nothing of
 them is sent, and an account's workout stays. The iOS 17 reopen of the account's store that ADR 0019 decided isn't
-built: the user made iOS 18.0 the minimum (its own PR). Its T0 gate had run: T0.7 (a reopened store takes inserts)
+built: the user made iOS 18.6 the minimum (its own PR). Its T0 gate had run: T0.7 (a reopened store takes inserts)
 passed on 17.0, 18.0, 26.0 and 27.2, and T0.8 found demo data itself broken on 17.0 (the Repository's demo store
 refused inserts once `ActivityStore` had made its own). The confirmation has a UI test in UISmoke
-(`DemoExitUITests`). Its five strings are in code but not yet in `Localizable.xcstrings`: ticket 4 (the copy) follows,
-and the message needs the count's plural. Simulator-verified on 27.2 and 18.0; the Live Activity's end on Discard is on
-the user's list.
+(`DemoExitUITests`), which also relaunches in the demo and finds no workout to resume. Its five strings and the
+message's plural are in `Localizable.xcstrings` (ticket 4). The PR #121 review round (`review.md`, R1–R10): a one-time
+seed of the list for workouts logged before this build, the id listed before the row, a discard that fails closed and
+leaves no copy in Train's cached history or on the demo's platform, the widget published at the exit, and the VoiceOver
+hint following the list. Simulator-verified on 27.2 (and on 18.0 before the review round); the Live Activity's end on
+Discard is on the user's list.
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
@@ -279,7 +282,8 @@ Verified: `make lint`, a dry run from `main` (1.0.0 → 1.1.0), CI on the PR. **
     still held and open. It recovers on the next trigger;
   - `uploadedTo` is overwritten by each PUT's binding, so a session uploaded to A and then to demo deletes only the
     mock copy;
-  - an account's session finished while demo was on stays bound to demo (bind ops to the session's owner);
+  - an account's session finished while demo was on stays bound to demo: moved up, see **Open → Before the External
+    beta**;
   - a process cold-launched in the background before the first unlock keeps the in-memory fallback store and holds
     all uploads until it's relaunched, even in the foreground. Device check; consider reopening the durable store
     on unlock.
@@ -1533,6 +1537,10 @@ contract points are in `docs/API_REQUESTS.md`.
 
 ## Open
 
+- **Before the External beta: bind Train ops to the session's owner** (P1b review F1; was a P2 review follow-up). An
+  account's workout that goes on while Demo data is on has its later sets and its completion queued for "demo": they go
+  to the demo's platform, the account never gets them, the workout's scores come from the demo, and the completion is
+  lost when the demo ends.
 - **The demo's journal and Train library leak into the account's cache** (P1b Q3, a follow-up;
   `docs/work/2026-11-18-ios17-demo-exit/design.md` §3.3 and §12). `JournalStore` and `TrainLibrary` write the demo
   platform's `journal.*` and `train.*` documents, exercises and plans into the account's store. After the demo the
@@ -1564,13 +1572,17 @@ contract points are in `docs/API_REQUESTS.md`.
   the newest SwiftData container of a schema takes inserts on iOS 17.0; T0.6). Measured fine on 18.0, 26.0 and 27.2;
   17.1–17.6 unmeasured. A consent withdrawal still holds (kept outside SwiftData). On 17.0 an account's workout
   continued during the demo also ends the app at its next set (a new object can't join one from before the newer
-  container; measured 2026-11-18). Not fixed by P1b: it goes with the minimum iOS 18.0 (its own PR).
+  container; measured 2026-11-18). Not fixed by P1b: it goes with the minimum iOS 18.6 (its own PR).
+- **Demo workouts logged before the P1b build aren't discarded when someone is signed in.** The list that names the
+  demo's workouts starts with that build. Its first launch seeds it only in the demo with nobody signed in (every stored
+  session is then the demo's); signed in, the account's sessions are there too and can't be told apart, so older demo
+  workouts stay with the account (design §6.9).
 - **iOS 18.0: a row still held after a Train wipe can trap** ("SwiftData/BackingData.swift:296: Fatal error: Context
   is missing for … LocalSession"). `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` ends the test
   process on 18.0 (measured 2026-11-18, on P1b and on its base `72750f4` alike); 17.0 and 27.2 pass, 26.0 not run. In the
   app it's a live workout's controller or a sheet reading a session row after an account change wiped it, before the
-  account-change handler closes them. Not P1b's. With 18.0 the minimum it needs its own look: the read that traps, and
-  whether the handler can close the screens before the wipe.
+  account-change handler closes them. Not P1b's. With 18.6 the minimum it needs its own look, on 18.6 (unmeasured
+  there): the read that traps, and whether the handler can close the screens before the wipe.
 - Satoshi isn't committed because of its licence (see README). Fresh clones render in SF
   Pro Rounded until `scripts/fetch-fonts.sh` runs.
 - Welcome and the auth screens are always dark (Graphite, as on the board), also in light

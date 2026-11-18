@@ -1,9 +1,13 @@
 # 0019 — Ending the demo discards its workouts, and on iOS 17 reopens the account's store
 
 - Status: accepted (2026-11-18, `docs/work/2026-11-18-ios17-demo-exit/design.md`) for decision 1, built in P1b.
-- **Amended 2026-11-18: minimum iOS 18.0, so the iOS 17 reopen is not built** (decisions 2 and 4, and decision 3's
+- **Amended 2026-11-18: minimum iOS 18.6, so the iOS 17 reopen is not built** (decisions 2 and 4, and decision 3's
   reopen step; the user's decision, its own PR). The T0 gate had passed (T0.7 on 17.0, 18.0, 26.0 and 27.2); the
-  measurements stay in the design note. The exit is the discard, the switch, `reset()` and the refresh.
+  measurements stay in the design note. The exit is the discard, the switch, `reset()`, the widget and the refresh.
+- **Amended 2026-11-18 (PR #121 review, `review.md`):** decision 1's list is seeded once, at the first launch of the
+  build that has it: in the demo with nobody signed in, every stored session goes on it; signed in, nothing does (design
+  §6.9). The id is listed before the row is saved; the discard fails closed (a store that can't be read leaves Demo
+  data on) and also takes the listed ids from Train's cached history list and starts the demo's platform over.
 - Deciders: the user (the demo's workouts are discarded after a confirmation, 2026-11-17); ios-lead (the reopen is iOS 17
   only); proposed by ios-architect; sync-engineer builds it
 - Amends: ADR 0018. The account's `ModelContainer` is no longer one instance for the life of the process: on iOS 17 it
@@ -96,7 +100,7 @@
 - The epoch advance at the reopen drops answers in flight (Train's replay, activity and import uploads). They're sent
   again later, idempotently.
 - One `UserDefaults` key of session ids.
-- Review check: every session start goes through `TrainCoordinator.start(_:)`.
+- Review check: every session start takes its id from `TrainCoordinator.newSessionID()`, which lists it first.
 
 **What could go wrong:**
 - **A reopened container still refuses inserts, or something traps** (T0.7 decides). The fallback is a note on iOS 17

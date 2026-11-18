@@ -1,6 +1,6 @@
 # Ending the demo: its workouts go, and iOS 17 saves again (P1b)
 
-**Amended 2026-11-18:** the user made iOS 18.0 the minimum (its own PR), so the iOS 17 work is not built: the reopen
+**Amended 2026-11-18:** the user made iOS 18.6 the minimum (its own PR), so the iOS 17 work is not built: the reopen
 (§6.2 and its gate, ticket 1) and the one demo store (ticket 6). P1b ships the discard, the exit step without the
 reopen, and the confirmation. T0, measured before the decision: T0.7 passed on 17.0, 18.0, 26.0 and 27.2; T0.8 found the
 Repository's demo store refusing inserts on 17.0 once `ActivityStore` had made its own (18.0 and later: both save).
@@ -443,6 +443,23 @@ func endDemo() async                        // §6.1; setDemoMode(false) calls i
   identity and the epoch are the same before and after the exit.
 - **Everywhere:** the schema, ADR 0018's queue, batches, locks and write-through, the wipe, the upload gates, ADR
   0008's bindings, `Repository.reset()`'s demo store, `ActivityStore`'s, and the demo switch turning on.
+
+### 6.9 The seed for upgraders (PR #121 review, R1)
+
+The list starts with the build that ships it, so workouts logged in the demo before that build aren't on it, and the
+exit would skip them: a finished one would show in the account's history, an in-progress one would upload to the next
+account. At the first launch of that build, once (`train.demoSessionsSeeded`), `TrainCoordinator.demoAtLaunch` seeds it
+before the sweep:
+
+- **Demo data on, nobody signed in:** every stored `LocalSession` goes on the list. Sign-out and expiry wipe Train, so
+  each one is the demo's.
+- **Signed in** (a session, or an account `auth.lastUserID` still names, since its Keychain may be unreadable at a
+  background launch): nothing. The account's sessions are there too and can't be told apart. STATUS → Known issues and
+  the CHANGELOG say so.
+- **Demo data off:** nothing.
+
+The flag is set in every case, except when the store can't say what it holds (a failed fetch, or memory in place of
+its file); then the next launch tries again.
 
 ## 7. T0 gate: sync-engineer runs it first, on iOS 17.0
 
