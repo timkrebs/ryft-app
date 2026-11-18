@@ -1,16 +1,36 @@
 import Foundation
 import Observation
 
-/// Insight cards (dismissible for the day) and a trend series per metric for the
-/// selected range, plus the 30-day series behind the personal-range bands.
+/// Where the visible insights go on the page (docs/work/2026-11-16-nocturne/design.md §P5-5.1, D5-6): notices and warnings
+/// as neutral cards above, the first `info` insight in the recovery tile, the other `info` insights as cards under it. Each
+/// keeps the platform's order.
+struct InsightsArrangement: Equatable {
+    let attention: [Insight]
+    let tile: Insight?
+    let more: [Insight]
+
+    init(_ visible: [Insight]) {
+        attention = visible.filter { $0.severity != .info }
+        let info = visible.filter { $0.severity == .info }
+        tile = info.first
+        more = Array(info.dropFirst())
+    }
+
+    var isEmpty: Bool { attention.isEmpty && tile == nil }
+}
+
+/// Insight cards (dismissible for the day) and a trend card per metric for the selected range, with the 30-day series
+/// behind the bands of readiness, HRV, time asleep and resting HR.
 @MainActor
 @Observable
 final class InsightsViewModel {
     private let state: AppState
 
     var range: TrendRange = .month
-    /// A deep link's metric; the view scrolls to its trend and clears it.
+    /// A deep link's metric; the view opens its card, scrolls to it and clears it (`openFocused()`).
     var focusedMetric: TrendMetric?
+    /// The cards open in place (§P5-5.2, D5-8). Kept here, so a rebuilt tab keeps them.
+    private(set) var expanded: Set<TrendMetric> = []
 
     /// Each metric's series for the selected range, as cached (SwiftData).
     var series: [TrendMetric: TrendSeries] {
@@ -19,9 +39,9 @@ final class InsightsViewModel {
         })
     }
 
-    /// 30-day series behind the personal-range bands (HRV, resting HR), whatever the range.
+    /// The 30-day series behind the bands (readiness, HRV, time asleep, resting HR), whatever the range.
     var monthly: [TrendMetric: TrendSeries] {
-        Dictionary(uniqueKeysWithValues: TrendMetric.allCases.filter(\.showsPersonalRange).compactMap { m in
+        Dictionary(uniqueKeysWithValues: TrendMetric.banded.compactMap { m in
             state.cachedTrend(m, range: .month).map { (m, $0) }
         })
     }
@@ -34,6 +54,7 @@ final class InsightsViewModel {
         self.journal = journal
     }
 
+    /// The range for VoiceOver and the menu: "7 days".
     static func rangeTitle(_ r: TrendRange) -> String {
         switch r {
         case .week: return String(localized: "7 days")
@@ -42,7 +63,29 @@ final class InsightsViewModel {
         }
     }
 
+    /// The range on its segment: "7 D".
+    static func rangeShortTitle(_ r: TrendRange) -> String {
+        switch r {
+        case .week: return String(localized: "7 D", comment: "Insights' range control: 7 days.")
+        case .month: return String(localized: "30 D", comment: "Insights' range control: 30 days.")
+        case .quarter: return String(localized: "90 D", comment: "Insights' range control: 90 days.")
+        }
+    }
+
+    // MARK: the page's state
+
+    var hasDataSource: Bool { state.hasDataSource }
+    var isDemo: Bool { state.isDemo }
+    /// The shared offline / error card (Today's), 12 under the header; the cards keep their cached data.
+    var refreshIssue: RefreshIssue? { state.refreshIssue }
+
+    func signIn() async { await state.signInAgain() }
+
+    // MARK: insights
+
     var visibleInsights: [Insight] { state.visibleInsights }
+
+    var arrangement: InsightsArrangement { InsightsArrangement(visibleInsights) }
 
     /// Shown instead of cards: nothing came, or everything was dismissed today.
     var emptyMessage: String? {
@@ -69,15 +112,49 @@ final class InsightsViewModel {
     var focusesBehaviors = false
     static let behaviorsAnchor = "insights.behaviors"
 
-    /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`).
+    // MARK: trends
+
+    /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`, R-N5): banded metrics only.
     func band(for metric: TrendMetric) -> ClosedRange<Double>? {
-        guard metric.showsPersonalRange, let lo = monthly[metric]?.min, let hi = monthly[metric]?.max, lo < hi else {
-            return nil
-        }
-        return lo...hi
+        metric.hasBand ? TrendCardContent.band(monthly[metric]) : nil
     }
 
-    /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day bands.
+    /// One metric's card for the selected range: two cached reads at most (the range's series, and the 30-day one behind a
+    /// band).
+    /// `isStale`: the page's refresh issue, read once for all cards.
+    func card(_ metric: TrendMetric, isStale: Bool? = nil) -> TrendCardContent {
+        let own = state.cachedTrend(metric, range: range)
+        let month = metric.hasBand ? (range == .month ? own : state.cachedTrend(metric, range: .month)) : nil
+        return TrendCardContent.make(metric, range: range, series: own, monthly: month, isLoading: state.isLoading,
+                                     isStale: isStale ?? (refreshIssue != nil), today: state.env.clock.now())
+    }
+
+    /// Readiness, HRV and time asleep (the board's), then the other eleven under "More trends": every metric, so every deep
+    /// link lands on a card.
+    var boardCards: [TrendCardContent] { cards(TrendMetric.boardOrder) }
+    var moreCards: [TrendCardContent] { cards(TrendMetric.moreOrder) }
+
+    private func cards(_ metrics: [TrendMetric]) -> [TrendCardContent] {
+        let stale = refreshIssue != nil
+        return metrics.map { card($0, isStale: stale) }
+    }
+
+    func isExpanded(_ metric: TrendMetric) -> Bool { expanded.contains(metric) }
+
+    /// A tap on a card opens or closes it.
+    func toggle(_ metric: TrendMetric) {
+        if expanded.contains(metric) { expanded.remove(metric) } else { expanded.insert(metric) }
+    }
+
+    /// A deep link's metric: its card opens, and the view scrolls to it. Clears `focusedMetric`.
+    func openFocused() -> TrendMetric? {
+        guard let metric = focusedMetric else { return nil }
+        expanded.insert(metric)
+        focusedMetric = nil
+        return metric
+    }
+
+    /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day series behind the bands.
     func load() async {
         guard state.hasDataSource else { return }
         if let journal {
@@ -91,7 +168,7 @@ final class InsightsViewModel {
                 group.addTask { _ = await state.trend(m, range: r) }
             }
             if r != .month {
-                for m in TrendMetric.allCases where m.showsPersonalRange {
+                for m in TrendMetric.banded {
                     group.addTask { _ = await state.trend(m, range: .month) }
                 }
             }

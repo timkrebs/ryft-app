@@ -4,7 +4,9 @@ import Charts
 /// A daily series as an instrument (`ChartStyle`): header readout, 1.5 pt linear
 /// line broken at missing days, dated axes with nice bounds, threshold rules for
 /// scores, dashed baseline, optional personal-range band, markers only at today
-/// and the window's min / max, and scrubbing with a haptic per day.
+/// and the window's min / max, and scrubbing with a haptic per day. Insights' open
+/// trend card (docs/work/2026-11-16-nocturne/design.md §P5-5.2) draws it without the
+/// header, in its card's colour: ink for readiness, recovery teal for HRV.
 struct TrendChart: View {
     let points: [TrendPoint]
     let spec: MetricSpec
@@ -18,8 +20,12 @@ struct TrendChart: View {
     var showsHeader = true
     var interactive = true
     var height: CGFloat = 150
+    /// The line's colour, and its band's and markers'; `nil` is the metric's (`spec.color`).
+    var color: Color?
 
     @State private var selection: Date?
+
+    private var lineColor: Color { color ?? spec.color }
 
     private struct Plotted: Identifiable {
         let date: Date
@@ -97,7 +103,7 @@ struct TrendChart: View {
 
         return Chart {
             if let band {
-                RangeBand(x: xDomain, y: band, color: spec.color)
+                RangeBand(x: xDomain, y: band, color: lineColor)
             }
             ThresholdRules(values: spec.thresholds)
             if let baseline {
@@ -107,14 +113,14 @@ struct TrendChart: View {
                 LineMark(x: .value("Day", p.date), y: .value(spec.title, p.value),
                          series: .value("Segment", p.segment))
                     .interpolationMethod(.linear)
-                    .foregroundStyle(spec.color)
+                    .foregroundStyle(lineColor)
                     .lineStyle(ChartStyle.line)
             }
             ForEach(extremes) { p in
                 PointMark(x: .value("Day", p.date), y: .value(spec.title, p.value))
                     .symbol {
                         Circle()
-                            .strokeBorder(spec.color, lineWidth: 1)
+                            .strokeBorder(lineColor, lineWidth: 1)
                             .background(Circle().fill(Theme.surface))
                             .frame(width: ChartStyle.marker.width, height: ChartStyle.marker.height)
                     }
@@ -130,11 +136,11 @@ struct TrendChart: View {
                                      delta: scrubDelta(s.value, data: data))
                     }
                 PointMark(x: .value("Day", s.date), y: .value(spec.title, s.value))
-                    .foregroundStyle(spec.color)
+                    .foregroundStyle(lineColor)
                     .symbolSize(ChartStyle.marker)
             } else if let last {
                 PointMark(x: .value("Day", last.date), y: .value(spec.title, last.value))
-                    .foregroundStyle(spec.color)
+                    .foregroundStyle(lineColor)
                     .symbolSize(ChartStyle.marker)
                     .annotation(position: .top, spacing: 3) {
                         Text(spec.number(last.value))
@@ -168,7 +174,7 @@ struct TrendChart: View {
 }
 
 #Preview("TrendChart", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 28) {
             TrendChart(points: MockData.trend(.readiness, range: .week).points, spec: .readiness,
                        window: .week, height: 110)
@@ -176,6 +182,9 @@ struct TrendChart: View {
             TrendChart(points: hrv.points, spec: .hrv, window: .month, baseline: hrv.baseline,
                        band: hrv.min.flatMap { lo in hrv.max.map { lo...$0 } })
             TrendChart(points: MockData.trend(.strain, range: .quarter).points, spec: .strain, window: .quarter)
+            // Insights' open card: no header, the card's colour.
+            TrendChart(points: MockData.trend(.readiness, range: .month).points, spec: .readiness, window: .month,
+                       showsHeader: false, color: Theme.textPrimary)
         }
     }
 }
