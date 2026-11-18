@@ -1008,7 +1008,7 @@ final class AuthService {
             // Its replay stops now, not when the app's account-change handler runs a runloop later.
             TrainSyncService.shared.accountChanged()
             TrainLibrary.shared.wipe()
-            // And nothing draws the deleted rows again before that handler: on iOS 18.0 that's a fatal error.
+            // And nothing draws the deleted rows again before that handler: on iOS 18 and 26 that's a fatal error.
             TrainCoordinator.existing?.releaseRows()
         })
     }

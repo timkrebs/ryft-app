@@ -190,7 +190,7 @@ final class TrainCoordinator {
     }
 
     /// In the wipe's own turn (`AuthService.wipeSharedLocalData`), before anything draws again: the workout's screen
-    /// and the in-progress banner let go of the rows the store just deleted. On iOS 18.0 reading a deleted row's
+    /// and the in-progress banner let go of the rows the store just deleted. On iOS 18 and 26 reading a deleted row's
     /// exercises or sets is a fatal error, whatever was read before the delete, and the rest timer reads them twice a
     /// second. `accountChanged()` still follows, from the app's account-change handler a runloop later.
     func releaseRows() {

@@ -239,8 +239,9 @@ enum WipeValues {
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
     static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
-    /// A deleted, saved row's relationships: iOS 17.0 and 27 answer them, 18.0 traps ("Context is missing"), even when
-    /// they were read before the delete. Later 18 releases and 26 weren't tried, so they count as 18.0.
+    /// A deleted, saved row's relationships: iOS 17.0 and 27 answer them. 18 and 26 trap, even when they were read before
+    /// the delete: 18.0 on the relationship ("Context is missing"), 18.6 and 26.0 on a row it yields that nothing held
+    /// ("Never access a full future backing data"; on 26.0 in one run of two).
     static var deletedRowsAnswerRelationships: Bool {
         if #available(iOS 27, *) { return true }
         if #available(iOS 18, *) { return false }
@@ -490,8 +491,8 @@ struct TrainStoreWipeTests {
 
     /// Until the app's account-change handler runs, a live workout's controller and screens hold deleted rows, and
     /// deleting the object tells their observers, which a batch delete didn't. SwiftData answers for a deleted row from
-    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them. A
-    /// relationship is one on iOS 18.0 whatever was read before the delete, so there nothing may draw one
+    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them. On iOS
+    /// 18 and 26 a relationship is one whatever was read before the delete, so there nothing may draw one
     /// (`TrainCoordinator.releaseRows`); attributes and writes still answer.
     @Test(arguments: WipeValues.parkings)
     func aRowStillHeldStaysUsableAndNothingComesBack(_ parking: String?) throws {
