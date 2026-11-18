@@ -27,6 +27,17 @@ struct PlatformConfigTests {
                 == ["RYFT_API_URL", "RYFT_SUPABASE_URL", "RYFT_SUPABASE_PUBLISHABLE_KEY"])
     }
 
+    /// The misconfigured screen (PR 6 A §A-15): the missing names in one sentence that names no store, and no sentence at all
+    /// for an empty list (never "It's missing .").
+    @Test func misconfiguredScreenSaysWhatIsMissing() {
+        #expect(MisconfiguredBuildView.message(missing: []) == nil)
+        let one = MisconfiguredBuildView.message(missing: ["RYFT_API_URL"])
+        #expect(one == String(localized: "It's missing \("RYFT_API_URL"). Install the latest version of RYFT."))
+        #expect(one?.contains("App Store") == false)
+        let two = MisconfiguredBuildView.message(missing: ["RYFT_API_URL", "RYFT_SUPABASE_URL"]) ?? ""
+        #expect(two.contains("RYFT_API_URL") && two.contains("RYFT_SUPABASE_URL"), "\(two)")
+    }
+
     @Test func releaseRequiresHTTPS() {
         var info = complete
         info["RyftAPIURL"] = "http://192.168.1.20:8082"
