@@ -2230,6 +2230,13 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-21 | Ruler label "target 10–14" | "moderate 10–14" | R-N1 |
 | D5-22 | Strain activity rows without a chevron | Same (board); the hint carries the link | — |
 | D5-23 | Profile Privacy Policy twice | Once, in About | The duplicate is dropped |
+| D5-24 | §P5-3.5: the Train links in one grouped card | Separate `ActivityListRow`s with a chevron, 12 apart (T5.2) | b-23 draws them so; one row look for the page's lists |
+| D5-25 | F7: a `DayStrip`, ids `strain.day.*` | The shared `DateStrip` (My Day's), ids `datestrip.day.<yyyy-MM-dd>` (T5.2) | One strip in the app, the same 44 pt cells |
+| D5-26 | The strip is the only way to another day; no date on the page | A tap stays in the strip's week; a deep link opens any past day (older than the strip: no cell selected). On another day than today a date line ("Mon 16 Nov", 13 Regular `textSecondary`) sits 2 under the header; today has none, as the draft. The header's title speaks the day ("Strain, Yesterday"), and a deep link's day is announced once it has loaded (T5.2 review) | Push and widget links name days older than a week; the shown day must be named |
+| D5-27 | "52 min" | Under an hour "42 min"; from an hour "1:05 h" (T5.2) | The tile's value stays one short line |
+| D5-28 | The chart's y ticks 120 / 150 / 180 | Three ticks a round step apart covering the curve: 120 / 150 / 180 for the draft's series, 120 / 140 / 160 for the demo's (T5.2) | The scale follows the data |
+| D5-29 | Zones head and row meta at 0.55 | The glow-label ink (78 %) or `textTertiary` (T5.2) | No 0.55 token; 0.55 fails 4.5:1 in the glow tile (D5-7) |
+| D5-30 | The heart-rate chart at one size | From AX1: 200 pt tall, every other clock tick, "peak 159" in the card's head instead of over its dot (T5.2) | At AX3 the clock labels collide and the peak note overlaps the head |
 
 ### Questions for the lead
 

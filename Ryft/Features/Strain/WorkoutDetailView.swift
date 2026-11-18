@@ -1,6 +1,5 @@
 import SwiftUI
 import Charts
-import UIKit
 
 /// One workout (Nocturne, design.md §P5-4; drafts `draft-workout-top`, `-bottom`): the header with Back, the strain numeral
 /// and ruler, the heart-rate zones, the stat tiles, the logged session, the heart-rate curve and its source.
@@ -18,7 +17,8 @@ private struct WorkoutDetailScreen: View {
     @State var model: WorkoutDetailViewModel
 
     var body: some View {
-        WorkoutDetailPage(board: model.board, numeralStyle: model.numeralStyle, isOffline: model.isOffline)
+        WorkoutDetailPage(board: model.board, numeralStyle: model.numeralStyle, isOffline: model.isOffline,
+                          retry: { await model.load() }, signIn: { await model.signIn() })
             .task { await model.load() }
     }
 }
@@ -30,6 +30,9 @@ struct WorkoutDetailPage: View {
     let board: WorkoutBoard
     var numeralStyle: DotNumeral.Style = .dots
     var isOffline = false
+    /// The failure's Try again: the detail's load.
+    var retry: () async -> Void = {}
+    var signIn: () async -> Void = {}
     /// Previews and tests; nil follows the system.
     var reduceTransparency: Bool?
 
@@ -48,8 +51,7 @@ struct WorkoutDetailPage: View {
                 StrainHeroView(hero: board.hero, key: board.workout.id.uuidString, numeralStyle: numeralStyle,
                                pendingLabel: StrainRows.spokenStrain(nil), identifierPrefix: "workout")
                     .padding(.top, StrainLayout.numeralGap)
-                StrainZonesTile(zones: board.zones, missingSentence: WorkoutBoard.noZonesSentence, isOutline: board.isLoading,
-                                reduceTransparency: reduceTransparency, identifierPrefix: "workout")
+                zones
                 WorkoutStatTiles(stats: board.stats)
                     .padding(.top, StrainLayout.tilesGap)
                 if let row = board.sessionRow, let id = board.workout.sessionId {
@@ -74,7 +76,19 @@ struct WorkoutDetailPage: View {
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .background { WorkoutBackSwipe().accessibilityHidden(true) }
+        .keepsBackSwipe()
+    }
+
+    /// The zones tile, its outline while the detail loads, or the failure's sentence in its place (as Strain's, §P5-3.7).
+    @ViewBuilder private var zones: some View {
+        if let failure = board.failure {
+            InlineMessage(message: failure.message, systemImage: failure.systemImage, retryTitle: failure.action.title,
+                          details: failure.details, retry: failure.action.button(retry: retry, signIn: signIn),
+                          identifier: "workout.failure")
+        } else {
+            StrainZonesTile(zones: board.zones, missing: .sentence(WorkoutBoard.noZonesSentence), isOutline: board.isOutline,
+                            reduceTransparency: reduceTransparency, identifierPrefix: "workout")
+        }
     }
 
     /// Back · the sport over its day and time · an empty 40 pt slot (§P5-4 row 1).
@@ -140,7 +154,8 @@ private struct WorkoutStatTiles: View {
     }
 }
 
-/// "Heart rate" and "avg 148 bpm" over the curve; an outline while the detail loads; the sentence without a series.
+/// "Heart rate" and "avg 148 bpm" over the curve; an outline while the detail loads or after it failed; the sentence when
+/// the detail has no series.
 private struct WorkoutHeartRateCard: View {
     let board: WorkoutBoard
 
@@ -151,35 +166,37 @@ private struct WorkoutHeartRateCard: View {
     }
 
     var body: some View {
+        // The curve's scales are worked out once per body.
+        let plot = board.plot
         VStack(alignment: .leading, spacing: StrainLayout.chartHeadGap) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     title
                     Spacer(minLength: 0)
-                    average
+                    average(plot)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     title
-                    average
+                    average(plot)
                 }
             }
-            if let plot = board.plot {
+            if let plot {
                 WorkoutHeartRateChart(plot: plot)
-            } else if board.isLoading {
-                Color.clear.frame(height: typeSize.isAccessibilitySize ? StrainLayout.chartHeightLargeText : StrainLayout.chartHeight)
-            } else {
+            } else if board.lacksSeries {
                 Text("No heart-rate series available for this workout.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+            } else {
+                Color.clear.frame(height: typeSize.isAccessibilitySize ? StrainLayout.chartHeightLargeText : StrainLayout.chartHeight)
             }
         }
         .padding(.vertical, StrainLayout.chartPadding)
         .padding(.horizontal, StrainLayout.chartSidePadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            if board.isLoading, board.plot == nil {
+            if board.isOutline {
                 PlaceholderOutline(shape)
             } else {
                 shape.fill(Theme.surface)
@@ -196,20 +213,20 @@ private struct WorkoutHeartRateCard: View {
     }
 
     /// "avg 148 bpm"; from AX1 with the peak after it ("avg 148 bpm · peak 159"), which the chart then doesn't draw.
-    private var headText: String? {
-        guard typeSize.isAccessibilitySize, let peak = board.plot?.peakText else { return board.averageText }
+    private func headText(_ plot: HeartRatePlot?) -> String? {
+        guard typeSize.isAccessibilitySize, let peak = plot?.peakText else { return board.averageText }
         return MyDayText.join([board.averageText, peak].compactMap { $0 })
     }
 
-    @ViewBuilder private var average: some View {
-        if let text = headText {
+    @ViewBuilder private func average(_ plot: HeartRatePlot?) -> some View {
+        if let text = headText(plot) {
             Text(verbatim: text)
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 // In the chart's value.
-                .accessibilityHidden(board.plot != nil)
+                .accessibilityHidden(plot != nil)
         }
     }
 }
@@ -305,42 +322,23 @@ private struct WorkoutHeartRateChart: View {
     }
 }
 
-/// Keeps the edge swipe that pops the page while the bar is hidden: the shared keeper (`InteractivePopGestureKeeper`,
-/// `SubpageScaffold`'s), reached through this page's navigation controller. `SubpageScaffold`'s own probe is private; T5.2
-/// asks for it as a shared modifier (until then this is its one copy outside Design).
-private struct WorkoutBackSwipe: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Probe { Probe() }
-    func updateUIViewController(_ controller: Probe, context: Context) {}
-
-    final class Probe: UIViewController {
-        override func viewDidLoad() {
-            super.viewDidLoad()
-            view.isUserInteractionEnabled = false
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            InteractivePopGestureKeeper.keep(navigationController)
-        }
-    }
-}
-
 // MARK: - previews (dark only)
 
 /// The demo's first workout today, its detail, and the states without one.
 enum WorkoutPreview {
     static var workout: Workout { MockData.todayDetail.workouts[0] }
 
-    static func board(loading: Bool = false, series: Bool = true, zones: Bool = true, session: Bool = false) -> WorkoutBoard {
+    static func board(loading: Bool = false, failure: SleepLoadFailure? = nil, series: Bool = true, zones: Bool = true,
+                      session: Bool = false) -> WorkoutBoard {
         var w = workout
         if session {
             w.sessionId = UUID(uuidString: "00000000-0000-4000-8000-00000000b001")
             w.muscularLoad = 84.6
         }
-        var detail: WorkoutDetail? = loading ? nil : MockData.workoutDetail(w)
+        var detail: WorkoutDetail? = loading || failure != nil ? nil : MockData.workoutDetail(w)
         if !series { detail?.hr = [] }
         if !zones { detail?.zoneMin = [] }
-        return WorkoutBoard(workout: w, detail: detail, isLoading: loading)
+        return WorkoutBoard(workout: w, detail: detail, isLoading: loading, failure: failure)
     }
 }
 
@@ -359,6 +357,13 @@ enum WorkoutPreview {
 #Preview("Workout · loading") {
     NavigationStack { WorkoutDetailPage(board: WorkoutPreview.board(loading: true)) }
         .previewEnvironment()
+}
+
+#Preview("Workout · failed") {
+    NavigationStack {
+        WorkoutDetailPage(board: WorkoutPreview.board(failure: SleepLoadFailure(reason: .busy, details: "HTTP 503")))
+    }
+    .previewEnvironment()
 }
 
 #Preview("Workout · no series, no zones, offline") {

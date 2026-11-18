@@ -210,7 +210,28 @@ struct StrainBoard: Equatable {
         case failed(SleepLoadFailure)
     }
 
+    /// How final the day's numbers are, which decides what a missing strain or missing zones say (§P5-3.7).
+    enum DayScoring: Equatable {
+        /// A past day the platform has scored: an absence is final ("No strain recorded for this day.").
+        case final
+        /// Today, not being scored: the day isn't over ("No strain yet today.").
+        case today
+        /// The platform is scoring newer data (`pending`): no absence sentence, the rows keep "–".
+        case pending
+
+        /// `state`: the day's scoring state (today's from `ScoringWord.state`, as Today and Sleep read it; another day's
+        /// from its row).
+        init(_ state: ScoringState?, isToday: Bool) {
+            if state == .pending {
+                self = .pending
+            } else {
+                self = isToday ? .today : .final
+            }
+        }
+    }
+
     let look: Look
+    let scoring: DayScoring
     let hero: StrainHero
     let zones: StrainZones
     let steps: Int?
@@ -221,8 +242,10 @@ struct StrainBoard: Equatable {
     ///   - score: the day's score (the detail's, else the cached history's: the numeral may show before the detail).
     ///   - prior: the strains of the seven days before, those that exist.
     ///   - isLoading: nothing cached and the day's load hasn't answered yet.
+    ///   - scoring: how final the day's numbers are.
     init(detail: DayDetail?, score: DailyScore?, prior: [Double], split: String?, isLoading: Bool,
-         failure: SleepLoadFailure?) {
+         failure: SleepLoadFailure?, scoring: DayScoring = .final) {
+        self.scoring = scoring
         if detail != nil {
             look = .loaded
         } else if let failure {
@@ -234,7 +257,7 @@ struct StrainBoard: Equatable {
         }
         let strain = score?.strain
         hero = StrainHero(strain: strain, delta: StrainHero.delta(strain, prior: prior), split: strain == nil ? nil : split,
-                          missingCaption: look == .loaded ? Self.noStrainSentence : nil)
+                          missingCaption: look == .loaded ? Self.noStrainCaption(scoring) : nil)
         zones = StrainZones(minutes: detail?.strain?.zoneMin.map(Double.init), trimp: detail?.strain?.trimp)
         steps = detail?.strain?.steps ?? score?.steps
         activeKcal = detail?.strain?.activeKcal ?? score?.activeKcal
@@ -248,8 +271,26 @@ struct StrainBoard: Equatable {
         return nil
     }
 
-    /// The day loaded without zone data: the short tile and its sentence.
-    var lacksZones: Bool { look == .loaded && zones.minutes == nil }
+    /// The day loaded without zone data: the short tile and its sentence; while it is being scored, the rows with "–".
+    var lacksZones: Bool { look == .loaded && zones.minutes == nil && scoring != .pending }
+
+    /// What the zones tile says without zone data.
+    var zonesMissing: StrainZonesTile.Missing {
+        switch scoring {
+        case .final: .sentence(Self.noZonesSentence)
+        case .today: .sentence(Self.noZonesTodaySentence)
+        case .pending: .pending(Self.pendingSentence)
+        }
+    }
+
+    /// The caption under the unlit numeral, by how final the day is.
+    static func noStrainCaption(_ scoring: DayScoring) -> String {
+        switch scoring {
+        case .final: noStrainSentence
+        case .today: noStrainTodaySentence
+        case .pending: pendingSentence
+        }
+    }
 
     var stepsText: String { Fmt.integer(steps.map(Double.init)) }
     var energyText: String { Fmt.integer(activeKcal.map(Double.init)) }
@@ -261,6 +302,16 @@ struct StrainBoard: Equatable {
         String(localized: "Your watch didn't record heart-rate zones for this day.",
                comment: "Strain's zones tile without zone data for the day.")
     }
+    static var noStrainTodaySentence: String {
+        String(localized: "No strain yet today.",
+               comment: "Strain's caption under the unlit numeral today: nothing has added strain so far (the day isn't over).")
+    }
+    static var noZonesTodaySentence: String {
+        String(localized: "No heart-rate zones yet today.",
+               comment: "Strain's zones tile today without zone data so far (the day isn't over).")
+    }
+    /// While the platform scores newer data: what is happening, not that something is missing.
+    static var pendingSentence: String { String(localized: "Scoring your latest data") }
     static var loadingLabel: String {
         String(localized: "Loading this day", comment: "VoiceOver on Strain's numeral while the day loads (outlines, no spinner).")
     }

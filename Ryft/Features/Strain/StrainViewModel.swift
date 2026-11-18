@@ -15,13 +15,17 @@ final class StrainViewModel {
     /// A deep link's Train screen; the view pushes it and clears it.
     var requestedRoute: TrainRoute?
     private(set) var isLoading = false
-    /// The day couldn't load and nothing is cached: the app's calm sentence, its Details and its button (never the system's
-    /// error text, R3-N3).
-    private(set) var failure: SleepLoadFailure?
+    /// The shown day couldn't load and nothing is cached: the app's calm sentence, its Details and its button (never the
+    /// system's error text, R3-N3). Another day's failure is not shown.
+    var failure: SleepLoadFailure? { failed?.day == date ? failed?.failure : nil }
+    private var failed: (day: Date, failure: SleepLoadFailure)?
     /// The failure's sentence, nil without one.
     var error: String? { failure?.message }
     /// The day whose load finished (with or without data): before it, an uncached day shows its outlines, not "no strain".
     private var loadedDay: Date?
+    /// Counts `load()` calls. SwiftUI starts the next `.task(id:)` before the cancelled one has finished, so a load writes
+    /// `isLoading`, `failed` and `loadedDay` only while it is the latest: an older day's late answer changes nothing.
+    private var generation = 0
     /// A strip tap changed the day: once it has loaded, VoiceOver hears the new day (`takeStepAnnouncement`).
     private var announcesStep = false
 
@@ -93,10 +97,20 @@ final class StrainViewModel {
         detail == nil && state.hasDataSource && (isLoading || loadedDay != date)
     }
 
+    /// The day's scoring state. Today's is Today's and Sleep's (`ScoringWord.state`: this phone's word since its last
+    /// write or push, then `GET /v1/me/sync`'s, then the row); another day's is its row's. Read in the board, so a new
+    /// word or status redraws it.
+    var scoringState: ScoringState? {
+        guard isToday else { return score?.scoringState }
+        let key = DayFormat.string(from: date)
+        return ScoringWord.state(day: key, word: state.repository.scoringLedger()[key], status: state.syncStatus?.today,
+                                 row: score)
+    }
+
     /// The board for the selected day (§P5-3.1, §P5-3.7).
     var board: StrainBoard {
         StrainBoard(detail: detail, score: score, prior: priorStrains, split: strainSplitText, isLoading: awaitsDay,
-                    failure: failure)
+                    failure: failure, scoring: StrainBoard.DayScoring(scoringState, isToday: isToday))
     }
 
     /// The refresh card or the one-line status under the strip (§P5-3.7).
@@ -154,17 +168,25 @@ final class StrainViewModel {
 
     // MARK: selection
 
-    /// Shows `day`, kept within the strip's week (today and the six days before).
+    /// A deep link's day: shows it, never past today; an older day than the strip's opens too (no strip cell is selected,
+    /// the date line under the header names it). Announced once it has loaded.
     func select(_ day: Date) {
-        date = min(max(calendar.startOfDay(for: day), oldestDay), today)
+        show(min(calendar.startOfDay(for: day), today))
     }
 
-    /// A strip tap: shows the day, and announces it once it has loaded.
+    /// A strip tap: the day, kept within the strip's week (today and the six days before); announced once it has loaded.
     func step(to day: Date) {
-        let before = date
-        select(day)
-        if date != before { announcesStep = true }
+        show(min(max(calendar.startOfDay(for: day), oldestDay), today))
     }
+
+    private func show(_ day: Date) {
+        guard day != date else { return }
+        date = day
+        announcesStep = true
+    }
+
+    /// Under the header on another day than today: "Mon 16 Nov" (the header's title stays "Strain"); nil today.
+    var dateLine: String? { StrainPageContent.dateLine(date, today: today, calendar: calendar) }
 
     /// "Yesterday. Strain 9.8 of 21"; "Mon, 16 Nov. No strain recorded for this day."
     var stepAnnouncement: String {
@@ -196,26 +218,35 @@ final class StrainViewModel {
 
     /// Revalidates the selected day (no request when it's cached and fresh).
     func load() async {
-        failure = nil
-        guard state.hasDataSource else { return }
+        generation += 1
+        let mine = generation
+        failed = nil
+        loadedDay = nil
+        guard state.hasDataSource else {
+            // Signed out meanwhile: an earlier load that is still out no longer ends the loading.
+            isLoading = false
+            return
+        }
         let day = date
         isLoading = detail == nil
-        defer { isLoading = false }
+        defer { if mine == generation { isLoading = false } }
         // My Day's list needs the day's activities as well, side by side (cached and fresh: nothing is sent).
         async let activities: Void = refreshActivities()
         do {
             _ = try await state.dayDetail(for: day)
             await activities
             await nameTrackers()
+            guard mine == generation else { return }
             loadedDay = day
         } catch where error.isCancellation {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return
         } catch {
+            guard mine == generation else { return }
             loadedDay = day
-            if detail == nil {
-                failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
-                                           isDemo: state.isDemo, at: state.env.clock.now())
+            if state.cachedDayDetail(for: day) == nil {
+                failed = (day, SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
+                                                isDemo: state.isDemo, at: state.env.clock.now()))
             }
         }
     }

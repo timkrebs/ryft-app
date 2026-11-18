@@ -55,7 +55,7 @@ struct StrainView: View {
         return StrainPageContent(board: model.board, day: model.date, week: model.week, status: model.status,
                                  showsTrain: model.showsTrainSection, rows: model.rows(locale: locale),
                                  showsHealthHint: model.hasNoHealthData, numeralStyle: model.numeralStyle,
-                                 isDemo: model.isDemo)
+                                 isDemo: model.isDemo, dayTitle: model.title, dateLine: model.dateLine)
     }
 
     private var actions: StrainActions {
@@ -83,6 +83,15 @@ struct StrainPageContent {
     var showsHealthHint: Bool
     var numeralStyle: DotNumeral.Style = .dots
     var isDemo = false
+    /// The header's spoken value: "Today", "Yesterday", "Mon, 16 Nov".
+    var dayTitle: String?
+    /// Under the header on another day: "Mon 16 Nov"; nil today.
+    var dateLine: String?
+
+    /// The date line for `day`: nil today, else its short date ("Mon 16 Nov").
+    static func dateLine(_ day: Date, today: Date, calendar: Calendar = .current) -> String? {
+        calendar.isDate(day, inSameDayAs: today) ? nil : day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
 }
 
 /// The page's buttons.
@@ -110,6 +119,16 @@ struct StrainPage: View {
         ScreenScaffold(showsHeader: false) {
             VStack(spacing: 0) {
                 header
+                if let line = content.dateLine {
+                    Text(verbatim: line)
+                        .font(.ryft(.label))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, StrainLayout.dateLineGap)
+                        // The header's value says the day.
+                        .accessibilityHidden(true)
+                }
                 if case .issue(let issue) = content.status {
                     RefreshIssueCard(issue: issue, isDemo: content.isDemo, retry: actions.refresh, signIn: actions.signIn)
                         .padding(.top, StrainLayout.statusGap)
@@ -139,7 +158,7 @@ struct StrainPage: View {
     }
 
     private var header: some View {
-        ScreenHeader(title: Text("Strain")) {
+        ScreenHeader(title: Text("Strain"), value: content.dayTitle.map { Text(verbatim: $0) }) {
             CircleButton(systemImage: "plus", iconSize: 14, accessibilityLabel: Text("Add activity")) {
                 actions.add?()
             }
@@ -161,7 +180,7 @@ struct StrainPage: View {
                           details: failure.details, retry: action.button(retry: actions.retry, signIn: actions.signIn),
                           identifier: "strain.failure")
         } else {
-            StrainZonesTile(zones: board.zones, missingSentence: StrainBoard.noZonesSentence, isOutline: board.isOutline,
+            StrainZonesTile(zones: board.zones, missing: board.zonesMissing, isOutline: board.isOutline,
                             reduceTransparency: reduceTransparency)
         }
     }
@@ -223,6 +242,16 @@ private struct StrainRowLink: View {
 enum StrainPreview {
     static var today: Date { Calendar.current.startOfDay(for: .now) }
 
+    /// A Train coordinator of its own with a session running (the shared preview store stays idle for the others).
+    @MainActor static let liveTrain: TrainCoordinator = {
+        let store = TrainStore(inMemory: true)
+        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
+                                    monitorsNetwork: false)
+        sync.gate = { _ in nil }
+        _ = MockTrain.liveSession(in: store)
+        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store), liveActivities: false)
+    }()
+
     static func week(selected: Date = today) -> [DateStrip.Day] {
         DateStrip.week(endingAt: today, selected: selected) { day in
             MockData.history.first { $0.day == DayFormat.string(from: day) }
@@ -238,20 +267,29 @@ enum StrainPreview {
     /// The day from `MockData`, or the state asked for.
     static func content(day: Date = today, loading: Bool = false, failure: SleepLoadFailure? = nil,
                         zones: Bool = true, workouts: Bool = true, showsTrain: Bool = true,
-                        status: StrainStatus? = nil) -> StrainPageContent {
+                        status: StrainStatus? = nil, pending: Bool = false) -> StrainPageContent {
         var detail: DayDetail? = loading || failure != nil ? nil : MockData.detail(for: day)
+        if pending {
+            // API.md's placeholder while the platform scores the day: no strain, no zones yet.
+            detail?.strain = nil
+            detail?.score.strain = nil
+            detail?.score.scoringState = .pending
+        }
         if !zones, var d = detail?.strain {
             d = DayStrain(trimp: d.trimp, hrMin: d.hrMin, zoneMin: [], steps: d.steps, activeKcal: d.activeKcal)
             detail?.strain = d
         }
         if !workouts { detail?.workouts = [] }
-        let score = detail?.score ?? MockData.history.first { $0.day == DayFormat.string(from: day) }
+        let score = pending ? detail?.score : detail?.score ?? MockData.history.first { $0.day == DayFormat.string(from: day) }
+        let isToday = Calendar.current.isDate(day, inSameDayAs: today)
         let board = StrainBoard(detail: detail, score: loading || failure != nil ? nil : score, prior: prior(day),
-                                split: nil, isLoading: loading, failure: failure)
+                                split: nil, isLoading: loading, failure: failure,
+                                scoring: StrainBoard.DayScoring(score?.scoringState, isToday: isToday))
         let rows = (detail?.workouts ?? []).map { StrainRow(.workout($0, nil), locale: .autoupdatingCurrent) }
         return StrainPageContent(board: board, day: day, week: week(selected: day), status: status,
-                                 showsTrain: showsTrain && Calendar.current.isDate(day, inSameDayAs: today), rows: rows,
-                                 showsHealthHint: false)
+                                 showsTrain: showsTrain && isToday, rows: rows, showsHealthHint: false,
+                                 dayTitle: Fmt.dayTitle(day, today: today),
+                                 dateLine: StrainPageContent.dateLine(day, today: today))
     }
 }
 
@@ -280,11 +318,32 @@ enum StrainPreview {
         .previewEnvironment()
 }
 
+/// §P5-11: the Train section while a session runs (its resume banner instead of Start workout).
+#Preview("Strain · Train in progress") {
+    NavigationStack {
+        StrainPage(content: StrainPreview.content())
+            .environment(StrainPreview.liveTrain)
+    }
+    .previewEnvironment()
+}
+
 #Preview("Strain · another day, offline") {
     NavigationStack {
         StrainPage(content: StrainPreview.content(day: DayFormat.shift(StrainPreview.today, days: -2), status: .line(.offline)))
     }
     .previewEnvironment()
+}
+
+/// Today while the platform scores newer data: "Scoring your latest data", the zone rows with "–", no absence sentence.
+#Preview("Strain · scoring (pending)") {
+    NavigationStack { StrainPage(content: StrainPreview.content(pending: true)) }
+        .previewEnvironment()
+}
+
+/// A deep link older than the week strip: no cell selected, the date line names the day.
+#Preview("Strain · ten days ago") {
+    NavigationStack { StrainPage(content: StrainPreview.content(day: DayFormat.shift(StrainPreview.today, days: -10))) }
+        .previewEnvironment()
 }
 
 #Preview("Strain · AX3") {
