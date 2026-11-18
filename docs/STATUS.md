@@ -23,8 +23,15 @@ rerun (AC5).
 stays on the newest runtime (`scripts/ci-simulator.sh`, 27.2 today). Every gate that asks for a run on iOS 17, 18 or
 "an older iOS" is one run on 18.6 (`platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`); runs on 17.0 and 18.0 stop.
 Gone with iOS 17: `SessionView`'s drag fallback, the availability checks around the start-workout control, and the
-tests' `#unavailable(iOS 18)` branches with the `withKnownIssue` wrappers they switched on. T0.1, T0.6 and the 18.0
-"Context is missing" trap aren't measured on 18.6 yet; until they are, code and tests treat 18.6 as 18.0.
+tests' `#unavailable(iOS 18)` branches with the `withKnownIssue` wrappers they switched on. First run on 18.6 (the
+iPhone 16 Pro simulator, Xcode 27.2): 243 of 244 tests pass (the read-model, wipe, symbol, session, quick-start,
+`DateParsingTests` and consent suites); the same suites without the last two pass on 27.2 (155 tests). T0.6 doesn't
+reproduce: an insert lands in the older and the newer container, and the account's writes after the demo save. T0.1
+isn't settled: the invariant the app relies on holds (made and awaited off main, a model actor's jobs run off main),
+but which thread decides is unmeasured, since the observations assert only on 27. The 18.0 trap shows in another form:
+`TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` traps with "Never access a full future backing data"
+(`BackingData.swift:739`), as on `main`; #107 fixes it. Until T0.1 is measured and #107 is in, code and tests treat 18.6
+as 18.0.
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
@@ -48,7 +55,7 @@ Recovery design, 8 tickets, not built: `docs/work/2026-11-05-wipe-recovery/desig
 `TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
 
 - **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
-- **Before the next External build:** run `TrainStoreWipeTests` once on iOS 18.6. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
+- **Before the next External build:** ~~run `TrainStoreWipeTests` once on iOS 18.6~~: done 2026-11-18. 24 of its 25 tests pass there, a healthy store's wipe among them; the one failure is the held-row trap that #107 fixes (top entry).
 - **Recovery ticket, not started:**
   - one stored id can't name two owners, and a second failure overwrites it;
   - there's no launch-time retry for "kept id, nobody signed in";
@@ -319,8 +326,8 @@ Verified: `make lint`, a dry run from `main` (1.0.0 → 1.1.0), CI on the PR. **
   - an export error shown after an account switch (cosmetic).
 - **A lint for Apple's required-reason APIs:** a file-timestamp read nearly shipped undeclared in O1, and nothing caught it
   automatically.
-- **iOS 18.6 (before the App Store 1.0):** the O1 upgrader check (including data only in the WAL) and `DateParsingTests`,
-  on the 18.6 simulator runtime. TestFlight testers are on iOS 27.
+- **iOS 18.6 (before the App Store 1.0):** the O1 upgrader check (including data only in the WAL), on the 18.6 simulator
+  runtime; `DateParsingTests` passed there on 2026-11-18. TestFlight testers are on iOS 27.
 - **Small, noted in the review logs:**
   - "Running" vs "Run" naming before `today.my_day` turns on;
   - German 24 h leading zeros in `Fmt.time`;
@@ -512,8 +519,8 @@ Garmin Connect after 08:00).
   must still delete (or deliberately migrate) whatever is at that path before the container opens there.
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
 - **RFC 3339 fast path** (`perf: fast date parsing for cached reads`): its equivalence with `ISO8601DateFormatter` was verified
-  on iOS 27 only (millions of inputs, bit-identical). Run `DateParsingTests` once on the iOS 18.6 runtime before the next
-  release.
+  on iOS 27 only (millions of inputs, bit-identical); `DateParsingTests` passed on the iOS 18.6 runtime on
+  2026-11-18.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
 - **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.

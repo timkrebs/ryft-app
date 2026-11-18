@@ -97,6 +97,17 @@ Adopting any of them is a change of its own.
 **Tooling.** The project builds with Xcode 26 or newer. App Store builds need the iOS 26 SDK anyway
 (`docs/APP_STORE.md`).
 
+**The first 18.6 run** (2026-11-18, the iPhone 16 Pro simulator, Xcode 27.2): 243 of 244 tests pass in the suites this
+change touches, `DateParsingTests` and the consent suites; the touched suites (155 tests) pass on 27.2 too.
+- **T0.6 doesn't reproduce.** An insert lands in the older and the newer container, and the account's writes after the
+  demo save (the `TwoContainers` probes; `ReadModelDrainTests`' expectations that no longer have a `withKnownIssue`).
+- **T0.1 isn't settled.** The invariant `ReadModelDrain` relies on holds: made and awaited off main, a model actor's
+  jobs run off main (`ReadModelContextFactsTests`, `ReadModelOffMainTests`). Which thread decides is still unmeasured,
+  because the observations assert only on 27.
+- **#107's trap shows in another form.** `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` traps with
+  "Never access a full future backing data" (`BackingData.swift:739`, on a `LocalSessionExercise`), where 18.0 said
+  "Context is missing". It does the same on `main`, and #107 fixes the test and the production path.
+
 **What could go wrong:**
 - **18.6's SwiftData behaves like 18.0's, or worse.** That covers #107's trap, T0.1 and T0.6. Until the first 18.6 run,
   code and tests treat 18.6 as 18.0.
