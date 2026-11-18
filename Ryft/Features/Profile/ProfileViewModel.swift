@@ -13,6 +13,9 @@ final class ProfileViewModel {
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
     private let onboarding: OnboardingCoordinator?
+    /// The live workout's coordinator: what ending the demo would discard, and the discard (ADR 0019). Nil in previews
+    /// and tests that don't need it.
+    private let train: TrainCoordinator?
     /// Data → Sync details.
     let syncDetails: SyncDetailsModel
     /// About → Report a problem, and "Send to RYFT" from an error's Details.
@@ -21,11 +24,12 @@ final class ProfileViewModel {
     let devices: DevicesViewModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil) {
+         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil, train: TrainCoordinator? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.onboarding = onboarding
+        self.train = train
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
         let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
@@ -261,10 +265,34 @@ final class ProfileViewModel {
     /// Through the environment, so tests (which pin demo off) never see the simulator's setting.
     var demoMode: Bool { env.isDemo }
 
+    /// The switch. Off is `endDemo()`: whoever turns it off has confirmed already, or has nothing to confirm.
     func setDemoMode(_ on: Bool) async {
-        settings.demoMode = on
-        demoModeChanged(on)
+        guard on else {
+            await endDemo()
+            return
+        }
+        settings.demoMode = true
+        demoModeChanged(true)
         state.reset()
+        await state.refresh()
+    }
+
+    /// What turning Demo data off would discard: the workouts started in it, in progress or finished (the
+    /// confirmation's count). Nil: nothing, and no confirmation.
+    var demoWorkouts: DemoWorkouts? { train?.demoWorkouts }
+
+    /// The demo ends (design.md §6.1, ADR 0019). Everything up to the refresh is one main-actor step with no `await`:
+    /// 1. the demo's workouts go, worked out again now (one a quick action started meanwhile goes too), and Train reads
+    ///    its open workout again: the account's, if one was in progress before the demo, or none;
+    /// 2. the switch goes off;
+    /// 3. what the demo showed goes (`reset()`);
+    /// 4. the flags, the scoring words and the import's demo leftovers;
+    /// 5. the account's first read after the demo, the refresh.
+    func endDemo() async {
+        train?.discardDemoWorkouts()
+        settings.demoMode = false
+        state.reset()
+        demoModeChanged(false)
         await state.refresh()
     }
 

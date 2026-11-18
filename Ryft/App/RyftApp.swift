@@ -76,7 +76,7 @@ struct RyftApp: App {
         _state = State(initialValue: state)
         // Training logs are health data: Train's outbox waits for the same rule as every upload (ADR 0008).
         let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
-                                   store: .shared, library: .shared, trainSync: .shared)
+                                   store: .shared, library: .shared, trainSync: .shared, train: .shared)
         _screens = State(initialValue: screens)
         // Sign-out first deletes this phone's push registration, while the session still works.
         AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
