@@ -51,8 +51,8 @@ final class OnboardingCoordinator {
         var policyVersion: String?
         /// `GET /v1/me/sync` → `gate`.
         var serverGate: APIErrorCode?
-        /// Refusals and warn-mode headers since (`APIStatus.gates`), and the gates `ConsentState` keeps the
-        /// platform's refusal of.
+        /// Refusals and warn-mode headers since (`APIStatus.gates`), the gates `ConsentState` keeps the
+        /// platform's refusal of, and this phone's withdrawal of consent (`ConsentState.withdrawnAt`).
         var reported: Set<APIErrorCode> = []
         var birthYear: Int?
         var aboutYouDone = false
@@ -174,7 +174,9 @@ final class OnboardingCoordinator {
         let u = user
         // The refusals kept from before show their steps as a 403 does (an enforced invite is kept, never a warning).
         let refusals = consent.refusals
-        let reported = apiStatus.gates.union(refusals)
+        var reported = apiStatus.gates.union(refusals)
+        // A withdrawal on this phone, whatever the store kept of it (a refused save, a background launch).
+        if consent.withdrawnAt != nil { reported.insert(.consentRequired) }
         return Facts(userKnown: u != nil, betaAccess: u?.betaAccess ?? true, consentVersion: u?.consent?.policyVersion,
                      policyVersion: consent.latestPolicyVersion, serverGate: syncStatus?.gate,
                      reported: reported, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
@@ -299,8 +301,9 @@ final class OnboardingCoordinator {
     // MARK: checking
 
     /// Asks the platform what's missing: at launch (restored session) and after every
-    /// sign-in, when a gate is reported, and after each step.
-    func check(force: Bool = false) async {
+    /// sign-in, when a gate is reported, and after each step. `changedSince`: the account's answer must have been
+    /// asked for after then (a withdrawal's re-check), never one already in flight.
+    func check(force: Bool = false, changedSince: Date? = nil) async {
         guard !env.isDemo, env.auth.isSignedIn else {
             phase = .ready
             return
@@ -315,10 +318,13 @@ final class OnboardingCoordinator {
             return
         }
         if phase != .ready { phase = .checking }
-        let answer = await fetchWithTimeout()
+        let answer = await fetchWithTimeout(changedSince: changedSince)
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
-        if let user = answer.user { state.user = user }
+        // Written through inside its read (and the time zone's PATCH): the gates below decide from it in this step
+        // (ADR 0008, 0018). The Repository's, not the answer: one asked for before this phone changed the user (a
+        // withdrawal) was dropped there, and its consent mustn't clear a gate here either.
+        let user = answer.user == nil ? nil : state.repository.user()
         // The config was recorded inside its read (`ConsentState.fetchConfig`).
         if let status = answer.status {
             syncStatus = status
@@ -340,11 +346,11 @@ final class OnboardingCoordinator {
         }
         // This same check's answers show a gate kept from before is passed, and its status didn't name it: the
         // account's consent matches the policy it heard, or the account has beta access.
-        if let user = answer.user, answer.status?.gate != .consentRequired,
+        if let user, answer.status?.gate != .consentRequired,
            let version = answer.config?.privacyPolicyVersion, user.consent?.policyVersion == version {
             consent.cleared(.consentRequired)
         }
-        if let user = answer.user, user.betaAccess, answer.status?.gate != .inviteRequired {
+        if let user, user.betaAccess, answer.status?.gate != .inviteRequired {
             consent.cleared(.inviteRequired)
         }
         lastCheck = env.clock.now()
@@ -360,21 +366,31 @@ final class OnboardingCoordinator {
     /// The three reads at once, through the read pipeline (joined with the launch's own reads of
     /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
     /// up waiting after `checkTimeout`.
-    private func fetchWithTimeout() async -> Answer {
+    private func fetchWithTimeout(changedSince: Date?) async -> Answer {
         let api = api, clock = env.clock, reads = env.reads, state = state, consent = consent
         let tz = TimeZone.current.identifier
+        let meMode: ReadMode = changedSince.map { .changed(since: $0) } ?? .latest
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
                 // The user is stored inside the read, so it lands even when the timeout wins.
-                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
+                async let me = try? reads.run(ReadKey(.me), mode: meMode, storeAsked: { (user: User, asked: Date) in
+                    await state.repository.store(fetchedUser: user, askedAt: asked).committed()
+                }) {
                     try await api.me()
                 }
                 // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
                 async let config = try? consent.fetchConfig()
-                async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
+                // The same mode: after a withdrawal, a status asked for before it would say no gate.
+                async let status = try? reads.run(ReadKey(.syncStatus), mode: meMode) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
-                if let u = user, u.tz != tz, let patched = try? await api.patchMe(UserPatch(tz: tz)) { user = patched }
+                if let u = user, u.tz != tz {
+                    let change = await state.repository.userChange()
+                    if let patched = try? await api.patchMe(UserPatch(tz: tz)) {
+                        await state.repository.store(user: patched, asOf: change).committed()
+                        user = patched
+                    }
+                }
                 return Answer(user: user, config: await config, status: await status)
             }
             group.addTask {
@@ -459,7 +475,10 @@ final class OnboardingCoordinator {
     @discardableResult
     func saveAboutYou(birthYear: Int) async -> Bool {
         await perform {
-            self.state.user = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            // Stored only for the account it was asked for (a sign-out while it's out drops it).
+            let change = self.state.repository.userChange()
+            let patched = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            await self.state.repository.store(user: patched, asOf: change).committed()
             self.aboutYouSaved = true
         } message: { error in
             (error as? APIError)?.isFieldError == true
@@ -472,15 +491,19 @@ final class OnboardingCoordinator {
     @discardableResult
     func withdrawConsent() async -> Bool {
         await perform {
+            let change = self.state.repository.userChange()
             try await self.api.revokeConsent()
-            // Withdrawn now, whatever the re-check below manages: sync stops at once.
-            if var u = self.user {
-                u.consent = nil
-                self.state.user = u
-            }
-            // Asked again only when the user wants to (Profile → Privacy, Today's action).
+            let revokedAt = self.env.clock.now()
+            // Withdrawn now, whatever the re-check below manages: sync stops at once. Kept outside the store too, so a
+            // save the store refuses, or a launch that never checks, can't open the gate again (`ConsentState`).
+            self.consent.withdrew(at: revokedAt)
+            // Written through: every upload gate is closed from this step on, before the commit (ADR 0008, 0018), and a
+            // `/v1/me` or `PATCH /v1/me` begun before now can't bring the consent back.
+            self.state.repository.storeConsentWithdrawn(asOf: change)
+            // Asked again only when the user wants to (Profile → Privacy, Today's action). Not a read already in
+            // flight: it may have been answered before the withdrawal.
             self.deferred.insert(.consent)
-            await self.check(force: true)
+            await self.check(force: true, changedSince: revokedAt)
         } message: { _ in nil }
     }
 
@@ -631,7 +654,15 @@ private struct LaterButton: View {
 struct InviteCodeView: View {
     let model: OnboardingCoordinator
     @Environment(AuthService.self) private var auth
+    /// The launch sequence plays over the root: no keyboard over its arcs, no keystrokes into a field nobody sees.
+    @Environment(\.launchCoversRoot) private var launchCovers
     @FocusState private var focused: Bool
+
+    /// The field takes the keyboard by itself only when it can be seen and holds nothing yet: on appear when nothing
+    /// covers it, else at the launch's hand-off (ADR 0017).
+    static func shouldFocus(inviteCodeEmpty: Bool, covered: Bool) -> Bool {
+        inviteCodeEmpty && !covered
+    }
 
     var body: some View {
         OnboardingScreen(symbol: "envelope.open",
@@ -678,7 +709,12 @@ struct InviteCodeView: View {
                 .foregroundStyle(Theme.textSecondary)
             PrimaryButton(title: "Use another account", style: .secondary) { await auth.signOut() }
         }
-        .onAppear { if model.inviteCode.isEmpty { focused = true } }
+        .onAppear {
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: launchCovers) { focused = true }
+        }
+        .onChange(of: launchCovers) { _, covers in
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: covers) { focused = true }
+        }
     }
 }
 

@@ -1,21 +1,22 @@
 import SwiftUI
 
-/// The RYFT mark as the readiness gauge: the centre ring is Readiness (its number inside), the inner orbit
-/// carries Recovery (counter-clockwise from the top) and Sleep (clockwise), the outer orbit carries Strain
-/// (clockwise, 21 = a whole turn). Arc length is the score, the dot at its head is where you are today. A score
-/// that is missing is a hollow dot at the start, never an arc and never a zero. Nothing rotates on its own.
+/// The RYFT mark as the readiness gauge: the inner tick ring is Readiness (lit up to the value, the Volt dot at it,
+/// its number inside), the middle orbit carries Recovery (counter-clockwise from the top) and Sleep (clockwise), the
+/// outer orbit carries Strain (clockwise, 21 = a whole turn). Arc length is the score, the dot at its head is where you
+/// are today. A score that is missing is a hollow dot at the start, never an arc and never a zero. Nothing rotates on
+/// its own.
 ///
 /// Calibrating draws the outer orbit as seven segments that fill night by night (a count, "3 / 7", where the readiness
-/// number goes); pending draws the previous day's gauge dimmed and breathing. Both are in design.md, "PR 2".
+/// number goes); pending draws the previous day's gauge dimmed and breathing.
 ///
-/// The app's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the app's font, the caption
-/// and band line under it, VoiceOver, the `Theme.Motion` value animation and Reduce Motion. Geometry, mapping and
-/// colours: `OrbitGaugeGeometry`, `OrbitGaugePalette`, docs/work/2026-10-29-orbit-gauge/design.md.
+/// The app's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the numeral (the dot grid, or Light digits), the
+/// caption and band line under it, VoiceOver, the `Theme.Motion` value animation and Reduce Motion. Geometry, mapping
+/// and colours: `OrbitGaugeGeometry`, `OrbitGaugePalette`; gauge v3 is docs/work/2026-11-16-nocturne/design.md §P3.
 struct OrbitGauge: View {
     typealias Size = OrbitGaugeSize
 
-    /// What Today puts under the gauge: the caption ("OVERALL READINESS") and, under a readiness, the band word and
-    /// the change against the week (the line `MetricGauge` drew there). Shown at `.large` only.
+    /// What Today puts under the gauge: the caption ("Overall readiness") and, under a readiness, the band word and
+    /// the change against the week (the line `MetricGauge` drew there). Shown from the `.large` dial up.
     struct Caption: Equatable {
         var title: String
         /// "vs 7 d", row A only.
@@ -27,6 +28,9 @@ struct OrbitGauge: View {
     let mode: OrbitGaugeMode
     var size: Size = .large
     var caption: Caption?
+    /// Draws `caption` under the gauge. Nocturne's Today passes `false` and draws the band and the change in its own
+    /// label row (design.md §P4-1, row 7); the caption still makes the spoken sentence (band, change).
+    var showsCaption = true
     /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
     var accessibilityNote: String?
     /// Today uses `today.readinessGauge`.
@@ -38,10 +42,17 @@ struct OrbitGauge: View {
     /// Pending: the dimmed marks breathe (1.4 s) while the night is scored. Pass `false` once it takes longer than
     /// usual (nothing implies progress). Always off under Reduce Motion.
     var breathes = true
+    /// The numeral: the dot grid where it fits (`.dots`), or Light digits always (`.light`, Today's thin-digit switch,
+    /// brief §1). Additive (plan.md L7).
+    var numeral: DotNumeral.Style = .dots
 
     /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
     static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The Light numeral grows with Dynamic Type as `DotNumeral`'s Light digits do (relative to the large title), never
+    /// below its size at the default text size; the slot's minimum scale keeps it inside the ring.
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralScale: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     /// Previews only: `accessibilityReduceMotion` cannot be set in an environment.
     @Environment(\.orbitForcesReducedMotion) private var forcedReduceMotion
@@ -66,16 +77,18 @@ struct OrbitGauge: View {
 
     /// `entrance: .assemble` plays the launch entrance once for this view instance, from its first frame, into the
     /// real mode (design.md section 10). `frozenAt` is for previews and tests only.
-    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, accessibilityNote: String? = nil,
-         identifier: String = "orbitGauge", animatesFill: Bool = true, breathes: Bool = true,
-         entrance: Entrance = .none, frozenAt: Double? = nil) {
+    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, showsCaption: Bool = true,
+         accessibilityNote: String? = nil, identifier: String = "orbitGauge", animatesFill: Bool = true,
+         breathes: Bool = true, numeral: DotNumeral.Style = .dots, entrance: Entrance = .none, frozenAt: Double? = nil) {
         self.mode = mode
         self.size = size
         self.caption = caption
+        self.showsCaption = showsCaption
         self.accessibilityNote = accessibilityNote
         self.identifier = identifier
         self.animatesFill = animatesFill
         self.breathes = breathes
+        self.numeral = numeral
         let plays = entrance.plays
         self.frozenAt = plays ? frozenAt : nil
         _staged = State(initialValue: plays)
@@ -88,7 +101,9 @@ struct OrbitGauge: View {
     private var reducesEntrance: Bool { reduceMotion || lowPower }
 
     private var values: OrbitGaugeValues? { mode.scoredValues }
-    private var shownCaption: Caption? { size == .large ? caption : nil }
+    /// `.large` and the larger custom sizes (the 260 board); never under a medium or small gauge, nor with
+    /// `showsCaption` off.
+    private var shownCaption: Caption? { showsCaption && size.dial >= Size.large.dial ? caption : nil }
 
     var body: some View {
         Group {
@@ -243,34 +258,72 @@ struct OrbitGauge: View {
         if size.dial >= Self.minDialForNumber {
             switch mode {
             case .scored(let values, _):
-                Text(values.readiness.map { String($0) } ?? Fmt.placeholder)
-                    .font(.ryftNumber(size: size.dial * 0.19))
-                    .monospacedDigit()
-                    .foregroundStyle(values.readiness == nil ? Theme.textTertiary : Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(values.readiness ?? 0)))
+                numeralView(values.readiness.map { String($0) }, pending: false)
             case .pending(let previous):
-                // Yesterday's number in the tertiary ink, or the dash: never a number that pretends to be today's.
-                Text(previous?.readiness.map { String($0) } ?? Fmt.placeholder)
-                    .font(.ryftNumber(size: size.dial * 0.19))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                // Yesterday's number dimmed, or the unlit grid: never a number that pretends to be today's.
+                numeralView(previous?.readiness.map { String($0) }, pending: true)
             case .calibrating(let calibration):
                 calibrationCount(calibration)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.5)
             }
         }
     }
 
-    /// "3 / 7" at the readiness number's size and style, the "/ 7" smaller and tertiary; from a 100 pt dial up.
-    /// Below it ("small") only the count: the seven segments around it already say "of 7", and the slot there is
-    /// 23 pt wide. The count is the one the segments draw (`counted`, never past the requirement), not the stepping.
+    /// How the centre draws a numeral (design.md §P3-1, "Centre").
+    enum CentreLook: Equatable { case dots, light }
+
+    /// The gauge's size decides, not the value: the dot grid only on a gauge whose slot holds two digits
+    /// (`DotNumeral.size(of: "00")`, 74 pt, from S 205.2: the 260 board, not `.large`), so "7" and "84" on one gauge
+    /// look alike. Below that every value is Light, single digits included. On such a gauge, `.dots` below AX1 (the
+    /// numeral's own fallback), for characters the grid has and a value that fits ("100", 115 pt, never does: Light).
+    /// `text` nil is the unlit grid of "00", by the same rule.
+    static func centreLook(_ text: String?, side: CGFloat, style: DotNumeral.Style, typeSize: DynamicTypeSize) -> CentreLook {
+        let slot = OrbitGaugeGeometry.metrics(forSide: side).centreSlotWidth
+        guard let twoDigits = DotNumeral.size(of: "00", glyphGap: DotNumeral.glyphGapToday), twoDigits.width <= slot,
+              DotNumeral.rendersDots(text, style: style, typeSize: typeSize),
+              let grid = DotNumeral.size(of: text, glyphGap: DotNumeral.glyphGapToday) else { return .light }
+        return grid.width <= slot ? .dots : .light
+    }
+
+    /// The Light numeral's size: 0.2 x S, 52 pt at 260 (the board's "Light 52"), times `scale` (Dynamic Type, never
+    /// under 1: about 78 pt at AX3 on the board, as `DotNumeral`'s own fallback). The gauge keeps its size; the
+    /// numeral's frame and minimum scale (0.5) keep the digits inside the ring. `ryftNumber`'s weight rule makes them
+    /// Light from 20 pt and Regular below.
+    static func lightNumeralSize(side: CGFloat, scale: CGFloat = 1) -> CGFloat { side * 0.2 * max(scale, 1) }
+
+    /// The previous day's numeral while pending: 48 %, `textTertiary` on `background`.
+    static let pendingNumeralOpacity = 0.48
+
+    /// The readiness as the dot grid or in Light; nil is the unlit grid ("pending is an outline") or the Light dash. A new
+    /// number cross-fades in the grid (`Theme.Motion.quick`, its own animation) and rolls in Light with the arcs (the
+    /// column's `slow`, no animation of its own); neither moves under Reduce Motion.
+    private func numeralView(_ text: String?, pending: Bool) -> some View {
+        Group {
+            switch Self.centreLook(text, side: size.frame, style: numeral, typeSize: typeSize) {
+            case .dots:
+                DotNumeral(text, glyphGap: DotNumeral.glyphGapToday, accessibilityLabel: Text(verbatim: text ?? ""))
+                    .opacity(pending && text != nil ? Self.pendingNumeralOpacity : 1)
+                    .id(text)
+                    .transition(reduceMotion ? .identity : .opacity)
+                    .animation(reduceMotion ? nil : Theme.Motion.quick, value: text)
+            case .light:
+                Text(verbatim: text ?? Fmt.placeholder)
+                    .font(.ryftNumber(size: Self.lightNumeralSize(side: size.frame, scale: numeralScale)))
+                    .monospacedDigit()
+                    .foregroundStyle(text == nil || pending ? Theme.textTertiary : Theme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(text.flatMap { Int($0) } ?? 0)))
+            }
+        }
+    }
+
+    /// "3 / 7" at the Light numeral's size, the "/ 7" smaller and tertiary; from a 100 pt dial up. Below it ("small")
+    /// only the count: the seven segments around it already say "of 7". The count is the one the segments draw
+    /// (`counted`, never past the requirement), not the stepping.
     private func calibrationCount(_ calibration: OrbitGaugeCalibration) -> Text {
-        let pointSize = size.dial * 0.19
+        let pointSize = Self.lightNumeralSize(side: size.frame, scale: numeralScale)
         let count = Text(verbatim: String(calibration.counted))
             .font(.ryftNumber(size: pointSize)).monospacedDigit().foregroundStyle(Theme.textPrimary)
         guard size.dial >= 100 else { return count }
@@ -440,139 +493,10 @@ private extension View {
 extension OrbitGaugeValues {
     /// 71 / 71 % / 88 % / 9.6, the values the previews, the screenshots and the tests share.
     static let previewScored = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
-}
 
-private struct OrbitCaption: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-    }
-}
+    /// The Today board's values (design.md §P3-1): readiness 84, recovery 82 %, sleep 94 % (7:48), strain 12.4 of 21.
+    static let previewBoard = OrbitGaugeValues(readiness: 84, recovery: 0.82, sleep: 0.94, strain: 12.4)
 
-#Preview("OrbitGauge · sizes", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        HStack(alignment: .center, spacing: 12) {
-            OrbitGauge(mode: .scored(.previewScored), size: .large)
-            VStack(spacing: 8) {
-                OrbitGauge(mode: .scored(.previewScored), size: .medium)
-                OrbitGauge(mode: .scored(.previewScored), size: .small)
-            }
-        }
-    }
-}
-
-#Preview("OrbitGauge · missing and edges", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                VStack { OrbitGauge(mode: .scored(OrbitGaugeValues()), size: .medium); OrbitCaption(text: "all missing") }
-                VStack {
-                    // A watch without HRV: Recovery from what the platform scored, no sleep yet.
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)), size: .medium)
-                    OrbitCaption(text: "sleep missing")
-                }
-                VStack {
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, sleep: 0.81)), size: .medium)
-                    OrbitCaption(text: "strain missing")
-                }
-            }
-            HStack(spacing: 8) {
-                VStack {
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)), size: .medium)
-                    OrbitCaption(text: "0")
-                }
-                VStack {
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .medium)
-                    OrbitCaption(text: "100")
-                }
-                VStack {
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 28, recovery: 0.24, sleep: 0.41, strain: 17.8)), size: .medium)
-                    OrbitCaption(text: "low")
-                }
-            }
-        }
-    }
-}
-
-#Preview("OrbitGauge · bands and stubs", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 82, recovery: 0.8, sleep: 0.9, strain: 12)), size: .small)
-                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 50, recovery: 0.5, sleep: 0.7, strain: 12)), size: .small)
-                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 20, recovery: 0.2, sleep: 0.3, strain: 12)), size: .small)
-            }
-            HStack(spacing: 8) {
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small, animatesFill: false)
-                OrbitGauge(mode: .pending(previous: .previewScored), size: .small, breathes: false)
-            }
-        }
-    }
-}
-
-/// Dark over light like `SchemePair`, wide enough for three large gauges side by side.
-private struct WidePair<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
-                content()
-                    .padding(20)
-                    .frame(maxWidth: .infinity)
-                    .background(Theme.background)
-                    .environment(\.colorScheme, scheme)
-            }
-        }
-        .frame(width: 600)
-    }
-}
-
-#Preview("OrbitGauge · calibrating 0 / 3 / 7", traits: .sizeThatFitsLayout) {
-    // Static (`animatesFill: false`): the previews and the shots never depend on time.
-    WidePair {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach([0, 3, 7], id: \.self) { nights in
-                VStack(spacing: 8) {
-                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .large, animatesFill: false)
-                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .medium, animatesFill: false)
-                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .small, animatesFill: false)
-                }
-            }
-        }
-    }
-}
-
-#Preview("OrbitGauge · pending, with and without previous", traits: .sizeThatFitsLayout) {
-    WidePair {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach([true, false], id: \.self) { hasPrevious in
-                VStack(spacing: 8) {
-                    let mode = OrbitGaugeMode.pending(previous: hasPrevious ? .previewScored : nil)
-                    OrbitGauge(mode: mode, size: .large, breathes: false)
-                    OrbitGauge(mode: mode, size: .medium, breathes: false)
-                    OrbitGauge(mode: mode, size: .small, breathes: false)
-                }
-            }
-        }
-    }
-}
-
-#Preview("OrbitGauge · calibrating and pending · AX3", traits: .sizeThatFitsLayout) {
-    // The gauge keeps its size at accessibility sizes; only text around it scales. Spoken sentences below.
-    SchemePair {
-        VStack(spacing: 8) {
-            OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .large, animatesFill: false)
-            Text(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 3)))
-                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
-            OrbitGauge(mode: .pending(previous: .previewScored), size: .medium, breathes: false)
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-extension OrbitGaugeValues {
     /// The synthetic band the previews and shots use: 8 to 13 on the 0-21 scale.
     static let previewBand: ClosedRange<Double> = 8...13
 
@@ -582,58 +506,9 @@ extension OrbitGaugeValues {
     }
 }
 
-/// The strain band previews' content, internal so the shots render exactly what the previews show.
-struct OrbitBandPreviewGrid: View {
-    var body: some View {
-        // Synthetic band 8-13: strain 4.0 (below), 9.6 (inside), 16.5 (past), 9.6 without a band; large, medium, small.
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(Array([(Optional(4.0), true), (9.6, true), (16.5, true), (9.6, false)].enumerated()), id: \.offset) { _, entry in
-                let (strain, banded) = entry
-                VStack(spacing: 8) {
-                    let values = banded ? OrbitGaugeValues.previewBanded(strain: strain)
-                        : OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: strain)
-                    OrbitGauge(mode: .scored(values), size: .large)
-                    OrbitGauge(mode: .scored(values), size: .medium)
-                    OrbitGauge(mode: .scored(values), size: .small)
-                }
-            }
-        }
-    }
-}
-
-struct OrbitBandPreviewModes: View {
-    var body: some View {
-        // Pending with yesterday's band (dimmed), strain missing (rail only), the band's upper end, a full ring,
-        // a band past the scale (clamped to 18-21), calibrating (no band).
-        HStack(alignment: .top, spacing: 12) {
-            OrbitGauge(mode: .pending(previous: .previewBanded(strain: 16.5)), size: .medium, breathes: false)
-            OrbitGauge(mode: .scored(.previewBanded(strain: nil)), size: .medium)
-            OrbitGauge(mode: .scored(.previewBanded(strain: 13)), size: .medium)
-            OrbitGauge(mode: .scored(.previewBanded(strain: 21)), size: .medium)
-            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6, strainBand: 18...40)),
-                       size: .medium)
-            OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium, animatesFill: false)
-        }
-    }
-}
-
-#Preview("OrbitGauge · strain band", traits: .sizeThatFitsLayout) {
-    WidePair { OrbitBandPreviewGrid() }
-}
-
-#Preview("OrbitGauge · strain band, other modes", traits: .sizeThatFitsLayout) {
-    WidePair { OrbitBandPreviewModes() }
-}
-
-#Preview("OrbitGauge · strain band · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 8) {
-            OrbitGauge(mode: .scored(.previewBanded(strain: 16.5)), size: .large, caption: .preview)
-            Text(OrbitGauge.spokenValue(.previewBanded(strain: 16.5)))
-                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
+extension OrbitGauge.Size {
+    /// The Today board's gauge: S = 260 (a 248 dial).
+    static let previewBoard = OrbitGauge.Size.custom(dial: 248)
 }
 
 extension OrbitGauge.Caption {
@@ -641,39 +516,146 @@ extension OrbitGauge.Caption {
     static var preview: OrbitGauge.Caption {
         OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: MetricDelta(current: 71, reference: 67))
     }
+
+    /// The same over the board's 84: "High · ▲ +8 vs 7 d".
+    static var previewBoard: OrbitGauge.Caption {
+        OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: MetricDelta(current: 84, reference: 76))
+    }
 }
 
-#Preview("OrbitGauge · Today caption", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        HStack(alignment: .top, spacing: 16) {
-            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
-            // S2 / N1: a calibration note takes the band word's line.
-            OrbitGauge(mode: .scored(.previewScored), size: .large,
-                       caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), showsBand: false))
+#if DEBUG
+/// The gauge's preview groups, one view so the previews, `DebugComponentCatalog` ("Nocturne · gauge") and
+/// `OrbitGaugeShotsTests` show the same thing. Dark only (the app has one appearance). Static: no fill steps, no
+/// breathing, nothing that depends on time.
+struct OrbitGaugePreviewBoard: View {
+    enum Part: CaseIterable {
+        /// The 260 board with its caption; the app's three sizes; the widget's dials (home tile, circular, rectangular).
+        case sizes
+        /// Every state of design.md §P3-2 at `.large`.
+        case states
+        /// Calibrating 0 / 3 / 7 and pending with and without a previous day.
+        case calibratingAndPending
+        /// The centre rule: the dot grid where it fits, Light where it does not or when asked.
+        case numeral
+    }
+
+    var parts: [Part] = Part.allCases
+
+    private let columns = [GridItem(.adaptive(minimum: OrbitGauge.Size.large.frame), spacing: 6, alignment: .top)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            ForEach(parts, id: \.self) { part in
+                switch part {
+                case .sizes: sizes
+                case .states: states
+                case .calibratingAndPending: calibratingAndPending
+                case .numeral: numeral
+                }
+            }
         }
+    }
+
+    private var sizes: some View {
+        VStack(spacing: 12) {
+            OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard, caption: .previewBoard)
+            HStack(alignment: .center, spacing: 12) {
+                OrbitGauge(mode: .scored(.previewBoard), size: .large)
+                OrbitGauge(mode: .scored(.previewBoard), size: .medium)
+            }
+            // The widget's dials: its home tile, then (with `.small`) its circular and rectangular complications.
+            OrbitGauge(mode: .scored(.previewBoard), size: .custom(dial: 143))
+            HStack(alignment: .center, spacing: 12) {
+                OrbitGauge(mode: .scored(.previewBoard), size: .small)
+                OrbitGauge(mode: .scored(.previewBoard), size: .custom(dial: 60))
+                OrbitGauge(mode: .scored(.previewBoard), size: .custom(dial: 44))
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var states: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            labelled("sleep missing", .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
+            labelled("no readiness", .scored(OrbitGaugeValues(recovery: 0.82, sleep: 0.94, strain: 12.4)))
+            labelled("zeros", .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)))
+            labelled("100 / 21", .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)))
+            labelled("out of range", .scored(OrbitGaugeValues(readiness: 120, recovery: 1.4, sleep: -0.2, strain: 25)))
+            labelled("band, below", .scored(.previewBanded(strain: 4)))
+            labelled("band, inside", .scored(.previewBanded(strain: 9.6)))
+            labelled("band, past", .scored(.previewBanded(strain: 16.5)))
+            labelled("no data", .scored(.empty))
+        }
+    }
+
+    private var calibratingAndPending: some View {
+        VStack(spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach([0, 3, 7], id: \.self) { nights in
+                    labelled("calibrating \(nights)", .calibrating(OrbitGaugeCalibration(nights: nights)))
+                }
+                labelled("pending, previous", .pending(previous: .previewBoard))
+                labelled("pending, none", .pending(previous: nil))
+            }
+            HStack(spacing: 12) {
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium, animatesFill: false)
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small, animatesFill: false)
+                OrbitGauge(mode: .pending(previous: .previewBoard), size: .small, breathes: false)
+            }
+        }
+    }
+
+    private var numeral: some View {
+        VStack(spacing: 12) {
+            // "84" fits the 260 board's slot in dots; at `.large` it is Light.
+            OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard)
+            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .previewBoard)
+            OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard, numeral: .light)
+            OrbitGauge(mode: .pending(previous: .previewBoard), size: .previewBoard, breathes: false)
+            OrbitGauge(mode: .pending(previous: nil), size: .previewBoard, breathes: false)
+            OrbitGauge(mode: .scored(.previewBoard), size: .large)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func labelled(_ label: String, _ mode: OrbitGaugeMode) -> some View {
+        VStack(spacing: 4) {
+            OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false)
+            Text(verbatim: label)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+}
+
+#Preview("OrbitGauge", traits: .sizeThatFitsLayout) {
+    DarkPreview { OrbitGaugePreviewBoard(parts: [.sizes]) }
+}
+
+#Preview("OrbitGauge · states", traits: .sizeThatFitsLayout) {
+    DarkPreview { OrbitGaugePreviewBoard(parts: [.states]) }
+}
+
+#Preview("OrbitGauge · calibrating and pending", traits: .sizeThatFitsLayout) {
+    DarkPreview { OrbitGaugePreviewBoard(parts: [.calibratingAndPending]) }
+}
+
+#Preview("OrbitGauge · numeral", traits: .sizeThatFitsLayout) {
+    DarkPreview { OrbitGaugePreviewBoard(parts: [.numeral]) }
+}
+
+#Preview("OrbitGauge · caption hidden", traits: .sizeThatFitsLayout) {
+    // Nocturne's Today: the 260 gauge without its caption (the label row under it is the screen's); the sentence keeps
+    // the band and the change.
+    DarkPreview {
+        OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard, caption: .previewBoard, showsCaption: false)
+            .border(Theme.separator)
     }
 }
 
 #Preview("OrbitGauge · AX3", traits: .sizeThatFitsLayout) {
-    // The gauge keeps its size; the caption under it scales.
-    SchemePair {
-        VStack(spacing: 8) {
-            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
-            OrbitGauge(mode: .scored(.previewScored), size: .small)
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
+    // The gauge keeps its size; the caption under it scales and the numeral falls back to Light.
+    DarkPreview { OrbitGaugePreviewBoard() }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
-
-#Preview("OrbitGauge · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 8) {
-            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .large,
-                       caption: .preview)
-            Text(OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6)))
-                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
-        }
-    }
-    .environment(\.locale, Locale(identifier: "de"))
-    .environment(\.dynamicTypeSize, .accessibility3)
-}
+#endif

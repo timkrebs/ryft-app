@@ -178,10 +178,65 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - `Repository` (`Ryft/Persistence/Repository.swift`) is the only writer: it fetches from the
   `PlatformAPI` and writes the store.
 - `AppState` exposes the cached values (`today`, `history`, `user`, `insights`,
-  `readinessWeek`, `cachedDayDetail(for:)`, …) as reads of the Repository.
+  `readinessWeek`, `cachedDayDetail(for:)`, …) as reads of the Repository. Their setters
+  are for previews and tests only (`seed`); Debug stops at one on the live graph.
 - View models compute what they show from those reads; `load()` only *revalidates*.
 - The Repository bumps an observable `revision` on every write. Reads touch it, so SwiftUI
   re-renders when the store changes. Decoded values are memoized per revision.
+
+**Writes run off the main actor** (ADR 0018).
+- A write is a `Sendable` value (`ReadModelWrite`), and `ReadModelWrites.apply` is the one
+  implementation of each. Batch fetches only: one `#Predicate` per write, and deletes go
+  through the context (never `delete(model:)`, which misses the batch's unsaved inserts).
+- `Repository.store…` submits in the same main-actor step as the read pipeline's account
+  check and returns a `WriteTicket`. `ReadModelDrain` applies the queue in submit order,
+  one batch at a time, on the store's `ReadModelWriter` (a `@ModelActor`, private to the
+  drain's file, so no main-actor code can make or await it). The drain does both on its own
+  executor: iOS 17 runs a model actor's jobs on the thread that made it, iOS 27 on the
+  thread that awaits it. A batch never spans a store, an epoch or a seed, and it saves once.
+  The drain runs at `.userInitiated` whoever submitted first: awaiting a ticket doesn't raise
+  its priority.
+- At the commit the Repository replaces its read context (one per store, never written),
+  bumps each written kind's revision once, and publishes the widget. `committed()` resolves
+  after that: a refresh's flight awaits it, so a refresh, and each sync stage, returns with
+  its rows readable.
+- `.user` is written through: `user()` returns it from the submit on, for reads of the store
+  it went to, because the upload gate reads it back in that step (ADR 0008). It stays until
+  `invalidate()`; a refused save of it goes again once. A `PATCH /v1/me` answer is stored
+  `asOf` the `userChange()` taken before its request, and dropped after a sign-out, another
+  account or the Demo data switch. The withdrawal is stored the same way
+  (`storeConsentWithdrawn(asOf:)`: the cached user without the consent). Each stored change
+  counts (`userChanges`): an answer whose request began before another change was stored
+  is dropped, counts as no change of its own, and the user is asked again
+  (`.changed(since:)`), because the platform may have read the user before that change,
+  a withdrawn consent with it. A `GET /v1/me` asked for before this phone's last change is
+  dropped too (`store(fetchedUser:askedAt:)`). Demo data on and off again while a `PATCH`
+  is out passes (the same account and store): the cached user may then be up to its 1 h
+  freshness behind the platform. The Notifications `PATCH` answers with the settings, not
+  the user, so the user is asked again after it.
+- The writer owns `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`,
+  `CachedSleepRange`, `CachedWorkout` and the `activities.*` documents. Train's tables and
+  every other document stay on the main context (`compact()` deletes Train's histories
+  there). Only `ReadModelWrites` and `TrainStore.wipe` insert or delete writer-owned rows.
+- `seed` writes at once on a context of its own, on main: previews, tests and the legacy
+  import. Only while the queue is idle (`onMisuse` otherwise: Debug stops there, the unit
+  tests' host fails the test that seeded, `Misuse.report`); the next write gets a new
+  writer.
+- `settled()` returns once every write submitted so far has committed. A `BGTask`'s
+  completion, the end of the background time after leaving the app and a silent push's
+  handler wait for it, 2 s at most and not once the system's time ran out
+  (`settledBeforeCompletion()`): iOS may suspend the app there. If the wait ends that way
+  in the background, the drain pauses (`ReadModelDrain.pause()`): no batch starts, the
+  one in progress is awaited (a save takes milliseconds), so no save into the App Group's
+  store is open at the suspension (0xdead10cc). What's queued is written when the app comes
+  to the foreground (`resumeWrites()` at `.active`) or after `pauseAfterCompletion` (10 s,
+  moved on by a later pause) of the app running. No pause in the foreground. The nightly
+  compaction waits for its write the same way (2 s, not once cancelled), and its task's
+  expiry stops it. A HealthKit delivery's `completion()` doesn't wait: it comes right
+  after the upload.
+- Debug asserts that each writer is made off main and that every job of it runs off main
+  (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
+  `OSSignposter` interval `write` on `reads` covers each batch.
 
 **Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
 
@@ -205,9 +260,20 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - A response that arrives after the account changed is dropped.
 
 **Accounts and demo.**
-- Sign-out wipes the whole store (`Persistence.wipe`), and `AppState.reset()` invalidates
-  the Repository's memo.
-- Demo data goes to a separate in-memory store, so it never mixes with an account's.
+- Sign-out wipes the whole store (`Persistence.wipe`), and the Repository's `invalidate()`
+  forgets its memo, its read contexts and the user written through, and retires the
+  wiped epoch's writer.
+- The wipe's first step advances `StoreEpoch`. A write submitted before it is dropped
+  unwritten; the writer saves inside the epoch's save gate, so a save in progress finishes
+  first and the wipe then deletes it. Reading `current` takes a lock of its own and never
+  waits for a save. The first write after a wipe gets a new writer, so no context keeps a
+  deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
+  `StoreID`, which is never reused.
+- Demo data goes to a separate in-memory store, so it never mixes with an account's. The
+  Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
+  one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer
+  doesn't save, and its queued writes drop. There is no "clear" write: a store is wiped
+  (`Persistence.wipe`) or replaced.
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
@@ -267,7 +333,10 @@ graph of `await`s and a `TaskGroup`:
   display refresh after Today's first frame was committed (with or without cached data).
   The same signal for any screen but the splash is the launch barrier optional startup
   work (flags, push, Train, the gate re-check) waits behind. Instruments shows them under Points of Interest;
-  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too.
+  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too. The launch sequence (§6)
+  adds `first-screen` (the barrier opening), `launch-decision` (`play-full`, `play-reduced`, `skip-<reason>`), the
+  `launch-sequence` interval (first `.active` to the overlay's removal, ending with how it ended) and
+  `launch-handoff` (the root becomes interactive).
 - **Scoring, by the platform's word** (no clock comparison): after an upload the
   pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`
   (while the next wait runs) until `pending_days` no longer holds the touched days,
@@ -390,6 +459,29 @@ nothing springs.
   `-coachMarks.today.done YES`, and `.preview(coachMarks: true)` shows them.
 - `HealthIllustration` is a 2 s loop on the Health permission screen. With Reduce
   Motion on it is a still image.
+
+**Launch sequence** (ADR 0017; `docs/work/2026-11-16-nocturne/launch-design.md`). The 5.2 s brand moment on a cold
+start: the rings draw the board's reading, the dots move into the orbit mark, "RYFT" and the tagline arrive. It is the
+one exception to the 250 ms rule and never gates startup.
+- **Where it lives.** `LaunchHost(model:) { RootView() }` is the `WindowGroup`'s view; `LaunchOverlay` sits in its
+  overlay. `RootView` and every startup hook are built beneath it as without it. The model, `LaunchSequenceModel`, is
+  `@State` on `RyftApp`, so it lives for the process and never plays twice. It wraps the pure `LaunchSequence`
+  (phases `armed → playing → handingOff → done`, or `skipped`; all functions of a date) and refreshes on events and
+  `AppClock` deadlines. The overlay draws `LaunchFrame(t:palette:side:)`, a pure function of t from
+  `RyftMarkGeometry`, in a `TimelineView`; t = 1 is the static mark. Armed, it is only `Theme.background`, the launch
+  screen's colour.
+- **When it plays** (`LaunchPolicy.decide`, from the top): `-RyftLaunchSequence skip` → skip; a background launch →
+  skip; any launch argument (every UI test, `scripts/screenshots.sh`, `-RyftScreen`) unless `-RyftLaunchSequence play`
+  → skip; an open workout → skip; back within 10 minutes of the last `.background` (`launch.lastBackgroundAt`, L9)
+  unless `play` → skip; Reduce Motion, Low Power Mode or VoiceOver → the reduced variant (the last frame for 1 s, then
+  a 0.25 s cross-fade); otherwise the full sequence, demo mode included. After init, a link, notification, quick action
+  or Handoff at connect (`QuickActionSceneDelegate` → `LaunchInterruptions`), a root sheet or cover
+  (`RootView.presentsSomething`: a new root presentation joins that list), system UI (`.inactive`), the background and
+  a first `.active` later than 5 s skip it or hand off at once. A tap, or VoiceOver's activate or "Skip", hands off.
+- **The seam.** `launchCoversRoot` (environment) is true while armed or playing: anything that plays once when first
+  seen treats it like the background. Today's gauge is built static under it and plays its entrance at the hand-off.
+  PR 4's matched move into Today's header uses the `.launch` coordinate space, `LaunchStage(frame:markRect:)` and
+  `LaunchSequence.handOff(at:)`.
 
 ## 7. Push notifications and routes
 
@@ -535,6 +627,12 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     invite never holds. `check()`, `agree()` and `redeemInvite()` end them.
   - Read once per `AccountBinding`; wiped with every account wipe; demo reads and writes nothing. In the live graph
     `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
+  - A withdrawal on this phone (`withdrew(at:)`) is recorded as the platform's `consent_required` refusal and kept
+    beside the store, per account in `env.defaults` (`withdrawnAt`, a consent signal in `Facts.reported`): it holds
+    every data gate when the store refuses the withdrawal's saves (iOS 17 after demo data) and in a background launch
+    that never runs `check()`. It ends when this phone agrees again (`consented`) or a `GET /v1/me` asked for after
+    it shows consent to the policy in force (`heard`, from `Repository.store(fetchedUser:askedAt:)`). The
+    withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather than join reads begun before it.
   - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
     published, so a late `403` of theirs is never kept as the next account's refusal.
 - **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the

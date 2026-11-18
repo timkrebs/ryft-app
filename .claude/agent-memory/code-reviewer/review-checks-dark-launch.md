@@ -41,3 +41,11 @@ Shared string keys (My Day A1 re-review, 2026-10-23): a dark feature that reuses
 translation. The localization pass for My Day changed `Uploading` (de "Hochladen" → "Wird hochgeladen") and so changed
 Today's shipped first-import steps with the flag off ("Apple Health lesen · Wird hochgeladen · Bewerten"). In the
 xcstrings dict compare, list *changed* values of keys that exist on main and grep each key's other call sites.
+
+Remote content that drives an action (T1 tracker sync hint, 2026-10-31): a compiled table (schemes, store ids) keyed by
+tracker id still lets content *route* to it, because identity lists (`bundle_ids` not in `knownBundles`, `source_names`)
+are content; check ADR claims like "the worst a copy can do is change the text". Bumping the bundled `version` makes an
+older served copy "older" forever (no ETag, re-download each TTL, cached body decoded each launch), so the platform
+request must say "publish with version > bundled and carry the new field". Paraphrased catalog sentences: diff them
+against the verified `habits` they came from (a pronoun "its" moved Withings' Home tab to the Health app). Branches
+can gain commits mid-review: re-run `git log` before writing findings.

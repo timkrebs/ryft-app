@@ -34,7 +34,9 @@
         "CalibrationNoteUITests",
         "MyDayUITests",
         "AddActivityUITests\/testAddActivitySavesAPendingRowAddedByYouWithoutItsNotes",
-        "ImportUITests\/testImportPlanAndHistoryFromDemoFiles"
+        "ImportUITests\/testImportPlanAndHistoryFromDemoFiles",
+        "LaunchSequenceUITests\/testUITestLaunchesSkipIt",
+        "NocturneTodaySleepUITests"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",

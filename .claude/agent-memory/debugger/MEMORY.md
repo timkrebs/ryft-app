@@ -1,3 +1,5 @@
 - [Refresh card diagnosis](refresh-card-diagnosis.md) — Details-less card means transport/cancel error; fault seam location
 - [CI UI test crash-reporter hang](ci-uitest-crashreporter-hang.md) — 1-min timeout after passed body = XCTest crash sync stall, infra
 - [Baseline counter stuck](baseline-counter-stuck.md) — "0 / 7" forever = no HRV nights on platform; evidence scripts
+- [CI sim wedged](ci-sim-wedged-unit-hang.md) — Unit hang on reused "RYFT CI" sim (recurs); fix = fresh sim per job + cleanup; leaked XCTestDevices clones
+- [Orbit render flake](orbit-render-flake.md) — ImageRenderer byte/pixel tests flake in host windows; repro = -test-iterations on many sims

@@ -65,6 +65,11 @@ enum UploadWrite: Sendable {
 ///   while protected data is unavailable (before the first unlock) isn't kept, and the gate holds every write until
 ///   the unlock reloads it (`isRecordReadable`).
 /// - **Wiped with the account:** every wipe deletes every `CachedDocument` and moves the binding.
+/// - **This phone's withdrawal** (`withdrew(at:)`) is kept beside the record, per account in `env.defaults`, outside
+///   the store: it holds the gate when the store refuses the withdrawal's saves (iOS 17 after demo data, T0.6) and in
+///   a background launch that never runs the check, until this phone agrees again (`consented`) or a `GET /v1/me`
+///   asked for after it shows consent to the policy in force (`heard`). Not wiped with the account: the same account
+///   signing in again hasn't agreed since either.
 /// - **Demo data** reads and writes nothing: the gate decides demo before the record (design.md §3.2).
 @MainActor
 @Observable
@@ -95,6 +100,9 @@ final class ConsentState {
     nonisolated static let retryAfterFailure: TimeInterval = 60
 
     nonisolated static func key(_ account: String) -> String { "consent.\(account)" }
+
+    /// Where `withdrawnAt` is kept for `account` (`env.defaults`).
+    nonisolated static func withdrawalKey(_ account: String) -> String { "consent.withdrawn.\(account)" }
 
     /// Bumped by every write: whoever reads the record reads again.
     private(set) var revision = 0
@@ -168,6 +176,15 @@ final class ConsentState {
     /// `invite_required`.
     var refusals: Set<APIErrorCode> { record.map { Set($0.refusals.keys) } ?? [] }
 
+    /// When the user withdrew consent on this phone, until it ends (`consented`, `heard`); nil signed out and in demo
+    /// mode. Before the first unlock the defaults can't be read either, and then the record isn't readable
+    /// (`isRecordReadable`), which holds every write anyway.
+    var withdrawnAt: Date? {
+        _ = revision
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return nil }
+        return env.defaults.object(forKey: Self.withdrawalKey(account)) as? Date
+    }
+
     /// A policy answer younger than its ttl (at most `maximumTTL`), on this phone's clock.
     func isPolicyFresh(at now: Date) -> Bool {
         guard let record, record.policyVersion != nil, let answeredAt = record.answeredAt else { return false }
@@ -193,6 +210,7 @@ final class ConsentState {
     /// `POST /v1/me/consent` answered `204` for `version`: it was in force `at` (the platform answers `422`
     /// otherwise), so that's an answer then, good for the same ttl, and the refusal is over.
     func consented(to version: String, at: Date) {
+        endWithdrawal()
         write { record in
             if record.answeredAt.map({ $0 <= at }) ?? true {
                 if record.policyVersion != version { record.policyURL = nil }
@@ -201,6 +219,31 @@ final class ConsentState {
             }
             record.refusals[.consentRequired] = nil
         }
+    }
+
+    /// `DELETE /v1/me/consent` answered at `at`: this phone's withdrawal, kept outside the store (`withdrawnAt`), and the
+    /// platform's refusal from then on (API.md: sync answers `403 consent_required`), recorded as any refusal is.
+    func withdrew(at: Date) {
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        env.defaults.set(at, forKey: Self.withdrawalKey(account))
+        revision += 1
+        refused(.consentRequired, at: at)
+    }
+
+    /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`): asked for
+    /// after the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed
+    /// again, on another device). One asked for before it may be from before it, and an older policy's consent isn't one.
+    func heard(_ user: User, askedAt: Date) {
+        guard let withdrawnAt, askedAt >= withdrawnAt, let version = latestPolicyVersion,
+              user.consent?.policyVersion == version else { return }
+        endWithdrawal()
+    }
+
+    private func endWithdrawal() {
+        guard let env, !env.isDemo, let account = env.auth.accountID,
+              env.defaults.object(forKey: Self.withdrawalKey(account)) != nil else { return }
+        env.defaults.removeObject(forKey: Self.withdrawalKey(account))
+        revision += 1
     }
 
     /// The platform refused at `code`'s gate: `consent_required` in any mode, `invite_required` only when enforced

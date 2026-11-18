@@ -25,10 +25,7 @@
       "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71."
     },
     "Rest" : {
-      "comment" : "Dynamic Island label of the rest timer."
-    },
-    "REST" : {
-      "comment" : "Lock screen label of the rest timer (uppercase)."
+      "comment" : "Dynamic Island and lock screen label of the rest timer."
     },
     "Scoring your night…" : {},
     "Sleep" : {
@@ -37,7 +34,6 @@
     "Sleep %@ percent" : {
       "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88."
     },
-    "SNOOZING" : {},
     "Snoozing" : {},
     "Start or resume workout" : {},
     "Start workout" : {},
@@ -51,7 +47,6 @@
     "Today's readiness, or how far scoring your night is." : {},
     "Waiting for last night" : {},
     "Your alarm rings again" : {},
-    "WORKOUT" : {},
     "Workout" : {}
   },
   "version" : "1.3"

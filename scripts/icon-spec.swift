@@ -1,58 +1,33 @@
-// The app icon's tile, colours and mark scale, shared by scripts/render-icon.swift (the PNGs
-// in the asset catalog) and scripts/mark-svg.swift (design/ryft-app-icon-{light,dark}.svg),
-// so the two can never drift apart. Both are compiled together with this file and
-// Ryft/Design/RyftMark.swift (see the Makefile: `make icon`, `make mark-svg`).
+// The app icon "M1" (docs/work/2026-11-16-nocturne/brief.md §1): "RYFT" in Satoshi Light on the near-black tile, no
+// mark. The tile, the word and its numbers live here; scripts/render-icon.swift (`make icon`) draws them into the PNGs
+// in the asset catalog. The colours are read from the catalog so the icon can't drift from the app.
+//
+// The mock-up was a 220 px tile with the word at 60 px, letter-spacing 0.02 em and a left padding of 0.02 em (which
+// cancels the tracking after the last letter, so the word sits centred). Everything below is that mock-up scaled to 1024.
 import Foundation
 
 enum IconSpec {
     /// The App Store icon tile, px.
     static let tile = 1024.0
 
-    /// How large the mark sits on the tile: the outer ring's span (outer edge to outer edge)
-    /// divided by the tile width. 0.869 is 95 % of the previous 0.915 (0.86925 rounded to three
-    /// places; 0.915 was itself 95 % of the 2026-10-28 reference's 0.963, see
-    /// ../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg). The user asked for the mark
-    /// 5 % smaller on 2026-10-30, after the 0.915 one. `make icon` also renders 0.963, 0.915 and 0.80
-    /// (closer to Apple's icon grid) into build/icon-compare/ to compare.
-    static let defaultRingSpan = 0.869
+    static let word = "RYFT"
 
-    /// The outer ring's span in RyftMark's 100-box: its stroke-centreline diameter plus one
-    /// stroke (half a stroke on either side), 2 x 44 + 3.16 = 91.16 with the 2026-10-28 numbers.
-    /// Nominal stroke: the optical-size rule only thickens marks smaller than 39.6 pt.
-    static var outerSpanInBox: Double {
-        2 * RyftMarkGeometry.outer.radius + RyftMarkGeometry.stroke
-    }
+    /// The face. The font files are git-ignored (`make fonts`); the renderer never falls back to another face.
+    static let fontFile = "Ryft/Resources/Fonts/Satoshi-Light.otf"
+    static let fontPostScriptName = "Satoshi-Light"
 
-    /// Side of the mark's frame (its 100-box) in px for a ring span:
-    /// tile x ringSpan x 100 / 91.16, i.e. 976.3 px at 0.869 on a 1024 tile.
-    static func markFrame(ringSpan: Double, tile: Double = tile) -> Double {
-        tile * ringSpan * RyftMarkGeometry.box / outerSpanInBox
-    }
+    /// Font size / tile edge: 60 px on the mock-up's 220 px tile, i.e. 27.27 %, 279.3 px on 1024.
+    static let sizeRatio = 60.0 / 220.0
+    static var fontSize: Double { tile * sizeRatio }
 
-    /// The smallest distance (px) from any dot's edge to the tile's edge; negative = cut off.
-    /// The dots are what reaches farthest out: the outer ring's dot at 65 deg sits on r 44 with
-    /// r 6, so its edge touches the 100-box (50 from the centre) while the ring stops at 45.58.
-    static func dotMargin(ringSpan: Double, tile: Double = tile) -> Double {
-        let g = RyftMarkGeometry.self
-        let frame = markFrame(ringSpan: ringSpan, tile: tile)
-        let u = frame / g.box
-        let m = g.metrics(forSide: frame)
-        var margin = Double.infinity
-        for ring in [g.outer, g.middle] {
-            for d in ring.dots {
-                let p = g.point(radius: ring.radius, degrees: d)
-                let x = tile / 2 + (p.x - g.centre) * u
-                let y = tile / 2 + (p.y - g.centre) * u
-                let r = m.dotRadius * u
-                margin = min(margin, x - r, y - r, tile - x - r, tile - y - r)
-            }
-        }
-        return margin
-    }
+    /// Letter-spacing in em (the mock-up's 0.02 em), added after every letter. The renderer centres the ink, which
+    /// is what the mock-up's equal left padding did: the trailing space does not pull the word to the left.
+    static let trackingEm = 0.02
 
-    /// The token colours (Ryft/Assets.xcassets Mist / Graphite, Design/Theme.swift).
-    static let mistHex = "E8E7E3"
-    static let graphiteHex = "0B0F0E"
+    /// The colours, by colour set in the catalog: the tile is `Background`, the word `TextPrimary`.
+    static let catalog = "Ryft/Assets.xcassets"
+    static let tileColorset = "Background"
+    static let wordColorset = "TextPrimary"
 
     /// sRGB components 0...1 of a six-digit hex colour.
     static func rgb(_ hex: String) -> (r: Double, g: Double, b: Double) {
@@ -60,43 +35,26 @@ enum IconSpec {
         return (Double((v >> 16) & 0xFF) / 255, Double((v >> 8) & 0xFF) / 255, Double(v & 0xFF) / 255)
     }
 
-    // MARK: Gauge colours
-
-    /// The part colours of the Light and Dark icons, read from the asset catalog so they can't drift from the
-    /// gauge (Shared/OrbitGaugePalette.swift names the same colour sets): Strain = MetricStrain, Sleep =
-    /// MetricSleep, Recovery = Accent, Readiness = Accent (the "High" band). Light icon: the sets' light values;
-    /// Dark icon: their dark values. Run from the repo root (the Makefile does).
-    static let catalog = "Ryft/Assets.xcassets"
-
-    /// A colour set's hex ("5B8DEF") for the light or the dark appearance, read from its Contents.json.
-    static func catalogHex(_ name: String, dark: Bool) -> String {
+    /// A colour set's hex ("0A0C0B"), read from its Contents.json. Run from the repo root (the Makefile does). The
+    /// app is dark-only, so a colour set has exactly one value; an icon must be opaque, so its alpha must be 1.
+    static func catalogHex(_ name: String) -> String {
         let url = URL(fileURLWithPath: "\(catalog)/\(name).colorset/Contents.json")
         guard let data = try? Data(contentsOf: url),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let colors = root["colors"] as? [[String: Any]]
         else { fatalError("icon-spec: cannot read \(url.path)") }
-        let entry = colors.first { c in
-            let appearances = c["appearances"] as? [[String: Any]]
-            let isDark = appearances?.contains { ($0["value"] as? String) == "dark" } ?? false
-            return isDark == dark
-        } ?? colors[0]
-        guard let comps = (entry["color"] as? [String: Any])?["components"] as? [String: String] else {
+        guard colors.count == 1, colors[0]["appearances"] == nil else {
+            fatalError("icon-spec: \(url.path) must carry one value without appearances (the app is dark-only)")
+        }
+        guard let comps = (colors[0]["color"] as? [String: Any])?["components"] as? [String: String] else {
             fatalError("icon-spec: no components in \(url.path)")
         }
+        guard Double(comps["alpha"] ?? "") == 1 else { fatalError("icon-spec: \(name) is not opaque") }
         func byte(_ key: String) -> String {
             let v = Int((comps[key] ?? "0").dropFirst(2), radix: 16) ?? 0
             return String(format: "%02X", v)
         }
         return byte("red") + byte("green") + byte("blue")
-    }
-
-    /// The hex of a mark part on the Light (`dark: false`) or Dark icon.
-    static func partHex(_ part: RyftMarkGeometry.Part, dark: Bool) -> String {
-        switch part {
-        case .strainRing, .strainDot: return catalogHex("MetricStrain", dark: dark)
-        case .sleepArc, .sleepDot: return catalogHex("MetricSleep", dark: dark)
-        case .recoveryArc, .recoveryDot, .readinessRing: return catalogHex("Accent", dark: dark)
-        }
     }
 
     /// WCAG contrast ratio of two hex colours.
@@ -110,6 +68,10 @@ enum IconSpec {
         return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 
-    /// Every distinct part colour must reach 3:1 on its tile (graphics, WCAG 1.4.11).
-    static let minContrast = 3.0
+    /// The word is text on the tile: 4.5:1.
+    static let minContrast = 4.5
+
+    /// Sizes (px) the renderer also scales the icon to for review, into the previews folder: 180 px is 60 pt at 3x
+    /// (the Home Screen), 60 px and 40 px the small sizes where the word has to stay legible.
+    static let previewSizes = [180, 120, 60, 40]
 }

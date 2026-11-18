@@ -50,6 +50,26 @@ enum Fmt {
         duration(minutes: Int((seconds / 60).rounded()))
     }
 
+    /// A duration as a clock, hours and two-digit minutes (Nocturne's numerals and totals, design.md §P4-4): 468 →
+    /// "7:48", 0 → "0:00", 61 → "1:01", −42 → "−0:42", nil → "–". The colon is the same in every locale: the dot numeral
+    /// draws it, and "7:48 h" reads as a duration, not a time of day.
+    static func clock(minutes: Int?) -> String {
+        guard let minutes else { return placeholder }
+        let m = abs(minutes)
+        return "\(minutes < 0 ? "−" : "")\(m / 60):\(String(format: "%02d", m % 60))"
+    }
+
+    /// A duration for VoiceOver, one unit at a time so there is no comma to pause on: 468 → "7 hours 48 minutes",
+    /// 60 → "1 hour", 22 → "22 minutes", 0 → "0 minutes"; a negative duration is spoken as its size.
+    static func spokenDuration(minutes: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        let m = abs(minutes)
+        let (hours, rest) = (m / 60, m % 60)
+        let parts = [hours > 0 ? Duration.seconds(hours * 3600).formatted(.units(allowed: [.hours], width: .wide).locale(locale)) : nil,
+                     rest > 0 || hours == 0
+                         ? Duration.seconds(rest * 60).formatted(.units(allowed: [.minutes], width: .wide).locale(locale)) : nil]
+        return parts.compactMap(\.self).joined(separator: " ")
+    }
+
     /// Strain: one decimal ("12.4").
     static func strain(_ v: Double?) -> String {
         guard let v else { return placeholder }

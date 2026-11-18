@@ -9,6 +9,9 @@ struct PushHandlers {
     let coordinator: SyncCoordinator
     /// The read record: saved before a silent push's completion handler lets iOS suspend the app.
     let reads: ReadScheduler
+    /// The read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, at most 2 s): awaited
+    /// before that completion too.
+    var settled: @MainActor () async -> Void = {}
 }
 
 /// UIKit's half of push: APNs token callbacks, the silent refresh, and taps
@@ -77,6 +80,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // always takes today along (`AppState.refreshDays`).
         let outcome = await coordinator.run(.silentPush(days: [day]))
         deadline.cancel()
+        await handlers.settled()
         handlers.reads.savePendingNow()
         return outcome.error == nil && !outcome.cancelled ? .newData : .failed
     }

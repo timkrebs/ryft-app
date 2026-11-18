@@ -134,7 +134,7 @@ final class TrainImportUploader {
 
     var generation: Generation {
         Generation(count: accountCount, account: currentAccount, demo: env?.isDemo ?? false,
-                   store: (env?.persistence as? TrainStore)?.epoch ?? 0)
+                   store: env?.persistence.epoch.current ?? 0)
     }
 
     /// The job exists and isn't finished: a second import never starts (ui.md §8.2).

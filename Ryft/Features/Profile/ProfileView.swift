@@ -36,7 +36,7 @@ struct ProfileView: View {
                 if model.showsTraining { training }
                 if model.showsNotifications { notifications }
                 if screens.journal.isLive { journal }
-                appearance
+                display
                 about
                 #if DEBUG
                 developer
@@ -597,19 +597,21 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: appearance & about
+    // MARK: display
 
-    private var appearance: some View {
-        ProfileSection(title: "Appearance") {
-            SegmentedPicker(selection: Bindable(settings).appearance, options: Settings.Appearance.allCases) { a in
-                switch a {
-                case .dark: return String(localized: "Dark")
-                case .light: return String(localized: "Light")
-                case .system: return String(localized: "System")
-                }
-            }
+    /// The hero numbers' look (L19, design.md §P4-6): it applies at once, the screens read the observable `Settings`.
+    private var display: some View {
+        ProfileSection(title: "Display") {
+            HeroNumeralsRow(selection: Bindable(settings).heroNumerals)
+            Text("Large numbers on Today, Sleep and Strain.",
+                 comment: "Footer under Profile → Display → Hero numbers: where the dots or thin digits show.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    // MARK: about
 
     private var about: some View {
         ProfileSection(title: "About") {
@@ -861,6 +863,33 @@ extension View {
             }
             .presentationDetents([.large])
         }
+    }
+}
+
+/// Profile → Display → "Hero numbers": a two-way menu, Dots or Thin, in `SettingRow`'s type; the title and the menu are
+/// read one after the other, as Birth year's are. At accessibility sizes the menu goes under the title.
+struct HeroNumeralsRow: View {
+    @Binding var selection: HeroNumerals
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+        layout {
+            Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn.")
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            Picker(selection: $selection) {
+                ForEach(HeroNumerals.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn.")
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
+            .accessibilityIdentifier("profile.heroNumerals")
+        }
+        .frame(minHeight: 44)
     }
 }
 
@@ -1345,10 +1374,10 @@ private extension View {
         .previewEnvironment(state)
 }
 
-#Preview("Baseline sleep need · light · de") {
+#Preview("Baseline sleep need · de") {
     let state = AppState.preview()
     NavigationStack { BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true) }
-        .previewEnvironment(state, scheme: .light)
+        .previewEnvironment(state)
         .environment(\.locale, Locale(identifier: "de"))
 }
 
@@ -1356,12 +1385,6 @@ private extension View {
     let state = AppState.preview()
     NavigationStack { MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true) }
         .previewEnvironment(state)
-}
-
-#Preview("Maximum heart rate · light") {
-    let state = AppState.preview()
-    NavigationStack { MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true) }
-        .previewEnvironment(state, scheme: .light)
 }
 
 #Preview("Sync details · dark") {
@@ -1375,7 +1398,7 @@ private extension View {
     .previewEnvironment(state)
 }
 
-#Preview("Sync details · light · de") {
+#Preview("Sync details · de") {
     let state = AppState.preview()
     let sync = SyncService(env: state.env)
     NavigationStack {
@@ -1383,7 +1406,7 @@ private extension View {
                                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                              clock: state.env.clock)))
     }
-    .previewEnvironment(state, scheme: .light)
+    .previewEnvironment(state)
     .environment(\.locale, Locale(identifier: "de"))
 }
 
@@ -1419,7 +1442,7 @@ private enum SyncDetailsPreview {
     .previewEnvironment(state)
 }
 
-#Preview("Sync details · loaded data · light · de · AX3") {
+#Preview("Sync details · loaded data · de · AX3") {
     let state = AppState.preview()
     let sync = SyncService(env: state.env)
     SyncDetailsPreview.seed(state.env.reads)
@@ -1428,17 +1451,22 @@ private enum SyncDetailsPreview {
                                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                              clock: state.env.clock)))
     }
-    .previewEnvironment(state, scheme: .light)
+    .previewEnvironment(state)
     .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Profile · dark") {
-    ProfileView().previewEnvironment()
+#Preview("Hero numbers row", traits: .sizeThatFitsLayout) {
+    DarkPreview { Card { HeroNumeralsRow(selection: .constant(.dots)) } }
 }
 
-#Preview("Profile · light") {
-    ProfileView().previewEnvironment(scheme: .light)
+#Preview("Hero numbers row · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { Card { HeroNumeralsRow(selection: .constant(.thin)) } }
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Profile · dark") {
+    ProfileView().previewEnvironment()
 }
 
 // MARK: - check sync
@@ -1874,33 +1902,29 @@ private extension View {
 
 /// A check on mock data, run on appearance like the real one. `de` shows the German words, not only German formats.
 @MainActor
-private func checkPreview(_ scenario: SyncCheckScenario, scheme: ColorScheme = .dark, de: Bool = false,
-                          size: DynamicTypeSize = .large,
+private func checkPreview(_ scenario: SyncCheckScenario, de: Bool = false, size: DynamicTypeSize = .large,
                           stage: ((TrackerCheckModel) -> Void)? = nil) -> some View {
     let env = AppEnvironment.preview()
     let model = TrackerCheckModel(env: env, health: scenario.store(now: .now), trackers: scenario.trackers)
     stage?(model)
     return NavigationStack { TrackerCheckView(model: model) }
-        .previewEnvironment(scheme: scheme)
+        .previewEnvironment()
         .environment(\.locale, Locale(identifier: de ? "de_DE" : "en_US"))
         .environment(\.dynamicTypeSize, size)
 }
 
 #Preview("Check sync · Garmin · dark") { checkPreview(.garmin) }
-#Preview("Check sync · Garmin · light") { checkPreview(.garmin, scheme: .light) }
-#Preview("Check sync · Garmin · light · de") { checkPreview(.garmin, scheme: .light, de: true) }
+#Preview("Check sync · Garmin · de") { checkPreview(.garmin, de: true) }
 #Preview("Check sync · Garmin · AX3") { checkPreview(.garmin, size: .accessibility3) }
 #Preview("Check sync · sleep should arrive · dark") { checkPreview(.garminSleepOff) }
-#Preview("Check sync · sleep should arrive · light") { checkPreview(.garminSleepOff, scheme: .light) }
 #Preview("Check sync · night missing · dark") { checkPreview(.garminNightMissing) }
 #Preview("Check sync · silent · dark") { checkPreview(.garminSilent) }
-#Preview("Check sync · silent · light · de") { checkPreview(.garminSilent, scheme: .light, de: true) }
+#Preview("Check sync · silent · de") { checkPreview(.garminSilent, de: true) }
 #Preview("Check sync · nothing readable · dark") { checkPreview(.nothingReadable) }
-#Preview("Check sync · Apple Watch · light") { checkPreview(.appleWatch, scheme: .light) }
+#Preview("Check sync · Apple Watch · dark") { checkPreview(.appleWatch) }
 #Preview("Check sync · running · dark") { checkPreview(.garmin) { $0.stage(.running) } }
-#Preview("Check sync · running · light") { checkPreview(.garmin, scheme: .light) { $0.stage(.running) } }
 #Preview("Check sync · not asked · dark") { checkPreview(.garmin) { $0.stage(.notAsked) } }
-#Preview("Check sync · locked · light") { checkPreview(.garmin, scheme: .light) { $0.stage(.locked) } }
+#Preview("Check sync · locked · dark") { checkPreview(.garmin) { $0.stage(.locked) } }
 
 // MARK: - report a problem
 
@@ -2062,7 +2086,7 @@ struct ReportProblemView: View {
     private var message: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("", text: Bindable(model).message,
-                      prompt: Text("What happened? What did you expect?").foregroundStyle(Theme.textTertiary),
+                      prompt: Text("What happened? What did you expect?").foregroundStyle(Theme.textSecondary),
                       axis: .vertical)
                 .lineLimit(6...)
                 .font(.ryft(.body))
@@ -2278,14 +2302,14 @@ extension ReportContext {
 
 /// One state of Report a problem on mock data (previews).
 @MainActor
-private func reportPreview(_ scheme: ColorScheme = .dark, de: Bool = false, size: DynamicTypeSize = .large,
+private func reportPreview(de: Bool = false, size: DynamicTypeSize = .large,
                            context: ReportContext? = nil, showsIncluded: Bool = false,
                            stage: (ReportProblemModel) -> Void = { _ in }) -> some View {
     let state = AppState.preview()
     let model = ReportProblemModel(env: state.env, apiStatus: APIStatus()) { FeedbackSync() }
     stage(model)
     return NavigationStack { ReportProblemView(model: model, context: context, showsIncluded: showsIncluded) }
-        .previewEnvironment(state, scheme: scheme)
+        .previewEnvironment(state)
         .environment(\.locale, Locale(identifier: de ? "de" : "en"))
         .dynamicTypeSize(size)
 }
@@ -2293,42 +2317,27 @@ private func reportPreview(_ scheme: ColorScheme = .dark, de: Bool = false, size
 private let previewMessage = "Today said calibrating after a full week of nights, and pulling to refresh didn't change it."
 
 #Preview("Report · empty · dark") { reportPreview() }
-#Preview("Report · empty · light") { reportPreview(.light) }
 #Preview("Report · empty · dark · de") { reportPreview(de: true) }
 #Preview("Report · empty · AX3") { reportPreview(size: .accessibility3) }
 #Preview("Report · filled · dark") { reportPreview { $0.stage(message: previewMessage, category: .data) } }
-#Preview("Report · filled · light") { reportPreview(.light) { $0.stage(message: previewMessage, category: .data) } }
 #Preview("Report · from Details · dark") { reportPreview(context: .preview) }
-#Preview("Report · from Details · light · de") { reportPreview(.light, de: true, context: .preview) }
+#Preview("Report · from Details · de") { reportPreview(de: true, context: .preview) }
 #Preview("Report · diagnostics off · dark") {
     reportPreview { $0.stage(message: previewMessage, includeDiagnostics: false) }
 }
-#Preview("Report · diagnostics off · light") {
-    reportPreview(.light) { $0.stage(message: previewMessage, includeDiagnostics: false) }
-}
 #Preview("Report · disclosure open · dark") { reportPreview(showsIncluded: true) }
-#Preview("Report · disclosure open · light") { reportPreview(.light, showsIncluded: true) }
 #Preview("Report · disclosure open · AX3") { reportPreview(size: .accessibility3, showsIncluded: true) }
 #Preview("Report · sending · dark") { reportPreview { $0.stage(message: previewMessage, sending: true) } }
-#Preview("Report · sending · light") { reportPreview(.light) { $0.stage(message: previewMessage, sending: true) } }
 #Preview("Report · sent · dark") { reportPreview { $0.stage(result: .sent) } }
-#Preview("Report · sent · light") { reportPreview(.light) { $0.stage(result: .sent) } }
 #Preview("Report · sent · AX3") { reportPreview(size: .accessibility3) { $0.stage(result: .sent) } }
 #Preview("Report · sent · demo · dark") { reportPreview { $0.stage(result: .sent, demo: true) } }
-#Preview("Report · sent · demo · light · de") { reportPreview(.light, de: true) { $0.stage(result: .sent, demo: true) } }
+#Preview("Report · sent · demo · de") { reportPreview(de: true) { $0.stage(result: .sent, demo: true) } }
 #Preview("Report · queued · dark") { reportPreview { $0.stage(result: .queued, waiting: 1) } }
-#Preview("Report · queued · light") { reportPreview(.light) { $0.stage(result: .queued, waiting: 1) } }
 #Preview("Report · rate limited · dark") {
     reportPreview { $0.stage(message: previewMessage, result: .rateLimited) }
 }
-#Preview("Report · rate limited · light") {
-    reportPreview(.light) { $0.stage(message: previewMessage, result: .rateLimited) }
-}
 #Preview("Report · signed out · dark") {
     reportPreview { $0.stage(message: previewMessage, result: .signedOut) }
-}
-#Preview("Report · signed out · light") {
-    reportPreview(.light) { $0.stage(message: previewMessage, result: .signedOut) }
 }
 #Preview("Report · from Details · diagnostics off") {
     reportPreview { $0.stage(message: ReportProblemModel.prefill(.preview), category: .bug, includeDiagnostics: false,
@@ -2337,30 +2346,17 @@ private let previewMessage = "Today said calibrating after a full week of nights
 #Preview("Report · over limit · dark") {
     reportPreview { $0.stage(message: String(repeating: "The tiles and the gauge disagree. ", count: 120)) }
 }
-#Preview("Report · over limit · light") {
-    reportPreview(.light) { $0.stage(message: String(repeating: "The tiles and the gauge disagree. ", count: 120)) }
-}
 
 #Preview("Report row · dark") {
     VStack(spacing: 12) {
         Card { ReportProblemRow(waiting: 0) }
         Card { ReportProblemRow(waiting: 1) }
-    }
-    .padding()
-    .frame(maxHeight: .infinity)
-    .background(Theme.background)
-    .preferredColorScheme(.dark)
-}
-
-#Preview("Report row · light") {
-    VStack(spacing: 12) {
-        Card { ReportProblemRow(waiting: 0) }
         Card { ReportProblemRow(waiting: 2) }
     }
     .padding()
     .frame(maxHeight: .infinity)
     .background(Theme.background)
-    .preferredColorScheme(.light)
+    .preferredColorScheme(.dark)
 }
 
 // MARK: - devices & sync
@@ -2703,8 +2699,8 @@ struct TrackerPickerSheet: View {
 /// Devices & sync on mock data: the bundled catalog, a choice, and `User.sources`
 /// with a source RYFT doesn't know.
 @MainActor
-private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de: Bool = false,
-                            size: DynamicTypeSize = .large, later: [String] = [], checked: Bool = false) -> some View {
+private func devicesPreview(_ picked: [String], de: Bool = false, size: DynamicTypeSize = .large,
+                            later: [String] = [], checked: Bool = false) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
     // A check ten minutes ago (demo data keeps it in memory): the rows' results and "Last checked".
     TrackerCheckRecord.demo = checked ? previewCheckRecord(picked) : nil
@@ -2726,18 +2722,16 @@ private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de:
     model.selection.stage(picked)
     later.forEach(model.selection.markLater)
     return NavigationStack { DevicesAndSyncView(model: model) }
-        .previewEnvironment(state, scheme: scheme)
+        .previewEnvironment(state)
         .environment(\.locale, Locale(identifier: de ? "de" : "en"))
         .dynamicTypeSize(size)
 }
 
 #Preview("Devices & sync · two trackers · dark") { devicesPreview(["garmin", "oura"], later: ["oura"]) }
 #Preview("Devices & sync · checked · dark") { devicesPreview(["garmin", "oura"], checked: true) }
-#Preview("Devices & sync · checked · light · de") { devicesPreview(["garmin", "oura"], scheme: .light, de: true, checked: true) }
-#Preview("Devices & sync · two trackers · light") { devicesPreview(["garmin", "oura"], scheme: .light, later: ["oura"]) }
+#Preview("Devices & sync · checked · de") { devicesPreview(["garmin", "oura"], de: true, checked: true) }
 #Preview("Devices & sync · two trackers · de") { devicesPreview(["garmin", "oura"], de: true) }
 #Preview("Devices & sync · none chosen · dark") { devicesPreview([]) }
-#Preview("Devices & sync · none chosen · light") { devicesPreview([], scheme: .light) }
 #Preview("Devices & sync · AX3") { devicesPreview(["garmin"], size: .accessibility3) }
 
 /// The Garmin-like store's check for these trackers, ten minutes ago.
@@ -2756,7 +2750,7 @@ private func previewCheckRecord(_ ids: [String]) -> TrackerCheckRecord {
 
 /// A tracker's card or the picker sheet from Devices & sync, on mock data.
 @MainActor
-private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false) -> some View {
+private func devicesScreenPreview(sheet: Bool = false) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
     let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
     model.selection.stage(["garmin", "oura"])
@@ -2767,18 +2761,12 @@ private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false) ->
             NavigationStack { TrackerDetailView(tracker: MockData.tracker("garmin"), model: model) {} }
         }
     }
-    .previewEnvironment(state, scheme: scheme)
+    .previewEnvironment(state)
 }
 
-#Preview("Tracker detail · dark") { devicesScreenPreview(.dark) }
-#Preview("Tracker detail · light") { devicesScreenPreview(.light) }
-#Preview("Tracker picker sheet · dark") { devicesScreenPreview(.dark, sheet: true) }
-#Preview("Tracker picker sheet · light") { devicesScreenPreview(.light, sheet: true) }
+#Preview("Tracker detail · dark") { devicesScreenPreview() }
+#Preview("Tracker picker sheet · dark") { devicesScreenPreview(sheet: true) }
 
 #Preview("Profile · Data row · dark") {
     ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]))
-}
-
-#Preview("Profile · Data row · light") {
-    ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]), scheme: .light)
 }

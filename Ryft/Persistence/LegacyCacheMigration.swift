@@ -34,13 +34,15 @@ enum LegacyCacheMigration {
             return (try? Data(contentsOf: url)).flatMap { WireCoding.decode(T.self, $0) }
         }
 
+        // At launch, before any read: seeded at once into the account's store.
         repository.writingToAccountStore {
             if let snap = load(TodaySnapshot.self, "today") {
-                repository.store(scores: snap.history)
-                if let d = snap.today { repository.store(detail: d) }
-                if let u = snap.user { repository.store(user: u) }
-                repository.store(insights: snap.insights)
-                if let w = snap.readinessWeek { repository.store(trend: w, metric: .readiness, range: .week) }
+                var ops: [ReadModelWrite] = [.scores(snap.history)]
+                if let d = snap.today { ops.append(.detail(d)) }
+                if let u = snap.user { ops.append(.user(u)) }
+                ops.append(.insights(snap.insights))
+                if let w = snap.readinessWeek { ops.append(.trend(w, key: Repository.trendKey(.readiness, .week))) }
+                repository.seed(ops)
             }
         }
         if let c = load(PlansOverview.self, "train.plans") { store.saveDocument(c, key: "train.plans") }

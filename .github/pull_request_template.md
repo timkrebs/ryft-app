@@ -4,9 +4,9 @@
 
 ## Screenshots
 
-<!-- UI changes: Preview captures, dark and light (CLAUDE.md). Delete if no UI. -->
+<!-- UI changes: Preview captures in dark, default and AX3 (CLAUDE.md; dark-only, ADR 0016). Delete if no UI. -->
 
-| Dark | Light |
+| Default | AX3 |
 | --- | --- |
 |  |  |
 

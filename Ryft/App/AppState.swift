@@ -24,6 +24,11 @@ final class AppState {
     }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
+    /// Last night as Apple Health has it (`RawNight`), which Today reads after each sync (`TodayViewModel.loadHealthFacts`):
+    /// Today's raw-night card and Sleep's night being scored (`scoring_state: pending`, design.md §P4-5) show the same
+    /// night; neither shows it while the platform waits for sleep (`waiting_for_sleep`, `stale`). Unscored, so wherever
+    /// it shows it says so. Not stored: the next launch reads it again.
+    var lastNight: RawNight?
     private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90
@@ -54,33 +59,45 @@ final class AppState {
     private var todayKey: String { DayFormat.string(from: now) }
 
     // MARK: what the screens read (SwiftData)
+    //
+    // The setters are for previews and tests: they `seed` the store at once on the main actor. The app's own writes go
+    // through `repository.store…`, off the main actor (ADR 0018).
 
-    /// Today's detail. Setting it writes the store (previews, tests).
+    /// Today's detail. Setting it seeds the store (previews, tests).
     var today: DayDetail? {
         get { repository.day(todayKey) }
-        set { if let newValue { repository.store(detail: newValue) } }
+        set { if let newValue { seed("today", .detail(newValue)) } }
     }
 
-    /// The last 90 days, oldest first. Setting it replaces the cached scores.
+    /// The last 90 days, oldest first. Setting it replaces the cached scores (previews, tests).
     var history: [DailyScore] {
         get { repository.history(from: DayFormat.shift(now, days: -(Self.historyDays - 1)), to: now) }
-        set { repository.replaceScores(newValue) }
+        set { seed("history", .replaceScores(newValue)) }
     }
 
+    /// Setting it seeds the store (previews, tests); the app writes `repository.store(user:)`, which the upload gate
+    /// reads back in the same step.
     var user: User? {
         get { repository.user() }
-        set { if let newValue { repository.store(user: newValue) } }
+        set { if let newValue { seed("user", .user(newValue)) } }
     }
 
     var insights: [Insight] {
         get { repository.insights() }
-        set { repository.store(insights: newValue) }
+        set { seed("insights", .insights(newValue)) }
     }
 
     /// Today's "Trends" card: `GET /v1/trends?metric=readiness&range=7d`.
     var readinessWeek: TrendSeries? {
         get { repository.trend(.readiness, .week) }
-        set { if let newValue { repository.store(trend: newValue, metric: .readiness, range: .week) } }
+        set {
+            if let newValue { seed("readinessWeek", .trend(newValue, key: Repository.trendKey(.readiness, .week))) }
+        }
+    }
+
+    private func seed(_ setter: String, _ op: ReadModelWrite) {
+        if env.isLive { repository.onMisuse("AppState.\(setter) is for previews and tests: write through repository.store") }
+        repository.seed(op)
     }
 
     /// When today was last fetched ("Updated 07:15"); survives relaunches.
@@ -312,13 +329,19 @@ final class AppState {
         return RefreshPolicy.staleSince(for: refreshInputs, now: now, online: readsOnline)
     }
 
+    /// A signed-out error's "Sign in" (Today's card, Sleep's failed night): back to Welcome to sign in again.
+    func signInAgain() async {
+        await env.auth.signOut(reason: .sessionExpired)
+    }
+
     /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
-    /// record goes. Sign-out wipes the account's store; demo data is cleared here.
+    /// record goes. Sign-out wipes the account's store; demo data's starts over here, empty at once.
     func reset() {
         pullNow?.cancel()
         pullPhases?.cancel()
         env.reads.reset()
-        if isDemo { repository.clear() } else { repository.invalidate() }
+        repository.reset()
+        lastNight = nil
         // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
         // and so does an upload of them (or of the account's) in flight.
         env.uploader.accountChanged()
@@ -398,9 +421,12 @@ final class AppState {
         onForgetAccountState?()
     }
 
-    /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).
+    /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline). An answer that arrives after a
+    /// sign-out (another account, the Demo data switch) is dropped unwritten.
     func patchUser(_ patch: UserPatch) async throws {
-        user = try await source.patchMe(patch)
+        let change = repository.userChange()
+        let patched = try await source.patchMe(patch)
+        await repository.store(user: patched, asOf: change).committed()
     }
 
     // MARK: per-screen data (cache-first, revalidated)

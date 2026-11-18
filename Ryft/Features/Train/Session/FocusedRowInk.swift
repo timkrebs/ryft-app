@@ -1,22 +1,20 @@
 import SwiftUI
 
-/// The one colour decision for a Focused row in light, where `textSecondary` on the active row's tint and `surfaceRaised`
-/// on the background fall short (design.md §2.8). Picked per row part from existing tokens: changing `textSecondary`
-/// would change List and every other screen. Dark keeps the design's tokens. `FocusedRowInkTests` does the maths.
+/// The colour decision for a Focused row's parts (design.md §2.8), picked per part from existing tokens: changing
+/// `textSecondary` would change List and every other screen. The app is dark-only. `FocusedPolishTests` does the maths.
 enum FocusedRowInk {
-    /// The estimate column. On the active row in light it is the row's own `textPrimary`; grey on the tint is 4.51:1, which
-    /// is no margin.
-    static func estimate(active: Bool, isDash: Bool, _ scheme: ColorScheme) -> Color {
-        if active, scheme == .light { return Theme.textPrimary }
-        return isDash ? Theme.textTertiary : Theme.textSecondary
+    /// The estimate column: grey on every row, the dash quieter still.
+    static func estimate(isDash: Bool) -> Color {
+        isDash ? Theme.textTertiary : Theme.textSecondary
     }
 
-    /// The outline of an upcoming ✓: 4.7:1 on the background in light, and the same grey as its glyph.
-    static func upcomingOutline(_ scheme: ColorScheme) -> Color {
-        scheme == .light ? Theme.textTertiary : Theme.surfaceRaised
+    /// The outline of an upcoming ✓: the raised grey, a graphic (3:1).
+    static func upcomingOutline() -> Color {
+        Theme.surfaceRaised
     }
 
-    /// A kg or reps field. On the active row an empty field is grey too: `textTertiary` is 4.40:1 on dark's raised field.
+    /// A kg or reps field. On the active row an empty field is grey too: `textTertiary` is 3.94:1 on the raised field,
+    /// under 4.5:1 (a raised fill carries `textPrimary` or `textSecondary` text).
     static func value(_ state: FocusedRowState, hasValue: Bool, hasGhost: Bool) -> Color {
         switch state {
         case .done: hasValue ? Theme.textSecondary : Theme.textTertiary

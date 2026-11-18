@@ -333,8 +333,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func deletePush(deviceID: UUID) async throws { try enter("deletePush") }
 
+    /// Runs before each `PATCH /v1/me/notifications` answers (tests hold one open with it).
+    var beforePatchNotifications: (@Sendable () async -> Void)?
+
     func patchNotifications(_ patch: NotificationPatch) async throws -> NotificationPrefs {
         try enter("patchNotifications")
+        await beforePatchNotifications?()
         var categories = prefs.categories
         for (k, v) in patch.categories ?? [:] { categories[k] = v }
         let quiet = patch.quietHours.map { $0 } ?? prefs.quietHours
@@ -353,14 +357,19 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
+    /// Runs before each `GET /v1/me/sync` answers, after it was read (tests hold one open with it).
+    var beforeSyncStatus: (@Sendable () async -> Void)?
+
     func syncStatus() async throws -> SyncStatus {
         try enter("syncStatus")
         let gate = gate
-        return lock.withLock {
+        let status = lock.withLock {
             SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",
                        latest: [:], today: scoringToday, pendingDays: pendingDays, expectedWithinSec: 20,
                        resyncRequestedAt: resyncRequestedAt)
         }
+        await beforeSyncStatus?()
+        return status
     }
 
     func consent(policyVersion: String, appVersion: String?) async throws {
@@ -473,21 +482,27 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
-    /// Runs before `me()` answers (tests hold an export's archive open with it).
+    /// Runs before `me()` answers (tests hold an export's archive open with it, or a read answered before a change).
     var beforeMe: (@Sendable () async -> Void)?
 
     func me() async throws -> User {
         try enter("me")
+        // Read when the request arrives, as the platform reads it: an answer held on its way back is from then.
+        let user: User
+        if let patched = lock.withLock({ patchedUser }) {
+            user = withAccount(patched)
+        } else {
+            user = withAccount(try await screens.me())
+        }
         await beforeMe?()
-        if let patched = lock.withLock({ patchedUser }) { return withAccount(patched) }
-        return withAccount(try await screens.me())
+        return user
     }
 
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
-        await beforePatchMe?()
-        // On top of the earlier patches, like the platform's stored user.
+        // Applied and answered when the request arrives, as the platform does: on top of the earlier patches, with the
+        // consent as it is then. An answer held on its way back (`beforePatchMe`) is from then.
         let base = lock.withLock { patchedUser }
         let user: User
         if let mock = screens as? MockDataSource {
@@ -496,7 +511,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
             user = try await screens.patchMe(p)
         }
         lock.withLock { patchedUser = user }
-        return withAccount(user)
+        let answer = withAccount(user)
+        await beforePatchMe?()
+        return answer
     }
 
     /// The user after the patches so far (`nil`: none yet).
@@ -505,13 +522,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before each `PATCH /v1/me` answers (tests hold one open with it).
     var beforePatchMe: (@Sendable () async -> Void)?
 
-    /// The scripted access, consent and hint on top of the mock user.
+    /// The scripted access, consent and hint, and the notification settings (`patchNotifications`), on top of the mock
+    /// user.
     private func withAccount(_ user: User) -> User {
         var u = user
         lock.withLock {
             u.betaAccess = betaAccess
             u.consent = accountConsent
             u.accountHint = accountHint
+            u.notifications = prefs
         }
         return u
     }
@@ -525,7 +544,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func workouts(from: Date, to: Date) async throws -> [Workout] {
         try enter("workouts"); return try await screens.workouts(from: from, to: to)
     }
-    func workout(id: UUID) async throws -> WorkoutDetail { try enter("workout"); return try await screens.workout(id: id) }
+    /// Runs before each `GET /v1/workouts/{id}` answers (tests switch demo data meanwhile).
+    var beforeWorkout: (@Sendable () async -> Void)?
+
+    func workout(id: UUID) async throws -> WorkoutDetail {
+        try enter("workout")
+        let detail = try await screens.workout(id: id)
+        await beforeWorkout?()
+        return detail
+    }
     func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries {
         try enter("trends"); return try await screens.trends(metric: metric, range: range)
     }

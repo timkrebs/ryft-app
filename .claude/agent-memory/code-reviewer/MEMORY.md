@@ -1,4 +1,4 @@
-- [Today-state review checks](review_checks_today_state.md) — day words, per-body cost, reads.revision, first-frame catalog, widget asOf, de previews
+- [Today-state review checks](review_checks_today_state.md) — day words, per-body cost, first-frame catalog, widget republish triggers, readiness⇔recovery
 - [Outbox/queue review checks](review-checks-outbox-queues.md) — stale snapshots, late answers, epoch timing, never-sent markers, unknown 403 codes, whole-batch 4xx
 - [Shared transport/coalescing checks](review-checks-shared-transport.md) — error-shape audits, cancellable waits, joined replays, global holds, debounced-save flush, flakes
 - [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merge-tree, merged-in open PRs
@@ -8,6 +8,11 @@
 - [Numeric pipelines](review-checks-numeric-pipelines.md) — noise vs design, few-seed tests, limit hysteresis, sliding multipath, window anchors, swiftc probes
 - [Parsers + import](review-checks-parsers-and-import.md) — work counters, fast-path theft, greedy anchors, zone brute force, encoding fallbacks, SwiftFormat skips Build/
 - [Matchers + derived keys](review-checks-matchers-and-keys.md) — hard-filter ties, field vs name, frozen folds, plan id repeats, zone read windows
-- [File cleanup guards](review-checks-file-cleanup.md) — identity vs symlinks, marker-on-failure, share sheet, SwiftData history vs cloudKit pin
+- [File cleanup guards](review-checks-file-cleanup.md) — identity vs symlinks, marker-on-failure, share sheet, write-ahead ledger formats
 - [Fast paths vs Foundation oracles](review-checks-fast-paths.md) — ISO8601 = CF/ICU ms truncation + two-step Double, leniency to decline, old-iOS risk, spawn sweeps
 - [Multi-step flows](review-checks-multistep-flows.md) — stale prepare Tasks after back/forward, reused sheets with side effects, auto-seen results
+- [Session UI planners](review-checks-session-ui.md) — planner vs nextUp warm-ups, children:.ignore, VO on collapse, cover updates while dismissing, fold vs keypad
+- [Undo windows + held uploads](review-checks-undo-windows.md) — queued ops leak held state, tasks outliving Finish, chained plan PUTs, probe copies
+- [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, String enums, parity exceptions, legacy-removal field loss, task id vs env flag, phaseAnimator
+- [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, enum collapse, probe recipe
+- [Design notes before code](review-checks-design-notes.md) — "only site" claims, dark value of swaps, ticket order, Shared visibility, stale base

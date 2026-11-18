@@ -11,7 +11,7 @@ final class CalibrationNoteUITests: XCTestCase {
 
     private func launch(_ scenario: String, _ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today",
                                "-coachMarks.today.done", "YES", "-RyftScenario", scenario,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"] + extra
         app.launch()
@@ -60,7 +60,10 @@ final class CalibrationNoteUITests: XCTestCase {
         // The orbit names what's missing ("Overall readiness, no data. Recovery, not scored, …"), the note after it.
         XCTAssertTrue(value.localizedCaseInsensitiveContains("no data") && value.contains("Garmin Connect"),
                       "the empty gauge names it: \(value)")
-        XCTAssertTrue(app.staticTexts["No readiness yet today. It appears once last night has synced."].exists)
+        // The sentence ends the sub-line, read with the greeting as one header element.
+        let intro = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "No readiness yet today. It appears once last night has synced.")).firstMatch
+        XCTAssertTrue(intro.exists, "the sentence, in the intro")
         XCTAssertTrue(app.buttons["today.gaugeNote.link"].exists)
     }
 
@@ -91,10 +94,13 @@ final class CalibrationNoteUITests: XCTestCase {
         let recovery = app.buttons["Recovery"]
         for _ in 0..<12 where !(recovery.exists && recovery.isHittable) { app.swipeUp() }
         XCTAssertTrue(recovery.isHittable, "the Recovery tile scrolls into view")
-        XCTAssertEqual(recovery.value as? String, "No data, calibrating")
+        // The tile's value starts with its own words; the HRV week's sentence may follow (Nocturne, design.md §P4-8).
+        let recoveryValue = recovery.value as? String ?? ""
+        XCTAssertTrue(recoveryValue.hasPrefix("No data, calibrating"), recoveryValue)
         // No readiness means no night on the day: Sleep has no number either.
         // (The tab bar has a "Sleep" button too: the tile is the one with a value.)
-        let sleepTile = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Sleep", "No data, calibrating"))
+        // Its value goes on with the week's nights ("No data, calibrating. Slept enough on …").
+        let sleepTile = app.buttons.matching(NSPredicate(format: "label == %@ AND value BEGINSWITH %@", "Sleep", "No data, calibrating"))
         XCTAssertTrue(sleepTile.firstMatch.exists, "the Sleep tile says No data, calibrating")
         keep(app, "today-ax3-tiles")
         for _ in 0..<12 where !(note.exists && note.isHittable) { app.swipeDown() }

@@ -7,7 +7,6 @@ struct SourceBadge: View {
     let title: String
     let glyph: String
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -28,9 +27,9 @@ struct SourceBadge: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Theme.surfaceRaised, in: Capsule())
-        // The outline carries the capsule on light surfaces, and in dark with Increase Contrast.
+        // With Increase Contrast an outline carries the capsule.
         .overlay {
-            if scheme == .light || contrast == .increased {
+            if contrast == .increased {
                 Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline)
             }
         }

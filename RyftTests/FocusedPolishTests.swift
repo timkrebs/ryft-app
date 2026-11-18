@@ -209,65 +209,66 @@ struct FocusedPolishTests {
         #expect(rig(.list).controller.finishIsFilled)
     }
 
-    // MARK: the light tokens, by maths
+    // MARK: the tokens, by maths (dark, the only appearance)
 
-    private func parts(_ color: Color, _ scheme: ColorScheme) -> (r: Double, g: Double, b: Double, a: Double) {
+    private typealias RGBA = (r: Double, g: Double, b: Double, a: Double)
+
+    private func parts(_ color: Color) -> RGBA {
         var environment = EnvironmentValues()
-        environment.colorScheme = scheme
+        environment.colorScheme = .dark
         let c = color.resolve(in: environment)
         return (Double(c.red), Double(c.green), Double(c.blue), Double(c.opacity))
     }
 
     /// `top` over `bottom` in gamma sRGB, as the screen composes it.
-    private func over(_ top: (r: Double, g: Double, b: Double, a: Double), _ bottom: (r: Double, g: Double, b: Double, a: Double))
-        -> (r: Double, g: Double, b: Double, a: Double) {
+    private func over(_ top: RGBA, _ bottom: RGBA) -> RGBA {
         func mix(_ t: Double, _ b: Double) -> Double { t * top.a + b * (1 - top.a) }
         return (mix(top.r, bottom.r), mix(top.g, bottom.g), mix(top.b, bottom.b), 1)
     }
 
-    private func luminance(_ c: (r: Double, g: Double, b: Double, a: Double)) -> Double {
+    private func luminance(_ c: RGBA) -> Double {
         func linear(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
         return 0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
     }
 
-    private func contrast(_ ink: Color, on ground: (r: Double, g: Double, b: Double, a: Double), _ scheme: ColorScheme) -> Double {
-        let a = luminance(over(parts(ink, scheme), ground)), b = luminance(ground)
+    private func contrast(_ ink: Color, on ground: RGBA) -> Double {
+        let a = luminance(over(parts(ink), ground)), b = luminance(ground)
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
-    private func background(_ s: ColorScheme) -> (r: Double, g: Double, b: Double, a: Double) { parts(Theme.background, s) }
-    private func tint(_ s: ColorScheme) -> (r: Double, g: Double, b: Double, a: Double) {
-        var accent = parts(Theme.accent, s)
+    private var background: RGBA { parts(Theme.background) }
+    private var tint: RGBA {
+        var accent = parts(Theme.accent)
         accent.a = FocusedRowInk.activeTint
-        return over(accent, background(s))
+        return over(accent, background)
     }
 
-    @Test("Light: text on the active row's tint holds 4.5:1", arguments: [false, true])
-    func theEstimateOnTheActiveRow(isDash: Bool) {
-        let ink = FocusedRowInk.estimate(active: true, isDash: isDash, .light)
-        #expect(ink == Theme.textPrimary, "grey is 4.51:1 here, which is no margin")
-        #expect(contrast(ink, on: tint(.light), .light) >= 4.5)
+    @Test("The estimate on the active row's tint holds 4.5:1")
+    func theEstimateOnTheActiveRow() {
+        let ink = FocusedRowInk.estimate(isDash: false)
+        #expect(ink == Theme.textSecondary)
+        #expect(contrast(ink, on: tint) >= 4.5)
     }
 
-    @Test("Light: an estimate on a plain row keeps its grey, which holds 4.5:1 there", arguments: [false, true])
+    @Test("An estimate on a plain row keeps its grey, which holds 4.5:1 there", arguments: [false, true])
     func theEstimateOnAPlainRow(isDash: Bool) {
-        let ink = FocusedRowInk.estimate(active: false, isDash: isDash, .light)
+        let ink = FocusedRowInk.estimate(isDash: isDash)
         #expect(ink == (isDash ? Theme.textTertiary : Theme.textSecondary))
-        #expect(contrast(ink, on: background(.light), .light) >= 4.5)
+        #expect(contrast(ink, on: background) >= 4.5)
     }
 
-    @Test("Light: the upcoming ✓'s outline holds 3:1 on the background")
+    @Test("The upcoming ✓'s outline is the raised grey")
     func theOutline() {
-        #expect(contrast(FocusedRowInk.upcomingOutline(.light), on: background(.light), .light) >= 3)
+        #expect(FocusedRowInk.upcomingOutline() == Theme.surfaceRaised)
     }
 
-    @Test("Grey on the active row's field holds 4.5:1, with a ghost or empty", arguments: [ColorScheme.light, .dark])
-    func theActiveField(scheme: ColorScheme) {
-        let field = parts(scheme == .light ? Theme.surface : Theme.surfaceRaised, scheme)
+    @Test("Grey on the active row's field holds 4.5:1, with a ghost or empty")
+    func theActiveField() {
+        let field = parts(Theme.surfaceRaised)
         for hasGhost in [false, true] {
             let ink = FocusedRowInk.value(.active, hasValue: false, hasGhost: hasGhost)
             #expect(ink == Theme.textSecondary)
-            #expect(contrast(ink, on: field, scheme) >= 4.5)
+            #expect(contrast(ink, on: field) >= 4.5)
         }
     }
 
@@ -281,25 +282,16 @@ struct FocusedPolishTests {
         #expect(FocusedRowInk.value(.active, hasValue: true, hasGhost: false) == Theme.textPrimary)
     }
 
-    @Test("Dark keeps the design's tokens")
-    func darkIsUnchanged() {
-        #expect(FocusedRowInk.upcomingOutline(.dark) == Theme.surfaceRaised)
-        #expect(FocusedRowInk.estimate(active: true, isDash: false, .dark) == Theme.textSecondary)
-        #expect(FocusedRowInk.estimate(active: true, isDash: true, .dark) == Theme.textTertiary)
-    }
-
     /// `warning` needs no change: on the active row the W sits on its raised pill, never on the tint.
-    @Test("The warm-up W holds 4.5:1 on a plain row and on the active row's pill, in both schemes",
-          arguments: [ColorScheme.light, .dark])
-    func theWarmUpMark(scheme: ColorScheme) {
-        #expect(contrast(Theme.warning, on: background(scheme), scheme) >= 4.5)
-        let pill = scheme == .light ? Theme.surface : Theme.surfaceRaised
-        #expect(contrast(Theme.warning, on: over(parts(pill, scheme), tint(scheme)), scheme) >= 4.5)
+    @Test("The warm-up W holds 4.5:1 on a plain row and on the active row's pill")
+    func theWarmUpMark() {
+        #expect(contrast(Theme.warning, on: background) >= 4.5)
+        #expect(contrast(Theme.warning, on: over(parts(Theme.surfaceRaised), tint)) >= 4.5)
     }
 
-    @Test("An unfilled Finish reads 4.5:1 on its capsule", arguments: [ColorScheme.light, .dark])
-    func finishText(scheme: ColorScheme) {
-        #expect(contrast(Theme.accent, on: parts(Theme.surface, scheme), scheme) >= 4.5)
+    @Test("An unfilled Finish reads 4.5:1 on its capsule")
+    func finishText() {
+        #expect(contrast(Theme.accent, on: parts(Theme.surface)) >= 4.5)
     }
 
     // MARK: "Next" with no check to follow

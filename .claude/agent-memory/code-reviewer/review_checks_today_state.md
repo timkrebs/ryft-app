@@ -28,3 +28,18 @@ Per-body reads (My Day A1 part 2, 2026-10-23): grep new view models for `env.rea
 ReadScheduler doc says only Sync details observes `revision`; a Today card reading it re-renders on every landed read
 (journal, config, Train…). Then count SwiftData fetches in the computed content: Repository reads are memoised,
 `ActivityStore` / `TrainStore` fetches are not ("runs per render on memoised reads" was half true).
+
+Widget inputs and platform invariants (F3 baseline counter, 2026-10-29):
+- A new input to `Repository.widgetFacts` (tracker choice, flag) has no republish trigger: `publishWidget` runs only on
+  `store(scores:)`, `store(detail:)`, `todayStatus` and `tonightBedtime`. Ask what republishes when that input changes
+  (`TrackerSelectionStore.set`, a `/v1/config` flag flip), or Today and the widget disagree until the next score read.
+- Platform invariant (`scoring/compute.go`): `readiness != nil` iff `recovery != nil` (both need `rec.Score > 0`, i.e.
+  any of HRV, RHR, resp rate, sleep). So "recovery beside an empty gauge" shapes are mock-only, and `short_history`
+  with H 0, no `hrv_ms` implies W < 7 (R <= W), so R >= 7 there is unreachable. Check fixtures/scenarios against this.
+- `MetricTile` speaks "No data" for the placeholder and drops the caption ("calibrating").
+- `ObservationWatch` (Ryft/App, F3 re-review): whatever its `read` touches is evaluated in `ScreenModels.init`
+  (RyftApp.init, background launches too). `devices.trackers` there decodes `TrackerCatalog.bundled` (demo mode always
+  has a choice). Through `selection` it also tracks `auth.session`, so it fires on every token refresh. Sign-out is
+  safe: `AuthService.apply` wipes the store and calls `onWipe` → `repository.invalidate()` before `session = nil`.
+  Before that, `repository.todayStatus` is never cleared on sign-out, so an old "pending" or "waiting" state can still
+  publish a snapshot without a number.

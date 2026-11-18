@@ -7,10 +7,10 @@ struct StrainBreakdownTests {
     private func model(score strain: Double, trimp: Int, muscular: Int?) -> StrainViewModel {
         let state = AppState(env: .test())
         let day = DayFormat.string(from: state.env.clock.now())
-        state.repository.store(detail: DayDetail(score: DailyScore(day: day, strain: strain), sleep: nil,
-                                                 strain: DayStrain(trimp: trimp, hrMin: 600, zoneMin: [0, 0, 0, 0, 0],
-                                                                   muscularTrimp: muscular),
-                                                 workouts: []))
+        state.repository.seed(.detail(DayDetail(score: DailyScore(day: day, strain: strain), sleep: nil,
+                                                strain: DayStrain(trimp: trimp, hrMin: 600, zoneMin: [0, 0, 0, 0, 0],
+                                                                  muscularTrimp: muscular),
+                                                workouts: [])))
         return StrainViewModel(state: state, store: TrainStore(inMemory: true))
     }
 

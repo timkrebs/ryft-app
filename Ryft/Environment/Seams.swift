@@ -14,6 +14,8 @@ protocol Persistence: AnyObject {
     var context: ModelContext { get }
     /// On disk; false when the store lives in memory only (a recording wouldn't survive the app closing).
     var isDurable: Bool { get }
+    /// Advanced first by every `wipe()`: what was started before it doesn't write after it (ADR 0018).
+    var epoch: StoreEpoch { get }
     @discardableResult func save() -> Bool
     /// Everything the signed-in user left behind (sign-out, account switch).
     @discardableResult func wipe() -> Bool

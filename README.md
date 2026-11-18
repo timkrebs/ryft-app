@@ -1,6 +1,6 @@
 # RYFT — iOS app
 
-*Your whole health.* RYFT reads your watch's data out of Apple Health, syncs it to the
+*Engineered for peak.* RYFT reads your watch's data out of Apple Health, syncs it to the
 RYFT platform (`https://api.ryftapp.de`, source in `../plattform`) and shows daily
 **Readiness, Sleep, Recovery and Strain**. You create an account (email + password, or
 **Continue with Apple**), allow Health access, and see your data: no server address, no
@@ -9,13 +9,13 @@ API key, no settings.
 | Today | Sleep | Strain | Insights | Profile |
 |---|---|---|---|---|
 | ![Today](docs/screenshots/today-dark.png) | ![Sleep](docs/screenshots/sleep-dark.png) | ![Strain](docs/screenshots/strain-dark.png) | ![Insights](docs/screenshots/insights-dark.png) | ![Profile](docs/screenshots/profile-dark.png) |
-| ![Today light](docs/screenshots/today-light.png) | ![Sleep week](docs/screenshots/sleep-week-dark.png) | ![Workout](docs/screenshots/workout-dark.png) | ![Insights light](docs/screenshots/insights-light.png) | ![Setup](docs/screenshots/setup-dark.png) |
+| ![Calibrating](docs/screenshots/calibrating-dark.png) | ![Sleep week](docs/screenshots/sleep-week-dark.png) | ![Workout](docs/screenshots/workout-dark.png) | ![Tonight](docs/screenshots/tonight-dark.png) | ![Setup](docs/screenshots/setup-dark.png) |
 
 Screenshots come from the simulator with the built-in mock data (`scripts/screenshots.sh`).
 
 ## Requirements
 
-- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.1), iOS 17+
+- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.2), iOS 17+
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
@@ -160,7 +160,7 @@ Garmin Connect must write to Apple Health: *Garmin Connect → More → Settings
 
 Headlines and UI use **Satoshi** (Fontshare, ITF Free Font License). The licence allows
 embedding the font in apps but **not** redistributing it through a repository, so the
-font files are git-ignored. `scripts/fetch-fonts.sh` downloads Regular/Medium/Bold into
+font files are git-ignored. `scripts/fetch-fonts.sh` downloads Light/Regular/Medium/Bold into
 `Ryft/Resources/Fonts/`. Without them the app falls back to SF Pro Rounded automatically.
 
 ## Running
@@ -187,7 +187,6 @@ board. Toggle it in **Profile → Data → Demo data**, or with launch arguments
 | Argument | Effect |
 |---|---|
 | `-demoMode YES/NO` | Force demo data on or off (`NO` shows Welcome) |
-| `-appearance dark/light/system` | Colour scheme (dark is the default) |
 | `-RyftTab today/sleep/strain/insights/profile` | Initial tab |
 | `-RyftSleepMode day/week/month` | Initial Sleep segment |
 | `-RyftOpenWorkout YES` | Push the first workout on the Strain tab |
@@ -249,7 +248,7 @@ Ryft/
   App/         entry, AppState (read-side store + disk cache), Settings, SupabaseConfig, formatting
   Auth/        AuthService (Supabase Auth: Apple, email, links, deletion), AppleSignInButton
   Design/      Theme, Typography, RyftMark and components (ScoreRing, MetricTile, Card,
-               SegmentedPicker, StageBar, Hypnogram, InsightCard, TrendChart, status views)
+               SegmentedPicker, HypnogramPlot, StageRow, InsightCard, TrendChart, status views)
   Features/    Auth (Welcome, Create account, Log in, reset), Today, Sleep, Strain
                (+ WorkoutDetail), Insights, Profile, Train (live session, plans, history)
   Health/      HealthKitManager: anchored queries, background delivery
@@ -302,5 +301,6 @@ scripts/       fetch-fonts.sh, render-icon.swift, screenshots.sh
     reconnect.
   - Exercises, plans, today's plan and recent sessions are cached for browsing in the gym.
   - Sessions are not written to Apple Health.
-- **App icon.** `make icon` renders the light, dark and tinted 1024 px PNGs from
-  `Ryft/Design/RyftMark.swift`, so the icon and the in-app mark share one geometry.
+- **App icon.** `make icon` renders the light, dark and tinted 1024 px PNGs (identical: the
+  "RYFT" wordmark in Satoshi Light, ADR 0016) with `scripts/render-icon.swift`. It needs the
+  fonts from `make fonts` and fails without them.

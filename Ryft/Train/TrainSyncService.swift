@@ -66,7 +66,7 @@ final class TrainSyncService {
     }
 
     private var accountCount = 0
-    var generation: Generation { Generation(account: accountCount, store: store.epoch) }
+    var generation: Generation { Generation(account: accountCount, store: store.epoch.current) }
     /// Finish waits this long for the replay, then says "will sync" (the replay goes on).
     private let finishWait: Duration
     /// Off in tests: they drive "offline" through the stub URLProtocol instead.

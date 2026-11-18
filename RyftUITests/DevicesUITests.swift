@@ -10,7 +10,7 @@ final class DevicesUITests: XCTestCase {
 
     private func launch(_ screen: String?, trackers: String? = nil, tab: String = "today") -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        var arguments = ["-demoMode", "YES", "-appearance", "dark", "-coachMarks.today.done", "YES",
+        var arguments = ["-demoMode", "YES", "-coachMarks.today.done", "YES",
                          "-RyftTab", tab, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if let screen { arguments += ["-RyftScreen", screen] }
         if let trackers { arguments += ["-RyftTrackers", trackers] }

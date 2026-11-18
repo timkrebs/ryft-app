@@ -69,16 +69,18 @@ struct OrbitGaugeBandTests {
     func theRailSitsInTheAirBetweenTheOuterRingAndTheInnerDots(_ dial: CGFloat) {
         #expect(G.drawsBandRail(Self.band, dial: dial))
         let m = G.metrics(forDial: dial)
-        let ringInner = m.outerRadius - m.outerStroke / 2
+        // Gauge v3: the outer ring's inner edge is its ticks' (6 long at 260, over the 3.5 arc).
+        let ringInner = m.outerRadius - max(m.outerStroke, m.outerTick.height) / 2
         let dotsOuter = m.innerRadius + m.dotRadius
         let railOuter = m.bandRadius + m.bandStroke / 2
         let railInner = m.bandRadius - m.bandStroke / 2
         #expect(railOuter < ringInner, "air to the outer ring at \(dial): \(ringInner - railOuter)")
         #expect(railInner > dotsOuter, "air to the inner dots at \(dial): \(railInner - dotsOuter)")
         #expect(ringInner - railOuter > 0.5 && railInner - dotsOuter > 0.5, "visible air at \(dial)")
-        #expect(m.bandStroke >= G.minStroke / 2 && m.bandStroke < m.outerStroke, "thinner than the ring at \(dial)")
-        // 69.5 on the 160 dial, scaled.
-        #expect(abs(m.bandRadius - 69.5 * dial / G.referenceDial) < 1e-9)
+        // 3 against 3.5 at 260; both at the 1.5 floor below S 112, so never wider.
+        #expect(m.bandStroke >= G.minStroke / 2 && m.bandStroke <= m.outerStroke, "no wider than the ring at \(dial)")
+        // 109.5 on the 260 board, scaled to the frame.
+        #expect(abs(m.bandRadius - 109.5 * (dial + 12) / G.referenceSide) < 1e-9)
     }
 
     // MARK: 2. tone
@@ -195,7 +197,7 @@ struct OrbitGaugeBandTests {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
-    private static let styles: [(String, UIUserInterfaceStyle)] = [("dark", .dark), ("light", .light)]
+    private static let styles: [(String, UIUserInterfaceStyle)] = [("dark", .dark)]
 
     @MainActor
     @Test func theColourPastTheBandIsAlertAndReachesThreeToOneOnTheTrack() {

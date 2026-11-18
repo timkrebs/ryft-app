@@ -9,7 +9,7 @@ final class TodayStatesUITests: XCTestCase {
 
     private func launch(_ scenario: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today",
                                "-coachMarks.today.done", "YES", "-RyftScenario", scenario,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
@@ -85,7 +85,10 @@ final class TodayStatesUITests: XCTestCase {
                        "never HealthKit's bare name")
         XCTAssertFalse(app.descendants(matching: .any)["today.watchHint"].exists, "one hint, never both")
         XCTAssertFalse(app.staticTexts["Last night hasn't reached RYFT yet."].exists, "the header says what the number is")
-        XCTAssertTrue(app.staticTexts["Yesterday's readiness, until last night is scored."].exists)
+        // The sentence ends the sub-line ("Tuesday, Nov 17 · …"), read with the greeting as one header element.
+        let intro = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "Yesterday's readiness, until last night is scored.")).firstMatch
+        XCTAssertTrue(intro.exists, "the sentence, in the intro")
     }
 
     /// A quiet Garmin Connect (14 h): the catalog's sentence on how it syncs replaces "Open the … app" (design.md §D3.4),

@@ -40,12 +40,12 @@ and you report the drift.
 6. **Errors:** status handling per `API.md` → Errors: `401` refresh once then sign out; `403` with
    `code` routes to the invite/consent gate; `429`/`503` honour `Retry-After` and never sign out; keep the
    request ID in every user-visible error's Details. Never "log in again" for anything but a final `401`.
-7. **Strings:** every user-facing string in `Localizable.xcstrings`, in English only (RYFT has no German), complete
+7. **Strings:** every user-facing string in `Localizable.xcstrings`, English and German (du-form), complete
    (`make lint`). Never the name of another wearable brand as a comparison; data sources (Apple Health,
    Garmin Connect, Oura …) only factually.
 8. **Design:** colours, type and spacing only from `Design/Theme.swift` / `Typography.swift` /
-   `ChartStyle`; dark first, light complete; contrast ≥ 4.5:1; Dynamic Type to AX3; VoiceOver labels on
-   gauges and charts; reduced motion respected. Every view has `#Preview`s in dark and light with mock data.
+   `ChartStyle`; dark only (ADR 0016); contrast ≥ 4.5:1; Dynamic Type to AX3; VoiceOver labels on
+   gauges and charts; reduced motion respected. Every view has dark `#Preview`s with mock data.
 9. **Honest states:** never a blank screen or a blocking spinner; pending, calibrating, offline, stale and
    gated states say what is happening and what (if anything) the user can do.
 10. **Git:** branch `feat|fix|chore|test|docs|ci/…` from fresh `main`, PR with `gh pr create --fill`,

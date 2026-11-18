@@ -361,7 +361,7 @@ enum SleepStageKind: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .deep: return String(localized: "Deep")
-        // Own key: "Light" is also the Appearance option, which German words differently.
+        // Own key, from when "Light" was also an Appearance option.
         case .light: return String(localized: "sleep.stage.light", defaultValue: "Light",
                                    comment: "Sleep stage (light / core sleep), in stage lists and the hypnogram.")
         case .rem: return String(localized: "REM")

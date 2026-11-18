@@ -424,7 +424,7 @@ struct SetTableHeader: View {
                 if usesWeight {
                     Group {
                         if loadType == .bodyweight {
-                            Text("+kg", comment: "Set table's column in a workout: load added to bodyweight. Shown uppercase.")
+                            Text("+kg", comment: "Set table's column in a workout: load added to bodyweight.")
                         } else {
                             Text("kg")
                         }
@@ -433,13 +433,11 @@ struct SetTableHeader: View {
                 }
                 Text("Reps").frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
             }
-            .textCase(.uppercase)
             .accessibilityHidden(true)
             if columns.hasFourth { fourth }
             Color.clear.frame(width: columns.check, height: 1).accessibilityHidden(true)
         }
         .font(.ryft(.label))
-        .tracking(columns.headerTracking)
         .foregroundStyle(Theme.textTertiary)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
@@ -501,8 +499,6 @@ struct LastTimeCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 heading
                     .font(.ryft(.label))
-                    .textCase(.uppercase)
-                    .tracking(columns.headerTracking)
                     .foregroundStyle(Theme.textTertiary)
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .padding(.horizontal, 14)
@@ -535,9 +531,9 @@ struct LastTimeCard: View {
     private var heading: some View {
         if let date {
             Text("Last time · \(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))",
-                 comment: "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov. Shown uppercase.")
+                 comment: "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov.")
         } else {
-            Text("Last time", comment: "Heading of the last-time card in a workout, without a date. Shown uppercase.")
+            Text("Last time", comment: "Heading of the last-time card in a workout, without a date.")
         }
     }
 
@@ -655,24 +651,12 @@ private func page(_ scenario: FocusedPreview.Scenario) -> some View {
     page(.midSession).previewEnvironment()
 }
 
-#Preview("Page · light") {
-    page(.midSession).previewEnvironment(scheme: .light)
-}
-
 #Preview("Page · a tapped row, dark") {
     page(.tappedRow).previewEnvironment()
 }
 
-#Preview("Page · a tapped row, light") {
-    page(.tappedRow).previewEnvironment(scheme: .light)
-}
-
 #Preview("Page · no history, dark") {
     page(.oneExercise).previewEnvironment()
-}
-
-#Preview("Page · no history, light") {
-    page(.oneExercise).previewEnvironment(scheme: .light)
 }
 
 #Preview("Page · all done") {
@@ -683,24 +667,16 @@ private func page(_ scenario: FocusedPreview.Scenario) -> some View {
     page(.warmups).previewEnvironment()
 }
 
-#Preview("Page · warm-ups open, light") {
-    page(.warmupsOpen).previewEnvironment(scheme: .light)
+#Preview("Page · warm-ups open, dark") {
+    page(.warmupsOpen).previewEnvironment()
 }
 
 #Preview("Page · bodyweight, dark") {
     page(.bodyweight).previewEnvironment()
 }
 
-#Preview("Page · bodyweight, light") {
-    page(.bodyweight).previewEnvironment(scheme: .light)
-}
-
 #Preview("Page · time and distance, dark") {
     page(.timeAndDistance).previewEnvironment()
-}
-
-#Preview("Page · time and distance, light") {
-    page(.timeAndDistance).previewEnvironment(scheme: .light)
 }
 
 #Preview("Page · AX3") {
@@ -720,27 +696,25 @@ private func largeText(_ typeSize: DynamicTypeSize, width: CGFloat = 390) -> som
     largeText(.accessibility3).previewEnvironment()
 }
 
-#Preview("Page · AX3, RPE line, light") {
-    largeText(.accessibility3).previewEnvironment(scheme: .light)
-}
-
 #Preview("Page · AX1 at 320 pt, dark", traits: .fixedLayout(width: 320, height: 693)) {
     largeText(.accessibility1, width: 320).previewEnvironment()
 }
 
-#Preview("Page · AX1 at 320 pt, light", traits: .fixedLayout(width: 320, height: 693)) {
-    largeText(.accessibility1, width: 320).previewEnvironment(scheme: .light)
+/// A card on the page's background, 390 pt wide, dark.
+@MainActor
+private func lastTimePreview(_ card: LastTimeCard) -> some View {
+    card
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
 }
 
-#Preview("Last time · dark and light", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        LastTimeCard(sets: FocusedPreview.lastTime, loadType: .weight, columns: .regular, column: .rpe, onTap: {})
-    }
+#Preview("Last time · dark", traits: .sizeThatFitsLayout) {
+    lastTimePreview(LastTimeCard(sets: FocusedPreview.lastTime, loadType: .weight, columns: .regular, column: .rpe, onTap: {}))
 }
 
 #Preview("Last time · over six sets, no date", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        LastTimeCard(sets: (0..<8).map { SessionSet(setIndex: $0, reps: 12 - $0, weightKg: 75) }, loadType: .weight, columns: .compact,
-                     column: .e1rm, onTap: {})
-    }
+    lastTimePreview(LastTimeCard(sets: (0..<8).map { SessionSet(setIndex: $0, reps: 12 - $0, weightKg: 75) }, loadType: .weight,
+                                 columns: .compact, column: .e1rm, onTap: {}))
 }

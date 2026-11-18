@@ -336,13 +336,14 @@ struct OrbitGaugeDrawingRenderTests {
     }
 
     @Test func theBandRuleIsTheAppsRule() {
-        // 67 and 34 are the lower bounds (`Theme.band(forScore:)`, `MetricSpec.scoreBand`).
-        let p = OrbitGaugePalette.assets
-        for (score, expected) in [(100, p.high), (67, p.high), (66, p.moderate), (34, p.moderate), (33, p.low), (0, p.low)] {
-            #expect(p.band(forReadiness: score) == expected, "readiness \(score)")
-            #expect(Theme.band(forScore: score) == expected, "readiness \(score)")
-        }
-        #expect(p.band(forReadiness: nil) == p.noReadiness && Theme.band(forScore: nil) == p.noReadiness)
+        // The widget's band word switches at these lower bounds, where `Theme.band(forScore:)` does.
+        let high = OrbitGaugePalette.highFrom, moderate = OrbitGaugePalette.moderateFrom
+        #expect(high == 67 && moderate == 34)
+        #expect(Theme.band(forScore: high) == Theme.band(forScore: 100))
+        #expect(Theme.band(forScore: high - 1) != Theme.band(forScore: high))
+        #expect(Theme.band(forScore: moderate) == Theme.band(forScore: high - 1))
+        #expect(Theme.band(forScore: moderate - 1) != Theme.band(forScore: moderate))
+        #expect(OrbitGaugePalette.assets.strainPastBand == Theme.band(forScore: 0))
     }
 }
 
@@ -424,12 +425,18 @@ struct OrbitGaugeNumberFitTests {
         #expect(width("71", font) <= slot + 0.5, "dial \(dial)")
     }
 
-    @Test(arguments: [OrbitGaugeSize.small, .medium, .large])
+    /// The app's Light numeral (gauge v3: 0.2 x S, the minimum scale 0.5) where the dot grid does not fit; at the
+    /// largest text size it grows with the large title and the minimum scale still keeps "100" inside.
+    @Test(arguments: [OrbitGaugeSize.small, .medium, .large, .custom(dial: 248)])
     func inTheApp(_ size: OrbitGaugeSize) {
         let slot = OrbitGaugeGeometry.metrics(forDial: size.dial).centreSlotWidth
-        let font = Font.ryftNumber(size: size.dial * 0.19)
-        #expect(width("100", font) * 0.6 <= slot, "\(size)")
+        let font = Font.ryftNumber(size: OrbitGauge.lightNumeralSize(side: size.frame))
+        #expect(width("100", font) * 0.5 <= slot, "\(size)")
         #expect(width("71", font) <= slot, "\(size)")
+        let largest = UIFontMetrics(forTextStyle: .largeTitle).scaledValue(
+            for: 1, compatibleWith: UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge))
+        let grown = Font.ryftNumber(size: OrbitGauge.lightNumeralSize(side: size.frame, scale: largest))
+        #expect(width("100", grown) * 0.5 <= slot, "\(size) at AX5 (x \(largest))")
     }
 
     @Test func theNumberThresholdIsShared() {

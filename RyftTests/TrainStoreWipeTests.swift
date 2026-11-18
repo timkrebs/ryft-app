@@ -416,7 +416,12 @@ struct TrainStoreWipeTests {
 
         disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        #expect(deleted.isSuperset(of: rows))
+        withKnownIssue("iOS 17: ModelContext.didSave carries no deleted identifiers, so this can't see the deletes") {
+            #expect(deleted.isSuperset(of: rows))
+        } when: {
+            if #unavailable(iOS 18) { return true }
+            return false
+        }
     }
 
     /// The throw behind `try?` leaves nothing but this log line, so the log is where it can be seen. A failed batch
@@ -516,11 +521,11 @@ struct TrainStoreWipeTests {
         rig.store.enqueue(.put, sessionID: rig.session.id, account: "test")
         #expect(rig.store.pendingOps().count == 1)
         let generation = rig.sync.generation
-        let epoch = rig.store.epoch
+        let epoch = rig.store.epoch.current
 
         rig.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        #expect(rig.store.epoch == epoch + 1)
+        #expect(rig.store.epoch.current == epoch + 1)
         #expect(rig.sync.generation != generation)
         #expect(rig.store.pendingOps().isEmpty)
         await rig.sync.flush()

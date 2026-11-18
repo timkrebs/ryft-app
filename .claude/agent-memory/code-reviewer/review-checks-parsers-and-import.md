@@ -40,3 +40,8 @@ build tree while a background mutation build is running.
 
 **Why:** none showed in the green suite. **How to apply:** any PR adding a parser, importer or zone math. See
 [[review-checks-numeric-pipelines]], [[review-checks-wire-drafts-and-flags]].
+
+- **Python mirrors of Swift text rules** (trackers.py `text_refusal`, 2026-10-31): stdlib has no Script property, so
+  "LATIN in the name" stands in for `\p{Script=Latin}`. Punctuation/digits/symbols (· – ’ „ “ ° ×) are fine (not L*),
+  but it wrongly refuses Common/Latin letters µ ª º ʼ ℓ, and it misses non-letters of other scripts (Arabic digits,
+  Cyrillic marks) that Swift refuses. Probe with real characters via `importlib` on the script, not by reading.

@@ -150,6 +150,77 @@ extension RyftMarkGeometry {
     }
 }
 
+// MARK: path builders
+
+extension RyftMarkGeometry {
+    /// Where the mark sits in a rect: the 100 box centred in it at the rect's shorter side, the box unit in points and
+    /// the optical metrics for that side. Every path builder below takes one, so `RyftMarkShape` and the launch
+    /// (Nocturne PR 3, which draws the mark's arcs and dots at angles of its own) draw from one geometry.
+    struct Placement {
+        let centre: CGPoint
+        /// Points per box unit: side / 100.
+        let unit: CGFloat
+        let metrics: Metrics
+
+        init(in rect: CGRect) {
+            let side = min(rect.width, rect.height)
+            centre = CGPoint(x: rect.midX, y: rect.midY)
+            unit = side / RyftMarkGeometry.box
+            metrics = RyftMarkGeometry.metrics(forSide: Double(side))
+        }
+    }
+
+    /// One arc of a ring as the mark draws it, already stroked (round caps, the metrics' stroke): from `start` to
+    /// `end` degrees (0 = 3 o'clock), clockwise. `radius` in box units.
+    static func arcPath(radius: Double, start: Double, end: Double, in placement: Placement) -> Path {
+        var arc = Path()
+        // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
+        arc.addArc(center: placement.centre, radius: radius * placement.unit,
+                   startAngle: .degrees(start), endAngle: .degrees(end),
+                   clockwise: false)
+        return arc.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit, lineCap: .round))
+    }
+
+    /// A dot of the metrics' radius, centred on a ring of `radius` (box units) at `degrees` (0 = 3 o'clock).
+    static func dotPath(radius: Double, degrees: Double, in placement: Placement) -> Path {
+        let r = degrees * .pi / 180
+        let c = placement.centre, u = placement.unit
+        let pt = CGPoint(x: c.x + radius * u * cos(r), y: c.y + radius * u * sin(r))
+        let dr = placement.metrics.dotRadius * u
+        var p = Path()
+        p.addEllipse(in: CGRect(x: pt.x - dr, y: pt.y - dr, width: dr * 2, height: dr * 2))
+        return p
+    }
+
+    /// The closed inner ring, stroked; empty where the metrics drop it (below `innerRingMinSide`).
+    static func innerRingPath(in placement: Placement) -> Path {
+        guard placement.metrics.showsInnerRing else { return Path() }
+        return ringPath(radius: innerRadius, in: placement)
+    }
+
+    /// A closed ring of `radius` (box units) at the metrics' stroke: the inner ring, and the launch's tracks under the
+    /// three rings.
+    static func ringPath(radius: Double, in placement: Placement) -> Path {
+        let c = placement.centre, r = radius * placement.unit
+        var ring = Path()
+        ring.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+        return ring.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit))
+    }
+
+    /// Part of the inner ring, stroked with butt caps (the ring closes without a cap showing where it ends): from
+    /// `start` degrees clockwise over `sweep`. A sweep of 360 or more is the closed ring, `innerRingPath(in:)`, so the
+    /// launch's last frame is the mark's pixels; nothing for a sweep of 0 or where the metrics drop the ring.
+    static func innerRingArcPath(start: Double, sweep: Double, in placement: Placement) -> Path {
+        guard placement.metrics.showsInnerRing, sweep > 0 else { return Path() }
+        guard sweep < 360 else { return innerRingPath(in: placement) }
+        var arc = Path()
+        // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
+        arc.addArc(center: placement.centre, radius: innerRadius * placement.unit,
+                   startAngle: .degrees(start), endAngle: .degrees(start + sweep), clockwise: false)
+        return arc.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit, lineCap: .butt))
+    }
+}
+
 struct RyftMarkShape: Shape {
     /// nil = the whole mark (the app's single path); a part = only that part, same geometry.
     var part: RyftMarkGeometry.Part?
@@ -159,28 +230,17 @@ struct RyftMarkShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let side = min(rect.width, rect.height)
         let g = RyftMarkGeometry.self
-        let m = g.metrics(forSide: Double(side))
-        let u = side / g.box
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let style = StrokeStyle(lineWidth: m.stroke * u, lineCap: .round)
+        let placement = RyftMarkGeometry.Placement(in: rect)
+        let m = placement.metrics
         func wants(_ candidate: RyftMarkGeometry.Part) -> Bool { part == nil || part == candidate }
 
         var p = Path()
         func arc(_ ring: RyftMarkGeometry.Ring, _ a: (start: Double, end: Double)) {
-            var arc = Path()
-            // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
-            arc.addArc(center: c, radius: ring.radius * u,
-                       startAngle: .degrees(a.start), endAngle: .degrees(a.end),
-                       clockwise: false)
-            p.addPath(arc.strokedPath(style))
+            p.addPath(g.arcPath(radius: ring.radius, start: a.start, end: a.end, in: placement))
         }
         func dot(_ ring: RyftMarkGeometry.Ring, _ d: Double) {
-            let r = d * .pi / 180
-            let pt = CGPoint(x: c.x + ring.radius * u * cos(r), y: c.y + ring.radius * u * sin(r))
-            let dr = m.dotRadius * u
-            p.addEllipse(in: CGRect(x: pt.x - dr, y: pt.y - dr, width: dr * 2, height: dr * 2))
+            p.addPath(g.dotPath(radius: ring.radius, degrees: d, in: placement))
         }
         if wants(.strainRing) { g.arcs(of: g.outer, metrics: m).forEach { arc(g.outer, $0) } }
         if wants(.strainDot) { g.outer.dots.forEach { dot(g.outer, $0) } }
@@ -191,12 +251,7 @@ struct RyftMarkShape: Shape {
         if wants(.recoveryArc), middleArcs.indices.contains(1) { arc(g.middle, middleArcs[1]) }
         if wants(.sleepDot) { dot(g.middle, g.middle.dots[0]) }
         if wants(.recoveryDot) { dot(g.middle, g.middle.dots[1]) }
-        if wants(.readinessRing), m.showsInnerRing {
-            let ir = g.innerRadius * u
-            var inner = Path()
-            inner.addEllipse(in: CGRect(x: c.x - ir, y: c.y - ir, width: ir * 2, height: ir * 2))
-            p.addPath(inner.strokedPath(StrokeStyle(lineWidth: m.stroke * u)))
-        }
+        if wants(.readinessRing) { p.addPath(g.innerRingPath(in: placement)) }
         return p
     }
 }
@@ -224,18 +279,5 @@ struct RyftMark: View {
     .padding(32)
     .background(Theme.background)
     .preferredColorScheme(.dark)
-}
-
-#Preview("Mark · light", traits: .sizeThatFitsLayout) {
-    HStack(alignment: .center, spacing: 24) {
-        RyftMark().frame(width: 120)
-        RyftMark().frame(width: 44).foregroundStyle(Theme.accent)
-        RyftMark().frame(width: 24)
-        RyftMark().frame(width: 18)
-    }
-    .foregroundStyle(Theme.textPrimary)
-    .padding(32)
-    .background(Theme.background)
-    .preferredColorScheme(.light)
 }
 #endif

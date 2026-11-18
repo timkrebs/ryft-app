@@ -231,9 +231,10 @@ final class TrainStore {
     // MARK: account
 
     /// Log out / account switch: everything Train goes.
-    /// Bumped by `wipe()`: work started before it (an upload's answer) must not write into rows the
-    /// wipe deleted (`TrainSyncService.Generation`).
-    private(set) var epoch = 0
+    /// Advanced by `wipe()` first: work started before it (an upload's answer, a read-model write) must not write into
+    /// rows the wipe deleted (`TrainSyncService.Generation`, `ReadModelDrain`). The read-model writer saves inside it, so
+    /// the wipe waits for a save in progress, then deletes what it saved.
+    let epoch = StoreEpoch()
 
     @discardableResult
     func wipe() -> Bool {
@@ -263,7 +264,7 @@ final class TrainStore {
     /// outside this store is covered. A store that was asked to run in memory reports true: it has no file to reach.
     @discardableResult
     func wipe(parkingActivitiesOf account: String?, at now: Date) -> Bool {
-        epoch += 1
+        epoch.advance()
         // An array, so every step runs, in this order, whatever the ones before it did.
         let steps = [
             // One by one, the way `PendingImport` goes below. A batch delete of `LocalSet` or `LocalSessionExercise`

@@ -619,16 +619,16 @@ struct ScheduledWorkTests {
         #expect(notifier.requests.isEmpty)
     }
 
-    @Test func compactionDropsOldDaysAndUnusedDetails() throws {
+    @Test func compactionDropsOldDaysAndUnusedDetails() async throws {
         let clock = TestClock(now: .now)
         let env = AppEnvironment.test(clock: clock)
         let repo = Repository(env: env)
         let now = clock.now()
         repo.store(scores: [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -400))),
                             DailyScore(day: DayFormat.string(from: now))])
-        repo.store(workout: MockData.workoutDetail(MockData.todayDetail.workouts[0]))
+        await repo.store(workout: MockData.workoutDetail(MockData.todayDetail.workouts[0])).committed()
         clock.advance(by: .seconds(31 * 86_400))
-        let removed = repo.compact()
+        let removed = await repo.compact()
         #expect(removed >= 2)
         #expect(repo.history(from: DayFormat.shift(clock.now(), days: -500), to: clock.now()).count == 1)
         #expect(repo.workout(MockData.todayDetail.workouts[0].id) == nil)
@@ -914,6 +914,137 @@ struct BackgroundWorkTests {
         #expect(await run.value.cancelled)
         await finishing.value
         #expect(app.ended.count == 1) // ended once, not twice
+    }
+
+    /// ADR 0018: iOS may suspend the app at a task's completion, so it comes once the read-model writes submitted so
+    /// far are readable (Today and the widget current).
+    @Test func theBackfillTaskCompletesAfterTheReadModelWritesSettle() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true, false]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let run = Task {
+            await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { nil }, schedule: { _ in },
+                                             settled: { await repository.settled() })
+        }
+        #expect(await eventually { steps.count("upload") == 2 })
+        #expect(await eventually(timeout: .milliseconds(300)) { task.completed != nil } == false)
+
+        hold.open()
+        await run.value
+        #expect(task.completed == true)
+        #expect(repository.day("2026-10-19") != nil)
+    }
+
+    @Test func leavingTheAppEndsItsBackgroundTimeAfterTheReadModelWritesSettle() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: FakeSteps(clock: clock), clock: clock)
+        let app = FakeApp()
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let finishing = BackgroundWork.finishInBackground(coordinator: c, app: app, backlogBytes: { nil }, schedule: { _ in },
+                                                          settled: { await repository.settled() })
+        #expect(app.begun == 1)
+        #expect(await eventually(timeout: .milliseconds(300)) { !app.ended.isEmpty } == false)
+
+        hold.open()
+        await finishing.value
+        #expect(app.ended.count == 1)
+    }
+
+    /// A run that touches no day: it doesn't wait for scoring, on a clock of its own.
+    private static func unscoredSteps() -> FakeSteps {
+        let steps = FakeSteps(clock: TestClock())
+        steps.touched = []
+        return steps
+    }
+
+    /// The wait for the writes before a completion is bounded (`Repository.settledBeforeCompletion`, as the app wires
+    /// it): at the bound the writes pause, and the refresh task completes once the batch in progress is done, without
+    /// the ones queued behind it (they go when the app runs again).
+    @Test(.timeLimit(.minutes(1)))
+    func theRefreshTaskCompletesAtTheWaitsBoundAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let completion = BackgroundWork.runRefresh(task, coordinator: c,
+                                                   settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 })
+        #expect(task.completed == nil)
+
+        clock.advance(by: Repository.completionWait)
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil) // deterministic: the batch in progress is held, and the completion follows it
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(task.completed == true)
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
+        await completion.value
+    }
+
+    /// At the refresh task's expiry the wait for the writes stops: the time left is for the completion, after the batch
+    /// in progress.
+    @Test(.timeLimit(.minutes(1)))
+    func theRefreshTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let completion = BackgroundWork.runRefresh(task, coordinator: c,
+                                                   settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // waiting for the writes
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
+        await completion.value
+    }
+
+    /// The same for the backfill task, expiring while it waits for the writes.
+    @Test(.timeLimit(.minutes(1)))
+    func theBackfillTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let c = SyncCoordinator(steps: Self.unscoredSteps(), clock: TestClock())
+        let task = FakeBGTask()
+        let (repository, hold, _) = await repositoryWithAHeldWriteAndOneQueued(clock: clock)
+        let run = Task {
+            await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { nil }, schedule: { _ in },
+                                             settled: { await repository.settledBeforeCompletion() })
+        }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // waiting for the writes
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(hold.entered == 1 && repository.day(queuedDay) == nil)
+        await run.value
+    }
+
+    /// The compaction task: its expiry stops the compaction's wait and the one for the writes, and it completes after
+    /// the batch in progress.
+    @Test(.timeLimit(.minutes(1)))
+    func theCompactionTaskCompletesAtItsExpiryAfterTheBatchInProgress() async {
+        let clock = TestClock()
+        let task = FakeBGTask()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let completion = BackgroundWork.runCompaction(task, compact: { await repository.compact() },
+                                                      settled: { await repository.settledBeforeCompletion() })
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 }) // the compaction waits for its write
+
+        task.expirationHandler?()
+        #expect(await eventually(timeout: .seconds(5)) { repository.writesPaused })
+        #expect(task.completed == nil)
+        hold.open()
+        #expect(await eventually(timeout: .seconds(5)) { task.completed != nil })
+        #expect(task.completed == false)
+        await completion.value
     }
 }
 
@@ -1911,7 +2042,7 @@ struct ReadSchedulerWaiterTests {
         let api = MockPlatformAPI()
         let (env, state, clock) = readGraph(api: api)
         let yesterday = DayFormat.string(from: DayFormat.shift(clock.now(), days: -1))
-        state.repository.store(scores: [DailyScore(day: yesterday)])
+        await state.repository.store(scores: [DailyScore(day: yesterday)]).committed()
         #expect(env.reads.states[.history] == nil)
         #expect(state.resourceStates[.history]?.fetchedAt == clock.now())
 
@@ -2270,6 +2401,29 @@ struct ReadRecordSuspensionTests {
                                     reads: env.reads)
         _ = await AppDelegate.refresh(day: DayFormat.string(from: clock.now()), handlers: handlers)
         #expect(ReadScheduler(env: env).states[.insights]?.consecutiveFailures == 1)
+    }
+
+    /// ADR 0018: the completion handler comes once the read-model writes submitted so far are readable.
+    @Test func aSilentPushEndsAfterTheReadModelWritesSettle() async {
+        let (env, state, clock) = readGraph()
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)), clock: clock)
+        let router = DeepLinkRouter(state: state, sleep: SleepViewModel(state: state),
+                                    strain: StrainViewModel(state: state, store: TrainStore(inMemory: true)),
+                                    insights: InsightsViewModel(state: state))
+        let (repository, hold) = await repositoryWithAHeldWrite()
+        let handlers = PushHandlers(registrar: PushRegistrar(env: env), router: router, coordinator: coordinator,
+                                    reads: env.reads, settled: { await repository.settled() })
+        let ended = Recorded<Bool>()
+        let refresh = Task {
+            _ = await AppDelegate.refresh(day: DayFormat.string(from: clock.now()), handlers: handlers)
+            ended.append(true)
+        }
+        #expect(await eventually(timeout: .milliseconds(500)) { ended.count == 1 } == false)
+
+        hold.open()
+        await refresh.value
+        #expect(ended.count == 1)
+        #expect(repository.day("2026-10-19") != nil)
     }
 
     /// Nothing waiting: nothing is written.

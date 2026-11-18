@@ -46,10 +46,14 @@ struct RyftApp: App {
     @State private var trainSync = TrainSyncService.shared
     @State private var trainCoordinator = TrainCoordinator.shared
     @State private var connectivity = ConnectivityMonitor.shared
+    /// The launch sequence, for the life of the process (ADR 0017): a re-created scene reads it terminal.
+    @State private var launch: LaunchSequenceModel
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         LaunchSignpost.begin()
+        // Read once: the coordinator and the launch sequence's decision both use it.
+        let launchedInBackground = UIApplication.shared.applicationState == .background
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
@@ -64,7 +68,7 @@ struct RyftApp: App {
         // coordinator starts there; the scene's activation brings it to the foreground.
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared),
                                           clock: AppEnvironment.live.clock,
-                                          inBackground: UIApplication.shared.applicationState == .background) {
+                                          inBackground: launchedInBackground) {
             // A run in the background left a backlog: the backfill task takes it.
             if let left = SyncService.shared.backlogBytes { BackgroundWork.scheduleBackfill(backlogBytes: left) }
         }
@@ -94,11 +98,15 @@ struct RyftApp: App {
                                     }
                                 },
                                 expired: { [uploader = state.env.uploader] in uploader.stopReplay() },
-                                compact: { [state, bedtime = screens.bedtime] in
-                                    let activities = state.env.activities
-                                    state.repository.compact()
+                                settled: { [repository = state.repository] in
+                                    await repository.settledBeforeCompletion()
+                                },
+                                compact: { [repository = state.repository, activities = state.env.activities,
+                                            auth = state.env.auth, train = TrainCoordinator.shared,
+                                            bedtime = screens.bedtime] in
+                                    await repository.compact()
                                     // A background-only run reaches an owed wipe here.
-                                    await AuthService.shared.finishOwedWipe(train: .shared, bedtime: bedtime)
+                                    await auth.finishOwedWipe(train: train, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
                                     activities.deleteExpiredParked()
                                 })
@@ -115,7 +123,17 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
-        WorkoutLauncher.updateShortcutItems(resume: TrainCoordinator.shared.active != nil)
+        let workoutActive = TrainCoordinator.shared.active != nil
+        WorkoutLauncher.updateShortcutItems(resume: workoutActive)
+        // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
+        // first `.active`; nothing waits for it. Links, notifications and quick actions at connect end it
+        // (`QuickActionSceneDelegate`).
+        let launch = LaunchSequenceModel(
+            decision: LaunchPolicy.decide(.current(launchedInBackground: launchedInBackground,
+                                                   workoutActive: workoutActive)),
+            clock: AppEnvironment.live.clock)
+        _launch = State(initialValue: launch)
+        LaunchInterruptions.post = { [launch] in launch.send(.interrupted($0)) }
         // "Open in" never interrupts a workout: the file waits (ui.md E7).
         screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
         Self.configureAppearance()
@@ -135,7 +153,8 @@ struct RyftApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            // The launch sequence over the root, never instead of it (ADR 0017).
+            LaunchHost(model: launch) { RootView() }
                 .environment(\.appEnvironment, env)
                 .environment(screens)
                 .environment(settings)
@@ -146,7 +165,9 @@ struct RyftApp: App {
                 .environment(trainSync)
                 .environment(trainCoordinator)
                 .environment(connectivity)
-                .preferredColorScheme(settings.appearance.colorScheme)
+                // Dark only (NOCTURNE_STYLE §1). `UIUserInterfaceStyle` in Info.plist does the same for the
+                // launch screen, alerts, share sheets and the rest of UIKit's chrome.
+                .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
@@ -246,7 +267,10 @@ struct RyftApp: App {
                 }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
-                                                        coordinator: coordinator, reads: state.env.reads)
+                                                        coordinator: coordinator, reads: state.env.reads,
+                                                        settled: { [repository = state.repository] in
+                                                            await repository.settledBeforeCompletion()
+                                                        })
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -278,6 +302,8 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                // Writes paused at a background completion go on: iOS doesn't suspend the app in the foreground.
+                state.repository.resumeWrites()
                 (env.flags as? FlagStore)?.applyPending()
                 Task {
                     await coordinator.enterForeground()
@@ -331,13 +357,18 @@ struct RyftApp: App {
                     await screens.trainImport.appBecameActive()
                 }
             } else if phase == .background {
+                // A reopen within 10 minutes, even of an evicted process, shows no launch sequence (L9).
+                LaunchContext.recordBackground(at: env.clock.now())
                 // What failed in the last 1.5 s is still waiting for its coalesced save: write it
                 // before iOS may suspend (or kill) the app.
                 state.env.reads.savePendingNow()
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
-                                                      backlogBytes: { sync.backlogBytes })
+                                                      backlogBytes: { sync.backlogBytes },
+                                                      settled: { [repository = state.repository] in
+                                                          await repository.settledBeforeCompletion()
+                                                      })
                 // An activity upload in flight finishes too; the rest waits for the next trigger.
                 env.uploader.finishInBackground(app: UIApplication.shared)
                 screens.trainImport.finishInBackground(app: UIApplication.shared)
@@ -384,7 +415,9 @@ struct RyftApp: App {
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`
-    /// delivery (every launch, idempotent). A delivery completes right after its upload.
+    /// delivery (every launch, idempotent). A delivery completes right after its upload: HealthKit stops delivering
+    /// after three late completions, and the run's own read-model writes come after it anyway (the refreshes follow
+    /// the upload), so waiting for the writes would delay it for none of them.
     @MainActor
     static func observeHealthKit(_ health: HealthStore, coordinator: SyncCoordinator) {
         health.startObserving { done in
@@ -401,7 +434,7 @@ struct RyftApp: App {
 
     // MARK: appearance
 
-    /// Inactive tab items in Mist (or Graphite in light mode) at 50 %.
+    /// Inactive tab items in TextPrimary at 50 %.
     private static func configureAppearance() {
         let inactive = UIColor { traits in
             let base = UIColor(named: "TextPrimary") ?? .label
@@ -425,16 +458,6 @@ struct RyftApp: App {
     }
 }
 
-extension Settings.Appearance {
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return nil
-        }
-    }
-}
-
 /// Welcome until there's a session (or demo data); then what onboarding still needs
 /// (invite, consent, about you, Apple Health), then the tabs.
 struct RootView: View {
@@ -444,6 +467,7 @@ struct RootView: View {
     @Environment(AuthService.self) private var auth
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
+    @Environment(\.launchInterrupt) private var launchInterrupt
 
     var body: some View {
         Group {
@@ -461,6 +485,16 @@ struct RootView: View {
         }
         // "Send to RYFT" on the refresh Details sheet (Today's error card).
         .environment(\.reportProblemDestination, reportProblem)
+        // A sheet or cover never slides over the launch sequence: it skips it, or hands off at once (ADR 0017).
+        .onChange(of: presentsSomething, initial: true) { _, presents in
+            if presents { launchInterrupt(.presentation) }
+        }
+    }
+
+    /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
+    private var presentsSomething: Bool {
+        onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
+            || screens.importer.flow != nil || screens.importer.showsUnavailable
     }
 
     /// Report a problem, pre-filled with what failed, pushed onto the Details sheet's stack.
@@ -840,6 +874,8 @@ enum LaunchSignpost {
     static func screenAppeared() {
         guard !presented else { return }
         NextFrame.after {
+            // Once: `presented` is set here. Under a playing launch sequence too, which proves startup doesn't wait.
+            if !presented { Signposts.launch.emitEvent("first-screen") }
             presented = true
             let resumed = waiting
             waiting = []
@@ -895,14 +931,6 @@ struct SplashView: View {
     SplashView().preferredColorScheme(.dark)
 }
 
-#Preview("Splash · light") {
-    SplashView().preferredColorScheme(.light)
-}
-
 #Preview("App · dark") {
     RootView().previewEnvironment()
-}
-
-#Preview("App · light") {
-    RootView().previewEnvironment(scheme: .light)
 }

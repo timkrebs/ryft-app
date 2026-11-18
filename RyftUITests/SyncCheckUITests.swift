@@ -14,7 +14,7 @@ final class SyncCheckUITests: XCTestCase {
     private func launch(_ arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
         app.launchArguments = ["-demoMode", "YES"] + arguments
-            + ["-appearance", "dark", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            + ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         return app
     }

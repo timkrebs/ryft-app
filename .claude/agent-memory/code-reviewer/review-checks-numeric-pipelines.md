@@ -65,3 +65,8 @@ output. Never write into another agent's scratch dir (an implementer's `harness/
 
 **Why:** none of these showed in the PR's own green run. **How to apply:** any PR with a numeric core + synthetic
 fixtures (tracks, scores, HR). See [[review-checks-wire-drafts-and-flags]].
+
+New orbit mark review (2026-10-28): **size-dependent gaps can invert an arc.** A gap that grows with an optical
+scale k (halfGap = 2 asin(chord(k)/2R)) makes start > end on the shortest arc at small sides; CG/SwiftUI addArc then
+draws the long way (~354 deg) over the dots. Hand-compute the shortest arc at every real caller size (grep .frame) —
+RyftMark inverted below ~19 pt while three callers use 18. Also ask for a unit test of the pure geometry fn.
