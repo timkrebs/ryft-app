@@ -82,13 +82,14 @@ struct ReadModelContextFactsTests {
     // MARK: T0.1 (F8): which thread a model actor's job runs on
     //
     // The OS decides differently, so both the place an actor is made and the place it's awaited matter:
-    // - iOS 17.0: the thread that made the actor. One made off the main actor runs off it even when awaited from main;
-    //   one made on the main actor runs on it even when awaited from a `@concurrent` function.
+    // - iOS 17.0, measured before ADR 0021: the thread that made the actor. One made off the main actor runs off it
+    //   even when awaited from main; one made on the main actor runs on it even when awaited from a `@concurrent`
+    //   function.
     // - iOS 27.2: the thread that awaits it. Its `DefaultSerialModelExecutor` runs each job synchronously on the thread
     //   that enqueued it, under the context's own queue (the queue label is the `NSManagedObjectContext`'s). Awaited
     //   from the main actor, a job runs on the main thread even for an actor made off it; awaited from a `@concurrent`
     //   function, it runs off the main thread even for an actor made on it.
-    // - iOS 18–26: not measured, so the two observations below assert nothing there.
+    // - iOS 18.6–26: not measured, so the two observations below assert nothing there.
     // The invariant holds on both measured OSes, and it's the one the app relies on (`ReadModelDrain` makes and awaits
     // its writer on its own executor): an actor made off the main actor and awaited off it runs its jobs off it.
 
@@ -111,10 +112,6 @@ struct ReadModelContextFactsTests {
             #expect(madeOffRanOnMain)
             #expect(madeOnRanOnMain)
         }
-        if #unavailable(iOS 18) { // the making thread decides
-            #expect(!madeOffRanOnMain)
-            #expect(madeOnRanOnMain)
-        }
     }
 
     /// Observation: a job of an actor made on the main actor, awaited from a `@concurrent` function.
@@ -124,7 +121,6 @@ struct ReadModelContextFactsTests {
         let ranOnMain = try await ContextFactsWriter.upsertOffMain(madeOn, Self.days(3), score: Data("c".utf8),
                                                                    at: Self.now)
         if #available(iOS 27, *) { #expect(!ranOnMain) } // the awaiting thread decides
-        if #unavailable(iOS 18) { #expect(ranOnMain) } // the making thread decides
     }
 
     // MARK: T0.2 (F9, F10)

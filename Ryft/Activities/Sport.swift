@@ -32,7 +32,8 @@ extension Sport {
         case foot, cycle, water, gym, snow, ball, other
     }
 
-    /// The HealthKit quantity a recording of the sport saves its distance as (iOS 17's types).
+    /// The HealthKit quantity a recording of the sport saves its distance as. iOS 18 adds rowing, paddle-sports,
+    /// cross-country-skiing and skating distances; none is adopted yet.
     enum DistanceType: CaseIterable, Sendable {
         case walkingRunning, cycling, downhillSnowSports, swimming
 
@@ -48,7 +49,7 @@ extension Sport {
 
     /// One row of the table.
     struct Spec: Sendable {
-        /// SF Symbol (iOS 16 or older, so it exists on iOS 17; ui.md §3.2).
+        /// SF Symbol that exists on iOS 18.6, the deployment target (`SportCatalogTests`; ui.md §3.2).
         let symbol: String
         let family: Family
         let healthKit: HKWorkoutActivityType

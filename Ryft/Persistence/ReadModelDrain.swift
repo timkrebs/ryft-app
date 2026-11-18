@@ -92,8 +92,9 @@ private final class TicketBox: Sendable {
 /// - **Batches** never span a store, an epoch or a seed: one save each, and one revision bump per kind.
 /// - **Off the main actor, by structure**: the writer is private to this file, and only this actor makes it and awaits
 ///   it, both on its own executor. Which of the two decides a `@ModelActor` job's thread depends on the OS (T0.1): the
-///   thread that made the actor on iOS 17.0, the thread that awaits it on iOS 27.2. Made and awaited off main, its jobs
-///   run off main on both, and no main-actor code can reach one.
+///   thread that made the actor on iOS 17.0 (iOS 18 is reported to do the same; unmeasured on 18.6), the thread that
+///   awaits it on iOS 27.2. Made and awaited off main, its jobs run off main under either rule, and no main-actor code
+///   can reach one.
 /// - **The wipe**: a batch whose epoch is over is dropped; the writer saves inside `StoreEpoch.ifCurrent`; a new epoch or
 ///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed. A writer whose epoch is
 ///   over goes when the drain falls idle and at `retireWiped()` (the Repository's `invalidate()`), so the rows its
@@ -296,7 +297,8 @@ actor ReadModelDrain {
             writer = cached.writer
         } else {
             // The first write, a wipe or a seed: a context that holds nothing from before. Made here, on this actor's
-            // executor: on iOS 17 the thread that makes a model actor runs its jobs (T0.1).
+            // executor: where the maker decides (iOS 17.0, reportedly 18), the thread that makes a model actor runs its
+            // jobs (T0.1).
             queue.withLock { $0.hooks }.writerMade?(MainThread.isCurrent)
             MainThread.assertOff("Making a read-model writer")
             writer = ReadModelWriter(modelContainer: first.target.container)
@@ -327,8 +329,8 @@ private actor ReadModelWriter {
     /// Applies `items` in order and saves once, inside `epoch.ifCurrent(batchEpoch)`. A wipe in between: `dropped`. A
     /// refused save: nothing saved; the kinds still go to the readers, who read what the store has. Neither is rolled
     /// back: on iOS 17.0 rolling back a refused change to rows the store has (the user's delete and insert in the older
-    /// of two containers, T0.6) traps inside SwiftData. The drain lets go of this writer instead, and of the change in
-    /// its context (`ReadModelDrain.write`).
+    /// of two containers, T0.6) traps inside SwiftData (unmeasured on 18.6). The drain lets go of this writer instead,
+    /// and of the change in its context (`ReadModelDrain.write`).
     func apply(_ items: [ReadModelWriteItem], batchEpoch: Int, of epoch: StoreEpoch,
                hooks: ReadModelDrain.Hooks) -> WriteReceipt {
         hooks.job?(MainThread.isCurrent)
