@@ -40,6 +40,15 @@ struct SignedOutOnboardingTests {
         }
     }
 
+    private static func navigationController(in controller: UIViewController?) -> UINavigationController? {
+        guard let controller else { return nil }
+        if let nav = controller as? UINavigationController { return nav }
+        for child in controller.children {
+            if let nav = navigationController(in: child) { return nav }
+        }
+        return navigationController(in: controller.presentedViewController)
+    }
+
     /// The window's text fields (UIKit's, outside SwiftUI's nodes), top to bottom.
     private func textFields(_ w: HostedWindow) -> [UITextField] {
         func walk(_ view: UIView) -> [UITextField] {
@@ -202,6 +211,9 @@ struct SignedOutOnboardingTests {
     func consent(_ s: SizeCase) async throws {
         try await run(s, OnboardingStepPreview(step: .consent)) { w in
             try await w.wait("Consent") { w.node("Your health data, your consent") != nil }
+            // The step reads the policy version it shows (demo data: the mock config's); Agree waits for it too.
+            let caption = String(localized: "Nothing is synced until you agree. Privacy policy version \(MockData.policyVersion).")
+            try await w.wait("the policy version") { w.node(caption) != nil }
             try await w.settle()
             let nodes = w.nodes()
             expectNoOverlap(nodes, "consent \(s.size)")
@@ -336,13 +348,96 @@ struct SignedOutOnboardingTests {
 
     // MARK: the onboarding steps' fallback text
 
-    @Test("A step that can't reach the platform says so in RYFT's words, not the system's; RYFT's own errors keep theirs")
+    @Test("A step that can't reach the platform says so; any other failure, a server's message included, says only that it didn't work (§A-7)")
     func fallbackMessages() {
         let offline = OnboardingCoordinator.fallbackMessage(for: APIError.transport(URLError(.notConnectedToInternet)))
         #expect(offline == String(localized: "No connection. Check your internet and try again."))
         #expect(OnboardingCoordinator.fallbackMessage(for: URLError(.timedOut)) == offline)
-        let busy = APIError.http(503, "")
-        #expect(OnboardingCoordinator.fallbackMessage(for: busy) == busy.localizedDescription)
+        let other = String(localized: "Something went wrong. Please try again.")
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(503, "")) == other)
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(500, "pq: relation \"users\" does not exist")) == other)
+        let undecodable = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unexpected field"))
+        #expect(OnboardingCoordinator.fallbackMessage(for: undecodable) == other)
+    }
+
+    // MARK: consent records the version it showed (SEC-1)
+
+    @Test("Consent: with no policy version shown Agree is off and sends nothing; a failed read says so; once a version arrives, Agree records it")
+    func consentNeedsAShownVersion() async {
+        let api = MockPlatformAPI()
+        api.accountConsent = nil
+        let clock = TestClock()
+        let state = AppState(env: AppEnvironment.test(api: api, clock: clock))
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        #expect(model.policyVersion == nil && !model.canAgree)
+        #expect(await !model.agree())
+        #expect(api.consentPosts.isEmpty)
+
+        // Not a transient failure: the read pipeline doesn't retry it (a retry would wait on the test clock).
+        api.failure = APIError.http(404, "no config")
+        await model.loadPolicyIfMissing()
+        #expect(model.policyRead == .failed && model.policyVersion == nil && !model.canAgree)
+
+        api.failure = nil
+        await model.loadPolicyIfMissing() // Try again (user-initiated: no wait after the failure)
+        #expect(model.policyRead == .idle && model.policyVersion == MockData.policyVersion && model.canAgree)
+        #expect(await model.agree())
+        #expect(api.consentPosts == [MockData.policyVersion])
+    }
+
+    // MARK: the first field takes the keyboard once (S4)
+
+    @Observable
+    final class Route {
+        var path: [AuthRoute] = []
+    }
+
+    private struct CreateAccountStack: View {
+        @Bindable var route: Route
+
+        var body: some View {
+            NavigationStack(path: $route.path) {
+                CreateAccountView(path: $route.path)
+                    .navigationDestination(for: AuthRoute.self) { next in
+                        if case let .checkInbox(reason, email) = next { CheckInboxView(reason: reason, email: email) }
+                    }
+            }
+        }
+    }
+
+    @Test("Create account focuses Name on its first appearance only: back from Check your inbox, the keyboard stays down")
+    func focusOnce() async throws {
+        let clock = TestClock()
+        let route = Route()
+        let view = CreateAccountStack(route: route)
+            .environment(AuthService.preview(signedIn: false))
+            .environment(\.appEnvironment, AppEnvironment.test(clock: clock))
+        try await run(Self.standard, view) { w in
+            try await w.wait("the focus wait") { clock.pendingSleeps == 1 }
+            clock.advance(by: AuthScreenSpec.focusDelay)
+            // Name, the form's first field, has the keyboard.
+            try await w.wait("Name focused") { textFields(w).first?.isFirstResponder == true }
+
+            route.path.append(.checkInbox(.confirmSignUp, email: "alex@example.com"))
+            try await w.wait("Check your inbox") { w.node("Check your inbox") != nil }
+            try await w.settle()
+            // The bar is hidden: the keeper also lets iOS 26's swipe from the content pop, but only a sideways pan
+            // towards the trailing edge (none is under way here).
+            if #available(iOS 26.0, *) {
+                let nav = try #require(Self.navigationController(in: w.window.rootViewController))
+                let content = try #require(nav.interactiveContentPopGestureRecognizer)
+                let keeper = try #require(content.delegate as? InteractivePopGestureKeeper, "the keeper decides the content swipe")
+                #expect(content.isEnabled && !keeper.gestureRecognizerShouldBegin(content))
+            }
+            let another = try #require(w.nodes().first { $0.label == "Use another email" })
+            #expect(another.activate())
+            try await w.wait("back on the form") { route.path.isEmpty && w.node("Check your inbox") == nil }
+            try await w.settle()
+            #expect(clock.pendingSleeps == 0, "no second wait for the focus")
+            clock.advance(by: AuthScreenSpec.focusDelay)
+            try await w.settle()
+            #expect(!textFields(w).contains { $0.isFirstResponder }, "no field took the keyboard again")
+        }
     }
 
     // MARK: test 9: no teal, no old controls, dark previews only

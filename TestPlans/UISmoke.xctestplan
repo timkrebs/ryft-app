@@ -36,6 +36,8 @@
         "AddActivityUITests\/testAddActivitySavesAPendingRowAddedByYouWithoutItsNotes",
         "ImportUITests\/testImportPlanAndHistoryFromDemoFiles",
         "LaunchSequenceUITests\/testUITestLaunchesSkipIt",
+        "SignedOutUITests\/testConsentAgreeWaitsForTheTick",
+        "SignedOutUITests\/testCreateAccountHasItsThreeFields",
         "NocturneTodaySleepUITests",
         "TabBarUITests\/testEachTabOpensUnderItsLaunchArgument",
         "TabBarUITests\/testReTappingStrainReturnsAPushedWorkoutToTheRoot"

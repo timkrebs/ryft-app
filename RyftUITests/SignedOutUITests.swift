@@ -32,11 +32,10 @@ final class SignedOutUITests: XCTestCase {
         XCTAssertTrue(app.buttons["subpage.back"].exists, "the header's Back")
         XCTAssertFalse(app.buttons["logIn.submit"].isEnabled, "nothing typed yet")
 
-        // The system's back swipe, from the left edge, with the bar hidden. High on the page: with the keyboard up, an edge
-        // swipe at mid-height (about 90 pt over the keyboard's Passwords bar) pops nothing on iOS 27.2's simulator.
-        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.3))
-        edge.press(forDuration: 0.01, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.3)),
-                   withVelocity: .fast, thenHoldForDuration: 0)
+        // The system's back swipe, from the left edge at mid-height, with the bar hidden and the keyboard up (Email has it).
+        // A slow drag: it's the one a scroll view's pan used to take before the edge swipe could (`InteractivePopGestureKeeper`).
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
         waitForAbsence(of: email, timeout: 5, "the swipe popped Log in")
         XCTAssertTrue(logIn.waitForExistence(timeout: 5), "back on Welcome")
     }
