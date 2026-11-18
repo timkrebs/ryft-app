@@ -111,8 +111,9 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 - Launch is smoother: saving data no longer holds up the screen.
-- Turning off Demo data now discards the workouts logged with it, after asking. Workouts logged with Demo data before
-  this update aren't discarded if you're signed in.
+- Turning off Demo data now discards the workouts logged with it, after asking. If they can't be read, Demo data stays
+  on and Profile says so. Workouts logged with Demo data before this update are discarded too if nobody is signed in
+  when it first opens; if you're signed in then, they stay.
 
 ### Fixed
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in

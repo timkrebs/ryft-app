@@ -451,15 +451,18 @@ exit would skip them: a finished one would show in the account's history, an in-
 account. At the first launch of that build, once (`train.demoSessionsSeeded`), `TrainCoordinator.demoAtLaunch` seeds it
 before the sweep:
 
-- **Demo data on, nobody signed in:** every stored `LocalSession` goes on the list. Sign-out and expiry wipe Train, so
-  each one is the demo's.
+- **Nobody signed in, Demo data on or off** (re-review R13): every stored `LocalSession` goes on the list. Sign-out
+  and expiry wipe Train, and a failed wipe keeps the account's id, so with no session and no `auth.lastUserID` the
+  store holds no account's Train rows: each one is the demo's. With Demo data off, the same launch's sweep then
+  discards them without asking, as ADR 0019 allows for leftovers.
 - **Signed in** (a session, or an account `auth.lastUserID` still names, since its Keychain may be unreadable at a
   background launch): nothing. The account's sessions are there too and can't be told apart. STATUS → Known issues and
   the CHANGELOG say so.
-- **Demo data off:** nothing.
 
-The flag is set in every case, except when the store can't say what it holds (a failed fetch, or memory in place of
-its file); then the next launch tries again.
+"Nobody signed in" is only known while the defaults can be read: before the first unlock `auth.lastUserID` reads nil.
+So the seed runs only with protected data (`UIApplication.isProtectedDataAvailable`, passed in by RyftApp). The flag
+is set once it has run, whatever it found, and not when protected data is unavailable or the store can't say what it
+holds (a failed fetch, or memory in place of its file): then a later launch decides.
 
 ## 7. T0 gate: sync-engineer runs it first, on iOS 17.0
 

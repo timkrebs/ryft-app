@@ -28,7 +28,10 @@ refused inserts once `ActivityStore` had made its own). The confirmation has a U
 message's plural are in `Localizable.xcstrings` (ticket 4). The PR #121 review round (`review.md`, R1–R10): a one-time
 seed of the list for workouts logged before this build, the id listed before the row, a discard that fails closed and
 leaves no copy in Train's cached history or on the demo's platform, the widget published at the exit, and the VoiceOver
-hint following the list. Simulator-verified on 27.2 (and on 18.0 before the review round); the Live Activity's end on
+hint following the list. The re-review (R11–R16): a refused exit says so under the switch and a read failure never
+skips the dialog; the seed waits for protected data and runs with nobody signed in whatever Demo data is; the discard
+also filters exercise histories; a listed workout's ops are only ever the demo's; the widget drops the demo's sync
+status and bedtime. Simulator-verified on 27.2 (and on 18.0 before the review round); the Live Activity's end on
 Discard is on the user's list.
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
@@ -1574,9 +1577,9 @@ contract points are in `docs/API_REQUESTS.md`.
   continued during the demo also ends the app at its next set (a new object can't join one from before the newer
   container; measured 2026-11-18). Not fixed by P1b: it goes with the minimum iOS 18.6 (its own PR).
 - **Demo workouts logged before the P1b build aren't discarded when someone is signed in.** The list that names the
-  demo's workouts starts with that build. Its first launch seeds it only in the demo with nobody signed in (every stored
-  session is then the demo's); signed in, the account's sessions are there too and can't be told apart, so older demo
-  workouts stay with the account (design §6.9).
+  demo's workouts starts with that build. Its first launch with protected data seeds it only with nobody signed in
+  (every stored session is then the demo's, and with Demo data off that launch discards them); signed in, the account's
+  sessions are there too and can't be told apart, so older demo workouts stay with the account (design §6.9).
 - **iOS 18.0: a row still held after a Train wipe can trap** ("SwiftData/BackingData.swift:296: Fatal error: Context
   is missing for … LocalSession"). `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` ends the test
   process on 18.0 (measured 2026-11-18, on P1b and on its base `72750f4` alike); 17.0 and 27.2 pass, 26.0 not run. In the

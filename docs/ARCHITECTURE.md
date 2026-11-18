@@ -281,21 +281,25 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   in production. Train has no demo store of its own, so the workouts started in the demo are named by a list:
   `TrainCoordinator.newSessionID()` adds a new session's id (`train.demoSessions` in defaults, ids only) when the
   binding is demo's, before the factory saves the row, and `TrainSyncService` owns it (an observable copy feeds
-  Profile's VoiceOver hint). Turning the switch off with such a workout asks first (`ProfileViewModel.demoWorkouts`,
-  computed from the list and the store, never stored); cancel changes nothing. `ProfileViewModel.endDemo()` then runs
+  Profile's VoiceOver hint). Turning the switch off with such a workout asks first (`ProfileViewModel.switchingDemoOff()`,
+  computed from the list and the store, never stored); cancel changes nothing, and a store that can't be read shows an
+  error under the switch instead of the dialog or the exit. `ProfileViewModel.endDemo()` then runs
   one main-actor step with no `await` up to the refresh:
   1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes and its Live Activity ends
-     (checked against the list), every listed session goes with its ops and from Train's cached history list, and
-     nothing is sent (not even a `DELETE`). The list keeps only ids a fresh context still finds; a store in memory in
-     place of its file drops only what it deleted. If the store can't be read nothing changes and Demo data stays on.
+     (checked against the list), every listed session goes with its ops and from Train's cached history list and
+     exercise histories (sessions, records, chart points), and nothing is sent (not even a `DELETE`). The list keeps only ids a fresh context still finds; a store in memory in
+     place of its file drops only what it deleted. If the store can't be read nothing changes, Demo data stays on and Profile says so.
      An account's workout is never on the list, even if it went on during the demo.
-  2. The switch goes off, `reset()` drops what the demo showed (the demo's Train platform starts over too), and the
-     widget is published from the account's store.
-  3. The flags, the scoring words and the import's demo leftovers, then the refresh.
+  2. The switch goes off, `reset()` drops what the demo showed (the demo's Train platform starts over too), with the
+     demo's sync status and tonight's bedtime.
+  3. The flags, the scoring words and the import's demo leftovers; then the widget is published from the account's
+     store, and the refresh runs.
 
-  At launch (`TrainCoordinator.demoAtLaunch`) the list is seeded once for workouts logged before it: in the demo with
-  nobody signed in, every stored session (sign-out wipes Train); signed in, none. Then a launch with Demo data off and a
-  non-empty list (the demo ended outside the switch) discards without asking. The iOS 17 reopen of the account's store
+  At launch (`TrainCoordinator.demoAtLaunch`) the list is seeded once for workouts logged before it, and only with
+  protected data (before the first unlock `auth.lastUserID` reads nil): with nobody signed in, every stored session
+  (sign-out wipes Train), Demo data on or off; signed in, none. Then a launch with Demo data off and a non-empty list
+  (the demo ended outside the switch, or the seed just listed a demo's leftovers) discards without asking. A listed
+  session's ops are only ever bound to, and sent by, the demo. The iOS 17 reopen of the account's store
   that ADR 0019 also decided isn't built: the minimum becomes iOS 18.6.
 
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
