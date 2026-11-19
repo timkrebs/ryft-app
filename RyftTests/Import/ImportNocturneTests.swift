@@ -379,6 +379,70 @@ struct ImportNocturneTests {
         }
     }
 
+    // MARK: VoiceOver on step 6
+
+    @Test("VoiceOver hears the lead line as the phase changes (not twice for one line), and the result as it arrives")
+    func announcements() {
+        typealias T = ImportResultText
+        let at = MockTrainImport.createdAt
+        let cases: [(from: ImportJobStatus.Phase?, to: ImportJobStatus.Phase, said: String?)] = [
+            (.uploading, .paused(.offline), "Waiting for a connection"),
+            (.uploading, .paused(.retrying(at: at)), "Import paused"),
+            (.uploading, .paused(.held), "Import paused"),
+            (.uploading, .paused(.gated(.gate(.consentRequired))), "Import paused"),
+            (.uploading, .paused(.needsAttention), "Some items weren't imported"),
+            (.uploading, .paused(.notAvailable), "Saved on this iPhone"),
+            (.uploading, .paused(.waitingForAccount), "Import needs attention"),
+            (.paused(.offline), .uploading, "Importing…"),
+            (.preparing, .uploading, "Importing…"),
+            (.paused(.retrying(at: at)), .paused(.retrying(at: at.addingTimeInterval(30))), nil),
+            (.paused(.retrying(at: at)), .paused(.held), nil),
+            (nil, .preparing, nil),
+            (.uploading, .uploading, nil),
+        ]
+        for c in cases {
+            #expect(T.announcement(from: c.from, to: MockTrainImport.status(c.to)) == c.said, "\(String(describing: c.from)) → \(c.to)")
+        }
+        for job in [MockTrainImport.done, MockTrainImport.partlyDone, MockTrainImport.planLeftAsIsDone] {
+            #expect(T.announcement(from: .uploading, to: job) == "Import finished. " + T.sentence(job))
+        }
+        #expect(T.announcement(from: .finished, to: MockTrainImport.done) == nil)
+        #expect(T.announcement(from: .uploading, to: nil) == nil, "the job went (discarded)")
+    }
+
+    @Test("VoiceOver, hosted: a state change on step 6 is said once; the state it opened on isn't")
+    func announcesPhase() async throws {
+        let h = ImportUploadHarness(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: ImportUploadHarness.sessions(3))))
+        #expect(h.uploader.status?.phase == .paused(.offline))
+        let seeded = ImportMockData.flow(.result, uploader: h.uploader)
+        let spoken = Spoken()
+        var deps = seeded.deps
+        deps.announce = { spoken.lines.append($0) }
+        let model = ImportFlowModel(deps: deps)
+        model.path = seeded.path
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            #expect(w.node("Waiting for a connection", exactly: true) != nil)
+            // Back online, but importing isn't enabled for the account: saved on this iPhone.
+            h.live.trainImportSource.notEnabled = true
+            h.connectivity.update(true)
+            try await w.wait("saved on this iPhone") { spoken.lines.contains("Saved on this iPhone") }
+            // Enabled when the app opens again: it goes, and the result is said.
+            h.live.trainImportSource.notEnabled = false
+            await h.uploader.appBecameActive()
+            let job = try #require(h.uploader.status)
+            #expect(job.isFinished)
+            let result = "Import finished. " + ImportResultText.sentence(job)
+            try await w.wait("the result") { spoken.lines.last == result }
+            let leads = spoken.lines.filter { $0 != "Importing…" && $0 != "Getting ready" }
+            #expect(leads == ["Saved on this iPhone", result], "\(spoken.lines)")
+        }
+    }
+
+    @MainActor final class Spoken {
+        var lines: [String] = []
+    }
+
     // MARK: AX3 and targets
 
     nonisolated static let everyScreen = ImportNocturneShotsTests.names.filter { !$0.hasPrefix("sheet") }
