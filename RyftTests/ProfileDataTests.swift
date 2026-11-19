@@ -50,11 +50,11 @@ struct ProfileDataTests {
     func spoken() {
         let now = Date(timeIntervalSince1970: 1_792_300_000)
         let identity = ProfileIdentity.resolve(name: "Alex Doe", email: nil, fallback: "", strain: 12.4)
-        let status = ProfileStatus.decide(.upToDate(now, demo: false), isDemo: false, lastUpdated: now)
+        let status = ProfileStatus.decide(.upToDate(now, demo: false), isDemo: false, lastUpdated: now, lastSync: now)
         // The number as the app writes it in the phone's region ("12.4", "12,4").
         #expect(identity.spokenLabel(status, now: now) == "Alex Doe. Apple Health, up to date. Strain today \(Fmt.strain(12.4)) of 21.")
         let none = ProfileIdentity.resolve(name: "Alex Doe", email: nil, fallback: "", strain: nil)
-        #expect(none.spokenLabel(status, now: now).hasSuffix("No strain today."))
+        #expect(none.spokenLabel(status, now: now).hasSuffix("Strain not scored yet today."))
     }
 
     @Test("Spec 31: the model's identity: today's strain, the account's title, Demo data signed out")
@@ -71,13 +71,41 @@ struct ProfileDataTests {
         #expect(signedOut.screens.profile.status(line: .upToDate(nil, demo: true)).source == "Demo data")
     }
 
+    @Test("Security: Demo data on while signed in shows the account's session, never the demo's person")
+    func demoWhileSignedIn() async throws {
+        // Signed in with Apple (the session's email is a private relay address), Demo data on: the store holds MockData.user.
+        let graph = try await ProfileShotGraph.make("demo")
+        defer { graph.tearDown() }
+        let model = graph.screens.profile
+        #expect(graph.state.user?.name == "Alex Doe" && graph.state.user?.provider == "email", "the demo's person is in the store")
+        #expect(model.isSignedIn && model.demoMode)
+        #expect(model.provider == "apple" && !model.canChangePassword)
+        #expect(model.identity.title == "alex@privaterelay.appleid.com" && model.identity.initials == "A")
+        #expect(model.accountEmail == "alex@privaterelay.appleid.com", "the session's email")
+        #expect(!model.showsEmailRow, "the email is the title already")
+        #expect(model.timezone == nil, "no zone of the demo's person")
+        #expect(model.status(line: .upToDate(nil, demo: true)).source == "Demo data")
+        let facts = ProfileRowFacts(model, journalLive: graph.screens.journal.isLive, bedtimeEnabled: graph.screens.bedtime.isEnabled)
+        let rows = ProfileRows.groups(facts).flatMap(\.rows)
+        #expect(!rows.contains(.changePassword) && !rows.contains(.email) && !rows.contains(.timezone))
+        try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
+            try await w.settle()
+            let labels = w.nodes().map(\.label)
+            #expect(!labels.contains { $0.contains("Alex Doe") }, "\(labels.filter { $0.contains("Alex") })")
+            #expect(!labels.contains("Change password"))
+        }
+    }
+
     // MARK: 32. status
 
-    private let now = Date(timeIntervalSince1970: 1_792_300_000)
+    private nonisolated static let now = Date(timeIntervalSince1970: 1_792_300_000)
+    private var now: Date { Self.now }
     private var fiveHoursAgo: Date { now.addingTimeInterval(-5 * 3_600) }
 
-    private func decide(_ line: SyncLine, demo: Bool = false, lastUpdated: Date? = nil) -> ProfileStatus {
-        ProfileStatus.decide(line, isDemo: demo, lastUpdated: lastUpdated)
+    /// Apple Health uploaded just now unless the test says otherwise.
+    private func decide(_ line: SyncLine, demo: Bool = false, lastUpdated: Date? = nil,
+                        lastSync: Date? = ProfileDataTests.now) -> ProfileStatus {
+        ProfileStatus.decide(line, isDemo: demo, lastUpdated: lastUpdated, lastSync: lastSync)
     }
 
     @Test("Spec 32: up to date is a filled ink dot; updating a hollow one")
@@ -90,10 +118,38 @@ struct ProfileDataTests {
             #expect(s.word == .updating && s.dot == .hollow && s.tap == .syncDetails, "\(line)")
             #expect(s.text(now: now) == "Apple Health · updating…")
         }
-        let locked = decide(.waitingForUnlock)
-        #expect(locked.word == .updating && locked.tap == .none, "nothing to open while the phone is locked")
+        // Nothing is read while the iPhone is locked: never "updating…", the last upload's age instead.
+        let locked = decide(.waitingForUnlock, lastSync: fiveHoursAgo)
+        #expect(locked.word == .updated(fiveHoursAgo) && locked.dot == .hollow && locked.tap == .none, "nothing to open")
+        #expect(decide(.waitingForUnlock, lastSync: nil).word == .notUpdatedYet)
         let first = decide(.upToDate(nil, demo: false))
         #expect(first.word == .notUpdatedYet && first.dot == .hollow)
+    }
+
+    @Test("Spec 32: the row never claims a freshness it doesn't have: a failed upload and up to date need Apple Health's last upload")
+    func freshness() {
+        // The data loaded just now, but Apple Health never uploaded: "not updated yet", with the failure or without.
+        #expect(decide(.paused, lastUpdated: now, lastSync: nil).word == .notUpdatedYet)
+        #expect(decide(.upToDate(now, demo: false), lastUpdated: now, lastSync: nil).word == .notUpdatedYet)
+        // A failed upload's age is the last good upload's, not the last load's.
+        let paused = decide(.paused, lastUpdated: now, lastSync: fiveHoursAgo)
+        #expect(paused.word == .updated(fiveHoursAgo) && paused.dot == .attention)
+        // The demo's sample is always there.
+        let demo = decide(.upToDate(now, demo: true), demo: true, lastUpdated: now, lastSync: nil)
+        #expect(demo.word == .upToDate && demo.text(now: now) == "Demo data · up to date")
+    }
+
+    @Test("Spec 32: the model passes Settings.lastSync, not the last load, to the row")
+    func modelFreshness() async throws {
+        let graph = try await ProfileShotGraph.make("signed-in")
+        defer { graph.tearDown() }
+        let model = graph.screens.profile
+        graph.settings.lastSync = nil
+        #expect(model.status(line: .upToDate(now, demo: false)).word == .notUpdatedYet)
+        #expect(model.status(line: .paused).word == .notUpdatedYet)
+        graph.settings.lastSync = fiveHoursAgo
+        #expect(model.status(line: .paused).word == .updated(fiveHoursAgo))
+        #expect(model.status(line: .upToDate(now, demo: false)).word == .upToDate)
     }
 
     @Test("Spec 32: offline and old data are a warning dot; old data says when and taps to try again")
@@ -107,7 +163,7 @@ struct ProfileDataTests {
         #expect(text.hasPrefix("updated ") && text.contains("5") && text.hasSuffix("ago"), "\(text)")
         let failed = decide(.issue(.today), lastUpdated: fiveHoursAgo)
         #expect(failed.word == .updated(fiveHoursAgo) && failed.dot == .attention && failed.tap == .syncDetails)
-        #expect(decide(.paused).word == .notUpdatedYet)
+        #expect(decide(.paused, lastSync: nil).word == .notUpdatedYet)
     }
 
     @Test("Spec 32: action needed is the alert dot, and opens the gate")
@@ -117,7 +173,39 @@ struct ProfileDataTests {
         #expect(consent.text(now: now) == "Apple Health · action needed")
         #expect(decide(.actionNeeded(.invite)).tap == .gate(.invite))
         let signedOut = decide(.issue(.today, signedOut: true))
-        #expect(signedOut.word == .actionNeeded && signedOut.dot == .alert)
+        #expect(signedOut.word == .actionNeeded && signedOut.dot == .alert && signedOut.tap == .signIn, "Today's card's Sign in")
+    }
+
+    @Test("Spec 32: the row's tap does what Today's line does: Sync details, the gate, sign in again")
+    func tapRouting() async throws {
+        let graph = try await ProfileShotGraph.make("signed-in")
+        defer { graph.tearDown() }
+        let model = graph.screens.profile
+        #expect(model.tapStatus(.syncDetails), "the page pushes Sync details")
+        #expect(!model.tapStatus(.none) && model.statusWork == nil)
+        let onboarding = graph.screens.onboarding
+        onboarding.later(.consent)
+        #expect(onboarding.deferred.contains(.consent))
+        #expect(!model.tapStatus(.gate(.consent)))
+        #expect(!onboarding.deferred.contains(.consent), "the gate shows again")
+        #expect(graph.state.env.auth.isSignedIn)
+        #expect(!model.tapStatus(decide(.issue(.today, signedOut: true)).tap))
+        await model.statusWork?.value
+        #expect(!graph.state.env.auth.isSignedIn, "back to Welcome to sign in again")
+    }
+
+    @Test("Spec 32, hosted: the identity row's tap pushes Sync details")
+    func hostedTap() async throws {
+        let graph = try await ProfileShotGraph.make("signed-in")
+        defer { graph.tearDown() }
+        try await HostedWindow.run(width: 390, height: 844, graph.view) { w in
+            try await w.settle()
+            let row = try #require(w.nodes().first { $0.identifier == "profile.identity" })
+            #expect(row.hint == "Opens sync details" && row.traits.contains(.button), "\(row.hint ?? "")")
+            #expect(row.activate())
+            try await w.settle()
+            #expect(w.nodes().contains { $0.label.lowercased() == "engine" }, "Sync details is on screen")
+        }
     }
 
     @Test("Spec 32: in the demo the source is Demo data, and it is always up to date")
@@ -137,7 +225,7 @@ struct ProfileDataTests {
             return [r, g, b, a].map { ($0 * 255).rounded() }
         }
         for dot in ProfileStatus.Dot.allCases {
-            #expect(rgba(dot.color) != rgba(Theme.accent) && rgba(dot.color) != rgba(Theme.teal), "\(dot)")
+            #expect(rgba(dot.color) != rgba(Theme.recovery), "\(dot)")
         }
         // Colour is never the only cue: filled and hollow share the ink, and the words differ for every dot.
         let words = [decide(.upToDate(now, demo: false)), decide(.updating), decide(.offline), decide(.actionNeeded(.consent))]
@@ -230,25 +318,26 @@ struct ProfileDataTests {
         #expect(facts.isSignedIn && facts.devicesEnabled && facts.canExport)
         try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
             try await w.settle()
+            // One element per identifier: a UI test's lookup finds exactly one, of the control's own type.
             let found = Self.identifiers(in: w.host.view)
-            for id in identifiers(facts) {
-                #expect(found.contains(id), "\(id)")
+            for id in identifiers(facts).union(["profile.identity"]) {
+                #expect(found[id] == 1, "\(id): \(found[id] ?? 0)")
             }
-            #expect(found.contains("profile.importTraining"), "B's import rows keep theirs")
-            #expect(found.contains("profile.identity"))
+            #expect(found["profile.importTraining", default: 0] > 0, "B's import rows keep theirs")
             #if DEBUG
-            #expect(found.contains(ProfileRows.devCatalog) && found.contains(ProfileRows.devFlags))
+            #expect(found[ProfileRows.devCatalog] == 1 && found[ProfileRows.devFlags] == 1)
             #endif
         }
     }
 
-    /// Every accessibility identifier in the tree, SwiftUI's nodes and UIKit's views alike (a menu is UIKit's).
-    private static func identifiers(in root: UIView) -> Set<String> {
-        var found = Set<String>()
+    /// How many elements carry each accessibility identifier in the tree, SwiftUI's nodes and UIKit's views alike (a menu is
+    /// UIKit's); each object counts once.
+    private static func identifiers(in root: UIView) -> [String: Int] {
+        var found: [String: Int] = [:]
         var seen = Set<ObjectIdentifier>()
         func walk(_ object: NSObject, depth: Int) {
             guard depth < 60, seen.insert(ObjectIdentifier(object)).inserted else { return }
-            if let id = object.value(forKey: "accessibilityIdentifier") as? String, !id.isEmpty { found.insert(id) }
+            if let id = object.value(forKey: "accessibilityIdentifier") as? String, !id.isEmpty { found[id, default: 0] += 1 }
             if let elements = object.accessibilityElements {
                 for case let child as NSObject in elements { walk(child, depth: depth + 1) }
             } else {

@@ -112,16 +112,29 @@ struct NocturneSharedHostedTests {
         }
     }
 
-    @Test("The row at AX3: the menu under its title, inside the window, a 44 pt row")
+    @Test("The row at AX3: the value under its title (a line of its own), inside the window")
     func profileRowAX3() async throws {
-        let row = Card { HeroNumeralsRow(selection: .constant(.thin)) }.padding(.horizontal, 20)
-        try await host(row, typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
-            try await w.settle()
-            let title = try #require(w.node("Hero numbers", exactly: true))
-            let picker = try #require(menu(w), "the menu")
-            let frame = picker.accessibilityFrame
-            #expect(frame.minY >= title.frame.maxY - 0.5, "under the title: \(frame) / \(title.frame)")
-            #expect(frame.maxX <= 390 + 0.5 && frame.minX >= -0.5 && title.frame.maxX <= 390 + 0.5, "\(frame)")
+        // Profile's row (`HeroNumbersMenuRow`, one element: the title and the choice) in its card, over a one-line row of the
+        // same type: beside the title the two are as high; under it the menu row has the value's line more.
+        let rows = VStack(spacing: GroupedListSpec.groupSpacing) {
+            GroupedCard(Text(verbatim: "Settings")) { HeroNumbersMenuRow(selection: .constant(.thin)) }
+            GroupedCard(Text(verbatim: "Reference")) { GroupedRow.push(Text(verbatim: "One line")) {} }
+        }
+        .padding(.horizontal, 20)
+        for (typeSize, category) in [(DynamicTypeSize.large, UIContentSizeCategory.large), (.accessibility3, .accessibilityExtraLarge)] {
+            try await host(rows, typeSize: typeSize, category: category) { w in
+                try await w.settle()
+                let picker = try #require(menu(w), "the menu")
+                #expect(spoken(picker).contains("Hero numbers") && spoken(picker).contains("Thin"), "\(spoken(picker))")
+                let frame = picker.accessibilityFrame
+                let line = try #require(w.node("One line", exactly: true)).frame
+                if typeSize.isAccessibilitySize {
+                    #expect(frame.height > line.height + 12, "the value under the title: \(frame) / \(line)")
+                } else {
+                    #expect(abs(frame.height - line.height) <= 1.5, "the value beside the title: \(frame) / \(line)")
+                }
+                #expect(frame.maxX <= 390 + 0.5 && frame.minX >= -0.5, "\(frame)")
+            }
         }
     }
 

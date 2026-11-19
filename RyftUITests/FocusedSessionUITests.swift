@@ -94,15 +94,18 @@ final class FocusedSessionUITests: XCTestCase {
 
     private func training(in app: XCUIApplication) -> XCUIElement {
         app.tab("Profile").tap()
-        // The switch, by type: a grouped row's identifier also lands on a wrapper.
-        let toggle = app.switches["profile.jumpToNext"]
+        let toggle = element(app, "profile.jumpToNext")
         requireExists(toggle, "Profile → Training")
-        var swipes = 0
-        while !toggle.isHittable && swipes < 10 {
-            app.swipeUp()
-            swipes += 1
-        }
+        reveal(toggle, in: app)
         return toggle
+    }
+
+    /// Scrolls until `element` is above the tab bar: the bar floats over the page, so a row under it is "hittable" while a
+    /// tap lands on the bar.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let bottom = app.tabBar.frame.minY
+        for _ in 0..<12 where !element.isHittable || element.frame.maxY >= bottom { app.swipeUp() }
+        XCTAssertLessThan(element.frame.maxY, bottom, "\(element.identifier) is above the tab bar")
     }
 
     /// T5, L4, L5: the toggle's new name in both states, and the layout's picker only with the flag on, where it decides the
@@ -115,10 +118,10 @@ final class FocusedSessionUITests: XCTestCase {
 
         app = launch(extra: Self.focusedOn)
         XCTAssertTrue(training(in: app).label.contains("Advance to the next exercise"))
-        // Nocturne (T5.4): a menu row, its items the choices. By type: the row's identifier also lands on a wrapper.
-        let layout = app.buttons["profile.sessionLayout"]
+        // Nocturne (T5.4): a menu row, its items the choices.
+        let layout = element(app, "profile.sessionLayout")
         requireExists(layout, "the choice with the flag on")
-        app.reveal(layout)
+        reveal(layout, in: app)
         layout.tap()
         let list = app.buttons["List"]
         requireExists(list, "the menu's List")
