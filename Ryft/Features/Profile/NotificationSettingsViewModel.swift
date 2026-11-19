@@ -9,6 +9,11 @@ import Observation
 /// one after another, in the order they were made, so the platform ends with the
 /// latest; only the latest one's answer is shown, and if it fails the page goes
 /// back to what the platform last confirmed.
+///
+/// Each save is the account's that was signed in at the tap, sent to that side's platform (the Demo data switch changes
+/// `env.api`): another account or the switch before its turn and it isn't sent, while it's out and its answer is dropped,
+/// and the queue is cancelled (PR 6 C security review S1). A save waits as every settings write does (`SettingsWrite`):
+/// one attempt, an answer within 25 s or none, none at once when the network goes.
 @MainActor
 @Observable
 final class NotificationSettingsViewModel {
@@ -26,6 +31,12 @@ final class NotificationSettingsViewModel {
     private var confirmed: NotificationPrefs
     /// The last save handed on: the next one waits for it.
     private var lastSave: Task<Void, Never>?
+    /// The saves handed on and not done yet, by their number: another account or the Demo data switch cancels them all.
+    @ObservationIgnored private var turns: [Int: Task<Void, Never>] = [:]
+    /// Whose the queued saves are (`dropQueueIfAccountChanged`).
+    @ObservationIgnored private var queuedFor: AccountBinding?
+    /// Watches the account while saves were made: its change cancels the queue at once, not at the next save.
+    @ObservationIgnored private var accountWatch: ObservationWatch?
     /// RYFT asked again after a change that may have saved, while it's out (`askAgain`; tests await it).
     private(set) var asking: Task<Void, Never>?
 
@@ -145,27 +156,47 @@ final class NotificationSettingsViewModel {
             failure = NotificationSettingsFailure(.offline, quietHours: patch.quietHours != nil)
             return
         }
+        dropQueueIfAccountChanged()
         saves += 1
         let mine = saves
         prefs = optimistic
         failure = nil
         inFlight += 1
         defer { inFlight -= 1 }
-        // The account's answer: a sign-out (another account) or the Demo data switch while the PATCH is out drops it.
-        let binding = AccountBinding(state.env)
+        // The account's, and its side's platform, as at the tap: a sign-out (another account) or the Demo data switch before
+        // its turn keeps it unsent, and while the PATCH is out drops its answer.
+        let binding = AccountBinding(state.env), api = state.env.api
+        queuedFor = binding
+        watchAccount()
         let before = lastSave
         let turn = Task { @MainActor in
             await before?.value
-            await self.send(patch, mine: mine, binding: binding)
+            await self.send(patch, mine: mine, binding: binding, api: api)
         }
         lastSave = turn
+        turns[mine] = turn
         await withTaskCancellationHandler { await turn.value } onCancel: { turn.cancel() }
+        turns[mine] = nil
     }
 
-    /// One `PATCH`, once the saves before it are done.
-    private func send(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
+    /// One `PATCH` through `api`, once the saves before it are done, while the account is still `binding`'s.
+    private func send(_ patch: NotificationPatch, mine: Int, binding: AccountBinding, api: PlatformAPI) async {
+        // Its turn came after a sign-out, another account or the Demo data switch: never sent, to anyone.
+        guard binding.isCurrent(in: state.env) else { return }
+        guard !Task.isCancelled else {
+            // Not sent, not failed: the platform's answer on the next load decides.
+            if mine == saves { prefs = confirmed }
+            return
+        }
+        // Offline by its turn: nothing is sent, and it says so (the check at the tap, again).
+        guard state.isDemo || state.env.connectivity.isOnline else {
+            guard mine == saves else { return }
+            prefs = confirmed
+            failure = NotificationSettingsFailure(.offline, quietHours: patch.quietHours != nil)
+            return
+        }
         do {
-            let saved = try await state.env.api.patchNotifications(patch)
+            let saved = try await SettingsWrite.answer(in: state.env) { try await api.patchNotifications(patch) }
             guard binding.isCurrent(in: state.env) else { return }
             confirmed = saved
             // A later change is on its way: its answer is the one to show.
@@ -176,13 +207,20 @@ final class NotificationSettingsViewModel {
             try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.
+            guard binding.isCurrent(in: state.env) else { return }
             if mine == saves { prefs = confirmed }
         } catch {
             guard binding.isCurrent(in: state.env), mine == saves else { return }
             prefs = confirmed
             let failed = NotificationSettingsFailure(error, quietHours: patch.quietHours != nil)
             failure = failed
-            guard failed.kind.rereads, state.isDemo || state.env.connectivity.isOnline else { return }
+            guard failed.kind.rereads else { return }
+            // Offline the question would wait for the network: the cached user is marked instead, so the next refresh
+            // asks (as the editors do).
+            guard state.isDemo || state.env.connectivity.isOnline else {
+                state.repository.userMayDiffer()
+                return
+            }
             // It may have saved (no answer), or RYFT had a problem (5xx): the page shows what RYFT holds, asked again outside
             // this turn, so the switches don't wait for the question (and the next save doesn't either).
             asking = Task { await self.askAgain(patch, mine: mine, binding: binding) }
@@ -190,12 +228,14 @@ final class NotificationSettingsViewModel {
     }
 
     /// `GET /v1/me` after a change that may have saved. Only an answer counts: when the question fails the page stays as it
-    /// went back. Only while the change is the latest; and only the change's own key decides whether it did save (another
-    /// device may have changed the rest meanwhile).
+    /// went back, and the cached user is marked so the next refresh asks (`Repository.userMayDiffer`). Only while the change
+    /// is the latest; and only the change's own key decides whether it did save (another device may have changed the rest
+    /// meanwhile).
     private func askAgain(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
         do {
             try await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
         } catch {
+            if binding.isCurrent(in: state.env) { state.repository.userMayDiffer() }
             return
         }
         guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
@@ -203,6 +243,33 @@ final class NotificationSettingsViewModel {
         prefs = held
         // It did save: nothing to say.
         if patch.isHeld(by: held) { failure = nil }
+    }
+
+    // MARK: the account
+
+    private func watchAccount() {
+        guard accountWatch == nil else { return }
+        accountWatch = ObservationWatch(read: { [env = state.env] in _ = AccountBinding(env) },
+                                        changed: { [weak self] in self?.dropQueueIfAccountChanged() })
+    }
+
+    /// The queued saves are another account's, or the other side of the Demo data switch: they're cancelled (none of them
+    /// is sent, and an answer on its way is dropped), and the page shows this account's settings. A token refresh changes
+    /// nothing here.
+    private func dropQueueIfAccountChanged() {
+        guard let queuedFor, !queuedFor.isCurrent(in: state.env) else { return }
+        self.queuedFor = nil
+        for turn in turns.values { turn.cancel() }
+        turns = [:]
+        lastSave = nil
+        asking?.cancel()
+        asking = nil
+        // Every answer still to come is the previous account's: none of them is shown.
+        saves += 1
+        failure = nil
+        let saved = state.user?.notifications ?? .allOn
+        prefs = saved
+        confirmed = saved
     }
 
     // MARK: "HH:MM" ⇄ Date (today, local)
