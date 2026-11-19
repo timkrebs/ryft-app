@@ -470,7 +470,7 @@ extension ReadModelWipeTests {
         let onboarding = OnboardingCoordinator(state: h.state, apiStatus: APIStatus()) {}
         let request = Task {
             switch patch {
-            case .profile: try? await h.state.patchUser(UserPatch(birthYear: 1971))
+            case .profile: _ = try? await h.state.patchUser(UserPatch(birthYear: 1971))
             case .aboutYou: _ = await onboarding.saveAboutYou(birthYear: 1971)
             }
         }

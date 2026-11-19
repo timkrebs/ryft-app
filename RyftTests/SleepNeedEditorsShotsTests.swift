@@ -24,6 +24,7 @@ struct SleepNeedEditorsShotsTests {
                 try await w.settle()
                 let image = try await PagedWindowShot.image(w)
                 try #require(image.pngData()).write(to: URL(fileURLWithPath: "\(dir)/\(name)-\(size).png"))
+                await screen.finish()
             }
         }
     }
@@ -32,6 +33,9 @@ struct SleepNeedEditorsShotsTests {
         "baseline", "baseline-changed", "baseline-saved", "baseline-refused", "baseline-no-answer", "baseline-offline",
         "baseline-offline-no-account", "baseline-rescore-failed", "max-hr", "max-hr-changed",
         "sleep-need", "sleep-need-nap", "sleep-need-no-breakdown", "sleep-need-offline-no-account", "sleep-need-card",
+        // The review round (C3 fix round): the states that changed or are new.
+        "baseline-server-error", "baseline-not-loaded", "baseline-saving", "baseline-rescoring", "baseline-rescored",
+        "baseline-onboarding-saved", "max-hr-no-birth-year", "sleep-need-saving", "sleep-need-missed-failure",
     ]
 }
 
@@ -42,12 +46,37 @@ struct SleepNeedShotScreen {
     let name: String
     let state: AppState
     let editor: BodySettingsEditor
+    /// Holds a save's answer while the shot is taken (`finish` lets it go).
+    let gate = Gate()
+    /// The rescore whose reload never ran: the test environment's clock, moved by hand.
+    private let clock = TestClock()
 
     init(_ name: String) {
         self.name = name
-        state = MockSleepNeedStates.state(account: !name.hasSuffix("no-account"),
-                                          online: !(name.contains("offline")))
+        switch name {
+        case "baseline-not-loaded":
+            state = MockSleepNeedStates.state(account: false)
+        case "baseline-rescoring":
+            state = AppState(env: .test(clock: clock))
+            state.user = MockSleepNeedStates.user
+        case "max-hr-no-birth-year":
+            state = MockSleepNeedStates.state()
+            state.user = MockSleepNeedStates.user(maxHr: 185, maxHrSource: .manual, birthYear: nil)
+        default:
+            state = MockSleepNeedStates.state(account: !name.hasSuffix("no-account"), online: !(name.contains("offline")))
+        }
         editor = BodySettingsEditor(state: state)
+    }
+
+    /// After the shot: a held answer goes, so nothing waits past the test.
+    func finish() async {
+        await gate.open()
+    }
+
+    /// The mock answers with its own account (`MockData.user`), also when RYFT is asked again after a failure: the draft's
+    /// (7:30 set by hand, RYFT learned 7:52) goes back in.
+    private func reseed() {
+        state.user = MockSleepNeedStates.user
     }
 
     private var api: MockPlatformAPI? { state.env.api as? MockPlatformAPI }
@@ -55,6 +84,8 @@ struct SleepNeedShotScreen {
     var view: AnyView {
         let page: AnyView
         switch name {
+        case "baseline-onboarding-saved":
+            page = AnyView(BaselineSleepNeedForm(editor: editor, showsClose: true, rescores: false))
         case let n where n.hasPrefix("baseline"): page = AnyView(BaselineSleepNeedForm(editor: editor, showsClose: true))
         case let n where n.hasPrefix("max-hr"): page = AnyView(MaxHeartRateForm(editor: editor, showsClose: true))
         case "sleep-need-card":
@@ -97,14 +128,55 @@ struct SleepNeedShotScreen {
         case "baseline-no-answer":
             api?.failNext = APIError.transport(URLError(.timedOut))
             await editor.setSleepBase(465)
+            reseed()
+        case "baseline-server-error":
+            api?.failNext = APIError.http(503, "", requestID: "01JD8K2V9Q7M3X")
+            await editor.setSleepBase(465)
+            reseed()
         case "baseline-offline":
-            api?.failNext = APIError.transport(URLError(.notConnectedToInternet))
+            // Offline nothing is sent: the notice comes at once.
             await editor.setSleepBase(465)
         case "baseline-rescore-failed":
             await editor.setSleepBase(450)
-            state.user = MockSleepNeedStates.user
+            reseed()
             api?.failure = APIError.http(500, "", requestID: "01JD8K2V9Q7M3X")
             await editor.rescore()
+        case "baseline-saving":
+            // Two steps up and Save, its answer held: Saving… on the pill, 8:00 on its way, Close off.
+            api?.beforePatchMe = { [gate] in await gate.wait() }
+            for _ in 0..<2 {
+                try #require(w.nodes().first { $0.isAdjustable }).increment()
+                try await w.settle()
+            }
+            try #require(w.nodes().first { $0.identifier == BodySetting.sleepBase.saveIdentifier }).activate()
+            try await w.wait("saving") { editor.saving }
+        case "sleep-need-saving":
+            // A save on its way from the editor, its answer held: the sheet's row says Saving….
+            api?.beforePatchMe = { [gate] in await gate.wait() }
+            Task { await editor.setSleepBase(480) }
+            try await w.wait("saving") { editor.saving }
+        case "baseline-rescoring":
+            // Accepted, then the network went before the reload: the last word stays "Rescoring — …".
+            await editor.setSleepBase(450)
+            reseed()
+            Task { await editor.rescore() }
+            try await w.wait("the delay") { clock.pendingSleeps == 1 }
+            state.env.connectivityMonitor.update(false)
+            clock.advance(by: SyncService.rescoreDelay)
+            try await w.wait("done") { !editor.rescoring }
+        case "baseline-rescored":
+            await editor.setSleepBase(450)
+            reseed()
+            await editor.rescore()
+            reseed()
+        case "baseline-onboarding-saved":
+            await editor.setSleepBase(450)
+            reseed()
+        case "sleep-need-missed-failure":
+            // The save's answer came after its editor page went: said under the row.
+            api?.failNext = APIError.transport(URLError(.timedOut))
+            await editor.setSleepBase(480)
+            reseed()
         default:
             break
         }

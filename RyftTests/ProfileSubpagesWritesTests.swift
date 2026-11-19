@@ -203,8 +203,10 @@ struct NotificationSavesTests {
         #expect(model.failure?.message == "RYFT didn't answer, so this may not have saved. Try again in a moment.")
         #expect(model.failure?.quietHours == true && model.failure?.details == nil)
 
-        let offline = NotificationSettingsFailure(APIError.transport(URLError(.notConnectedToInternet)), online: true)
+        let offline = NotificationSettingsFailure(APIError.transport(URLError(.notConnectedToInternet)))
         #expect(offline.message == "You're offline, so this wasn't saved. Try again when you're back online.")
-        #expect(NotificationSettingsFailure(APIError.transport(URLError(.timedOut)), online: false).message == offline.message)
+        // Judged by what left the phone (`SettingsWriteFailure`, C3 review item 2): a timeout was sent and may have saved.
+        #expect(NotificationSettingsFailure(APIError.transport(URLError(.timedOut))).message
+                == "RYFT didn't answer, so this may not have saved. Try again in a moment.")
     }
 }
