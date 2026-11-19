@@ -148,6 +148,10 @@ struct StrainScreenDecisionTests {
         let ticks = RulerScale.zoneTickIndices(count: RulerScale.Ticks.strain, range: StrainHero.scale, zone: StrainHero.zone)
         #expect(ticks == Array(30...42))
         #expect(StrainHero.rulerLabels == ["0", "moderate 10–14", "21"])
+        // T5.8 N14: the range's dash is the en dash (U+2013), never the em dash; Satoshi draws it 0.93 em wide, which is what
+        // made it read as an em dash at 11 pt.
+        #expect(StrainHero.rulerLabels[1].unicodeScalars.contains("\u{2013}"))
+        #expect(!StrainHero.rulerLabels[1].unicodeScalars.contains { ["\u{2014}", "-"].contains($0) })
         #expect(StrainHero(strain: 12.4).rulerValue
                 == "\(Fmt.strain(12.4)), Moderate strain, on a scale from 0 to 21. The moderate range is 10 to 14.")
         #expect(StrainHero(strain: nil).rulerValue == String(localized: "No data"))
