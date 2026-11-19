@@ -575,8 +575,8 @@ private struct GroupedRowText: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let value {
-                    GroupedRowValue(text: value)
-                        .multilineTextAlignment(.leading)
+                    // Under the title its lines start at the title's edge, as the title's do.
+                    GroupedRowValue(text: value, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -586,16 +586,18 @@ private struct GroupedRowText: View {
 }
 
 /// A row's value: 15 pt in `textTertiary` (4.54:1 on `surface`), tabular digits. A caller's `Text.foregroundStyle` wins (a
-/// value that needs attention is `warning` with its words, §P5-6.3).
+/// value that needs attention is `warning` with its words, §P5-6.3). Its lines align to the trailing edge beside the title,
+/// to the leading one under it (from AX1).
 private struct GroupedRowValue: View {
     let text: Text
+    var alignment = TextAlignment.trailing
 
     var body: some View {
         text
             .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textTertiary)
-            .multilineTextAlignment(.trailing)
+            .multilineTextAlignment(alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

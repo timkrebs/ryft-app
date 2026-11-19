@@ -761,6 +761,46 @@ struct ProfileSubpagesHostedTests {
         ((view as? UITextView).map { [$0] } ?? []) + view.subviews.flatMap(textViews)
     }
 
+    @Test("6c9 N7: by default the bar holds the caption, Send and the limit; at AX3 only Send, the two lines end the page",
+          arguments: [false, true])
+    func reportBarLines(_ ax3: Bool) async throws {
+        let limited = SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data, result: .rateLimited) }
+        // A window tall enough for the whole page, so the page's end shows above the bar.
+        try await host(limited, height: 3_200, ax3: ax3) { w in
+            try await w.wait("the form") { has(w, id: "report.send") }
+            try await w.settle()
+            let send = try node(w, id: "report.send")
+            let caption = try node(w, "You can send again tomorrow.")
+            let footnote = try node(w, "Reports are limited to 10 a day.")
+            #expect(caption.frame.maxY <= send.frame.minY + 0.5, "the caption above Send: \(caption.frame) \(send.frame)")
+            if ax3 {
+                #expect(footnote.frame.maxY <= send.frame.minY + 0.5, "the limit ends the page, above the bar: \(footnote.frame)")
+                #expect(send.frame.minY - footnote.frame.maxY > PinnedBarSpec.topPadding, "not in the bar: \(footnote.frame)")
+            } else {
+                #expect(footnote.frame.minY >= send.frame.maxY - 0.5, "the limit under Send: \(footnote.frame) \(send.frame)")
+                #expect(send.frame.minY - caption.frame.maxY < 3 * PinnedBarSpec.spacing, "the caption in the bar")
+            }
+        }
+        guard ax3 else { return }
+        // On a phone, scrolled back up from the end: the limit goes with the page, Send stays pinned where it was.
+        try await host(limited, ax3: true) { w in
+            try await w.wait("the form") { has(w, id: "report.send") }
+            try await w.settle()
+            let scroll = try #require(w.pageScrollView(), "the page's scroll view")
+            let inset = scroll.adjustedContentInset
+            let bottom = max(-inset.top, scroll.contentSize.height + inset.bottom - scroll.bounds.height)
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: bottom), animated: false)
+            try await w.settle()
+            let send = try node(w, id: "report.send").frame
+            let limit = try node(w, "Reports are limited to 10 a day.").frame
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: bottom - 120), animated: false)
+            try await w.settle()
+            let moved = try node(w, "Reports are limited to 10 a day.").frame.minY - limit.minY
+            #expect(abs(moved - 120) < 2, "the limit scrolls with the page: \(moved)")
+            #expect(try node(w, id: "report.send").frame == send, "Send stays pinned")
+        }
+    }
+
     @Test("N1, N6: rate limited, the bar says why Send is off; over 4,000 characters, the footer says it's too long")
     func reportCaptions() async throws {
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data, result: .rateLimited) }) { w in

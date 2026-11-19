@@ -23,7 +23,8 @@ enum SubpageSpec {
     static let maxContentWidth: CGFloat = 560
     /// A sheet's page starts 26 below the sheet's top edge: 14 under the grabber (derived, PR 6 B §1.2, C §2.1).
     static let sheetTopInset: CGFloat = 26
-    /// When the title does not fit on the buttons' line (long titles, large text): the buttons' row, 12, then the title.
+    /// When the title does not fit on the buttons' line (long titles), and always at the accessibility sizes (C §2.9): the
+    /// buttons' row, 12, then the title.
     static let stackedGap: CGFloat = 12
 }
 
@@ -121,13 +122,15 @@ private struct SheetPresentation: ViewModifier {
 
 /// The subpage header on its own (a page that is not a `SubpageScaffold`, such as a form that manages its keyboard): Back,
 /// 12, the title (26 Light, header trait), the trailing circles and the close circle at the end. When the title does not fit
-/// on the buttons' line it goes under them and wraps (C §2.9); it never truncates. VoiceOver reads it in visual order.
+/// on the buttons' line, and at every accessibility size however short it is, it goes under them and wraps (C §2.9); it
+/// never truncates. VoiceOver reads it in visual order.
 struct SubpageHeader<Trailing: View>: View {
     private let title: Text
     private let navigation: SubpageNavigation
     private let trailing: Trailing
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: Text, navigation: SubpageNavigation = .back(), @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -136,9 +139,15 @@ struct SubpageHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row
-            stacked
+        Group {
+            if typeSize.isAccessibilitySize {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    row
+                    stacked
+                }
+            }
         }
         .accessibilityElement(children: .contain)
     }

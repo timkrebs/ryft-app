@@ -117,6 +117,37 @@ struct NocturneFoundationHostedTests {
         }
     }
 
+    @Test("C §2.9: from AX1 a short title goes under Back and the trailing button too; at xxxLarge it stays on their row",
+          arguments: [false, true])
+    func subpageHeaderShortTitleAtAX(_ ax: Bool) async throws {
+        let page = Stack(pushed: true) {
+            SubpageScaffold(Text(verbatim: "Journal")) {
+                CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
+            } content: {
+                Rows(count: 1)
+            }
+        }
+        try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, typeSize: ax ? .accessibility1 : .xxxLarge,
+                                   category: ax ? .accessibilityMedium : .extraExtraExtraLarge, page) { w in
+            try await w.wait("the pushed page") { w.node("Journal", exactly: true) != nil }
+            try await w.settle()
+            let back = try node(w, "Back"), add = try node(w, "Add a habit"), title = try node(w, "Journal")
+            #expect(abs(back.frame.midY - add.frame.midY) < 1, "Back and + share a row: \(back.frame) \(add.frame)")
+            let order = w.nodes().map(\.label)
+            let (backAt, addAt, titleAt) = (order.firstIndex(of: "Back") ?? .max, order.firstIndex(of: "Add a habit") ?? .max,
+                                            order.firstIndex(of: "Journal") ?? .max)
+            if ax {
+                #expect(title.frame.minY >= back.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5,
+                        "the title under the buttons' row: \(title.frame) \(back.frame)")
+                #expect(abs(title.frame.minX - 20) < 1, "the title from the inset: \(title.frame)")
+                #expect(backAt < addAt && addAt < titleAt, "the buttons' row, then the title: \(order)")
+            } else {
+                #expect(abs(title.frame.midY - back.frame.midY) < 1.5, "one row: \(title.frame) \(back.frame)")
+                #expect(backAt < titleAt && titleAt < addAt, "Back, the title, +: \(order)")
+            }
+        }
+    }
+
     @Test("The back swipe stays on with the bar hidden: allowed on a pushed page, refused on the root")
     func backSwipe() async throws {
         for pushed in [true, false] {
@@ -403,6 +434,28 @@ struct NocturneFoundationHostedTests {
             }
             let message = try node(w, "Couldn't reach RYFT. Showing what was loaded earlier.")
             #expect(message.frame.maxY <= retry.frame.minY + 0.5, "the sentence above the buttons")
+        }
+    }
+
+    @Test("C §2.9: the glyph beside the sentence by default, above it from AX1, where the sentence takes the card's width",
+          arguments: [false, true])
+    func noticeGlyphAtAX(_ ax: Bool) async throws {
+        let notice = InlineMessage(message: "Notifications are being rolled out", systemImage: "bell",
+                                   caption: "We'll let you know here when notifications reach your account.", announces: false)
+        try await host(notice.padding(.top, 20), typeSize: ax ? .accessibility1 : .large,
+                       category: ax ? .accessibilityMedium : .large) { w in
+            try await w.settle()
+            let sentence = try node(w, "Notifications are being rolled out")
+            let caption = try node(w, "We'll let you know here when notifications reach your account.")
+            let inset = 20 + InlineMessageSpec.horizontalPadding
+            if ax {
+                #expect(abs(sentence.frame.minX - inset) < 1, "from the card's inset, under the glyph: \(sentence.frame)")
+                #expect(sentence.frame.minY > 20 + InlineMessageSpec.topPadding + InlineMessageSpec.glyphSize, "the glyph above")
+            } else {
+                #expect(sentence.frame.minX >= inset + InlineMessageSpec.glyphSize + InlineMessageSpec.glyphGap - 1,
+                        "beside the glyph: \(sentence.frame)")
+            }
+            #expect(abs(caption.frame.minX - sentence.frame.minX) < 1, "the caption under the sentence")
         }
     }
 

@@ -24,7 +24,8 @@ enum ReportProblemLayout {
 /// help find the cause, never a health value. Pushed from Profile, or from an error's Details (`context`), pre-filled.
 ///
 /// - The frame is `SubpageScaffold`; Send is the pinned primary ("Sending…" with the pill's spinner while it goes), with
-///   "Reports are limited to 10 a day." under it.
+///   "Reports are limited to 10 a day." under it. At the accessibility sizes that line (and the caption that says why Send
+///   waits) ends the page instead, so the bar keeps only the pill and the page its room (C §2.9).
 /// - A refusal shows above the form as a notice, with the message kept and "Copy message".
 /// - `sent` and `queued` replace the form and the bar: a ring with a checkmark or a clock, the headline (VoiceOver goes to
 ///   it), Done. Queued says it is saved on this iPhone and goes out once online: it never claims to have been sent.
@@ -36,6 +37,7 @@ struct ReportProblemView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @FocusState private var editing: Bool
     @AccessibilityFocusState private var outcomeFocused: Bool
     @State private var includedOpen = false
@@ -91,17 +93,42 @@ struct ReportProblemView: View {
                 diagnostics
             }
             .disabled(model.sending)
+            if typeSize.isAccessibilitySize { barLines }
         }
     }
 
+    /// The pinned bar's caption (why Send waits) and footnote; at the accessibility sizes they end the page instead.
+    private var sendCaption: Text? {
+        model.result == .rateLimited
+            ? Text("You can send again tomorrow.",
+                   comment: "Report a problem: the pinned bar's caption while today's 10 reports are used up.")
+            : nil
+    }
+
+    private static var sendFootnote: Text { Text("Reports are limited to 10 a day.") }
+
+    /// The bar's lines at the end of the page (accessibility sizes): the caption, then the footnote, flush left.
+    private var barLines: some View {
+        VStack(alignment: .leading, spacing: PinnedBarSpec.spacing) {
+            if let sendCaption {
+                sendCaption
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Self.sendFootnote
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// Send, pinned: busy while it goes (the pill keeps its size and says "Sending…"), disabled without a message, over the
-    /// limit and after today's tenth report (the caption then says why).
+    /// limit and after today's tenth report (the caption then says why; from AX1 at the page's end, with the footnote).
     private var sendBar: some View {
-        PinnedActionBar(caption: model.result == .rateLimited
-                            ? Text("You can send again tomorrow.",
-                                   comment: "Report a problem: the pinned bar's caption while today's 10 reports are used up.")
-                            : nil,
-                        footnote: Text("Reports are limited to 10 a day.")) {
+        let inBar = !typeSize.isAccessibilitySize
+        return PinnedActionBar(caption: inBar ? sendCaption : nil, footnote: inBar ? Self.sendFootnote : nil) {
             PillButton(model.sending ? Text("Sending…") : Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
                 editing = false
                 await model.send()

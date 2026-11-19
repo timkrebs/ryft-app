@@ -42,9 +42,10 @@ enum InlineMessageSpec {
     static let horizontalPadding: CGFloat = 16
     /// Under the text when there are no buttons; with buttons their 44 pt targets leave room under their labels, so 2.
     static let bottomPadding: CGFloat = 14, bottomPaddingUnderButtons: CGFloat = 2
-    /// The glyph: 16 pt at the default size, growing with the sentence; 12 to the text.
+    /// The glyph: 16 pt at the default size, growing with the sentence; 12 to the text. At the accessibility sizes it goes
+    /// above the sentence, 6 over it, and the sentence takes the card's width (C §2.9).
     static let glyphSize: CGFloat = 16
-    static let glyphGap: CGFloat = 12
+    static let glyphGap: CGFloat = 12, glyphGapAbove: CGFloat = 6
     /// The sentence → its caption, and the text → the buttons' row.
     static let captionGap: CGFloat = 4
     static let buttonsGap: CGFloat = 6
@@ -146,7 +147,10 @@ struct InlineMessage: View {
     }
 
     @ViewBuilder private var sentence: some View {
-        let row = HStack(alignment: .top, spacing: InlineMessageSpec.glyphGap) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: InlineMessageSpec.glyphGapAbove))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: InlineMessageSpec.glyphGap))
+        let row = layout {
             Image(systemName: systemImage)
                 .font(.system(size: iconSize, weight: .regular))
                 .foregroundStyle(severity.glyphColor)
@@ -165,8 +169,8 @@ struct InlineMessage: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         if readsAsOne {
             row.accessibilityElement(children: .combine)
         } else {
