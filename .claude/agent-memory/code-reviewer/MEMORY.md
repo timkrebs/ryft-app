@@ -39,3 +39,4 @@
 - [Refusals as states](review-checks-refusal-states.md) — what the old drop let through, 2xx-undecodable, queued creates vs online callers, silent 422s, Retry with no dependency
 - [Form reads + whole saves](review-checks-form-reads-and-saves.md) — banner retry skips commit gate, post-await saves after day switch, reads rebuilding over edits
 - [Autosave editors](review-checks-autosave-editors.md) — save chains awaiting the network, stale drafts in other tabs, async Turn off, conditional push hosts
+- [Setting editors](review-checks-setting-editors.md) — waitsForConnectivity hangs, failure-time offline, page-local busy, account-blind editors, off-grid steps
