@@ -401,7 +401,7 @@ struct ActivityOriginAndParkingTests {
         let input = MyDayInput(day: day, server: .dayDetail(nil, activities: [imported]))
         let row = try #require(MyDayAssembler.items(input, catalog: .unnamed, now: imported.end).first)
         #expect(row.sources == [.ryft])
-        #expect(MyDayItem.Source.ryft.title == "RYFT" && MyDayItem.Source.ryft.glyph == "ellipsis.circle")
+        #expect(MyDayItem.Source.ryft.title == "RYFT")
         #expect(!row.editable)
     }
 

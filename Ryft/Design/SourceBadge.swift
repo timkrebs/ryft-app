@@ -43,12 +43,6 @@ struct SourceBadge: View {
     }
 }
 
-extension SourceBadge {
-    init(_ source: MyDayItem.Source) {
-        self.init(title: source.title)
-    }
-}
-
 extension MyDayItem.Source {
     /// The badge's words (ui.md §2.3): RYFT's name, "Added by you", Train, or the tracker's display name.
     var title: String {
@@ -57,20 +51,6 @@ extension MyDayItem.Source {
         case .ryftManual, .addedByYou: return String(localized: "Added by you", comment: "Source badge: typed in by the user.")
         case .tracker(let name, _): return name
         case .train: return String(localized: "Train")
-        }
-    }
-
-    /// The source's glyph (ui.md §2.3). The Nocturne badge draws the name only (B §9.1); the glyph stays the model's answer to
-    /// "what kind of source", for a view that shows one.
-    var glyph: String {
-        switch self {
-        // Without GPS (an indoor run, yoga…) a neutral "recorded" mark: the row's icon already shows the sport.
-        case .ryftRecorded(let indoor): return indoor ? "record.circle" : "location.fill"
-        case .ryftManual, .addedByYou: return "pencil"
-        // An origin this build doesn't know: the neutral "unknown source" glyph (ui.md §2.3).
-        case .ryft: return "ellipsis.circle"
-        case .tracker(_, let symbol): return symbol
-        case .train: return "dumbbell.fill"
         }
     }
 }

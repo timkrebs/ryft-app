@@ -238,11 +238,6 @@ struct MyDayMergedRowTests {
         let list = rows(input(detail(), activities: [activity(1, c.sport, origin: c.origin, from: at(8))]))
         #expect(try item(activityID(1), in: list).sources == [c.expected])
     }
-
-    @Test func aRecordingWithoutGPSHasANeutralRYFTGlyphNotARunner() {
-        #expect(MyDayItem.Source.ryftRecorded(indoor: true).glyph == "record.circle")
-        #expect(MyDayItem.Source.ryftRecorded(indoor: false).glyph == "location.fill")
-    }
 }
 
 // MARK: - rule 3: workout and session are one row

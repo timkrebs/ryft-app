@@ -27,14 +27,22 @@ struct MyDayActions {
     /// A row's Edit and Delete (manual and recorded activities, a night the user added).
     var edit: ((MyDayItem) -> Void)?
     var delete: ((MyDayItem) -> Void)?
-    /// Try again (the stale caption, the error).
+    /// Try again (the stale caption, the error, offline).
     var retry: () async -> Void = {}
+    /// Retry on a row whose upload failed (R4): the uploader sends the activity or the night now.
+    var retryRow: ((MyDayItem) -> Void)?
 
     /// ＋ has something to offer.
     var hasAddEntries: Bool { addActivity != nil || addSleep != nil || startStrength != nil }
 
-    /// Every entry offered, doing nothing (previews).
-    static let preview = MyDayActions(addActivity: {}, addSleep: {}, startStrength: {})
+    /// A row's Retry: only on a failed upload, and only where the uploader is wired.
+    func rowRetry(for item: MyDayItem) -> (() -> Void)? {
+        guard let retryRow, ActivityStateMark.State(item).isFailed else { return nil }
+        return { retryRow(item) }
+    }
+
+    /// Every entry offered, and a failed row's Retry, doing nothing (previews).
+    static let preview = MyDayActions(addActivity: {}, addSleep: {}, startStrength: {}, retryRow: { _ in })
 }
 
 /// My Day on Today (ui.md §2.1, design.md §7.1): always today. Loads on Today's refreshes, opens the full screen
@@ -70,7 +78,8 @@ struct MyDayCard: View {
             .navigationDestination(item: $activity) { ActivityDetailView(route: $0) }
             .sheet(item: $adding) { AddActivitySheet(model: $0) }
             .sheet(item: $sleeping) { AddSleepSheet(model: $0) }
-            .task(id: state.lastUpdated) {
+            // Again when the iPhone is back online: offline nothing was read (B §11).
+            .task(id: LoadKey(refreshed: state.lastUpdated, online: state.env.connectivity.isOnline)) {
                 await model.load(model.today)
                 if let back = autoOpen {
                     autoOpen = nil
@@ -78,6 +87,11 @@ struct MyDayCard: View {
                     showsDay = true
                 }
             }
+    }
+
+    private struct LoadKey: Equatable {
+        let refreshed: Date?
+        let online: Bool
     }
 
     private func actions(_ content: MyDayContent) -> MyDayActions {
@@ -92,6 +106,8 @@ struct MyDayCard: View {
         startStrength: model.showsTrain ? { Task { await coordinator.quickStart(.auto) } } : nil,
         retry: {
             await model.load(today, force: true)
+        }, retryRow: { item in
+            Task { await model.retryUpload(item) }
         })
     }
 
@@ -137,8 +153,8 @@ struct MyDayCard: View {
 
 /// The card itself, from a day's content (PR 6 B §9.1, `b-17`): the header ("My Day" over the day's summary, the plus menu),
 /// up to five rows in the card style with hairlines between them (the missing night is the dashed row), "Show all", the Add
-/// activity pill, the stale caption. Loading is three outline rows; nothing today says so; a failed read is an
-/// `InlineMessage` with Try again.
+/// activity pill, the stale caption. Loading is three outline rows; nothing today says so; a failed read, or nothing
+/// cached while offline, is an `InlineMessage` with Try again.
 struct MyDayCardBody: View {
     let content: MyDayContent
     var actions = MyDayActions()
@@ -215,11 +231,13 @@ struct MyDayCardBody: View {
         switch content.phase {
         case .loading:
             MyDaySkeleton(rows: MyDayLayout.placeholderRows)
-                .padding(.top, MyDayLayout.addGap)
+                .padding(.top, MyDayLayout.stateGap)
         case .failed:
-            InlineMessage(message: String(localized: "Couldn't load My Day.", comment: "My Day: nothing cached and the read failed."),
-                          retry: actions.retry, identifier: "myday.failed")
-                .padding(.top, MyDayLayout.addGap)
+            MyDayFailedMessage(retry: actions.retry)
+                .padding(.top, MyDayLayout.stateGap)
+        case .offline:
+            MyDayOfflineMessage(retry: actions.retry)
+                .padding(.top, MyDayLayout.stateGap)
         case .ready:
             VStack(alignment: .leading, spacing: 0) {
                 let rows = content.cardRows
@@ -243,13 +261,16 @@ struct MyDayCardBody: View {
 
     @ViewBuilder
     private func row(_ item: MyDayItem) -> some View {
+        let retry = actions.rowRetry(for: item)
         if item.opensDetail {
-            Button { actions.open(item) } label: { MyDayRow(item: item) }
+            Button { actions.open(item) } label: { MyDayRow(item: item, retry: retry) }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityHint(item.hint ?? Text(verbatim: ""))
+                .myDayRowRetry(retry)
                 .accessibilityIdentifier("myday.row.\(item.id)")
         } else {
-            MyDayRow(item: item, addSleep: actions.addSleep)
+            MyDayRow(item: item, retry: retry, addSleep: actions.addSleep)
+                .myDayRowRetry(retry)
                 .accessibilityIdentifier(item.kind.isMissingSleep ? "myday.noSleep" : "myday.row.\(item.id)")
         }
     }
@@ -277,6 +298,42 @@ struct MyDayCardBody: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("myday.showAll")
+        }
+    }
+}
+
+/// Nothing cached and the read failed (or was held back): "Couldn't load My Day." with Try again.
+struct MyDayFailedMessage: View {
+    var retry: () async -> Void = {}
+
+    var body: some View {
+        InlineMessage(message: String(localized: "Couldn't load My Day.", comment: "My Day: nothing cached and the read failed."),
+                      retry: retry, identifier: "myday.failed")
+    }
+}
+
+/// Nothing cached and offline: a calm line, no outlines (they would wait for good), and Try again.
+struct MyDayOfflineMessage: View {
+    var retry: () async -> Void = {}
+
+    var body: some View {
+        InlineMessage(message: String(localized: "My Day appears once you're online.",
+                                      comment: "My Day: offline with nothing saved on this iPhone for the day yet."),
+                      systemImage: "wifi.slash", retry: retry, identifier: "myday.offline")
+    }
+}
+
+extension View {
+    /// VoiceOver's "Retry" on the element a My Day row is (its button, or the row itself): the row speaks as one
+    /// element, so its Retry link is reached as an action (B §9.1).
+    @ViewBuilder
+    func myDayRowRetry(_ retry: (() -> Void)?) -> some View {
+        if let retry {
+            accessibilityActions {
+                Button(String(localized: "Retry", comment: "My Day: send a failed upload again."), action: retry)
+            }
+        } else {
+            self
         }
     }
 }
@@ -405,17 +462,22 @@ struct MyDayAddMenu: View {
 }
 
 /// "Showing the list from 14:05" in `caption` `textSecondary`, and after two minutes "Try again" (ui.md §2.1 M5), a text
-/// button 44 high in the link's ink: quiet, never red.
+/// button 44 high in the link's ink: quiet, never red. From AX1 Try again goes under the words.
 struct MyDayStaleLine: View {
     let since: Date
     var offersRetry = false
     var retry: () async -> Void = {}
 
     @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var retrying = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        // From AX1 Try again goes under the words (B §12): beside them it would squeeze the time into a column.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: MyDayLayout.staleRetryGap))
+        layout {
             Text("Showing the list from \(Fmt.time(since, locale: locale))",
                  comment: "My Day: the list is the last one loaded; the time it was loaded.")
                 .font(.ryft(.caption))
@@ -479,6 +541,15 @@ private struct MyDayCardPreviewStates: View {
 #Preview("My Day card · states") {
     MyDayCardPreviewStates(cases: [.populated, .full, .nothing, .noSleepNothing, .noSleepRows, .loading, .stale, .failed])
         .preferredColorScheme(.dark)
+}
+
+#Preview("My Day card · offline") {
+    ScrollView {
+        MyDayCardBody(content: MyDayContent(day: MockMyDay.today, isToday: true, phase: .offline, items: []), actions: .preview)
+            .padding(Theme.Metrics.screenPadding)
+    }
+    .background(Theme.background)
+    .preferredColorScheme(.dark)
 }
 
 #Preview("My Day card · AX3") {

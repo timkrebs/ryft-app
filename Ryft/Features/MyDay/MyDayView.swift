@@ -42,14 +42,18 @@ struct MyDayView: View {
             } message: { item in
                 Self.deleteMessage(item)
             }
-            .task(id: TaskKey(day: day, refreshed: state.lastUpdated)) { await model.load(day) }
+            .task(id: TaskKey(day: day, refreshed: state.lastUpdated, online: state.env.connectivity.isOnline)) {
+                await model.load(day)
+            }
             // Today: the app's pull, the activities beside it; a past day: its reads, the spinner capped.
             .refreshable { await model.refresh(model.date) { await screens.pullToRefresh() } }
     }
 
+    /// The day, today's refresh, and the iPhone back online (offline nothing was read).
     private struct TaskKey: Equatable {
         let day: Date
         let refreshed: Date?
+        let online: Bool
     }
 
     private func actions(_ content: MyDayContent) -> MyDayActions {
@@ -76,6 +80,8 @@ struct MyDayView: View {
         delete: model.addsManually ? { deleting = $0 } : nil,
         retry: {
             await model.load(day, force: true)
+        }, retryRow: { item in
+            Task { await model.retryUpload(item) }
         })
     }
 
@@ -168,7 +174,7 @@ struct MyDayPage: View {
         if content.isToday {
             return String(localized: "Today · \(date)", comment: "My Day's header under \"My Day\": today, then its date (\"Wed, Nov 18\").")
         }
-        if isYesterday {
+        if content.isYesterday {
             return String(localized: "Yesterday · \(date)",
                           comment: "Sleep's header under \"Sleep\": the night that ended yesterday morning, then its date (\"Sat, Nov 14\").")
         }
@@ -178,18 +184,12 @@ struct MyDayPage: View {
     /// The subtitle for VoiceOver, the date in full: "Today, Wednesday, November 18".
     private var spokenSubtitle: String {
         let date = content.day.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.wide).day())
-        if content.isToday || isYesterday { return "\(dayWord), \(date)" }
+        if content.isToday || content.isYesterday { return "\(dayWord), \(date)" }
         return date
     }
 
-    /// The day's word against the environment's clock ("Today", "Yesterday", "Sat, Nov 14").
+    /// The day's word against the environment's clock ("Today", "Yesterday").
     private var dayWord: String { content.title ?? Fmt.dayTitle(content.day) }
-
-    /// The content's title is "Yesterday" exactly when it reads as the day before its next day would.
-    private var isYesterday: Bool {
-        guard !content.isToday, let next = Calendar.current.date(byAdding: .day, value: 1, to: content.day) else { return false }
-        return dayWord == Fmt.dayTitle(content.day, today: next)
-    }
 
     // MARK: the day
 
@@ -249,8 +249,9 @@ struct MyDayPage: View {
         case .loading:
             MyDaySkeleton()
         case .failed:
-            InlineMessage(message: String(localized: "Couldn't load My Day.", comment: "My Day: nothing cached and the read failed."),
-                          retry: actions.retry, identifier: "myday.failed")
+            MyDayFailedMessage(retry: actions.retry)
+        case .offline:
+            MyDayOfflineMessage(retry: actions.retry)
         case .ready:
             LazyVStack(alignment: .leading, spacing: MyDayLayout.rowSpacing) {
                 ForEach(content.items) { item in
@@ -259,7 +260,7 @@ struct MyDayPage: View {
                 }
                 if content.isToday ? content.hasNoActivities : content.isEmpty {
                     MyDayEmptyLine(isToday: content.isToday)
-                        .padding(.top, MyDayLayout.headerSubtitleGap)
+                        .padding(.top, MyDayLayout.screenEmptyGap)
                         .accessibilityIdentifier("myday.view.empty")
                 }
             }
@@ -269,14 +270,17 @@ struct MyDayPage: View {
 
     @ViewBuilder
     private func tile(_ item: MyDayItem) -> some View {
+        let retry = actions.rowRetry(for: item)
         if item.opensDetail {
-            Button { actions.open(item) } label: { MyDayRow(item: item, style: .tile, showsChevron: true) }
+            Button { actions.open(item) } label: { MyDayRow(item: item, style: .tile, showsChevron: true, retry: retry) }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityHint(item.hint ?? Text(verbatim: ""))
+                .myDayRowRetry(retry)
                 .modifier(MyDayRowEditing(item: item, edit: actions.edit, delete: actions.delete))
                 .accessibilityIdentifier("myday.view.row.\(item.id)")
         } else {
-            MyDayRow(item: item, style: .tile, addSleep: actions.addSleep)
+            MyDayRow(item: item, style: .tile, retry: retry, addSleep: actions.addSleep)
+                .myDayRowRetry(retry)
                 .accessibilityIdentifier(item.kind.isMissingSleep ? "myday.view.noSleep" : "myday.view.row.\(item.id)")
         }
     }
@@ -360,6 +364,14 @@ private struct MyDayViewHost: View {
         MyDayPage(content: MockMyDay.content(.full), week: MockMyDay.week(daysBack: 0), actions: .preview)
     }
     .environment(\.dynamicTypeSize, .accessibility3)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("My Day · offline, nothing saved") {
+    NavigationStack {
+        MyDayPage(content: MyDayContent(day: MockMyDay.today, isToday: true, phase: .offline, items: []),
+                  week: MockMyDay.week(daysBack: 0), actions: .preview)
+    }
     .preferredColorScheme(.dark)
 }
 
