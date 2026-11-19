@@ -85,16 +85,18 @@ struct NeedDisclosure: View {
 
 /// Tonight on Today (and in the debug screen): `TonightView` for the planner's board; it plans when there is no plan yet,
 /// and again once the iPhone is back online with none, so offline never stays on screen after the connection returns.
-/// Bedtime & wake is pushed from the card. When Today drops the card under the open page (the evening ends, a first import
-/// starts), the page stays and Back returns to Today (`BedtimeHostedTests.todayKeepsThePage`).
+/// Bedtime & wake opens through `openSchedule` when the screen hosts it on a view that stays (Today: the card leaves when
+/// the evening ends or a first import starts, and the page mustn't go with it); without one the card pushes it itself.
 struct TonightCard: View {
     let planner: BedtimePlanner
+    var openSchedule: ((SleepScheduleView.Opening) -> Void)?
     @Environment(\.locale) private var locale
     @State private var opening: SleepScheduleView.Opening?
 
     var body: some View {
         TonightView(board: planner.tonight(locale: locale), numeralStyle: planner.numeralStyle,
-                    retry: { await planner.refresh() }, signIn: { await planner.signIn() }, openSchedule: { opening = $0 })
+                    retry: { await planner.refresh() }, signIn: { await planner.signIn() },
+                    openSchedule: { if let openSchedule { openSchedule($0) } else { opening = $0 } })
             .navigationDestination(item: $opening) { SleepScheduleView(planner: planner, opening: $0) }
             .task { if planner.plan == nil { await planner.refresh() } }
             .onChange(of: planner.isOnline) { _, online in
@@ -332,7 +334,8 @@ extension TonightView {
 /// online or not. A switch iOS refuses stays off with an amber row and Open Settings; an alarm iOS stopped allowing goes back
 /// off with the planner's sentence. Turn off asks first, then the page waits, disabled, while the reminders and alarms go.
 struct SleepScheduleView: View {
-    /// How the page was opened: from a "Set up Bedtime & wake" button, leaving it without a change sets it up as shown.
+    /// How the page was opened: from a "Set up Bedtime & wake" button, leaving it the first time without a change sets it
+    /// up as shown (once: not again after a Turn off elsewhere).
     enum Opening: Hashable, Sendable {
         case edit, setUp
     }
@@ -343,8 +346,10 @@ struct SleepScheduleView: View {
     }
 
     let planner: BedtimePlanner
-    var opening: Opening
     var placement: Placement
+    /// Opened from Set up, and not left yet with nothing set up: leaving sets it up. Spent by the first leave, or once
+    /// there is a schedule.
+    @State private var setsUp: Bool
     @State private var confirmsTurnOff = false
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
@@ -353,8 +358,8 @@ struct SleepScheduleView: View {
 
     init(planner: BedtimePlanner, opening: Opening = .edit, placement: Placement = .pushed) {
         self.planner = planner
-        self.opening = opening
         self.placement = placement
+        _setsUp = State(initialValue: opening == .setUp)
     }
 
     private var editor: BedtimeScheduleEditor { planner.editor }
@@ -383,7 +388,13 @@ struct SleepScheduleView: View {
             if on == false { editor.alarmWentOff() }
         }
         .onAppear { editor.open() }
-        .onDisappear { editor.leave(settingUp: opening == .setUp) }
+        .onDisappear {
+            editor.leave(settingUp: setsUp)
+            setsUp = false
+        }
+        .onChange(of: planner.schedule != nil) { _, isSetUp in
+            if isSetUp { setsUp = false }
+        }
         .confirmationDialog(Text("Turn off Bedtime & wake?",
                                  comment: "Bedtime & wake: the confirmation before Turn off."),
                             isPresented: $confirmsTurnOff, titleVisibility: .visible) {
@@ -698,12 +709,19 @@ enum TonightPreview {
 #Preview("Tonight · AX3") { TonightPreview.page(.planned, cached: true, size: .accessibility3) }
 
 @MainActor
-private func schedulePreview(_ schedule: SleepSchedule?, alarmsAllowed: Bool = true,
-                             size: DynamicTypeSize = .large) -> some View {
-    let state = AppState.preview(flags: [.sleepPlanner: true])
-    let alarms = MockWakeAlarms()
-    alarms.allowed = alarmsAllowed
-    return SchedulePreview(planner: BedtimePlanner(state: state, alarms: alarms), schedule: schedule)
+private func schedulePreview(_ schedule: SleepSchedule?, alarmsAllowed: Bool = true, online: Bool = true,
+                             turningOff: Bool = false, size: DynamicTypeSize = .large) -> some View {
+    let state = AppState.preview(online: online, flags: [.sleepPlanner: true])
+    let planner: BedtimePlanner
+    let stuck = turningOff ? StuckWakeAlarms() : nil
+    if let stuck {
+        planner = BedtimePlanner(state: state, alarms: stuck)
+    } else {
+        let alarms = MockWakeAlarms()
+        alarms.allowed = alarmsAllowed
+        planner = BedtimePlanner(state: state, alarms: alarms)
+    }
+    return SchedulePreview(planner: planner, schedule: schedule, turningOff: stuck)
         .previewEnvironment(state)
         .toggleStyle(.ryft)
         .dynamicTypeSize(size)
@@ -713,6 +731,8 @@ private func schedulePreview(_ schedule: SleepSchedule?, alarmsAllowed: Bool = t
 private struct SchedulePreview: View {
     let planner: BedtimePlanner
     let schedule: SleepSchedule?
+    /// Turn off started and held: the page as it waits.
+    var turningOff: StuckWakeAlarms?
     @State private var ready = false
 
     var body: some View {
@@ -722,7 +742,26 @@ private struct SchedulePreview: View {
         .task {
             if let schedule { await planner.update(schedule) }
             ready = true
+            if let turningOff {
+                turningOff.sticks = true
+                await planner.editor.turnOff()
+            }
         }
+    }
+}
+
+/// Wake alarms whose taking-away doesn't finish once `sticks`: Turn off stays on its way (previews).
+private final class StuckWakeAlarms: WakeAlarms {
+    let ringsLikeAnAlarm = true
+    var sticks = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func authorize() async -> Bool { true }
+    func isAllowed() async -> Bool { true }
+    func schedule(_ times: [String]) async throws {}
+    func cancelAll() async {
+        guard sticks else { return }
+        await withCheckedContinuation { waiting.append($0) }
     }
 }
 
@@ -741,10 +780,18 @@ private extension SleepSchedule {
         schedule.alarmOn = true
         return schedule
     }
+
+    static var withReminder: SleepSchedule {
+        var schedule = SleepSchedule.default
+        schedule.reminderOn = true
+        return schedule
+    }
 }
 
 #Preview("Bedtime & wake") { schedulePreview(.default) }
 #Preview("Bedtime & wake · not set up") { schedulePreview(nil) }
 #Preview("Bedtime & wake · each day") { schedulePreview(.eachDay) }
 #Preview("Bedtime & wake · alarm not allowed") { schedulePreview(.withAlarm, alarmsAllowed: false) }
+#Preview("Bedtime & wake · reminders wait for a plan") { schedulePreview(.withReminder, online: false) }
+#Preview("Bedtime & wake · turning off") { schedulePreview(.withAlarm, turningOff: true) }
 #Preview("Bedtime & wake · AX3") { schedulePreview(.eachDay, size: .accessibility3) }
