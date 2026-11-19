@@ -89,6 +89,30 @@ struct ListSheetsBehaviourTests {
         }
     }
 
+    @Test("The custom form: a name over 80 Unicode scalars can't be added, and the form says why")
+    func aNameOverTheLimit() async throws {
+        // 11 family emoji (7 scalars each, joined by ZWJ) and "Rows": 15 Characters, 81 scalars.
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        let reason = "Up to \(CustomExerciseDraft.maxNameLength) characters."
+        var saved: Exercise?
+        let over = CustomExerciseForm(name: String(repeating: family, count: 11) + "Rows") { saved = $0 }
+        try await HostedWindow.run(width: 390, height: 844, over) { w in
+            try await w.settle()
+            let add = try #require(w.node("Add", exactly: true))
+            #expect(!add.isEnabled, "81 scalars")
+            #expect(w.node(reason, exactly: true) != nil, "the reason under the field")
+            add.activate()
+            try await w.settle()
+            #expect(saved == nil)
+        }
+        try await HostedWindow.run(width: 390, height: 844,
+                                   CustomExerciseForm(name: String(repeating: family, count: 11) + "Row") { _ in }) { w in
+            try await w.settle()
+            #expect(w.node("Add", exactly: true)?.isEnabled == true, "80 scalars")
+            #expect(w.node(reason, exactly: true) == nil)
+        }
+    }
+
     @Test("The custom form: a save still under way when Cancel is tapped hands nothing back")
     func aSlowCustomSaveAfterCancel() async throws {
         let source = GatedCreateSource()
