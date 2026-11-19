@@ -90,6 +90,26 @@ struct AppAttestNotServedTests {
         #expect(rig.server.appTokens(AttestServer.me).last == "tok-1")
     }
 
+    /// Review C3: a `403 app_attest_required` shows the routes are live, so it lifts the not-served pause, once a process:
+    /// here the probe it allows is answered `404` again, and the next refusal (past the 60 s spacing) probes no more.
+    @Test func aRefusalLiftsTheNotServedPauseOnce() async throws {
+        let rig = AttestRig(served: false, scripted: false)
+        rig.defaults.set(try JSONEncoder().encode(AppAttestor.Backoff(
+            notServedUntil: rig.clock.now().addingTimeInterval(3 * 3_600))), forKey: AppAttestor.defaultsKey)
+        rig.launch()
+        rig.server.reply(AttestServer.challenge, .json(404, #"{"error":"not found"}"#))
+        rig.server.reply(AttestServer.me, .refusal(403, code: "app_attest_required", requestID: "rid-403"))
+
+        await #expect { try await rig.getMe() } throws: { ($0 as? APIError)?.code == .appAttestRequired }
+        #expect(rig.server.count(AttestServer.challenge) == 1)       // the pause was lifted for this refusal
+        #expect(rig.backoff?.notServedUntil != nil)                  // and set again by the 404
+
+        rig.clock.advance(by: .seconds(61))
+        await #expect { try await rig.getMe() } throws: { ($0 as? APIError)?.code == .appAttestRequired }
+        #expect(rig.server.count(AttestServer.challenge) == 1)       // not lifted twice
+        #expect(rig.server.appTokens(AttestServer.me).allSatisfy { $0 == nil })
+    }
+
     @Test func aDeviceClockSetBackDoesNotExtendTheBackoff() async throws {
         let rig = AttestRig(served: false)
         // A stored end further out than six hours can only come from a clock that was set back: over.

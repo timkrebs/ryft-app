@@ -32,6 +32,31 @@ struct AppAttestHeaderTests {
         #expect(rig.server.requests(AttestServer.token).first?.field("challenge") == Self.challenge2)
     }
 
+    /// Review C2: the routes App Attest exempts send a token the attestor holds, but never start a renewal or wait for
+    /// one: without a token they go at once (the clock never moves here, so a wait would never end), and in the
+    /// renewal window they don't renew.
+    @Test func exemptRoutesSendAHeldTokenAndNeverRenew() async throws {
+        let rig = AttestRig()                                        // served: a request without a token would wait
+        let push = "DELETE /v1/devices/5f0e8c1a-6c1b-4a4e-9d55-1f1d2f6a3b7c/push"
+        let exempt = [push, "DELETE /v1/me", "POST /v1/me/apple-authorization", "DELETE /v1/me/consent",
+                      "POST /v1/feedback"]
+        func send(_ route: String) async throws {
+            let parts = route.split(separator: " ", maxSplits: 1).map(String.init)
+            _ = try await rig.api.exchange(parts[0], path: parts[1], encodedBody: nil)
+        }
+        for route in exempt { try await send(route) }
+        #expect(rig.server.appAttestRequests == 0)
+        #expect(await !rig.attestor.isRenewing)
+        #expect(exempt.allSatisfy { rig.server.appTokens($0) == [nil] })
+
+        _ = try await rig.getMe()                                    // a covered route: the first token
+        rig.clock.advance(by: .seconds(3_301))                       // inside the renewal window
+        for route in exempt { try await send(route) }
+        #expect(exempt.allSatisfy { rig.server.appTokens($0) == [nil, "tok-1"] })
+        #expect(rig.server.count(AttestServer.token) == 1)
+        #expect(await !rig.attestor.isRenewing)
+    }
+
     @Test func theNextApiRequestsCarryTheToken() async throws {
         let rig = AttestRig()
         _ = try await rig.getMe()

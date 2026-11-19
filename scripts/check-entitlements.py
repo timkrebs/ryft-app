@@ -26,6 +26,9 @@ ALLOWED = {
     PREFIX + "healthkit.background-delivery",
 }
 EMPTY_ARRAY_OK = {PREFIX + "healthkit.access"}
+# Keys whose value is fixed when present. App Attest: the production servers accept production attestations only,
+# and Xcode's + Capability writes `development` (API.md → Conventions → App Attest → Environment).
+REQUIRED_VALUES = {PREFIX + "devicecheck.appattest-environment": "production"}
 
 
 def main() -> int:
@@ -37,6 +40,8 @@ def main() -> int:
             problems.append(f"{key}: not in the allow-list (add capabilities through Signing & Capabilities → + Capability)")
         if isinstance(value, list) and not value and key not in EMPTY_ARRAY_OK:
             problems.append(f"{key}: empty array — the profile won't grant it; remove the key or add the capability")
+        if key in REQUIRED_VALUES and value != REQUIRED_VALUES[key]:
+            problems.append(f"{key}: {value!r}, must be {REQUIRED_VALUES[key]!r} (+ Capability writes 'development')")
     for p in problems:
         print(f"{PATH}: {p}")
     if problems:

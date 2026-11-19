@@ -18,6 +18,12 @@ struct StoredAppAttestKey: Codable, Equatable, Sendable {
     var attested: Bool
 }
 
+// Interpolated or printed, it shows neither the key ID nor the account.
+extension StoredAppAttestKey: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { "StoredAppAttestKey(account: <redacted>, keyId: <redacted>, attested: \(attested))" }
+    var debugDescription: String { description }
+}
+
 /// `DCAppAttestService`, behind a protocol (live: `DeviceAppAttestService`).
 protocol AppAttestService: Sendable {
     /// False on the Simulator and on devices without the Secure Enclave support App Attest needs.

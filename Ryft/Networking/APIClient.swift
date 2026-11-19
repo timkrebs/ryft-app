@@ -283,6 +283,9 @@ final class APIClient: RyftDataSource {
         c.timeoutIntervalForRequest = 60
         c.timeoutIntervalForResource = 300 // first backfill can be tens of MB
         c.waitsForConnectivity = true
+        // No `Cache.db`: a stored response keeps its request's headers (the bearer, the app token), and no wipe
+        // clears it. The platform's `no-store` says the same; the client doesn't rely on it.
+        c.urlCache = nil
         return c
     }()
 
@@ -293,6 +296,7 @@ final class APIClient: RyftDataSource {
         c.timeoutIntervalForRequest = 20
         c.timeoutIntervalForResource = 25
         c.waitsForConnectivity = false
+        c.urlCache = nil
         return c
     }()
 
@@ -346,7 +350,7 @@ final class APIClient: RyftDataSource {
     }
 
     /// The path without its query.
-    private static func route(_ path: String) -> String {
+    static func route(_ path: String) -> String {
         path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
     }
 
@@ -510,10 +514,21 @@ final class APIClient: RyftDataSource {
         }
         let tokens = await tokenProvider()
         var bearer = try await tokens.accessToken()
-        // The app token, after the bearer: every route but the three that mint it (ADR 0023). Nil goes without.
-        let attests = appAttest != nil && !Self.appAttestRoutes.contains("\(method) \(Self.route(path))")
+        // The app token, after the bearer (ADR 0023): never on the three routes that mint it, nor to a host a caller
+        // chose (`base`). Nil goes without. The routes App Attest exempts carry a token the attestor holds, but never
+        // start a renewal or wait for one (sign-out's unregistering mustn't stall, nor renew for the leaving account).
+        let attests = appAttest != nil && base == nil && !Self.appAttestRoutes.contains("\(method) \(Self.route(path))")
+        let exempt = attests && Self.isAppAttestExempt(method, path)
         var appToken: String?
-        if attests { appToken = await appAttest?.token(epoch: epoch, via: self) }
+        if exempt {
+            appToken = await appAttest?.heldToken(epoch: epoch)
+        } else if attests {
+            appToken = await appAttest?.token(epoch: epoch, via: self)
+            // The wait for a first token (up to 3 s) may have outlived the account: A's request never goes out after
+            // A's wipe.
+            guard await status.epoch == epoch else { throw CancellationError() }
+        }
+        let renews = attests && !exempt
         let single = Self.singleAttempt
         var refreshed = false, rateLimited = false, unavailable = 0, renewedToken = false
         /// A retry's step (its wait, the 401 refresh, the final 401's sign-out): it stops like a cancellation when
@@ -574,7 +589,7 @@ final class APIClient: RyftDataSource {
                 continue
             case 401:
                 try await retryStep { await tokens.rejectedAfterRefresh() }
-            case 403 where attests && !renewedToken && Self.errorCode(in: data) == .appAttestRequired:
+            case 403 where renews && !renewedToken && Self.errorCode(in: data) == .appAttestRequired:
                 // App Attest refused it before routing and the body, so any method may go again: once, with a new
                 // token (the renewal in flight's, if there is one). None to be had: thrown below with its request ID.
                 renewedToken = true

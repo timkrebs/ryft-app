@@ -9,6 +9,22 @@ extension APIClient {
         "POST /v1/app-attest/challenge", "POST /v1/app-attest/keys", "POST /v1/app-attest/token",
     ]
 
+    /// The app's routes that App Attest exempts (API.md → Conventions → App Attest → Exempt), besides
+    /// `DELETE /v1/devices/{id}/push`: erasure, its Apple half, withdrawal, and feedback. They never answer
+    /// `app_attest_required`, so they send a token the attestor holds and never start or wait for a renewal.
+    static let appAttestExemptRoutes: Set<String> = [
+        "DELETE /v1/me", "POST /v1/me/apple-authorization", "DELETE /v1/me/consent", "POST /v1/feedback",
+    ]
+
+    static func isAppAttestExempt(_ method: String, _ path: String) -> Bool {
+        let route = Self.route(path)
+        if appAttestExemptRoutes.contains("\(method) \(route)") { return true }
+        // `DELETE /v1/devices/{id}/push`: sign-out's unregistering.
+        let parts = route.split(separator: "/", omittingEmptySubsequences: false)
+        return method == "DELETE" && parts.count == 5 && parts[1] == "v1" && parts[2] == "devices" && !parts[3].isEmpty
+            && parts[4] == "push"
+    }
+
     /// `POST /v1/app-attest/challenge` (no body). Each is one attempt (`singleAttempt`): the fail-fast session, no
     /// `503` or `429` loop; the attestor's backoff decides when to try again.
     func appAttestChallenge() async throws -> AppAttestChallenge {

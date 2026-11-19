@@ -257,6 +257,7 @@ final class ScriptedAppAttestService: AppAttestService, @unchecked Sendable {
     private var _attestation: Data?
     private var _assertion: Data?
     private var _assertionHold: RequestHold?
+    private var _attestKeyHold: RequestHold?
 
     init(supported: Bool, events: EventLog) {
         fake = FakeAppAttestService(supported: supported)
@@ -295,6 +296,9 @@ final class ScriptedAppAttestService: AppAttestService, @unchecked Sendable {
     /// The next assertion is made, then waits for `hold.release()`.
     func holdAssertion(_ hold: RequestHold) { lock.withLock { _assertionHold = hold } }
 
+    /// The next `attestKey` waits for `hold.release()`, then answers (or throws what `failNext` scripted).
+    func holdAttestKey(_ hold: RequestHold) { lock.withLock { _attestKeyHold = hold } }
+
     func generateKey() async throws -> String {
         events.add("dc generateKey")
         let made = try await fake.generateKey()
@@ -303,6 +307,9 @@ final class ScriptedAppAttestService: AppAttestService, @unchecked Sendable {
 
     func attestKey(_ keyId: String, clientDataHash: Data) async throws -> Data {
         events.add("dc attestKey")
+        if let hold = lock.withLock({ () -> RequestHold? in defer { _attestKeyHold = nil }; return _attestKeyHold }) {
+            await hold.wait()
+        }
         let made = try await fake.attestKey(keyId, clientDataHash: clientDataHash)
         return attestation ?? made
     }

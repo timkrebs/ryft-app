@@ -84,6 +84,8 @@ actor AppAttestor {
     private var failures = 0
     /// `isSupported` false or `featureUnsupported`: nothing for the rest of the process.
     private var unsupported = false
+    /// A `403 app_attest_required` has lifted the not-served pause in this process (once).
+    private var liftedNotServed = false
     private var cachedBackoff: Backoff?
 
     /// `stamp`: the signed-in account and `APIStatus.epoch` (nil: nobody), read on the main actor. Its epoch is the one
@@ -102,6 +104,9 @@ actor AppAttestor {
 
     /// A renewal is running (tests).
     var isRenewing: Bool { renewal != nil }
+
+    /// Runs still executing, a wiped one included (tests: `isRenewing` turns false at the wipe, before its run ends).
+    private(set) var runsInFlight = 0
 
     // MARK: what APIClient asks
 
@@ -128,6 +133,12 @@ actor AppAttestor {
     func renewed(after refused: String?, epoch: Int, via client: APIClient) async throws -> String? {
         catchUpWipes()
         try Task.checkCancellation()
+        // The platform refuses for App Attest, so its routes are live: a not-served pause (one stray `404` or `501`)
+        // ends, once a process, so a refusal can't probe again and again.
+        if !liftedNotServed, backoff.notServedUntil != nil {
+            liftedNotServed = true
+            updateBackoff { $0.notServedUntil = nil }
+        }
         if let token = usable(epoch), token != refused { return token }
         let id: UUID
         if let renewal, renewal.epoch == epoch {
@@ -150,6 +161,13 @@ actor AppAttestor {
         wipes.withLock { $0 += 1 }
         keys.remove()
         Task { await self.catchUpWipes() }
+    }
+
+    /// The header for a route App Attest exempts: the token this process holds for `epoch`, if any. Never starts a
+    /// renewal and never waits (sign-out's unregistering, erasure, feedback).
+    func heldToken(epoch: Int) -> String? {
+        catchUpWipes()
+        return usable(epoch)
     }
 
     /// `clientDataHash` for `attestKey` and `generateAssertion`: SHA-256 of the challenge's UTF-8 bytes, as received.
@@ -320,6 +338,8 @@ actor AppAttestor {
     }
 
     private func run(_ id: UUID, epoch: Int, generation: Int, via client: APIClient) async {
+        runsInFlight += 1
+        defer { runsInFlight -= 1 }
         let signpost = Self.signposter.beginInterval("renewal", id: Self.signposter.makeSignpostID())
         await renew(epoch: epoch, generation: generation, via: client)
         Self.signposter.endInterval("renewal", signpost)
@@ -353,6 +373,9 @@ actor AppAttestor {
                 }
             }
         } catch {
+            // A run a wipe (or a newer account's renewal) ended leaves nothing behind: no backoff, in memory or
+            // persisted, for the account that comes next.
+            guard !Task.isCancelled, wipes.withLock({ $0 }) == generation else { return }
             ended(error)
         }
     }
@@ -381,8 +404,7 @@ actor AppAttestor {
 
     /// Before every step: a cancelled run (a wipe, a newer account's renewal) or one from before a wipe sends nothing.
     private func check(_ run: Run) throws {
-        try Task.checkCancellation()
-        guard wipes.withLock({ $0 }) == run.generation else { throw Stop.quietly }
+        guard !Task.isCancelled, wipes.withLock({ $0 }) == run.generation else { throw Stop.quietly }
     }
 
     /// The account's key. Another account's (a kill mid-wipe, an item that outlived a reinstall) is dropped. A throw is

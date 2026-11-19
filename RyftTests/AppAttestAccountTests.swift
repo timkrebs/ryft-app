@@ -1,3 +1,4 @@
+import DeviceCheck
 import Foundation
 import Testing
 @testable import Ryft
@@ -47,9 +48,9 @@ struct AppAttestAccountTests {
         case .keysAnswer, .tokenAnswer: rig.server.releaseHeld()
         }
 
-        // B's requests: their own key, their own token.
+        // B's requests: their own key, their own token. A's, which waited for a first token, never goes out (review C4).
         _ = try await rig.getMe()
-        _ = try await requestOfA.value
+        await #expect(throws: CancellationError.self) { try await requestOfA.value }
         let tokens = rig.server.appTokens(AttestServer.me)
         #expect(tokens.contains("tok-of-key-2"))
         #expect(!tokens.contains("tok-of-key-1"), "a token minted for A's key went out")
@@ -119,6 +120,29 @@ struct AppAttestAccountTests {
         rig.attestor.wipe()
         #expect(rig.keys.stored == nil)
         #expect(rig.keys.removals == 1)
+    }
+
+    /// Review C1: A signs out while `attestKey` is under way, and Apple then answers `serverUnavailable`. A's run ends
+    /// quietly: no backoff for B, whose first request attests at once.
+    @Test func aRunTheWipeEndedLeavesNoBackoffForTheNextAccount() async throws {
+        let rig = AttestRig()
+        let hold = RequestHold()
+        rig.service.holdAttestKey(hold)
+        rig.service.failNext("attestKey", with: DCError(.serverUnavailable))
+        let requestOfA = Task { try await rig.getMe() }
+        #expect(await rig.until { hold.waiting == 1 })
+        #expect(await rig.until { await rig.attestor.waiting == 1 })
+
+        rig.switchAccount(to: AttestRig.b)
+        // A's request was waiting for its first token: the wipe lets it go, and it never goes out for B (review C4).
+        await #expect(throws: CancellationError.self) { try await requestOfA.value }
+        hold.release()
+        #expect(await rig.until { await rig.attestor.runsInFlight == 0 })   // A's run has ended, `serverUnavailable` seen
+
+        _ = try await rig.getMe()
+        #expect(rig.server.appTokens(AttestServer.me) == ["tok-1"])          // B's renewal started, B's token went out
+        #expect(rig.keys.stored == StoredAppAttestKey(account: AttestRig.b, keyId: "key-2", attested: true))
+        #expect(rig.backoff?.attestPausedUntil == nil && rig.backoff?.notServedUntil == nil)
     }
 
     @Test func aStalledRenewalIsEndedByTheWipeAndItsWaitersLetGo() async throws {

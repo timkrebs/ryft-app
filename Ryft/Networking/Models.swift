@@ -1441,6 +1441,22 @@ struct AppAttestToken: Codable {
     let ttlSec: Int
 }
 
+// Interpolated or printed (a log line, a test's failure message), they show no secret.
+extension AppAttestToken: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { "AppAttestToken(token: <redacted>, ttlSec: \(ttlSec))" }
+    var debugDescription: String { description }
+}
+
+extension AppAttestKeyPost: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { "AppAttestKeyPost(keyId: <redacted>, attestation: <redacted>, challenge: <redacted>)" }
+    var debugDescription: String { description }
+}
+
+extension AppAttestTokenPost: CustomStringConvertible, CustomDebugStringConvertible {
+    var description: String { "AppAttestTokenPost(keyId: <redacted>, challenge: <redacted>, assertion: <redacted>)" }
+    var debugDescription: String { description }
+}
+
 // MARK: - Train
 //
 // Exercises, plans and logged sessions: API.md → Train and its Swift mirror.
