@@ -109,7 +109,8 @@ final class DevicesUITests: XCTestCase {
 
         garmin.tap()
         XCTAssertTrue(element(app, "tracker.card.garmin").waitForExistence(timeout: 5), "Garmin's card, pushed")
-        XCTAssertTrue(app.navigationBars["Garmin"].exists)
+        // The subpage frame (Nocturne): its own header, Back and the card's title, no navigation bar.
+        XCTAssertTrue(app.buttons["subpage.back"].exists && app.staticTexts["Garmin"].firstMatch.exists)
     }
 
     /// Profile → Data's first row with `devices.setup` on (demo data's config): Devices & sync.
@@ -126,7 +127,8 @@ final class DevicesUITests: XCTestCase {
         }
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices & sync row")
         row.tap()
-        XCTAssertTrue(app.navigationBars["Devices & sync"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["subpage.back"].waitForExistence(timeout: 5), "the subpage frame's Back")
+        XCTAssertTrue(app.staticTexts["Devices & sync"].exists, "its title")
         XCTAssertTrue(app.buttons["devices.row.apple_watch"].exists, "demo data wears an Apple Watch")
     }
 }
