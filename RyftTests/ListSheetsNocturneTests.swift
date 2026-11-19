@@ -13,6 +13,8 @@ struct ListSheetsNocturneTests {
 
     @Test("List's current-set bar: Focused's 2 pt Volt bar, 10 outside the 56 pt row, 40 high, in the card's padding")
     func theBarsNumbers() {
+        // One row height for the set row and its bar.
+        #expect(LiveSessionSpec.listRowHeight == 56 && CurrentSetHighlight.rowHeight == LiveSessionSpec.listRowHeight)
         #expect(CurrentSetHighlight.barOutset == 10)
         #expect(LiveSessionSpec.activeBarHeight(rowHeight: CurrentSetHighlight.rowHeight) == 40)
         #expect(LiveSessionSpec.activeBarWidth == 2)
@@ -31,12 +33,26 @@ struct ListSheetsNocturneTests {
         #expect(RestBar.lessTitle == "\u{2212}15 s" && RestBar.moreTitle == "+15 s")
     }
 
-    @Test("A folded exercise is an outlined grey check on a radius-22 row, not a filled teal one")
-    func theCollapsedRow() {
+    @Test("A folded exercise is an outlined grey check on a radius-22 row, not a filled teal one; \"80 × 5\" stays on one line")
+    func theCollapsedRow() throws {
         #expect(CollapsedExerciseRow.checkSymbol == "checkmark.circle")
         #expect(CollapsedExerciseRow.checkInk == Theme.textSecondary)
         #expect(CollapsedExerciseRow.checkSize == 20)
         #expect(CollapsedExerciseRow.radius == 22)
+        let c = SessionSheetsPreview.listFolded()
+        defer { c.stop() }
+        let text = CollapsedExerciseRow.summary(for: try #require(c.exercises.first)).text
+        // No-break spaces either side of the ×, as the card's "Last time".
+        #expect(text.contains("\u{00A0}×\u{00A0}") && !text.contains(" × "), "\(text)")
+    }
+
+    @Test("§12: a sheet opens at full height from XL, half height first below it")
+    func theDetents() {
+        #expect(SheetFrameSpec.detents(for: .large) == [.medium, .large])
+        #expect(SheetFrameSpec.detents(for: .xxLarge) == [.large])
+        #expect(SheetFrameSpec.detents(for: .xLarge) == [.large])
+        #expect(SheetFrameSpec.detents(for: .accessibility3) == [.large])
+        #expect(SheetFrameSpec.detents(for: .medium, compact: [.medium]) == [.medium])
     }
 
     @Test("A filter chip: a 34 pt capsule in a 44 pt box; the chosen one ink-filled, the others an ink outline at 16 %")
@@ -70,26 +86,43 @@ struct ListSheetsNocturneTests {
     // MARK: hosted: the List page
 
     private typealias RGB = FocusedPolishHostedTests.RGB
+    /// Under 4/255: tells `surface` from `background`.
+    private static let tight = 0.015
 
     private static func isClose(_ p: RGB, _ color: Color, tolerance: Double = 0.06) -> Bool {
         FocusedPolishHostedTests.isClose(p, to: FocusedPolishHostedTests.rgb(color), tolerance: tolerance)
     }
 
     /// Whether anything in the window carries `identifier`: a text field is a UIKit view, not one of `nodes()`' SwiftUI nodes.
-    private static func hasIdentifier(_ identifier: String, in w: HostedWindow) -> Bool {
+    static func hasIdentifier(_ identifier: String, in w: HostedWindow) -> Bool {
+        element(identifier, in: w) != nil
+    }
+
+    /// The first object in the window (views and accessibility elements) that carries `identifier`.
+    static func element(_ identifier: String, in w: HostedWindow) -> NSObject? {
         var seen = Set<ObjectIdentifier>()
-        func walk(_ object: NSObject, depth: Int) -> Bool {
-            guard depth < 80, seen.insert(ObjectIdentifier(object)).inserted else { return false }
-            if (object.value(forKey: "accessibilityIdentifier") as? String) == identifier { return true }
+        func walk(_ object: NSObject, depth: Int) -> NSObject? {
+            guard depth < 80, seen.insert(ObjectIdentifier(object)).inserted else { return nil }
+            if (object.value(forKey: "accessibilityIdentifier") as? String) == identifier { return object }
             if let elements = object.accessibilityElements {
-                for case let child as NSObject in elements where walk(child, depth: depth + 1) { return true }
+                for case let child as NSObject in elements { if let hit = walk(child, depth: depth + 1) { return hit } }
             }
             if let view = object as? UIView {
-                for sub in view.subviews where walk(sub, depth: depth + 1) { return true }
+                for sub in view.subviews { if let hit = walk(sub, depth: depth + 1) { return hit } }
             }
-            return false
+            return nil
         }
         return walk(w.window, depth: 0)
+    }
+
+    /// The UIKit text field (one line) whose identifier is `identifier`.
+    static func textField(_ identifier: String, in w: HostedWindow) -> UITextField? {
+        func find(_ view: UIView) -> UITextField? {
+            if let field = view as? UITextField, field.accessibilityIdentifier == identifier { return field }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        return find(w.window)
     }
 
     /// `b-02`: set 2 of Bench press is the current set. The bar sits 10 pt outside its row in the card's padding; the done row
@@ -111,13 +144,17 @@ struct ListSheetsNocturneTests {
             let bar = try #require(w.pixel(at: CGPoint(x: barX, y: current.frame.minY + mid)))
             #expect(Self.isClose(bar, Theme.signal, tolerance: 0.1), "\(bar)")
             // Above the bar's end, still in the row: the card.
+            // Tight (0.015, under 4/255): `surface` and `background` are only a few steps apart, so 0.06 would take either.
             let above = try #require(w.pixel(at: CGPoint(x: barX, y: current.frame.minY + 2)))
-            #expect(Self.isClose(above, Theme.surface), "\(above)")
+            #expect(Self.isClose(above, Theme.surface, tolerance: Self.tight), "\(above)")
             let none = try #require(w.pixel(at: CGPoint(x: barX, y: done.minY + mid)))
-            #expect(Self.isClose(none, Theme.surface), "\(none)")
+            #expect(Self.isClose(none, Theme.surface, tolerance: Self.tight), "\(none)")
             // The bar is inside the card: 4 pt further out is the screen.
             let outside = try #require(w.pixel(at: CGPoint(x: LiveSessionSpec.sidePadding - 2, y: current.frame.midY)))
-            #expect(Self.isClose(outside, Theme.background), "\(outside)")
+            #expect(Self.isClose(outside, Theme.background, tolerance: Self.tight), "\(outside)")
+            #expect(!Self.isClose(outside, Theme.surface, tolerance: Self.tight), "the screen, not the card: \(outside)")
+            // The rows are List's 56.
+            #expect(abs(done.height - LiveSessionSpec.listRowHeight) < 1, "\(done)")
         }
     }
 
@@ -125,13 +162,22 @@ struct ListSheetsNocturneTests {
     func underTheCards() async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }
-        try await HostedWindow.run(width: 390, height: 3000, SessionView(controller: c)) { w in
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: c)) { w in
+            try await w.settle()
+            // The pills are under the last card: the page scrolled to its end, so they're drawn (off the screen a window
+            // renders black, which a loose check would take for the page).
+            let page = try #require(w.pageScrollView())
+            let end = page.contentSize.height - page.bounds.height + page.adjustedContentInset.bottom
+            page.setContentOffset(CGPoint(x: 0, y: max(0, end)), animated: false)
             try await w.settle()
             let add = try #require(w.node("Add exercise", exactly: true))
             #expect(add.frame.height >= PillButton.minHeight - 0.5, "\(add.frame)")
             #expect(add.traits.contains(.button))
+            #expect(add.frame.minY >= 0 && add.frame.maxY <= 844, "on screen: \(add.frame)")
             let inside = try #require(w.pixel(at: CGPoint(x: add.frame.minX + 30, y: add.frame.midY)))
-            #expect(Self.isClose(inside, Theme.background), "an outline, not a fill: \(inside)")
+            let beside = try #require(w.pixel(at: CGPoint(x: add.frame.minX - 4, y: add.frame.midY)))
+            #expect(Self.isClose(beside, Theme.background, tolerance: Self.tight), "the page beside it: \(beside)")
+            #expect(Self.isClose(inside, Theme.background, tolerance: Self.tight), "an outline, not a fill: \(inside)")
             let reorder = try #require(w.node("Reorder exercises", exactly: true))
             #expect(reorder.frame.height >= Theme.Metrics.minHitTarget - 0.5, "\(reorder.frame)")
         }
@@ -229,6 +275,11 @@ struct ListSheetsNocturneTests {
             #expect(row.hint == "Expands the sets")
             #expect(row.frame.height >= 56 - 0.5)
             #expect(row.traits.contains(.button))
+            // VoiceOver's double tap (the element's own action, not the Button's under `children: .ignore`) unfolds it.
+            let bench = try #require(c.exercises.first)
+            #expect(row.activate())
+            try await w.wait("the row unfolds") { !c.collapsed.contains(bench.id) }
+            try await w.wait("its sets show") { w.node("Bench press, completed.") == nil && w.node("Set 1 of") != nil }
         }
     }
 
@@ -309,6 +360,9 @@ struct ListSheetsNocturneTests {
             #expect(add.identifier == "customExercise.add")
             #expect(!add.isEnabled, "no name yet")
             #expect(Self.hasIdentifier("customExercise.name", in: w))
+            // "Name" once: the field's label, and an empty field under it (no prompt repeating it).
+            let field = try #require(Self.textField("customExercise.name", in: w))
+            #expect((field.placeholder ?? "").isEmpty, "prompt: \(field.placeholder ?? "nil")")
             #expect(w.node("Kind", exactly: true) != nil)
             #expect(w.node("Main muscle", exactly: true)?.identifier == "customExercise.muscle")
             #expect(w.node("Logged as", exactly: true) != nil)
@@ -375,7 +429,7 @@ struct ListSheetsNocturneTests {
         }
     }
 
-    @Test("Notes: the header with Save, the field named Notes, the close circle Cancel")
+    @Test("Notes: the header with Save, the field named for the exercise (no group title), the close circle Cancel")
     func notes() async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }
@@ -384,11 +438,31 @@ struct ListSheetsNocturneTests {
         try await HostedWindow.run(width: 390, height: 844, ExerciseNotesSheet(controller: c, exercise: bench)) { w in
             try await w.settle()
             #expect(w.node("Notes", exactly: true)?.traits.contains(.header) == true)
+            #expect(w.nodes().filter { $0.label == "Notes" }.count == 1, "the title only")
+            #expect(!w.nodes().contains { $0.label == bench.name && $0.traits.contains(.header) }, "no group title")
             #expect(w.node("Save", exactly: true)?.identifier == "notes.save")
-            #expect(Self.hasIdentifier("notes.field", in: w))
+            let field = try #require(Self.element("notes.field", in: w))
+            #expect(field.accessibilityLabel == bench.name, "\(field.accessibilityLabel ?? "nil")")
             #expect(w.node("Cancel", exactly: true)?.identifier == "sheet.close")
+            // Save writes the sheet's text: changed underneath after the sheet came up, the notes take the sheet's again.
+            bench.notes = "Elbows in"
             #expect(try #require(w.node("Save", exactly: true)).activate())
             #expect(bench.notes == "Pause on the chest")
+        }
+    }
+
+    @Test("Notes: Cancel writes nothing")
+    func notesCancel() async throws {
+        let c = SessionSheetsPreview.listDraft()
+        defer { c.stop() }
+        let bench = c.exercises[0]
+        bench.notes = "Pause on the chest"
+        try await HostedWindow.run(width: 390, height: 844, ExerciseNotesSheet(controller: c, exercise: bench)) { w in
+            try await w.settle()
+            bench.notes = "Elbows in"
+            #expect(try #require(w.node("Cancel", exactly: true)).activate())
+            try await w.settle()
+            #expect(bench.notes == "Elbows in", "the sheet's text isn't written")
         }
     }
 
