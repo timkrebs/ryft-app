@@ -46,7 +46,7 @@ struct StrainHero: Equatable {
     /// The numeral's VoiceOver label: "Strain 12.4 of 21".
     var numeralLabel: String? { strain.map { String(localized: "Strain \(Fmt.strain($0)) of 21") } }
 
-    /// The numeral's VoiceOver value: the band, the change, the split ("Moderate strain, Up 1.2 vs 7 d, Cardio 9.2 · …").
+    /// The numeral's VoiceOver value: the band, the change, the split ("Moderate strain, Up 1.2 versus 7 days, Cardio 9.2 · …").
     var numeralValue: String {
         guard let band else { return "" }
         var parts = [band.spoken]

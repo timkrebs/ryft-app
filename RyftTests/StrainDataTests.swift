@@ -166,7 +166,7 @@ struct StrainScreenDecisionTests {
         let three = model(history: (1...3).map { DailyScore(day: day(-$0), strain: 10) } + [DailyScore(day: day(0), strain: 13)]).0
         #expect(three.strainDelta == MetricDelta(current: 13, reference: 10))
         #expect(three.board.hero.delta == three.strainDelta)
-        #expect(three.board.hero.numeralValue.contains("vs 7 d"))
+        #expect(three.board.hero.numeralValue.contains("versus 7 days"))
     }
 
     @Test func theSplitOnlyWithAStrengthSession() {
