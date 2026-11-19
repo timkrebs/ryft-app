@@ -329,6 +329,36 @@ struct BedtimeDemoSideTests {
         withExtendedLifetime(screens) {}
     }
 
+    @Test("3: launched in demo data with the account's journal, plans and schedule on this iPhone: none of it shows")
+    func aLaunchInDemoShowsNothingOfTheAccounts() async throws {
+        let (state, _, _) = sideGraph()
+        let account = state.env.auth.accountID, now = state.env.clock.now(), disk = state.env.persistence
+        let yesterday = DayFormat.string(from: DayFormat.shift(now, days: -1))
+        disk.saveDocument(MockJournal.behaviors, key: JournalStore.behaviorsKey, at: now)
+        disk.saveDocument(MockJournal.journal(day: yesterday), key: JournalStore.dayKey(yesterday), at: now)
+        SleepSchedule.default.save(account: account, defaults: state.env.defaults)
+        let wake = SleepSchedule.default.nextWake(after: now)
+        let tonight = MockJournal.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake), now: now)
+        disk.saveDocument(BedtimePlanner.Cached(plan: tonight, fetchedAt: now), key: BedtimePlanner.cacheKey, at: now)
+        let sleepTab = SleepPlannerViewModel(state: state)
+        let plan = MockJournal.sleepPlan(wake: sleepTab.wakeText, now: now)
+        disk.saveDocument(SleepPlannerViewModel.Cached(plan: plan, wake: sleepTab.wakeText, fetchedAt: now),
+                          key: SleepPlannerViewModel.cacheKey, at: now)
+        // On the account they show (offline-first), so the launch below has them to leave out.
+        #expect(!JournalStore(env: state.env).behaviors.isEmpty)
+        #expect(BedtimePlanner(state: state, alarms: MockWakeAlarms()).plan != nil)
+        #expect(SleepPlannerViewModel(state: state).plan == plan)
+
+        state.env.settings.demoMode = true
+        let journal = JournalStore(env: state.env)
+        #expect(journal.behaviors.isEmpty && journal.availability == .unknown && journal.cachedDay(yesterday) == nil,
+                "the journal: none of the account's habits or days")
+        let bedtime = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        #expect(bedtime.schedule == nil && bedtime.plan == nil && bedtime.bedtime == nil, "Tonight: none of its schedule or plan")
+        let sleep = SleepPlannerViewModel(state: state)
+        #expect(sleep.plan == nil && sleep.asOf == nil, "Sleep → Bedtime: none of its plan")
+    }
+
     @Test("4: Sleep → Bedtime's wake time is its side's: the switch drops the one followed and the one picked, and a plan for another wake time isn't shown")
     func sleepTabWakeStaysWithItsSide() async throws {
         let (state, _, _) = sideGraph()
