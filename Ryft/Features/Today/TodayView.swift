@@ -959,20 +959,6 @@ extension SyncLine {
     }
 }
 
-/// "Offline": the numbers are the last loaded ones; sync resumes on reconnect.
-struct OfflinePill: View {
-    var body: some View {
-        Label("Offline", systemImage: "wifi.slash")
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Theme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
-            .accessibilityLabel(Text("Offline. Showing your last loaded data."))
-    }
-}
-
 // MARK: - previews (dark only, default and AX3; design.md §P4-10)
 
 /// A state of Today on mock data, at the default size or AX3.
