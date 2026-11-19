@@ -552,9 +552,11 @@ private struct ProfileDeveloperGroup: View {
                 TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                     .keyboardType(.URL)
             }
-            field("Ingest URL override (compose: :8081)") {
-                TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
+            field("Ingest URL override (compose: :8081, needed with an API override)") {
+                TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
+                          text: Bindable(settings).devIngestURLOverride)
                     .keyboardType(.URL)
+                    .accessibilityIdentifier("profile.dev.ingestURL")
             }
             GroupedRow.toggle(Text(verbatim: "API key mode"),
                               detail: Text(verbatim: "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
