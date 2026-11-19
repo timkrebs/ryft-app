@@ -27,6 +27,7 @@ struct TrackerDetailView: View {
                                  addTracker()
                              } : nil)
         }
+        .devicesPagePlacement(placement)
     }
 }
 

@@ -34,7 +34,7 @@ final class CalibrationNoteUITests: XCTestCase {
     }
 
     @MainActor
-    func testTheLinkOpensGarminsCardAndDoneClosesIt() throws {
+    func testTheLinkOpensGarminsCardAndCloseClosesIt() throws {
         let app = launch("blockedHRV")
         let link = app.buttons["today.gaugeNote.link"]
         XCTAssertTrue(link.waitForExistence(timeout: 60), "the link is a button of its own")
