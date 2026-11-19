@@ -63,6 +63,9 @@ struct ProfileRowFacts: Equatable, Sendable {
     var journalLive = false
     var bedtimeEnabled = true
     var consentIsCurrent = true
+    /// Demo data is on: the account's consent is neither known nor reachable (every consent call goes to the demo's
+    /// platform), so Privacy says so instead of acting.
+    var isDemo = false
     var canChangePassword = false
     var hasTimezone = true
     /// The account's email when the name is the title (it was the account card's second line).
@@ -101,6 +104,10 @@ enum ProfileRows {
             return (f.showsNotifications ? [.notifications] : []) + (f.journalLive ? [.journal] : []) + [.heroNumerals]
                 + (f.bedtimeEnabled ? [.bedtime] : [])
         case .privacy:
+            // Consent is an account's: none signed out. In demo mode the row only says why it isn't shown; Review and
+            // Withdraw would reach the demo's platform (`AppEnvironment.api`), never the account.
+            guard f.isSignedIn else { return [] }
+            guard !f.isDemo else { return [.consent] }
             return [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
         case .account:
             guard f.isSignedIn else { return [.signedIn] }
