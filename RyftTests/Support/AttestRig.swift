@@ -67,6 +67,16 @@ final class AttestServer: @unchecked Sendable {
         }
 
         static let ok = Reply(status: 200)
+
+        /// `200` of `POST /v1/app-attest/token`.
+        static func token(_ token: String, ttl: Int = 3600) -> Reply {
+            .json(200, #"{"token":"\#(token)","expires_at":"2026-11-19T11:06:12Z","ttl_sec":\#(ttl)}"#)
+        }
+
+        /// `201` of `POST /v1/app-attest/keys`: the key ID it was sent.
+        static func keyCreated(_ request: Request) -> Reply {
+            .json(201, #"{"key_id":"\#(request.field("key_id") ?? "")"}"#)
+        }
     }
 
     typealias Handler = @Sendable (Request, Int) -> Reply
