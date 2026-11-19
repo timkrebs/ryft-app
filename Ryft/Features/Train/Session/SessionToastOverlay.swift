@@ -59,7 +59,7 @@ private extension TrainPreview {
 }
 
 #Preview("Session toast · undo and notice", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 0) {
             SessionToastOverlay(controller: TrainPreview.controllerWithUndo())
             SessionToastOverlay(controller: TrainPreview.controllerWithNotice())
