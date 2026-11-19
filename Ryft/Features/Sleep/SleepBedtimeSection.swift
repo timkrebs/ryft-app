@@ -449,16 +449,11 @@ struct SleepGoalMarker: View {
 }
 
 /// The settings card (§P5-7.3 row 6): "Wake up at" with the compact time picker, "Why this need" (opens the need's terms in
-/// the card), "Bedtime & wake" (→ the editor, its summary as the value).
+/// the card, as Tonight's does: `NeedDisclosure`), "Bedtime & wake" (→ the editor, its summary as the value).
 struct SleepBedtimeSettings: View {
     let board: SleepBedtimeBoard
     @Binding var wake: Date
     let openSchedule: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showsWhy = false
-    /// The chevron grows as the grouped rows' does.
-    @ScaledMetric(relativeTo: .callout) private var glyphScale: CGFloat = 1
 
     var body: some View {
         GroupedCard {
@@ -469,45 +464,11 @@ struct SleepBedtimeSettings: View {
                     .accessibilityIdentifier("sleep.bedtime.wake")
             }
             if let plan = board.plan {
-                whyRow
-                if showsWhy {
-                    NeedBasisRows(plan: plan)
-                        .font(.ryft(.callout))
-                        .padding(.horizontal, GroupedListSpec.rowInset)
-                        .padding(.bottom, GroupedListSpec.textPadding)
-                        .transition(.opacity)
-                }
+                NeedDisclosure(plan: plan, identifier: "sleep.bedtime.why")
             }
             GroupedRow.push(Text("Bedtime & wake"), value: Text(board.summary), action: openSchedule)
                 .accessibilityIdentifier("sleep.bedtime.schedule")
         }
-    }
-
-    /// "Why this need" and a chevron that turns down while the terms show.
-    private var whyRow: some View {
-        Button {
-            withAnimation(Theme.Motion.respecting(reduceMotion)) { showsWhy.toggle() }
-        } label: {
-            HStack(spacing: GroupedListSpec.rowSpacing) {
-                Text("Why this need")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: GroupedListSpec.chevronSize * glyphScale, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.accessoryOpacity))
-                    .rotationEffect(.degrees(showsWhy ? 90 : 0))
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, GroupedListSpec.rowInset)
-            .padding(.vertical, GroupedListSpec.textPadding)
-            .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(showsWhy ? Text("Expanded") : Text("Collapsed"))
-        .accessibilityIdentifier("sleep.bedtime.why")
-        .groupedRowHairline()
     }
 }
 
