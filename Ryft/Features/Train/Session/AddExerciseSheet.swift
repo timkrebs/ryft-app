@@ -416,7 +416,11 @@ struct CustomExerciseForm: View {
         }
         saving = true
         let e = draft.exercise
-        let saved = await library.createExercise(e) ?? e
+        // Nil only for a name the platform would refuse, which `canSave` already keeps out: stay open, add nothing.
+        guard let saved = await library.createExercise(e) else {
+            saving = false
+            return
+        }
         saving = false
         onSave(saved)
         dismiss()

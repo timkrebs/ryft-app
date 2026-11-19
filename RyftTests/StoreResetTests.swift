@@ -1167,9 +1167,10 @@ struct OwedWipeLaunchTests {
 
     private func coordinator(_ rig: WipingAuth) -> TrainCoordinator {
         let store: TrainStore = rig.disk.store
-        return TrainCoordinator(sync: TrainSyncService(store: store, remote: { MockPlatformAPI() }, owner: { nil },
-                                                       monitorsNetwork: false),
-                                library: TrainLibrary(store: store, remote: { MockPlatformAPI() }, restore: false),
+        let sync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, owner: { nil }, monitorsNetwork: false)
+        return TrainCoordinator(sync: sync,
+                                library: TrainLibrary(store: store, remote: { MockPlatformAPI() }, outbox: { sync },
+                                                      restore: false),
                                 liveActivities: false)
     }
 

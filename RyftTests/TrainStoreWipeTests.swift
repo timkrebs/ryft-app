@@ -158,7 +158,10 @@ enum WipedTable: String, CaseIterable {
         let account = "account-b", date = WipeValues.earlier, data = Data([1]), id = WipeValues.accountB
         switch self {
         case .localSession:
-            context.insert(LocalSession(title: "Upper"))
+            // Refused, as O2 keeps it: the attempt goes with the row.
+            let session = LocalSession(title: "Upper")
+            session.lastAttempt = WipeValues.refusal(.put)
+            context.insert(session)
         case .localSessionExercise:
             context.insert(LocalSessionExercise(exerciseId: id, name: "Row", kind: .machine, loadType: .weight, position: 0))
         case .localSet:
@@ -168,7 +171,10 @@ enum WipedTable: String, CaseIterable {
         case .cachedPlan:
             context.insert(CachedPlan(MockTrain.upperLower))
         case .pendingTrainOp:
-            context.insert(PendingTrainOp(seq: 1, kind: .put, sessionId: id, account: account))
+            // O1's kind, refused (O2): a custom exercise's `POST`, with its attempt on the op.
+            let op = PendingTrainOp(seq: 1, kind: .exercise, sessionId: id, account: account)
+            op.lastAttempt = WipeValues.refusal(.create)
+            context.insert(op)
         case .importMapping:
             context.insert(ImportMapping(account: account, source: .alphaProgression,
                                          key: SourceExerciseKey(name: "bench press", equipment: "barbell"),
@@ -239,6 +245,10 @@ enum WipeValues {
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
     static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
+    /// What O2 records when the platform refuses a Train op.
+    static func refusal(_ request: UploadAttempt.Request) -> UploadAttempt {
+        UploadAttempt(at: earlier, request: request, status: 422, code: nil, requestID: "req-wipe", kind: .other)
+    }
     /// A deleted, saved row's relationships: iOS 27 answers them. 18 and 26 trap, even when they were read before the
     /// delete: 18.0 on the relationship ("Context is missing"), 18.6 and 26.0 on a row it yields that nothing held
     /// ("Never access a full future backing data"; on 26.0 in one run of two).
@@ -523,7 +533,7 @@ struct TrainStoreWipeTests {
     @Test
     func theWipesTurnLetsGoOfTheOpenWorkout() throws {
         let rig = ReplaceRig()
-        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store, outbox: rig.sync),
                                            liveActivities: false)
         coordinator.live = rig.controller
         coordinator.refreshActive()
@@ -548,7 +558,7 @@ struct TrainStoreWipeTests {
         disk.relaunch()
         let sync = TrainSyncService(store: disk.store, remote: { MockPlatformAPI() }, owner: { "test" },
                                     debounce: .seconds(3600), monitorsNetwork: false)
-        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store),
+        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store, outbox: sync),
                                            liveActivities: false)
         coordinator.sessionLayout = { .list }
         coordinator.resume()
@@ -590,6 +600,41 @@ struct TrainStoreWipeTests {
         await rig.sync.flush()
         #expect(rig.api.count("putSession") == 0)
         #expect(rig.api.count("deleteSession") == 0)
+    }
+
+    /// O1 and O2: a custom exercise's `POST` and a refused workout, each kept with its attempt, go with the wipe, and
+    /// nothing of them is sent afterwards.
+    @Test(arguments: WipeValues.parkings)
+    func aWipeTakesQueuedExercisesAndRefusals(_ parking: String?) async throws {
+        let rig = ReplaceRig()
+        let id = rig.session.id
+        let custom = Exercise(slug: "landmine-press", name: "Landmine press", kind: .barbell, primaryMuscles: [.frontDelts],
+                              isCustom: true)
+        rig.store.cache(exercises: [custom])
+        rig.api.failNext = APIError.http(422, "invalid", requestID: "req-exercise")
+        rig.sync.queueExercise(custom)
+        await rig.sync.flush()
+        rig.api.failNext = APIError.http(422, "invalid", requestID: "req-put")
+        rig.sync.sessionChanged(rig.session)
+        await rig.sync.flush()
+        #expect(rig.store.pendingOps().map(\.kind) == [.exercise, .put])
+        #expect(rig.store.pendingOps().first?.lastAttempt?.requestID == "req-exercise")
+        let refused = try #require(rig.session.lastAttempt)
+        #expect(rig.sync.state(of: id) == .failed(refused))
+        let generation = rig.sync.generation
+
+        rig.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
+
+        #expect(rig.sync.generation != generation)
+        #expect(rig.store.pendingOps().isEmpty)
+        let fresh = ModelContext(rig.store.container)
+        let sessions = try fresh.fetchCount(FetchDescriptor<LocalSession>())
+        let ops = try fresh.fetchCount(FetchDescriptor<PendingTrainOp>())
+        #expect(sessions == 0 && ops == 0)
+        #expect(rig.store.exercise(id: custom.id) == nil)
+        #expect(rig.sync.state(of: id) == .confirmed)
+        await rig.sync.flush()
+        #expect(rig.api.count("createExercise") == 1 && rig.api.count("putSession") == 1)
     }
 
     // MARK: a wipe that doesn't reach the file
@@ -766,6 +811,33 @@ struct TrainStoreWipeTests {
         #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
         #expect(rig.lastUser == WipeValues.accountB.uuidString)
         #expect(try rig.disk.inFile[.cachedDay] == 0)
+    }
+
+    /// #107's owed wipe with O1 and O2's rows: a custom exercise's op and a refused workout, each with its attempt. The
+    /// store keeps the op through a refused wipe, and the debt takes it before the next account gets the store.
+    @Test(arguments: WipeValues.endings)
+    func anOwedWipeTakesQueuedExercisesAndRefusals(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.fill([.localSession, .pendingTrainOp])
+        try rig.disk.refuseDeletes(of: .pendingTrainOp)
+
+        await rig.end(ending)
+        #expect(rig.auth.accountID == nil)
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        // Read through a context of its own (what the file holds), kept alive while its rows are read.
+        let context = ModelContext(rig.disk.store.container)
+        let kept = try withExtendedLifetime(context) {
+            try context.fetch(FetchDescriptor<PendingTrainOp>()).map { ($0.kind, $0.lastAttempt?.requestID) }
+        }
+        #expect(kept.map(\.0) == [.exercise] && kept.first?.1 == "req-wipe")
+
+        try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
+        await rig.signIn(WipeValues.accountB)
+
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        let left = try rig.disk.inFile
+        #expect(left[.pendingTrainOp] == 0 && left[.localSession] == 0)
     }
 
     /// B is held over A's refused wipe, a token refresh that's refused too changes nothing, and the next launch's

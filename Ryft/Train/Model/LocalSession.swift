@@ -41,6 +41,11 @@ final class LocalSession {
     /// alone (`SessionController.showPage`), so a page change reaches neither `updatedAt` nor the outbox. Nil from
     /// builds before it and from the List layout: `SessionPage.resolve` picks the page, and the screen pins that.
     var currentExerciseID: UUID?
+    /// `UploadAttempt`: the platform refused this session's `PUT` or `…/complete` (O2). Its ops stay queued and wait
+    /// until Retry or an edit clears it (`TrainSyncService.retry(sessionID:)`, `sessionChanged`); other sessions' go.
+    /// Status, code, request ID and time only, never a body. Added in O2: optional, so older stores open with nil
+    /// (`TrainOutboxSchemaUpgradeTests`).
+    var lastAttemptData: Data?
     var updatedAt: Date
 
     init(id: UUID = UUID(), title: String, startedAt: Date = .now, planDayId: UUID? = nil) {
@@ -63,6 +68,11 @@ final class LocalSession {
     var prs: [PersonalRecord] {
         get { prsData.flatMap { try? APIClient.jsonDecoder.decode([PersonalRecord].self, from: $0) } ?? [] }
         set { prsData = try? APIClient.jsonEncoder.encode(newValue) }
+    }
+
+    var lastAttempt: UploadAttempt? {
+        get { WireCoding.decode(UploadAttempt.self, lastAttemptData) }
+        set { lastAttemptData = newValue.flatMap { WireCoding.encode($0) } }
     }
 
     var allSets: [LocalSet] { exercises.flatMap(\.sets) }
@@ -94,15 +104,7 @@ final class LocalSession {
     func apply(_ doc: TrainSession, names: (UUID) -> Exercise?, in context: ModelContext) {
         title = doc.title
         endedAt = doc.endedAt ?? endedAt
-        // Never back to in progress: a session finished here goes up as in_progress
-        // until `…/complete` (see `wireStatus`).
-        if !(status == .completed && doc.status == .inProgress) { status = doc.status }
-        if !doc.prs.isEmpty { prs = doc.prs }
-        workoutId = doc.workoutId ?? workoutId
-        bodyweightKg = doc.bodyweightKg ?? bodyweightKg
-        muscularTrimp = doc.muscularTrimp ?? muscularTrimp
-        strain = doc.strain ?? strain
-        volumeKg = doc.volumeKg ?? volumeKg
+        applyPlatformFields(doc)
         for remote in doc.exercises where !deletedExerciseIDs.contains(remote.id) {
             let local: LocalSessionExercise
             if let existing = exercises.first(where: { $0.id == remote.id }) {
@@ -128,6 +130,20 @@ final class LocalSession {
                 }
             }
         }
+    }
+
+    /// Only what the platform owns of a server document: the status (never back to in progress: a session finished
+    /// here goes up as in_progress until `…/complete`, see `wireStatus`), the workout, the records, the scores and the
+    /// body weight they used. Everything logged here (title, notes, times, exercises, sets) stays as it is: a
+    /// completion of an older copy than this one (ADR 0022 §5) changes none of it.
+    func applyPlatformFields(_ doc: TrainSession) {
+        if !(status == .completed && doc.status == .inProgress) { status = doc.status }
+        if !doc.prs.isEmpty { prs = doc.prs }
+        workoutId = doc.workoutId ?? workoutId
+        bodyweightKg = doc.bodyweightKg ?? bodyweightKg
+        muscularTrimp = doc.muscularTrimp ?? muscularTrimp
+        strain = doc.strain ?? strain
+        volumeKg = doc.volumeKg ?? volumeKg
     }
 }
 

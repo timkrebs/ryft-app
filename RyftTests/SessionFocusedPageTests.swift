@@ -568,7 +568,7 @@ struct SessionFocusedPageTests {
 
     @Test func theSummaryClosingLeavesThePageOnTheCompletedRow() async {
         let r = rig()
-        let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store), liveActivities: false)
+        let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store, outbox: r.sync), liveActivities: false)
         coordinator.live = r.controller
         r.controller.jump(to: r.curl.id)
         _ = await r.controller.finish()
@@ -854,7 +854,7 @@ struct SessionFocusedPageTests {
 
     @Test func theCoordinatorReadsItWhenTheControllerIsBuiltAndNotWhenItIsResumed() {
         let r = rig()
-        let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store), liveActivities: false)
+        let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store, outbox: r.sync), liveActivities: false)
         let box = LayoutBox(.focused)
         coordinator.sessionLayout = { box.read() }
         coordinator.resume()

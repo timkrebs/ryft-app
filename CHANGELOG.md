@@ -119,6 +119,8 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- A workout that uses a custom exercise you made offline now syncs once you're back online, and a workout the server
+  turns down stays on your iPhone, queued, instead of being dropped.
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in
   the workout are no longer broken or cut, and the Start workout options show their whole detail.
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.

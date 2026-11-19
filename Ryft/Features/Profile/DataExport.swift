@@ -196,7 +196,7 @@ extension DataExport.UnconfirmedActivity {
         } else if !row.isSaved {
             state = "recording"
         } else if row.needsUpload {
-            state = row.lastAttempt.map { $0.kind == .other || $0.kind == .appTooOld } == true ? "refused" : "pending"
+            state = row.lastAttempt?.isRefusal == true ? "refused" : "pending"
         } else {
             return nil
         }
