@@ -577,8 +577,7 @@ struct RootView: View {
     private var tabBar: some View {
         RootTabs()
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
-            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0).presentedRoot() }
-            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
+            .importPresentations(screens.importer)
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the

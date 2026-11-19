@@ -482,7 +482,9 @@ struct AddBehaviorSheet: View {
 #Preview("Add a habit") {
     let state = AppState.preview()
     return Color.clear
-        .sheet(isPresented: .constant(true)) { AddBehaviorSheet(store: journalPreviewStore(state), name: "Evening walk") }
+        .sheet(isPresented: .constant(true)) {
+            AddBehaviorSheet(store: journalPreviewStore(state), name: "Evening walk").presentedRoot()
+        }
         .previewEnvironment(state)
 }
 

@@ -236,6 +236,54 @@ struct PresentedRootTests {
         }
     }
 
+    // MARK: PR 6 C's presenters
+
+    /// The tab bar's import presentations (`RootView` carries `importPresentations`) over an empty page, showing `flow`.
+    private struct ImportHost: View {
+        let flow: ImportFlowModel
+        @Environment(ScreenModels.self) private var screens
+
+        var body: some View {
+            Color.clear
+                .importPresentations(screens.importer)
+                .onAppear { screens.importer.flow = flow }
+        }
+    }
+
+    @Test("The import cover, step 3: its switches are the Nocturne toggle, none a stock UISwitch (the integrated app's)")
+    func importCoverStepThree() async throws {
+        let flow = ImportMockData.flow(.choose, enrolled: false)
+        let host = ImportHost(flow: flow).previewEnvironment().environment(\.locale, Locale(identifier: "en_US"))
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(host)) { w in
+            let cover = try await Self.presented(w, "step 3 in the cover") { $0.contains { $0.identifier == "import.plan.0" } }
+            // Not vacuous: step 3's rows are switches, on.
+            let plan = try #require(w.nodes(in: cover).first { $0.identifier == "import.plan.0" })
+            #expect(plan.value == "1", "the plan's switch: \(plan.value ?? "nil")")
+            #expect(w.nodes(in: cover).contains { $0.identifier == "import.history" }, "history's switch")
+            let stock = Self.switches(in: w.window)
+            #expect(stock.isEmpty, "the import cover: \(stock.count) stock switch(es)")
+            try await Self.dismiss(w)
+        }
+    }
+
+    @Test("Journal settings' Add a habit sheet, through its + button: no stock switch, its field in the ink")
+    func journalAddSheet() async throws {
+        let state = AppState.preview()
+        let page = NavigationStack { JournalSettingsView(store: journalPreviewStore(state)) }
+            .previewEnvironment(state)
+            .environment(\.locale, Locale(identifier: "en_US"))
+        try await HostedWindow.run(width: 390, height: 1600, Self.appRoot(page)) { w in
+            try await w.wait("the journal's + button", timeout: .seconds(10)) {
+                w.nodes().contains { $0.identifier == "journal.add" }
+            }
+            #expect(try #require(w.nodes().first { $0.identifier == "journal.add" }).activate(), "+ took the tap")
+            // The name field is one element with its FormField (no identifier of its own); Add is the sheet's.
+            let sheet = try await Self.presented(w, "Add a habit") { $0.contains { $0.identifier == "addHabit.add" } }
+            try await Self.expectNocturne(w, sheet, "Add a habit")
+            try await Self.dismiss(w)
+        }
+    }
+
     // MARK: every presentation in Ryft/
 
     private static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

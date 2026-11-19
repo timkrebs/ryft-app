@@ -53,6 +53,7 @@ struct ImportSessionDetailSheet: View {
     let names = Dictionary(MockTrain.exercises.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     return Theme.background.ignoresSafeArea().sheet(isPresented: .constant(true)) {
         ImportSessionDetailSheet(preview: build.sessions[1], names: names, zone: ImportMockData.zone)
+            .presentedRoot()
     }
     .preferredColorScheme(.dark)
 }

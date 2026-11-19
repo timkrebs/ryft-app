@@ -2,6 +2,16 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+extension View {
+    /// The training import over the tabs (`RootView`): one cover for My Plans, Profile → Data and "Open in" (ui.md §2), and
+    /// E10's sheet when `train.import` is off. Each content ends with `presentedRoot()`: the root's toggle style doesn't
+    /// reach a cover on iOS 27 (`PresentedRootTests` presents step 3 through here).
+    func importPresentations(_ importer: ImportCoordinator) -> some View {
+        fullScreenCover(item: Bindable(importer).flow) { ImportFlowView(model: $0).presentedRoot() }
+            .sheet(isPresented: Bindable(importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
+    }
+}
+
 /// The training import (ui.md §2; PR 6 C §4.14): a full-screen cover with one pushed page per step. Step 1 has Close; steps
 /// 2 to 5 have Back and a Close that asks first (N1); step 6 only Close. Swipe-down is off from step 2 on. The controls take
 /// the app's ink (the root's tint and toggle style).
