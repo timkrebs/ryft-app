@@ -8,8 +8,9 @@ enum JournalSettingsLayout {
     nonisolated static let sidePadding: CGFloat = 20, bottomPadding: CGFloat = 32
     /// The card: radius 22; rows at least 46; the hairline inset 16 (`GroupedListSpec`).
     nonisolated static let cardRadius: CGFloat = 22, rowMinHeight: CGFloat = 46, rowInset: CGFloat = 16
-    /// A habit's trash button: a 44 pt target, a 14 pt glyph in ink at 55 %; its target ends 8 before the switch's track
-    /// (the glyph's centre 30 from it, as the draft), and the name keeps 40 more clear of it than the switch's own 12.
+    /// A habit's trash button: 44 wide and as tall as the row (at least 44), a 14 pt glyph in ink at 55 %; its target
+    /// ends 8 before the switch's track (the glyph's centre 30 from it, as the draft), and the name keeps 40 more clear of
+    /// it than the switch's own 12.
     nonisolated static let trashTarget: CGFloat = 44, trashGlyph: CGFloat = 14, trashOpacity = 0.55
     nonisolated static let trashToTrack: CGFloat = 8, labelClearance: CGFloat = 40
 }
@@ -22,15 +23,27 @@ enum JournalSettingsLayout {
 /// A `List` (swipe-to-delete needs one) drawn as the subpage grammar: the header as its first row, each group's rows on one
 /// `surface` card of radius 22 with inset hairlines (`JournalCardSegment`), no system separators or backgrounds. The values
 /// are the cached catalog (`JournalStore`), so the page reads the same offline; a change that can't be saved goes back and a
-/// notice says nothing changed (writes need the network, `JournalStore.JournalError.offline`).
+/// notice under the habit's group says what happened (writes need the network, `JournalStore.JournalError.offline`). The
+/// page scrolls to the notice and VoiceOver announces it, wherever the habit was on the page.
 struct JournalSettingsView: View {
     let store: JournalStore
-    @State private var failure: JournalSettingsFailure?
+    /// The last change that failed, and the group its habit is in: the notice shows under that group.
+    @State private var failure: GroupFailure?
     @State private var adding = false
     /// Habits whose change or deletion is on its way: their switch is disabled meanwhile.
     @State private var pending: Set<UUID> = []
     /// The habit whose trash button asked to delete it: the confirmation is up.
     @State private var deleting: Behavior?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private struct GroupFailure: Equatable {
+        let category: BehaviorCategory
+        let failure: JournalSettingsFailure
+    }
+
+    /// The failure notice's row, for scrolling to it.
+    private static let failureRow = "journal.failure"
 
     /// One group per category, in the order the platform sends the habits.
     private struct HabitGroup: Identifiable {
@@ -52,16 +65,36 @@ struct JournalSettingsView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: failure) { _, new in
+                    guard new != nil else { return }
+                    withAnimation(Theme.Motion.respecting(reduceMotion)) { proxy.scrollTo(Self.failureRow) }
+                }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
+        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store) }
+        .confirmationDialog(Text(verbatim: deleting.map { Self.deleteTitle($0.name) } ?? ""),
+                            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible, presenting: deleting) { habit in
+            Button("Delete", role: .destructive) {
+                Task { await delete(habit) }
+            }
+        } message: { _ in
+            Text("This removes the habit from your Journal.")
+        }
+        .task { await store.load() }
+    }
+
+    private var list: some View {
         List {
             SubpageHeader(Text("Journal")) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text("Add a habit")) { adding = true }
                     .accessibilityIdentifier("journal.add")
             }
             .journalListRow(bottom: JournalSettingsLayout.headerToContent)
-            if let failure {
-                InlineMessage(message: failure.message, systemImage: "exclamationmark.circle", caption: failure.details)
-                    .journalListRow(bottom: JournalSettingsLayout.groupGap)
-            }
             if store.behaviors.isEmpty {
                 emptyOrLoading
                     .journalListRow()
@@ -83,6 +116,14 @@ struct JournalSettingsView: View {
                             }
                         }
                 }
+                // Under the card of the habit that didn't change: where the user looked.
+                if let failure, failure.category == group.category {
+                    InlineMessage(message: failure.failure.message, systemImage: "exclamationmark.circle",
+                                  caption: failure.failure.details, announces: false)
+                        .textSelection(.enabled)
+                        .journalListRow(top: GroupedListSpec.footerGap)
+                        .id(Self.failureRow)
+                }
             }
             if store.behaviors.contains(where: \.isCustom) {
                 GroupFooter(Text("Your own habits can be deleted. The built-in ones can only be turned off."))
@@ -97,20 +138,6 @@ struct JournalSettingsView: View {
         .environment(\.defaultMinListRowHeight, 0)
         .scrollContentBackground(.hidden)
         .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .keepsBackSwipe()
-        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store) }
-        .confirmationDialog(Text(verbatim: deleting.map { Self.deleteTitle($0.name) } ?? ""),
-                            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                            titleVisibility: .visible, presenting: deleting) { habit in
-            Button("Delete", role: .destructive) {
-                Task { await delete(habit) }
-            }
-        } message: { _ in
-            Text("This removes the habit from your Journal.")
-        }
-        .task { await store.load() }
     }
 
     /// The catalog before it has loaded (one outline, "Loading…"), or a journal without habits.
@@ -163,7 +190,10 @@ struct JournalSettingsView: View {
         } catch where error.isCancellation {
             return
         } catch {
-            failure = JournalSettingsFailure(error)
+            let failed = JournalSettingsFailure(error)
+            failure = GroupFailure(category: habit.category, failure: failed)
+            // Heard wherever VoiceOver is: the habit may be far from where the notice draws.
+            AccessibilityNotification.Announcement(failed.message).post()
         }
     }
 
@@ -176,19 +206,31 @@ struct JournalSettingsView: View {
     }
 }
 
-/// What Journal settings and Add a habit say when a change didn't reach RYFT: that nothing changed, in words, and the
-/// status and request ID when there was a response (never the raw error text).
+/// What Journal settings and Add a habit say when a change didn't go through, in words, with the status and request ID as
+/// the caption when RYFT answered (never the raw error text):
+/// - offline: nothing was sent, so nothing changed;
+/// - no answer (the connection dropped, a timeout, a `5xx`): it may have saved, so the user checks rather than assumes;
+/// - a `422`: RYFT refused the values; trying the same again won't help, so it doesn't say to. (The platform's own sentence
+///   is developer English and may say "behavior", F1, so the calm one shows and the request ID goes along.)
+/// - anything else (`409` twice, `403`, `429`): nothing changed; try again.
 struct JournalSettingsFailure: Equatable {
     let message: String
     let details: String?
 
     init(_ error: Error) {
+        let api = error as? APIError
         if (error as? JournalStore.JournalError) == .offline {
             message = String(localized: "You're offline, so nothing changed. Try again when you're back online.",
                              comment: "Journal settings and Add a habit: a change that needs the network, offline.")
+        } else if api?.isFieldError == true {
+            message = String(localized: "RYFT didn't accept that, so nothing changed.",
+                             comment: "Journal settings and Add a habit: RYFT refused the values (422); the same again won't help.")
+        } else if FailureKind.of(error) == .transient, api?.status != 429 {
+            message = String(localized: "RYFT didn't answer, so this may not have saved. Check the list, or try again.",
+                             comment: "Journal settings and Add a habit: no answer (a timeout, a dropped connection); it may have saved.")
         } else {
             message = String(localized: "RYFT couldn't save that. Nothing changed; try again in a moment.",
-                             comment: "Journal settings and Add a habit: a change the platform refused or didn't answer.")
+                             comment: "Journal settings and Add a habit: a change the platform refused.")
         }
         details = error.diagnosticDetails
     }
@@ -244,7 +286,9 @@ private struct HabitRow: View {
 
     private var title: Text { Text(verbatim: habit.name) }
     private var detail: Text { Text(JournalSettingsView.kindTitle(habit.kind)) }
-    private var identifier: String { "journal.habit.\(habit.slug)" }
+    /// A built-in by its fixed slug; the user's own by its id (a slug comes from the name, and two names can share one).
+    private var key: String { habit.isCustom ? habit.id.uuidString.lowercased() : habit.slug }
+    private var identifier: String { "journal.habit.\(key)" }
 
     var body: some View {
         if let delete {
@@ -275,17 +319,19 @@ private struct HabitRow: View {
         .disabled(busy)
         .overlay(alignment: .trailing) {
             Button(action: delete) {
+                // As tall as the row: a tap above or below the glyph is the trash's, never the switch's.
                 Image(systemName: "trash")
                     .font(.system(size: JournalSettingsLayout.trashGlyph, weight: .regular))
                     .foregroundStyle(Theme.textPrimary.opacity(JournalSettingsLayout.trashOpacity))
-                    .frame(width: JournalSettingsLayout.trashTarget, height: JournalSettingsLayout.trashTarget)
+                    .frame(width: JournalSettingsLayout.trashTarget)
+                    .frame(minHeight: JournalSettingsLayout.trashTarget, maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(busy)
             .padding(.trailing, RyftToggleStyle.trackSize.width + JournalSettingsLayout.trashToTrack)
             .accessibilityLabel(Text("Delete \(habit.name)", comment: "Journal settings: the trash button of one of your own habits."))
-            .accessibilityIdentifier("journal.delete.\(habit.slug)")
+            .accessibilityIdentifier("journal.delete.\(key)")
         }
         .padding(.horizontal, GroupedListSpec.rowInset)
         .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
@@ -297,6 +343,11 @@ private struct HabitRow: View {
 /// Add a habit (PR 6 C §4.8, F1, F23): a sheet with its own header and Close; the name (1–60 characters), the answer kind and
 /// the category as select rows, and the pinned Add ("Adding…" while it goes). A failure shows above the groups and keeps
 /// what was typed; offline it says nothing was added (writes need the network).
+///
+/// - One habit per sheet: every Add sends the sheet's own ids (`POST` with the same id updates it, `200`), so a retry after
+///   no answer can't add it twice.
+/// - With 50 of the user's own the platform takes no more (`422`): the bar says so and Add stays disabled.
+/// - While it saves, the sheet can't be closed (Close disabled, no swipe down): the answer has somewhere to go.
 struct AddBehaviorSheet: View {
     let store: JournalStore
     @Environment(\.dismiss) private var dismiss
@@ -305,70 +356,91 @@ struct AddBehaviorSheet: View {
     @State private var category: BehaviorCategory = .custom
     @State private var failure: JournalSettingsFailure?
     @State private var saving: Bool
+    /// The habit's id, and the one to try once if the first is taken (`409`): the same on every Add from this sheet.
+    @State private var habitID: UUID
+    @State private var retryID = UUID()
     @FocusState private var nameFocused: Bool
 
-    static let maxName = 60
+    /// The platform's limits (API.md → `POST /v1/behaviors`): 1–60 characters, counted as it counts them (Unicode scalars,
+    /// Go's runes), and 50 of the user's own.
+    static let maxName = 60, maxOwn = 50
 
     /// The categories in the order the sheet offers them: the user's own first (the default), then the platform's.
     static let categories: [BehaviorCategory] = [.custom] + BehaviorCategory.allCases.filter { $0 != .custom }
 
-    /// `name` and `saving`: previews and shots start with them.
-    init(store: JournalStore, name: String = "", saving: Bool = false) {
+    /// `name` and `saving`: previews and shots start with them; `id`: tests know the habit's.
+    init(store: JournalStore, name: String = "", saving: Bool = false, id: UUID = UUID()) {
         self.store = store
         _name = State(initialValue: name)
         _saving = State(initialValue: saving)
+        _habitID = State(initialValue: id)
     }
 
+    /// 1–60 once the spaces at the ends are gone, in Unicode scalars as the platform counts them: an "é" typed as "e" and a
+    /// combining accent is two, a flag is two.
     static func isValid(name: String) -> Bool {
-        (1...maxName).contains(name.trimmingCharacters(in: .whitespaces).count)
+        (1...maxName).contains(name.trimmingCharacters(in: .whitespaces).unicodeScalars.count)
     }
+
+    /// The user has the most habits of their own the platform keeps, not counting `id` (this sheet's, if a retry saved it).
+    static func isFull(_ behaviors: [Behavior], adding id: UUID) -> Bool {
+        behaviors.filter { $0.isCustom && $0.id != id }.count >= maxOwn
+    }
+
+    private var isFull: Bool { Self.isFull(store.behaviors, adding: habitID) }
 
     var body: some View {
         SubpageScaffold(Text("Add a habit"), navigation: .close(), isSheet: true) {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 if let failure {
                     InlineMessage(message: failure.message, systemImage: "exclamationmark.circle", caption: failure.details)
+                        .textSelection(.enabled)
                 }
-                Group {
-                    GroupedCard(footer: Text("Up to \(Self.maxName) characters.")) {
-                        FormField(Text("Name"), isFocused: nameFocused) {
-                            TextField(text: $name) { Text("Name") }
-                                .focused($nameFocused)
-                                .submitLabel(.done)
-                                .accessibilityIdentifier("addHabit.name")
-                        }
-                    }
-                    GroupedCard(Text("Answer")) {
-                        ForEach(BehaviorKind.allCases) { option in
-                            GroupedRow.select(Text(JournalSettingsView.kindTitle(option)), isSelected: kind == option,
-                                              identifier: "addHabit.answer.\(option.rawValue)") { kind = option }
-                        }
-                    }
-                    GroupedCard(Text("Category")) {
-                        ForEach(Self.categories) { option in
-                            GroupedRow.select(Text(JournalSheetModel.title(option)), isSelected: category == option,
-                                              identifier: "addHabit.category.\(option.rawValue)") { category = option }
-                        }
+                GroupedCard(footer: Text("Up to \(Self.maxName) characters.")) {
+                    FormField(Text("Name"), isFocused: nameFocused) {
+                        TextField(text: $name) { Text("Name") }
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .accessibilityIdentifier("addHabit.name")
                     }
                 }
-                .disabled(saving)
+                GroupedCard(Text("Answer")) {
+                    ForEach(BehaviorKind.allCases) { option in
+                        GroupedRow.select(Text(JournalSettingsView.kindTitle(option)), isSelected: kind == option,
+                                          identifier: "addHabit.answer.\(option.rawValue)") { kind = option }
+                    }
+                }
+                GroupedCard(Text("Category")) {
+                    ForEach(Self.categories) { option in
+                        GroupedRow.select(Text(JournalSheetModel.title(option)), isSelected: category == option,
+                                          identifier: "addHabit.category.\(option.rawValue)") { category = option }
+                    }
+                }
             }
         }
-        .pinnedBar {
+        // The fields and Close: the sheet stays as it is until the answer is in.
+        .disabled(saving)
+        .pinnedBar(caption: isFull ? Self.fullCaption : nil) {
             PillButton(saving ? Text("Adding…") : Text("Add"), systemImage: "plus", busy: saving) { await add() }
-                .disabled(!Self.isValid(name: name) && !saving)
+                .disabled((!Self.isValid(name: name) || isFull) && !saving)
                 .accessibilityIdentifier("addHabit.add")
         }
+        .interactiveDismissDisabled(saving)
         .presentationDetents([.large])
     }
 
+    static var fullCaption: Text {
+        Text("You have \(maxOwn) habits of your own, the most RYFT keeps. Delete one to add another.",
+             comment: "Add a habit: the bar's caption while Add is disabled because the user has 50 habits of their own.")
+    }
+
     private func add() async {
-        guard Self.isValid(name: name), !saving else { return }
+        guard Self.isValid(name: name), !isFull, !saving else { return }
         nameFocused = false
         saving = true
         defer { saving = false }
         do {
-            try await store.create(name: name, nameDe: nil, kind: kind, category: category)
+            try await store.create(name: name, nameDe: nil, kind: kind, category: category, id: habitID, retryID: retryID)
             dismiss()
         } catch where error.isCancellation {
             return
@@ -399,6 +471,18 @@ struct AddBehaviorSheet: View {
     let state = AppState.preview()
     return Color.clear
         .sheet(isPresented: .constant(true)) { AddBehaviorSheet(store: journalPreviewStore(state), name: "Evening walk") }
+        .previewEnvironment(state)
+}
+
+#Preview("Add a habit · 50 of your own") {
+    let state = AppState.preview()
+    let own = MockJournal.behaviors.filter(\.isCustom).count
+    let more = (own..<AddBehaviorSheet.maxOwn).map { n in
+        Behavior(id: UUID(), slug: "habit-\(n)", name: "Habit \(n)", nameEn: "Habit \(n)", nameDe: "Habit \(n)",
+                 category: .custom, kind: .yesNo, defaultOn: true, enabled: true, isCustom: true, sort: n)
+    }
+    state.env.persistence.saveDocument(MockJournal.behaviors + more, key: JournalStore.behaviorsKey, at: .now)
+    return AddBehaviorSheet(store: JournalStore(env: state.env), name: "Evening walk")
         .previewEnvironment(state)
 }
 
