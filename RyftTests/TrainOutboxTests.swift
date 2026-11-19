@@ -678,6 +678,28 @@ extension TrainSyncTests {
         #expect(store.pendingOps().isEmpty && sent == ["PUT \(path(a.id))"])
     }
 
+    /// The same while the platform answers the `PUT` with its newer copy (`409`, an exercise this one doesn't have):
+    /// nothing of it is merged into the discarded session, and no merge round follows.
+    @Test func aDiscardMidPutConflictWritesNothing() async throws {
+        let outbox = makeOutbox()
+        let a = session("A")
+        outbox.sessionChanged(a)
+        var server = a.wire
+        server.exercises.append(SessionExercise(exerciseId: MockTrain.squat.id, position: 1,
+                                                sets: [SessionSet(setIndex: 0, reps: 5, weightKg: 100)]))
+        TrainStubURLProtocol.script([.holdThen(409, try APIClient.jsonEncoder.encode(server))])
+        let replay = Task { await outbox.flush() }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })
+        outbox.discard(a)
+        TrainStubURLProtocol.release()
+        await replay.value
+        await settled(outbox)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSession>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSessionExercise>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSet>()) == 0)
+        #expect(store.pendingOps().isEmpty && sent == ["PUT \(path(a.id))"])
+    }
+
     /// Discarded while its `complete` is out: the answer writes nothing (no rows, no summary), and the `DELETE` goes.
     @Test func aDiscardMidCompleteWritesNothing() async throws {
         let outbox = makeOutbox()
