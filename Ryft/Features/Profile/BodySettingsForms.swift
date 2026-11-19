@@ -204,6 +204,9 @@ struct BodySettingContent: Equatable {
     let estimate: Estimate?
     /// The account isn't here: the numeral is unlit, and a notice says why.
     let unloaded: Unloaded?
+    /// The last save's failure when it was this setting's (`BodySettingsEditor.errorSetting`): another setting's failure
+    /// (a max HR change made elsewhere) stays off this page, as the need sheet keeps it (PR 6 C review N7).
+    let error: String?
 
     @MainActor
     init(_ setting: BodySetting, editor: BodySettingsEditor, draft: Int) {
@@ -239,6 +242,7 @@ struct BodySettingContent: Equatable {
         }
         canSave = isChanged && loaded && editor.canSave && !editor.isBusy
         unloaded = loaded ? nil : editor.isOnline ? .loading : .offline
+        error = editor.errorSetting == setting ? editor.error : nil
     }
 
     private static func savedWords(_ value: String) -> String {
@@ -357,8 +361,8 @@ private struct BodySettingPage: View {
             }
         }
         .pinnedBar {
-            PillButton(savingValue ? Text(verbatim: BodySettingsEditor.savingWord) : Text("Save"),
-                       systemImage: PillButton.Icon.confirm, busy: savingValue) {
+            // Busy is the spinner; the title stays "Save" (VoiceOver: "Save, In progress"), as every pill (build plan §P5-1.2).
+            PillButton(Text("Save"), systemImage: PillButton.Icon.confirm, busy: savingValue) {
                 await save()
             }
             .disabled(!content.canSave && !savingValue)
@@ -407,7 +411,8 @@ private struct BodySettingPage: View {
             InlineMessage(message: unloaded.message, systemImage: unloaded.systemImage, announces: false, readsAsOne: true)
                 .accessibilityIdentifier(unloaded.identifier)
         }
-        if let error = editor.error {
+        // This setting's failure only: the other editor's (a max HR change from About you) is on its own page.
+        if let error = content.error {
             InlineMessage(message: error, systemImage: "exclamationmark.circle", caption: editor.errorDetails)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("bodySettings.error")

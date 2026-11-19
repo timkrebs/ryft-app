@@ -167,7 +167,7 @@ struct BodySettingContentTests {
                 == "Estimated from your age (born 1990), saved 190 beats per minute")
     }
 
-    @Test("While a save is out, Save is off (it shows Saving… itself); the value on its way is the page's, every row says Saving…")
+    @Test("While a save is out, Save is off (its spinner says so); the value on its way is the page's, every row says Saving…")
     func whileSaving() async {
         let (api, _) = C3Platform.api()
         let state = makeState(api: api)
@@ -212,6 +212,23 @@ struct BodySettingContentTests {
         state.user = manual
         #expect(BodySettingContent(.maxHR, editor: editor, draft: 190).estimate
                 == BodySettingContent.Estimate(title: "Use the default", value: nil, spokenValue: nil))
+    }
+
+    @Test("A failure is its setting's page's: a max HR refusal doesn't show on Baseline sleep need (PR 6 C review N7)")
+    func aFailureIsItsSettingsPages() async {
+        let (api, _) = C3Platform.api()
+        let editor = BodySettingsEditor(state: makeState(api: api))
+        api.failNext = APIError.http(409, "", requestID: "rid-409")
+        #expect(!(await editor.setMaxHR(185)))
+        let message = editor.error
+        #expect(editor.errorSetting == .maxHR && message != nil)
+        #expect(BodySettingContent(.maxHR, editor: editor, draft: editor.maxHR).error == message)
+        #expect(BodySettingContent(.sleepBase, editor: editor, draft: editor.sleepBase).error == nil, "not on the baseline's page")
+        // The baseline's own failure is on its page, and no longer on max HR's.
+        api.failNext = APIError.http(409, "")
+        #expect(!(await editor.setSleepBase(465)))
+        #expect(BodySettingContent(.sleepBase, editor: editor, draft: editor.sleepBase).error == editor.error)
+        #expect(BodySettingContent(.maxHR, editor: editor, draft: editor.maxHR).error == nil)
     }
 
     @Test("The \"Use …\" row dims when it can't be used, never while its own write runs")
@@ -1020,7 +1037,7 @@ struct BodySettingsEditorHostedTests {
         }
     }
 
-    @Test("Saving: the pill says Saving… and is busy, the stepper is off, Close isn't; Saved: the notice, the rescore row, Save off")
+    @Test("Saving: the pill keeps Save and is busy (\"In progress\"), the stepper is off, Close isn't; Saved: the notice, the rescore row, Save off")
     func savingThenSaved() async throws {
         let (api, _) = C3Platform.api()
         let gate = Gate()
@@ -1029,8 +1046,9 @@ struct BodySettingsEditorHostedTests {
             try stepper(w).increment()
             try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             try save(w).activate()
-            try await w.wait("Saving…", timeout: hostedWait) { (try? save(w).label) == "Saving…" }
-            #expect(try save(w).value == "In progress")
+            // Busy is the spinner: the title stays Save (the build plan's rule, PR 6 C review N5).
+            try await w.wait("busy", timeout: hostedWait) { (try? save(w).value) == "In progress" }
+            #expect(try save(w).label == "Save")
             #expect(try stepper(w).isEnabled == false)
             #expect(node(w, "subpage.close")?.isEnabled == true, "the page may go while its save is out (C3 review 2, item 2)")
             #expect(!w.nodes().contains { $0.label.hasPrefix("Saved.") }, "nothing reads as saved yet")
@@ -1045,7 +1063,7 @@ struct BodySettingsEditorHostedTests {
         }
     }
 
-    @Test("Opened while a save is out: Saving…, the value on its way, Close on; then its answer on this page")
+    @Test("Opened while a save is out: Save busy, the value on its way, Close on; then its answer on this page")
     func reopenedMidSave() async throws {
         let (api, _) = C3Platform.api()
         let gate = Gate()
@@ -1056,7 +1074,7 @@ struct BodySettingsEditorHostedTests {
         #expect(await eventually { editor.saving })
         try await host(state: state, editor: editor) { w, _ in
             let pill = try save(w), value = try stepper(w)
-            #expect(pill.label == "Saving…" && pill.value == "In progress")
+            #expect(pill.label == "Save" && pill.value == "In progress")
             #expect(value.value == "8 hours" && !value.isEnabled)
             #expect(node(w, "subpage.close")?.isEnabled == true)
             await gate.open()
@@ -1292,7 +1310,7 @@ struct BodySettingsPlacementHostedTests {
             sheetStepper(w)?.object.accessibilityIncrement()
             try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
             sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
-            try await w.wait("Saving…", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
+            try await w.wait("busy", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.value == "In progress" }
             #expect(sheetNode(w, "subpage.close")?.isEnabled == true)
             #expect(w.host.presentedViewController?.isModalInPresentation == false, "a swipe down leaves mid-save too")
             await gate.open()
@@ -1333,7 +1351,7 @@ struct BodySettingsPlacementHostedTests {
             sheetStepper(w)?.object.accessibilityIncrement()
             try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
             sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
-            try await w.wait("Saving…", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
+            try await w.wait("busy", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.value == "In progress" }
             #expect(sheetNode(w, "subpage.back")?.isEnabled == true)
             #expect(w.host.presentedViewController?.isModalInPresentation == false)
             await gate.open()
@@ -1401,8 +1419,8 @@ struct BodySettingsPlacementHostedTests {
             sheetStepper(w)?.object.accessibilityIncrement()
             try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
             sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
-            try await w.wait("Saving…", timeout: hostedWait) {
-                sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…"
+            try await w.wait("busy", timeout: hostedWait) {
+                sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.value == "In progress"
             }
             // As the edge swipe ends: UIKit pops, SwiftUI follows.
             let stack = try #require(navigation(in: w.host.presentedViewController))

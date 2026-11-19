@@ -147,7 +147,7 @@ struct SleepNeedShotScreen {
             api?.failure = APIError.http(500, "", requestID: "01JD8K2V9Q7M3X")
             await editor.rescore()
         case "baseline-saving":
-            // Two steps up and Save, its answer held: Saving… on the pill, 8:00 on its way; Close stays on.
+            // Two steps up and Save, its answer held: Save busy (its spinner), 8:00 on its way; Close stays on.
             api?.beforePatchMe = { [gate] in await gate.wait() }
             for _ in 0..<2 {
                 try #require(w.nodes().first { $0.isAdjustable }).increment()
