@@ -415,7 +415,8 @@ struct CustomExerciseDraft: Equatable {
     var unilateral = false
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canSave: Bool { !trimmedName.isEmpty && muscle != nil }
+    /// A name the platform takes (trimmed, 1–80 characters as it counts them) and a muscle.
+    var canSave: Bool { TrainLibrary.isValidName(name) && muscle != nil }
 
     /// "Landmine press" → slug `landmine-press`.
     var slug: String {

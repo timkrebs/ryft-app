@@ -226,6 +226,14 @@ final class TrainStore {
         save()
     }
 
+    /// Ahead of every op queued (a custom exercise's `POST`, O1): it depends on nothing, and a session's `PUT` sends the
+    /// document as it is when it goes, so one queued before the exercise was made may already carry it.
+    func enqueueAhead(_ kind: PendingTrainOp.Kind, subject: UUID, account: String?) {
+        let first = (pendingOps().first?.seq ?? 1) - 1
+        context.insert(PendingTrainOp(seq: first, kind: kind, sessionId: subject, account: account))
+        save()
+    }
+
     func dequeue(_ op: PendingTrainOp) {
         context.delete(op)
         save()

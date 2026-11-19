@@ -39,7 +39,7 @@ struct TrainImportFlowModelTests {
     /// A flow on the demo library (MockTrain); `enrolled`: an active plan exists. Real time, so demo's files are recent.
     func flow(enrolled: Bool = false, library: TrainLibrary? = nil, now: Date = .now,
               read: [ImportFileAccess.Loaded] = [], check: HeldCheck? = nil) -> ImportFlowModel {
-        let library = library ?? TrainLibrary.preview(store: store, enrolled: enrolled)
+        let library = library ?? TrainLibrary.preview(store: store, outbox: .preview(store: store), enrolled: enrolled)
         var deps = ImportFlowModel.Dependencies(
             library: library, mappings: ImportMappingStore(persistence: store) { "account-a" },
             uploader: TrainImportUploader(env: env), clock: TestClock(now: now), zone: zone,
@@ -328,7 +328,8 @@ struct TrainImportFlowModelTests {
     @Test func noLibraryNoMatching() async {
         let api = MockPlatformAPI()
         api.failure = URLError(.notConnectedToInternet)
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { api }, restore: false)
+        let shelf = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: shelf)
+        let library = TrainLibrary(store: shelf, remote: { api }, outbox: { outbox }, restore: false)
         let model = flow(library: library)
         await model.receive(demoFiles)
         model.continueFromDetected()
@@ -398,7 +399,8 @@ struct TrainImportFlowModelTests {
     /// Nothing leaves the iPhone before Import: a new exercise stays a draft through steps 4 and 5 (review fix).
     @Test func noExerciseIsCreatedBeforeImport() async throws {
         let api = MockPlatformAPI(train: MockTrainSource())
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { api }, restore: false)
+        let shelf = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: shelf)
+        let library = TrainLibrary(store: shelf, remote: { api }, outbox: { outbox }, restore: false)
         await library.refresh()
         let model = await mapped(library: library)
         let new = try #require(model.mapping?.rows.first { $0.draft != nil })

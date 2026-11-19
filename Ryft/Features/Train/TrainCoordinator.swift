@@ -367,7 +367,7 @@ enum TrainPreview {
         sync.gate = { _ in nil }
         return sync
     }()
-    static let library = TrainLibrary.preview(store: store)
+    static let library = TrainLibrary.preview(store: store, outbox: sync)
     static let coordinator = TrainCoordinator(sync: sync, library: library)
 
     /// The live session preview's controller (no Live Activity from previews).

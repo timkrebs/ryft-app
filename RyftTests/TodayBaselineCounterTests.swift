@@ -402,10 +402,11 @@ struct TodayBaselineCounterTests {
         state.history = history(4, rhrDays: 3)
         state.today = DayDetail(score: row(h: 0, r: 3), sleep: nil, workouts: [])
         let sync = SyncService.ungated(env: env)
-        let store = TrainStore(inMemory: true)
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
         let screens = ScreenModels(state: state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
-                                   store: store, library: TrainLibrary(store: store, remote: { [api = env.api] in api }, restore: false),
+                                   store: store, library: TrainLibrary(store: store, remote: { [api = env.api] in api },
+                                                         outbox: { outbox }, restore: false),
                                    apiStatus: APIStatus())
         state.repository.publishWidget()
         func written() -> ReadinessSnapshot? {

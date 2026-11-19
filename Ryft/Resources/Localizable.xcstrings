@@ -2009,6 +2009,9 @@
     "Getting ready" : {
       "comment" : "Training import I1."
     },
+    "Give the exercise a name of up to 80 characters." : {
+      "comment" : "Custom exercise: the name is empty or longer than the platform takes, so nothing was saved."
+    },
     "Given" : {},
     "Go to bed at %@" : {
       "comment" : "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for the user's goal. %@: the time, e.g. \"10:06 PM\"."
