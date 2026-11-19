@@ -96,6 +96,45 @@ struct ProfileDataTests {
         }
     }
 
+    @Test("Security: Demo data on while signed in never shows the demo's consent; signed out there is no Privacy group")
+    func demoConsent() async throws {
+        let graph = try await ProfileShotGraph.make("demo")
+        defer { graph.tearDown() }
+        let state = graph.state
+        // The account's own cached user has another consent (another date and policy) in the account's store; the demo's
+        // store has the demo's person, agreed to the demo's policy on its date.
+        let accountConsent = Consent(policyVersion: "2026-01-01", grantedAt: Date(timeIntervalSince1970: 1_772_500_000))
+        var account = MockData.user
+        account.consent = accountConsent
+        state.repository.writingToAccountStore { state.user = account }
+        let demoConsent = try #require(MockData.user.consent)
+        #expect(state.user?.consent == demoConsent, "the store read in demo mode is the demo's")
+        let model = graph.screens.profile
+        #expect(!model.showsAccountConsent && !model.consentIsCurrent && !model.consentNeedsAttention)
+        #expect(model.consentText == "Not shown")
+        let detail = try #require(model.consentDetail)
+        for shown in [Fmt.date(demoConsent.grantedAt), demoConsent.policyVersion, Fmt.date(accountConsent.grantedAt),
+                      accountConsent.policyVersion] {
+            #expect(!detail.contains(shown), "\(shown) in \(detail)")
+        }
+        #expect(detail.hasPrefix("Demo data is on"), "\(detail)")
+        // No Review or Withdraw: in demo mode they would reach the demo's platform, never the account.
+        let facts = ProfileRowFacts(model, journalLive: false, bedtimeEnabled: true)
+        #expect(ProfileRows.rows(.privacy, facts) == [.consent])
+        try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
+            try await w.settle()
+            let labels = w.nodes().flatMap { [$0.label, $0.value ?? ""] }
+            #expect(!labels.contains { $0.contains(Fmt.date(demoConsent.grantedAt)) || $0.contains("Agreed on") }, "\(labels)")
+            #expect(!labels.contains("Withdraw consent") && !labels.contains("Review and agree"))
+            #expect(w.node("Health-data consent", exactly: true)?.value == "Not shown")
+        }
+        let signedOut = try await ProfileShotGraph.make("signed-out")
+        defer { signedOut.tearDown() }
+        let outFacts = ProfileRowFacts(signedOut.screens.profile, journalLive: false, bedtimeEnabled: true)
+        #expect(!ProfileRows.groups(outFacts).contains { $0.group == .privacy }, "signed out: no account, no consent")
+        #expect(signedOut.screens.profile.consentDetail == nil)
+    }
+
     // MARK: 32. status
 
     private nonisolated static let now = Date(timeIntervalSince1970: 1_792_300_000)
@@ -300,6 +339,8 @@ struct ProfileDataTests {
         #expect(!rows { _ in }.contains(.devices) && rows { _ in }.contains(.garminHealth))
         #expect(rows { $0.canAskForHealth = true }.contains(.allowHealth) && rows { _ in }.contains(.openHealth))
         #expect(rows { $0.consentIsCurrent = false }.contains(.reviewConsent) && rows { _ in }.contains(.withdrawConsent))
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true)) == [.consent], "Demo data: no Review or Withdraw")
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false)).isEmpty)
         #expect(rows { $0.isSignedIn = false }.filter { [.signedIn, .deleteAccount, .signInMethods].contains($0) } == [.signedIn])
         #expect(rows { $0.canChangePassword = true }.contains(.changePassword) && !rows { _ in }.contains(.changePassword))
         // Hero numbers is always there (PR 4 tests 46–47).

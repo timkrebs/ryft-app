@@ -272,7 +272,7 @@ struct ProfileView: View {
         // Privacy
         case .consent:
             GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)
-                .foregroundStyle(model.consentIsCurrent ? Theme.textTertiary : Theme.warning), identifier: id)
+                .foregroundStyle(model.consentNeedsAttention ? Theme.warning : Theme.textTertiary), identifier: id)
         case .reviewConsent:
             GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward, identifier: id) {
                 model.reviewConsent()
@@ -509,7 +509,7 @@ extension ProfileRowFacts {
         self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
                   showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
-                  consentIsCurrent: model.consentIsCurrent, canChangePassword: model.canChangePassword,
+                  consentIsCurrent: model.consentIsCurrent, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
                   hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
     }
 }

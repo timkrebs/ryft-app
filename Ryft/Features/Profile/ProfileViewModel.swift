@@ -214,16 +214,35 @@ final class ProfileViewModel {
 
     // MARK: privacy (consent to health-data processing)
 
-    /// Consent to the policy in force (`GET /v1/config`), from `User.consent`.
-    var consentIsCurrent: Bool { state.user?.hasConsented(to: onboarding?.policyVersion) ?? false }
+    /// The consent rows describe the signed-in account, and only outside Demo data. With it on, `state.user` is the demo's
+    /// person, `ConsentState` reads nothing and every consent call goes to the demo's platform (`AppEnvironment.api`):
+    /// the account's standing isn't known there, and Review or Withdraw would never reach it.
+    var showsAccountConsent: Bool { isSignedIn && !env.isDemo }
+
+    /// Consent to the policy in force (`GET /v1/config`), from the account's `User.consent`.
+    var consentIsCurrent: Bool {
+        showsAccountConsent && (state.user?.hasConsented(to: onboarding?.policyVersion) ?? false)
+    }
+
+    /// The consent row's value in `warning`: not given, or to an older policy.
+    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent }
 
     var consentText: String {
+        guard showsAccountConsent else {
+            return String(localized: "Not shown",
+                          comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
+        }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
-    /// "Agreed on 20 Oct 2026 · policy 2026-10-20".
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is.
     var consentDetail: String? {
+        guard isSignedIn else { return nil }
+        guard !env.isDemo else {
+            return String(localized: "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it.",
+                          comment: "Footer under Profile → Privacy with Demo data on while signed in.")
+        }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
         }
