@@ -1,11 +1,13 @@
 import Foundation
 
 /// How a settings change failed, judged by what left the phone, not by the network when the failure arrived (the body-setting
-/// editors and Notifications share it; C3 review, item 2):
+/// editors, Notifications and Journal's habits share it; C3 review, item 2; PR 6 C review S4). They wait for the write the
+/// same way too (`SettingsWrite`):
 /// - `offline`: nothing was sent. The iPhone had no network path (`notConnectedToInternet`, `dataNotAllowed`,
 ///   `internationalRoamingOff`), or the caller's check before sending found none. Nothing changed.
 /// - `noAnswer`: it was sent, and no readable answer came back (a timeout, a dropped connection, any other transport failure,
-///   a `408`, a `2xx` this build can't read). It may have saved, so the caller asks the platform again (`rereads`).
+///   a `408`, a `2xx` this build can't read, none within `SettingsWrite.deadline`). It may have saved, so the caller asks
+///   the platform again (`rereads`).
 /// - `serverError`: RYFT answered with a `5xx` (not `501`). It's back as it was; the caller asks again all the same.
 /// - `busy`: RYFT answered `429` (too many requests). Nothing changed; a minute later it may.
 /// - `refused`: RYFT answered no (`4xx`, `501`, signed out). Nothing changed.

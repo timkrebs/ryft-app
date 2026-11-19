@@ -880,10 +880,9 @@ final class BodySettingsEditor {
     /// One thing at a time: a save during a rescore would be reported as rescored.
     var isBusy: Bool { saving || rescoring }
 
-    /// How long a change waits for its answer before the editor stops waiting (C3 review 2, item 2): the request's own limits
-    /// (up to 300 s waiting for a network, a 60 s timeout, a `429`'s or `503`'s wait before it goes again) are for uploads,
-    /// not for a page the user is looking at.
-    nonisolated static let answerDeadline: Duration = .seconds(25)
+    /// How long a change waits for its answer before the editor stops waiting (C3 review 2, item 2): `SettingsWrite.deadline`,
+    /// as every settings page's write.
+    nonisolated static let answerDeadline: Duration = SettingsWrite.deadline
 
     /// What `PATCH /v1/me` takes: 4–12 h, in the sheet's 15-minute steps.
     nonisolated static let sleepBaseRange = 240...720
@@ -1232,39 +1231,16 @@ final class BodySettingsEditor {
     }
 
     /// `AppState.patchUser`'s answer (whether the store took it), or `nil` when none came within `answerDeadline` or the
-    /// iPhone went offline first: then the request is cancelled, and a late answer is the store's alone (the rows follow it).
+    /// iPhone went offline first (`SettingsWrite`, one attempt): then the request is cancelled, and a late answer is the
+    /// store's alone (the rows follow it).
     private func answer(to patch: UserPatch) async throws -> Bool? {
-        let first = FirstAnswer()
         // Whose change it is and where it goes are this step's: the request's task starts a turn later.
         let change = state.repository.userChange(), source = state.source
-        let request = Task { @MainActor [state] in
-            do {
-                first.finish(.success(try await state.patchUser(patch, begun: change, via: source)))
-            } catch {
-                first.finish(.failure(error))
-            }
+        do {
+            return try await SettingsWrite.answer(in: env) { [state] in try await state.patchUser(patch, begun: change, via: source) }
+        } catch is SettingsWrite.NoAnswer {
+            return nil
         }
-        let deadline = Task { @MainActor [env] in
-            guard (try? await env.clock.sleep(for: Self.answerDeadline)) != nil else { return }
-            first.finish(.success(nil))
-        }
-        // The network going while the request is out: no answer is coming soon (the request would wait for one). Demo data
-        // answers on the phone, with no network to lose.
-        let offline = state.isDemo ? nil : ObservationWatch(read: { [env] in _ = env.connectivity.isOnline }, changed: { [env] in
-            if !env.connectivity.isOnline { first.finish(.success(nil)) }
-        })
-        defer {
-            deadline.cancel()
-            withExtendedLifetime(offline) {}
-        }
-        let answer = try await withTaskCancellationHandler {
-            try await first.value()
-        } onCancel: {
-            request.cancel()
-            Task { @MainActor in first.finish(.failure(CancellationError())) }
-        }
-        if answer == nil { request.cancel() }
-        return answer
     }
 
     /// `GET /v1/me`, asked now: the page shows what RYFT holds. Holding the change, the words become "Saved.". Offline the
@@ -1345,26 +1321,6 @@ final class BodySettingsEditor {
             errorSetting = write.setting
             errorMissed = openPages.isEmpty
         }
-    }
-}
-
-/// The first of a write's outcomes (`BodySettingsEditor.answer(to:)`): its answer, `nil` for none in time (the deadline, the
-/// network gone), or its failure. Later ones are dropped.
-@MainActor
-private final class FirstAnswer {
-    private var outcome: Result<Bool?, Error>?
-    private var waiting: CheckedContinuation<Bool?, Error>?
-
-    func finish(_ result: Result<Bool?, Error>) {
-        guard outcome == nil else { return }
-        outcome = result
-        waiting?.resume(with: result)
-        waiting = nil
-    }
-
-    func value() async throws -> Bool? {
-        if let outcome { return try outcome.get() }
-        return try await withCheckedThrowingContinuation { waiting = $0 }
     }
 }
 
