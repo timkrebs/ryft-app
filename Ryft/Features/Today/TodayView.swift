@@ -613,7 +613,7 @@ private struct GaugeEntranceConsumer: ViewModifier {
 }
 
 /// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
-/// sync, each with its own stack and "Done", like Sync details from the status line.
+/// sync, each a sheet's page with its own stack and Close (Nocturne PR 6 C2), like Sync details from the status line.
 private struct CalibrationLinkSheet: View {
     let link: CalibrationLink
     /// Check sync's model, made on the tap (`TodayView.open`).
@@ -621,18 +621,9 @@ private struct CalibrationLinkSheet: View {
 
     @Environment(ScreenModels.self) private var screens
     @Environment(\.appEnvironment) private var env
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            destination
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                            .accessibilityIdentifier("today.calibrationSheet.done")
-                    }
-                }
-        }
+        NavigationStack { destination }
     }
 
     @ViewBuilder
@@ -641,14 +632,18 @@ private struct CalibrationLinkSheet: View {
         case .setup(let id, _):
             // A newer catalog may have dropped the tracker: Devices & sync then.
             if let tracker = env.trackerCatalog.tracker(id) {
-                TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                TrackerDetailView(tracker: tracker, model: screens.profile.devices, placement: .sheet) {}
             } else {
-                DevicesAndSyncView(model: screens.profile.devices)
+                DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
             }
         case .checkSync:
-            if let check { TrackerCheckView(model: check) } else { DevicesAndSyncView(model: screens.profile.devices) }
+            if let check {
+                TrackerCheckView(model: check, placement: .sheet)
+            } else {
+                DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
+            }
         case .devices:
-            DevicesAndSyncView(model: screens.profile.devices)
+            DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
         }
     }
 }

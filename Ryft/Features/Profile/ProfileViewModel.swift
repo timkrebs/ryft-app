@@ -560,9 +560,29 @@ final class SyncDetailsModel {
         case .backfill: return String(localized: "Importing the last 90 days")
         case .incremental: return String(localized: "Only what's new")
         case .idle:
-            return engine.backfillDone ? String(localized: "Up to date") : String(localized: "Import not finished")
+            guard engine.backfillDone else { return String(localized: "Import not finished") }
+            // "Up to date" only with an upload on record and a connection (the offline-first rule): offline nothing is
+            // sent, and without an upload nothing has been.
+            if isOffline { return String(localized: "Offline") }
+            return env.isDemo || env.settings.lastSync != nil ? String(localized: "Up to date") : String(localized: "Idle")
         }
     }
+
+    /// No connection, outside demo data: nothing is sent until it's back.
+    var isOffline: Bool { !(env.isDemo || env.connectivity.isOnline) }
+    var now: Date { env.clock.now() }
+
+    /// Apple Health's last good upload (`Settings.lastSync`) and its real age: "5 min. ago", "Never".
+    func lastSyncText(now: Date) -> String {
+        guard let date = env.settings.lastSync else { return String(localized: "Never") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: min(date, now), relativeTo: now)
+    }
+
+    /// Activities and nights added on this iPhone that the platform hasn't confirmed: what waits to be sent.
+    var unsentActivities: Int { env.activities.unconfirmedCount(ofAccount: env.auth.accountID) }
 
     var queueText: String {
         if isRunning { return hasQueuedRun ? String(localized: "Running, another queued") : String(localized: "Running") }
@@ -716,6 +736,20 @@ final class SyncDetailsModel {
         // Health times to the second: on this iPhone only, and not for long.
         LocalPasteboard.copy(diagnostics)
         copied = true
+    }
+
+    /// How long "Copied" stays (§4.6).
+    static let copiedFor: Duration = .seconds(2)
+    @ObservationIgnored private var copyMark = 0
+
+    /// "Copy diagnostics": copies, says "Copied" for `copiedFor` on the environment's clock, then the title again. A second
+    /// tap meanwhile starts the time over.
+    func copyAndConfirm() async {
+        copyDiagnostics()
+        copyMark += 1
+        let mark = copyMark
+        try? await env.clock.sleep(for: Self.copiedFor)
+        if copyMark == mark { copied = false }
     }
 }
 
@@ -1447,6 +1481,8 @@ final class TrackerCheckModel {
 
     var isRunning: Bool { phase == .running }
     var now: Date { env.clock.now() }
+    /// No connection, outside demo data: RYFT can't be reached, though the check (Apple Health on this iPhone) still runs.
+    var isOffline: Bool { !(env.isDemo || env.connectivity.isOnline) }
     /// Totals over the trackers with counts.
     var expected: Int { checks.filter(\.isCounted).reduce(0) { $0 + $1.expected } }
     var arriving: Int { checks.filter(\.isCounted).reduce(0) { $0 + $1.arriving } }
@@ -2463,6 +2499,21 @@ final class DevicesViewModel {
         String(localized: "Last data \(SyncLine.dataTime(row.lastSeen, now: env.clock.now()))")
     }
 
+    /// What the list may claim about itself: loading, not loaded, or an earlier load's while offline or failing.
+    var sourcesFreshness: SourcesFreshness {
+        let me = state.resourceStates[.me]
+        return SourcesFreshness.decide(hasList: state.user != nil, isDemo: env.isDemo, isOnline: env.connectivity.isOnline,
+                                       fetchedAt: me?.fetchedAt, failures: me?.consecutiveFailures ?? 0)
+    }
+
+    /// The stale list's footer: "Showing what RYFT last loaded, 14:05." (the time as the rows' "Last data" is).
+    func lastLoadedText(_ date: Date?) -> String {
+        guard let date else { return String(localized: "Offline. Showing your last loaded data.") }
+        let time = SyncLine.dataTime(date, now: env.clock.now())
+        return String(localized: "Showing what RYFT last loaded, \(time).",
+                      comment: "Devices & sync → Seen in Apple Health's footer for a list from an earlier load; the argument is its time (\"14:05\").")
+    }
+
     static func kinds(_ kinds: [SourceKind]) -> String {
         let names = kinds.map { kind -> String in
             switch kind {
@@ -2492,6 +2543,8 @@ final class DevicesViewModel {
     }
 
     var canAskForHealth: Bool { healthStatus == .notAsked }
+    /// The status asks something of the user (not requested, or no Apple Health): `warning`, with its word.
+    var healthNeedsAttention: Bool { healthStatus == .notAsked || healthStatus == .unavailable }
     /// The catalog's route to RYFT's own read permission (Health → … → Apps → RYFT).
     var healthAccessSteps: [String] { catalog.healthAccess.current }
 

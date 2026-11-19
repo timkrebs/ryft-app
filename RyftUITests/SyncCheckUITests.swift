@@ -51,7 +51,9 @@ final class SyncCheckUITests: XCTestCase {
         let app = launch("garminSilent")
         let text = "No data from Garmin Connect yet. Open Garmin Connect and let it sync, then tap Check again."
         XCTAssertTrue(app.staticTexts[text].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["Garmin Connect in the App Store"].exists, "the App Store page, named as such")
+        // A link-out row (Nocturne): a link, not a button.
+        let store = app.descendants(matching: .any)["check.openApp"]
+        XCTAssertTrue(store.exists && store.label == "Garmin Connect in the App Store", "the App Store page, named as such")
         XCTAssertTrue(app.descendants(matching: .any)["check.permission"].exists, "the permission card, last")
     }
 
@@ -75,7 +77,7 @@ final class SyncCheckUITests: XCTestCase {
         XCTAssertEqual(garmin.value as? String, "Not checked yet")
         app.buttons["devices.checkSync"].tap()
         XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check finished")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["subpage.back"].tap()
         XCTAssertTrue(value(of: garmin, "== 'Needs a fix'"), "the row shows the result")
         let checked = app.staticTexts["devices.lastChecked"]
         XCTAssertTrue(checked.waitForExistence(timeout: 5) && checked.label.hasPrefix("Last checked"))
