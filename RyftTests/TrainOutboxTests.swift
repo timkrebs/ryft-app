@@ -625,10 +625,12 @@ extension TrainSyncTests {
 
     // MARK: TrainLibrary.createExercise, the name
 
-    /// A name the platform refuses (empty, or over 80 characters as it counts them: Unicode scalars) is never cached
-    /// or queued; the library says why. 80 scalars is fine, however few characters they make.
+    /// A name the platform refuses (empty, or over 80 characters as it counts them: Unicode scalars of the trimmed
+    /// name) is never cached or queued; the library says why. 80 scalars is fine, however few characters they make, and
+    /// so is a space around them.
     @Test(arguments: [("", false), ("   ", false), (String(repeating: "a", count: 81), false),
-                      (String(repeating: "e\u{301}", count: 41), false), (String(repeating: "e\u{301}", count: 40), true)])
+                      (String(repeating: "e\u{301}", count: 41), false), (String(repeating: "e\u{301}", count: 40), true),
+                      (" " + String(repeating: "a", count: 80) + " ", true)])
     func aCustomExerciseNeedsAValidName(_ name: String, _ valid: Bool) async throws {
         let outbox = makeOutbox()
         let lib = library(outbox)

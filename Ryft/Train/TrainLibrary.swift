@@ -26,8 +26,8 @@ final class TrainLibrary {
     private let exerciseWait: Duration
     private var histories: [UUID: ExerciseHistory] = [:]
 
-    /// The longest custom exercise name the platform takes, in Unicode scalars (API.md: `name` 1–80 characters, which
-    /// it counts as runes).
+    /// The longest custom exercise name the platform takes (API.md: `name` 1–80 characters; it counts Unicode scalars
+    /// of the trimmed name).
     static let maxExerciseName = 80
 
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, outbox: @escaping @MainActor () -> TrainSyncService,
@@ -273,9 +273,10 @@ final class TrainLibrary {
         return e
     }
 
-    /// Not empty, and at most `maxExerciseName` Unicode scalars (as the platform counts).
+    /// Trimmed, not empty and at most `maxExerciseName` Unicode scalars, as the platform counts.
     static func isValidName(_ name: String) -> Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.unicodeScalars.count <= maxExerciseName
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.unicodeScalars.count <= maxExerciseName
     }
 
     // MARK: actions (online; the screen shows the error)
