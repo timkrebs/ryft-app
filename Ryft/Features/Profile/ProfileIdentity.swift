@@ -65,7 +65,8 @@ struct ProfileIdentity: Equatable, Sendable {
     /// The strain ring's sentence for VoiceOver.
     var spokenStrain: String {
         guard let strain else {
-            return String(localized: "No strain today.", comment: "VoiceOver, Profile's identity row: nothing scored for today's strain yet.")
+            return String(localized: "Strain not scored yet today.",
+                          comment: "VoiceOver, Profile's identity row: today's strain has no score yet (the ring shows its track only).")
         }
         return String(localized: "Strain today \(Fmt.strain(strain)) of 21.",
                       comment: "VoiceOver, Profile's identity row: today's strain on its 0–21 scale, e.g. 12.4.")
@@ -141,6 +142,8 @@ struct ProfileStatus: Equatable {
         case gate(OnboardingCoordinator.Step)
         /// Try again: the data on screen is older than it should be.
         case retry
+        /// Signed out (the session ended): back to Welcome to sign in again, as Today's card does (`signInAgain`).
+        case signIn
         case none
     }
 
@@ -168,30 +171,35 @@ struct ProfileStatus: Equatable {
                       comment: "VoiceOver, Profile's identity row: the data's source and the sync's state (\"Apple Health, up to date.\").")
     }
 
-    /// The row's word for Today's line, most urgent first as the line is. `lastUpdated`: when today's data last loaded (a
-    /// failed refresh or upload says how old it is).
-    static func decide(_ line: SyncLine, isDemo: Bool, lastUpdated: Date?) -> ProfileStatus {
+    /// The row's word for Today's line, most urgent first as the line is. It never claims a freshness it doesn't have:
+    /// `lastUpdated` is when the data on screen last loaded (a failed read says how old that is); `lastSync` is Apple
+    /// Health's last good upload (`Settings.lastSync`: a paused upload says how old that is, and "up to date" needs one).
+    static func decide(_ line: SyncLine, isDemo: Bool, lastUpdated: Date?, lastSync: Date?) -> ProfileStatus {
         func make(_ word: Word, _ dot: Dot, _ tap: Tap) -> ProfileStatus {
             ProfileStatus(isDemo: isDemo, word: word, dot: dot, tap: tap)
         }
+        let uploaded = lastSync.map(Word.updated) ?? .notUpdatedYet
         switch line {
         case .actionNeeded(let step):
             return make(.actionNeeded, .alert, .gate(step))
         case .issue(_, signedOut: true):
-            return make(.actionNeeded, .alert, .syncDetails)
+            return make(.actionNeeded, .alert, .signIn)
         case .offline:
             return make(.offline, .attention, .syncDetails)
         case .stale(let since):
             return make(.updated(since), .attention, .retry)
-        case .issue, .paused:
+        case .issue:
             return make(lastUpdated.map(Word.updated) ?? .notUpdatedYet, .attention, .syncDetails)
+        case .paused:
+            return make(uploaded, .attention, .syncDetails)
         case .waitingForUnlock:
-            return make(.updating, .hollow, .none)
+            // Nothing is read while the iPhone is locked: the last upload's age, never "updating…".
+            return make(uploaded, .hollow, .none)
         case .reading, .uploading, .scoring, .scoringSlow, .updating:
             return make(.updating, .hollow, .syncDetails)
         case .upToDate(let date, let demo):
-            // The demo's sample is always there; an account's first load may not have happened.
-            if date == nil, !(demo || isDemo) { return make(.notUpdatedYet, .hollow, .syncDetails) }
+            // The demo's sample is always there; an account's data may not have loaded, or Apple Health never uploaded.
+            if !(demo || isDemo), date == nil || lastSync == nil { return make(.notUpdatedYet, .hollow, .syncDetails) }
             return make(.upToDate, .filled, .syncDetails)
         }
     }
@@ -202,6 +210,7 @@ struct ProfileStatus: Equatable {
         case .syncDetails: return Text("Opens sync details")
         case .gate: return Text("Opens what's needed")
         case .retry: return Text("Tries to load your data again")
+        case .signIn: return Text("Goes back to sign in", comment: "VoiceOver hint of Profile's status row when signed out.")
         case .none: return nil
         }
     }
@@ -258,28 +267,37 @@ struct ProfileAvatar: View {
     }
 }
 
-/// The status row's dot: 6 pt, its bottom on the line's baseline (about the lowercase letters' height).
+/// The status row's dot: 6 pt at the default size, scaled with the caption, centred on the text's first line at any size
+/// (a hidden line of the caption sits on the text's first baseline; the dot is in its middle).
 struct ProfileStatusDot: View {
     let dot: ProfileStatus.Dot
 
+    @ScaledMetric(relativeTo: .caption) private var size: CGFloat = ProfileLayout.statusDot
+
     var body: some View {
-        Group {
-            if dot == .hollow {
-                Circle().strokeBorder(dot.color, lineWidth: ProfileLayout.hollowDotLine)
-            } else {
-                Circle().fill(dot.color)
+        Text(verbatim: "x")
+            .font(.ryft(.caption))
+            .lineLimit(1)
+            .hidden()
+            .frame(width: size)
+            .overlay {
+                Group {
+                    if dot == .hollow {
+                        Circle().strokeBorder(dot.color, lineWidth: ProfileLayout.hollowDotLine * size / ProfileLayout.statusDot)
+                    } else {
+                        Circle().fill(dot.color)
+                    }
+                }
+                .frame(width: size, height: size)
             }
-        }
-        .frame(width: ProfileLayout.statusDot, height: ProfileLayout.statusDot)
-        .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
-        .accessibilityHidden(true)
+            .accessibilityHidden(true)
     }
 }
 
 /// The identity row (§P5-6.1 row 2): the avatar and, beside it, the name (20 Light, one line with middle truncation; it
 /// wraps from AX1) over the status row. From AX1 the avatar sits over the name. One VoiceOver element, a header: "Alex Doe.
-/// Apple Health, up to date. Strain today 12.4 of 21." The status row is the tap (Sync details, the gate's step, Try again),
-/// its target 44 pt high however short its line; VoiceOver activates the element for it.
+/// Apple Health, up to date. Strain today 12.4 of 21." The status row is the tap (Sync details, the gate's step, Try again,
+/// sign in again), its target 44 pt high however short its line; VoiceOver activates the element for it.
 struct ProfileIdentityRow: View {
     let identity: ProfileIdentity
     let status: ProfileStatus
@@ -372,7 +390,8 @@ private enum ProfileIdentityPreview {
     static let demo = ProfileIdentity.resolve(name: nil, email: nil, fallback: "Demo data", strain: 12.4)
 
     static func status(_ line: SyncLine, demo: Bool = false) -> ProfileStatus {
-        ProfileStatus.decide(line, isDemo: demo, lastUpdated: .now.addingTimeInterval(-5 * 3_600))
+        let fiveHoursAgo = Date.now.addingTimeInterval(-5 * 3_600)
+        return ProfileStatus.decide(line, isDemo: demo, lastUpdated: fiveHoursAgo, lastSync: fiveHoursAgo)
     }
 
     static var rows: some View {

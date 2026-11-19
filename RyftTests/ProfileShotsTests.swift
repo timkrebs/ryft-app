@@ -38,6 +38,8 @@ private struct UnreadableStore: Error {}
 /// Profile on a graph of its own: the Demo data switch and the session as the state needs, the app's screen models.
 @MainActor
 struct ProfileShotGraph {
+    /// Each graph's own defaults: suites run side by side never share a store.
+    let suite: String
     let state: AppState
     let settings: Settings
     let sync: SyncService
@@ -63,20 +65,21 @@ struct ProfileShotGraph {
     }
 
     func tearDown() {
-        state.env.defaults.removePersistentDomain(forName: "ryft.test.profile-shots")
+        state.env.defaults.removePersistentDomain(forName: suite)
     }
 
     static func make(_ name: String) async throws -> ProfileShotGraph {
         switch name {
-        case "signed-in": return graph(demo: false, signedIn: true)
-        case "demo": return graph(demo: true, signedIn: true)
+        case "signed-in": return graph(demo: false, signedIn: true, lastSync: .now)
+        // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
+        case "demo": return graph(demo: true, signedIn: true, provider: "apple")
         case "signed-out": return graph(demo: true, signedIn: false)
         case "sync-issue":
             // A signed-in account whose last upload failed (500): Profile's notice under the sync rows.
             let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [heartRate(3)]])
             let api = MockPlatformAPI(activities: .demoSource())
             api.failNext = APIError.http(500, "")
-            let g = graph(demo: false, signedIn: true, health: health, api: api)
+            let g = graph(demo: false, signedIn: true, lastSync: .now.addingTimeInterval(-5 * 3_600), health: health, api: api)
             await g.sync.syncNow()
             return g
         case "demo-exit-error":
@@ -92,14 +95,23 @@ struct ProfileShotGraph {
         }
     }
 
-    private static func graph(demo: Bool, signedIn: Bool, health: MockHealthStore = MockHealthStore(),
+    private static func graph(demo: Bool, signedIn: Bool, provider: String = "email", lastSync: Date? = nil,
+                              health: MockHealthStore = MockHealthStore(),
                               api: MockPlatformAPI = MockPlatformAPI(activities: .demoSource()),
                               rig: DemoTrainRig? = nil) -> ProfileShotGraph {
-        let defaults = UserDefaults(suiteName: "ryft.test.profile-shots") ?? .standard
+        let suite = "ryft.test.profile-shots.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
         let settings = Settings(defaults: defaults)
         settings.demoMode = demo
+        // Apple Health's last good upload: "up to date" needs one.
+        settings.lastSync = lastSync
+        // `AuthService.preview`'s session in the graph's own defaults: a sign-out here leaves nothing for other suites.
+        let auth = AuthService(client: MockAuthClient(session: signedIn ? .preview(provider: provider) : nil), defaults: defaults,
+                               wipeLocalData: { _ in true },
+                               deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               postAppleAuthorization: { _ in })
         let env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: api,
-                                 auth: .preview(signedIn: signedIn, provider: "email"), persistence: TrainStore(inMemory: true),
+                                 auth: auth, persistence: TrainStore(inMemory: true),
                                  clock: SystemClock(), notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true, .trainImport: true]),
                                  connectivity: .preview(online: true), defaults: defaults, demoOverride: demo)
@@ -116,7 +128,7 @@ struct ProfileShotGraph {
                                    library: TrainPreview.library, apiStatus: APIStatus(), train: rig?.coordinator)
         // The policy in force is the demo account's: its consent is current.
         sync.gate = { nil }
-        return ProfileShotGraph(state: state, settings: settings, sync: sync, screens: screens, rig: rig)
+        return ProfileShotGraph(suite: suite, state: state, settings: settings, sync: sync, screens: screens, rig: rig)
     }
 
     private static func heartRate(_ n: Int) -> HealthDelta {

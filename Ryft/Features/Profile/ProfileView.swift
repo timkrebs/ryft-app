@@ -167,69 +167,69 @@ struct ProfileView: View {
     }
 
     private func rows(_ rows: [ProfileRow]) -> some View {
-        ForEach(rows) { row in
-            if row.setsOwnIdentifier {
-                self.row(row)
-            } else {
-                self.row(row).accessibilityIdentifier(row.identifier)
-            }
-        }
+        ForEach(rows) { self.row($0) }
     }
 
     // MARK: rows (§P5-6.2)
 
-    // One switch over every row: the rows are the app's own, each with its behaviour from before Nocturne.
+    // One switch over every row: the rows are the app's own, each with its behaviour from before Nocturne. Each row's
+    // identifier is on its control (`GroupedRow`'s `identifier:`), one element per identifier.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     @ViewBuilder private func row(_ row: ProfileRow) -> some View {
         let editor = model.bodySettings
+        let id = row.identifier
         switch row {
         // About you
         case .birthYear:
             BirthYearMenuRow(editor: editor)
         case .maxHR:
             GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.maxHRText),
-                            detail: editor.maxHRSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor")) {
+                            detail: editor.maxHRSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+                            identifier: id) {
                 editing = .maxHR
             }
         case .sleepBase:
             GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: editor.sleepBaseText),
-                            detail: editor.sleepBaseSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor")) {
+                            detail: editor.sleepBaseSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+                            identifier: id) {
                 editing = .sleepBase
             }
         case .rescore:
-            GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring) {
+            GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
+                              identifier: id) {
                 Task { await editor.rescore() }
             }
             .disabled(!editor.canSave || (editor.saving && !editor.rescoring))
         // Devices and sync
         case .devices:
-            GroupedRow.push(Text("Devices & sync"), value: Text(verbatim: model.devices.summary), route: ProfileRoute.devices)
+            GroupedRow.push(Text("Devices & sync"), value: Text(verbatim: model.devices.summary), identifier: id,
+                            route: ProfileRoute.devices)
         case .appleHealth:
             GroupedRow.value(Text("Apple Health"), value: Text(verbatim: model.healthStatusText)
-                .foregroundStyle(model.healthNeedsAttention ? Theme.warning : Theme.textTertiary))
+                .foregroundStyle(model.healthNeedsAttention ? Theme.warning : Theme.textTertiary), identifier: id)
         case .allowHealth:
-            GroupedRow.action(Text("Allow access"), systemImage: "heart") {
+            GroupedRow.action(Text("Allow access"), systemImage: "heart", identifier: id) {
                 Task { await model.requestHealthAccess() }
             }
         case .openHealth:
             GroupedRow.action(model.devices.isEnabled ? Text("Open Health") : Text("Open Health permissions"),
-                              systemImage: "arrow.up.right") {
+                              systemImage: "arrow.up.right", hint: Self.healthAppHint, identifier: id) {
                 HealthLinks.open(with: openURL)
             }
         case .lastSync:
-            GroupedRow.value(Text("Last sync"), value: Text(verbatim: model.lastSyncText))
+            GroupedRow.value(Text("Last sync"), value: Text(verbatim: model.lastSyncText), identifier: id)
         case .deviceID:
-            GroupedRow.value(Text("Device ID"), value: Text(verbatim: model.deviceIDText))
+            GroupedRow.value(Text("Device ID"), value: Text(verbatim: model.deviceIDText), identifier: id)
         case .syncNow:
             GroupedRow.action(Text("Sync now"), detail: model.isSyncing ? Text(verbatim: model.syncProgress) : nil,
-                              systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing) {
+                              systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing, identifier: id) {
                 Task { await model.syncNow() }
             }
             .disabled(!model.canSync && !model.isSyncing)
         case .syncDetails:
-            GroupedRow.push(Text("Sync details"), route: ProfileRoute.syncDetails)
+            GroupedRow.push(Text("Sync details"), identifier: id, route: ProfileRoute.syncDetails)
         case .importTraining:
-            // Area B's rows (`ImportProfileRows`), each laid out as a grouped row.
+            // Area B's rows (`ImportProfileRows`, their own identifiers), each laid out as a grouped row.
             ImportProfileRows()
                 .frame(maxWidth: .infinity, minHeight: L.rowMinHeight, alignment: .leading)
                 .padding(.horizontal, GroupedListSpec.rowInset)
@@ -237,7 +237,7 @@ struct ProfileView: View {
         case .demoMode:
             // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
             GroupedRow.toggle(Text("Demo data"), detail: Text("Show a realistic sample history instead of your server."),
-                              isOn: demoSwitch)
+                              identifier: id, isOn: demoSwitch)
                 .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                     : Text("Turning it off discards the workouts logged with Demo data.",
                            comment: "Only while such workouts exist"))
@@ -247,73 +247,80 @@ struct ProfileView: View {
                                    comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one."),
                               detail: Text("Jumps to the next set when you finish an exercise.",
                                            comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\"."),
-                              isOn: Bindable(settings).jumpToNextExercise)
+                              identifier: id, isOn: Bindable(settings).jumpToNextExercise)
         case .sessionLayout:
             SessionLayoutMenuRow(selection: Bindable(settings).sessionLayout)
         case .saveWorkouts:
             // On only while iOS still allows it; otherwise where to allow it (under the card).
             GroupedRow.toggle(Text("Save strength workouts to Apple Health"),
                               detail: Text("Each workout you log appears in Fitness and Health. Only the workout: no heart rate."),
+                              identifier: id,
                               isOn: Binding(get: { WorkoutHealthExport.shared.isWriting }, set: { on in
                                   if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
                               }))
         // Settings
         case .notifications:
-            GroupedRow.push(Text("Notifications"), route: ProfileRoute.notifications)
+            GroupedRow.push(Text("Notifications"), identifier: id, route: ProfileRoute.notifications)
         case .journal:
-            GroupedRow.push(Text("Journal"), route: ProfileRoute.journal)
+            GroupedRow.push(Text("Journal"), identifier: id, route: ProfileRoute.journal)
         case .heroNumerals:
             HeroNumbersMenuRow(selection: Bindable(settings).heroNumerals)
         case .bedtime:
             GroupedRow.push(Text("Bedtime & wake"), value: Text(verbatim: screens.bedtime.summary),
-                            detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, route: ProfileRoute.bedtime)
+                            detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, identifier: id,
+                            route: ProfileRoute.bedtime)
         // Privacy
         case .consent:
             GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)
-                .foregroundStyle(model.consentIsCurrent ? Theme.textTertiary : Theme.warning))
+                .foregroundStyle(model.consentIsCurrent ? Theme.textTertiary : Theme.warning), identifier: id)
         case .reviewConsent:
-            GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward) { model.reviewConsent() }
+            GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward, identifier: id) {
+                model.reviewConsent()
+            }
         case .withdrawConsent:
-            GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent) { showWithdrawConfirm = true }
+            GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
+                showWithdrawConfirm = true
+            }
         // Account
         case .email:
-            GroupedRow.value(Text("Email"), value: Text(verbatim: model.accountSubtitle ?? ""))
+            GroupedRow.value(Text("Email"), value: Text(verbatim: model.accountEmail ?? ""), identifier: id)
         case .timezone:
             GroupedRow.value(Text("Timezone"), value: Text(verbatim: model.timezone ?? ""),
-                             detail: model.timezoneDetail.map { Text(verbatim: $0) })
+                             detail: model.timezoneDetail.map { Text(verbatim: $0) }, identifier: id)
         case .signInMethods:
             // The provider was the account card's badge ("Apple", "Email").
             GroupedRow.push(Text("Sign-in methods"), value: model.providerBadge.map { Text(verbatim: $0.title) },
-                            route: ProfileRoute.signInMethods)
+                            identifier: id, route: ProfileRoute.signInMethods)
         case .changePassword:
-            GroupedRow.push(Text("Change password")) { showChangePassword = true }
+            // A sheet over the page, not a page of its own: an action, no chevron.
+            GroupedRow.action(Text("Change password"), identifier: id) { showChangePassword = true }
         case .deleteAccount:
-            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking) { showDeleteConfirm = true }
+            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) { showDeleteConfirm = true }
         case .signedIn:
-            GroupedRow.value(Text("Signed in"), value: Text("No"))
+            GroupedRow.value(Text("Signed in"), value: Text("No"), identifier: id)
         // About
         case .version:
-            GroupedRow.value(Text("Version"), value: Text(verbatim: Self.version))
+            GroupedRow.value(Text("Version"), value: Text(verbatim: Self.version), identifier: id)
         case .reportProblem:
             let waiting = model.report.waiting
             GroupedRow.push(Text("Report a problem"), value: waiting > 0 ? Text("\(waiting) waiting to send") : nil,
-                            route: ProfileRoute.reportProblem)
+                            identifier: id, route: ProfileRoute.reportProblem)
                 .task { model.report.reloadWaiting() }
         case .privacyPolicy:
-            // The policy in force (`GET /v1/config`), in the in-app Safari sheet (`safariSheet` catches ryftapp.de).
-            GroupedRow.linkOut(Text("Privacy Policy"), hint: Self.browserHint, url: model.policyPage.url)
+            // The policy in force (`GET /v1/config`), in the in-app Safari sheet (`safariSheet` catches `LegalPage` URLs).
+            GroupedRow.linkOut(Text("Privacy Policy"), hint: Self.inAppHint, identifier: id, url: model.policyPage.url)
         case .terms:
-            GroupedRow.linkOut(Text("Terms of Use"), hint: Self.browserHint, url: LegalPage.terms.url)
+            GroupedRow.linkOut(Text("Terms of Use"), hint: Self.inAppHint, identifier: id, url: LegalPage.terms.url)
         case .appleHealthPrivacy:
             if let url = URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/") {
-                GroupedRow.linkOut(Text("Apple Health privacy"), hint: Self.browserHint, url: url)
+                GroupedRow.linkOut(Text("Apple Health privacy"), hint: Self.browserHint, identifier: id, url: url)
             }
         case .garminHealth:
             if let url = URL(string: "https://support.garmin.com/?q=apple%20health") {
-                GroupedRow.linkOut(Text("Garmin Connect and Apple Health"), hint: Self.browserHint, url: url)
+                GroupedRow.linkOut(Text("Garmin Connect and Apple Health"), hint: Self.browserHint, identifier: id, url: url)
             }
         case .licences:
-            GroupedRow.push(Text("Licences"), route: ProfileRoute.licences)
+            GroupedRow.push(Text("Licences"), identifier: id, route: ProfileRoute.licences)
         }
     }
 
@@ -332,7 +339,11 @@ struct ProfileView: View {
         })
     }
 
+    /// The link-outs' hints: a web page outside RYFT, a page in RYFT's own sheet, the Health app.
     static let browserHint = Text("Opens in the browser", comment: "VoiceOver hint of a Profile row that opens a web page.")
+    static let inAppHint = Text("Opens the page in RYFT",
+                                comment: "VoiceOver hint of Profile's Privacy Policy and Terms of Use: they open in RYFT's own browser sheet.")
+    static let healthAppHint = Text("Opens the Health app", comment: "VoiceOver hint of Profile's Open Health row.")
 
     // MARK: footers: notices and sentences under each card, 8 below it
 
@@ -399,7 +410,7 @@ struct ProfileView: View {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle")
                 }
                 if let detail = model.consentDetail {
-                    GroupFooter(Text(verbatim: detail))
+                    GroupFooter(consentFooter(detail))
                 }
             }
         case .account:
@@ -413,6 +424,15 @@ struct ProfileView: View {
         case .about:
             GroupFooter(Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns."))
         }
+    }
+
+    /// "Agreed on 3 Nov 2026 · policy 2026-11. Read the policy": the policy in force beside Withdraw consent, in the in-app
+    /// sheet (`safariSheet` catches its `LegalPage` URL); the link in the link ink, underlined (`InlineLink`).
+    private func consentFooter(_ detail: String) -> Text {
+        var link = AttributedString(localized: "Read the policy",
+                                    comment: "Link at the end of Profile → Privacy's footer: opens the privacy policy in force in RYFT.")
+        link.link = model.policyPage.url
+        return Text(InlineLink.styled(AttributedString(detail + " ") + link))
     }
 
     // MARK: the buttons row (§P5-6.1 row 4)
@@ -506,12 +526,7 @@ private struct ProfileIdentitySection: View {
         let model = screens.profile
         let status = model.status(line: screens.today.syncLine)
         ProfileIdentityRow(identity: model.identity, status: status) {
-            switch status.tap {
-            case .syncDetails: showsSyncDetails = true
-            case .gate(let step): model.resolve(step)
-            case .retry: Task { await model.syncNow() }
-            case .none: break
-            }
+            if model.tapStatus(status.tap) { showsSyncDetails = true }
         }
     }
 }
@@ -529,10 +544,8 @@ private struct ProfileDeveloperGroup: View {
 
     var body: some View {
         GroupedCard(GroupTitle(Text(verbatim: "Developer"))) {
-            GroupedRow.push(Text(verbatim: "Component catalog"), icon: nil, route: ProfileRoute.catalog)
-                .accessibilityIdentifier(ProfileRows.devCatalog)
-            GroupedRow.push(Text(verbatim: "Feature flags"), route: ProfileRoute.flags)
-                .accessibilityIdentifier(ProfileRows.devFlags)
+            GroupedRow.push(Text(verbatim: "Component catalog"), identifier: ProfileRows.devCatalog, route: ProfileRoute.catalog)
+            GroupedRow.push(Text(verbatim: "Feature flags"), identifier: ProfileRows.devFlags, route: ProfileRoute.flags)
             GroupedRow.value(Text(verbatim: "Push registration"), value: Text(verbatim: screens.push.lastResult ?? "—"))
             field("API URL override") {
                 TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
@@ -629,16 +642,19 @@ private struct ProfileDeveloperGroup: View {
 @MainActor
 private enum ProfilePreview {
     enum Case {
-        case signedIn, noName, noStrain, signedOutDemo, offline, consentOutdated
+        case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
-        let demo = kind == .signedOutDemo
+        let demo = kind == .signedOutDemo || kind == .signedInDemo
         let defaults = UserDefaults(suiteName: "ryft.preview.profile") ?? .standard
         let settings = Settings(defaults: defaults)
+        // Apple Health uploaded a minute ago: "up to date" needs it.
+        settings.lastSync = demo ? nil : .now.addingTimeInterval(-60)
         let api = MockPlatformAPI(activities: .demoSource())
+        // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
-                                 auth: .preview(signedIn: kind != .signedOutDemo, provider: "email"),
+                                 auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
                                  persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
                                  defaults: defaults, demoOverride: demo)
@@ -703,6 +719,8 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · no strain today · AX3") { ProfilePreview.page(.noStrain, ax3: true) }
 #Preview("Profile · signed out / demo") { ProfilePreview.page(.signedOutDemo) }
 #Preview("Profile · signed out / demo · AX3") { ProfilePreview.page(.signedOutDemo, ax3: true) }
+#Preview("Profile · signed in / demo") { ProfilePreview.page(.signedInDemo) }
+#Preview("Profile · signed in / demo · AX3") { ProfilePreview.page(.signedInDemo, ax3: true) }
 #Preview("Profile · offline") { ProfilePreview.page(.offline) }
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }

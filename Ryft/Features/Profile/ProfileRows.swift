@@ -146,14 +146,13 @@ struct HeroNumbersMenuRow: View {
 
     var body: some View {
         GroupedRow.menu(Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn."),
-                        value: Text(verbatim: selection.title)) {
+                        value: Text(verbatim: selection.title), identifier: ProfileRow.heroNumerals.identifier) {
             Picker(selection: $selection) {
                 ForEach(HeroNumerals.allCases) { Text(verbatim: $0.title).tag($0) }
             } label: {
                 Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn.")
             }
         }
-        .accessibilityIdentifier(ProfileRow.heroNumerals.identifier)
     }
 }
 
@@ -163,14 +162,13 @@ struct SessionLayoutMenuRow: View {
 
     var body: some View {
         GroupedRow.menu(Text("Session layout", comment: "Profile → Training: how a workout shows its exercises, one per page or all in one list."),
-                        value: Text(verbatim: selection.title)) {
+                        value: Text(verbatim: selection.title), identifier: ProfileRow.sessionLayout.identifier) {
             Picker(selection: $selection) {
                 ForEach(SessionLayout.allCases, id: \.self) { Text(verbatim: $0.title).tag($0) }
             } label: {
                 Text("Session layout", comment: "Profile → Training: how a workout shows its exercises, one per page or all in one list.")
             }
         }
-        .accessibilityIdentifier(ProfileRow.sessionLayout.identifier)
     }
 }
 
@@ -183,7 +181,7 @@ struct BirthYearMenuRow: View {
         let selection = Binding<Int?>(get: { editor.birthYear }, set: { year in
             if let year { Task { await editor.setBirthYear(year) } }
         })
-        GroupedRow.menu(Text("Birth year"), value: value) {
+        GroupedRow.menu(Text("Birth year"), value: value, identifier: ProfileRow.birthYear.identifier) {
             Picker(selection: selection) {
                 if editor.birthYear == nil { Text("Not set").tag(Int?.none) }
                 ForEach(editor.birthYears, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
@@ -192,7 +190,6 @@ struct BirthYearMenuRow: View {
             }
         }
         .disabled(editor.isBusy)
-        .accessibilityIdentifier(ProfileRow.birthYear.identifier)
     }
 
     private var value: Text {
