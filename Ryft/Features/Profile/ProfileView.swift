@@ -43,6 +43,11 @@ struct ProfileView: View {
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
+        // The Journal row is there while the journal is live: after the Demo data switch forgot the other side's, this
+        // side's is asked for here too (as Today and Insights ask), so the row doesn't wait for them.
+        .task(id: model.demoMode) {
+            if screens.journal.availability == .unknown { await screens.journal.load() }
+        }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
             if unsentAtLogOut > 0 {
                 // Send first (10 s at most), then log out if nothing is left and it's still the same account;
