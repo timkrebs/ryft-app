@@ -729,6 +729,21 @@ struct ProfileSubpagesHostedTests {
         }
     }
 
+    @Test("8: the journal sheet's Offline pill: the account offline shows it; demo data offline doesn't (it answers on the phone)",
+          arguments: [false, true])
+    func journalSheetOfflinePill(_ demo: Bool) async throws {
+        let state = demo ? AppState.preview(online: false) : AppState(env: .test(clock: TestClock(now: .now), online: false))
+        #expect(state.isDemo == demo && !state.env.connectivity.isOnline)
+        let sheet = AnyView(JournalSheet(model: JournalSheetModel(store: journalPreviewStore(state)))
+            .previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US")))
+        try await host(sheet, height: 1_400) { w in
+            try await w.wait("the sheet") { w.node("Close", exactly: true) != nil }
+            try await w.settle()
+            let pill = w.node("Offline. Showing your last loaded data.", exactly: true)
+            #expect((pill != nil) == !demo, "\(w.nodes().map(\.label))")
+        }
+    }
+
     @Test("S1: the message field keeps 4 lines' room at the default size and AX3, so its prompt is never cut off",
           arguments: [false, true])
     func reportFieldRoom(_ ax3: Bool) async throws {
