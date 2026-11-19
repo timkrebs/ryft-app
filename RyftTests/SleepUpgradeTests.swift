@@ -67,7 +67,7 @@ struct SleepSummaryTests {
         #expect(s.nap == "Nap · \(Fmt.duration(minutes: 25))")
         #expect(s.needBreakdown?.total == 538)
         let board = SleepBoard(sleep: sleep, score: detail.score, locale: Locale(identifier: "en_US"))
-        #expect(board.caption == String(localized: "Asleep · \(87) % of your need"))
+        #expect(board.caption == String(localized: "Asleep · \(87)\u{00A0}% of your need"))
         let tiles = Dictionary(uniqueKeysWithValues: board.tiles.map { ($0.kind, $0) })
         #expect(tiles[.consistency]?.value == "81")
         #expect(tiles[.restorative]?.spokenValue.contains(String(localized: "\(100) percent of the target")) == true)

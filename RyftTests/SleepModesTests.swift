@@ -349,7 +349,7 @@ struct SleepBedtimeBoardTests {
         #expect(board.rows.map(\.goal) == [.peak, .perform, .getBy])
         #expect(board.rows.map(\.isGoal) == [false, true, false])
         #expect(board.rows.map(\.time) == [plan.bedtime100, plan.bedtime85, plan.bedtime70].map { Fmt.time($0, locale: enUS) })
-        #expect(board.rows.map(\.share) == ["100 % of your need", "85 % of your need", "70 % of your need"])
+        #expect(board.rows.map(\.share) == ["100\u{00A0}% of your need", "85\u{00A0}% of your need", "70\u{00A0}% of your need"])
         #expect(board.rows[0].asleep == "\(Fmt.duration(minutes: plan.needMin)) asleep")
         #expect(board.rows[1].spoken.hasSuffix("your goal") && !board.rows[0].spoken.contains("your goal"))
         #expect(board.wake == "wake \(Fmt.time(plan.wake, locale: enUS))")

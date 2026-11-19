@@ -242,7 +242,7 @@ struct SleepScheduleView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(goal.title).font(.ryft(.body)).foregroundStyle(Theme.textPrimary)
-                            Text("\(goal.rawValue) % of your need").font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
+                            Text("\(goal.rawValue)\u{00A0}% of your need").font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
                         }
                         Spacer()
                         if draft.goal == goal {

@@ -162,7 +162,7 @@ struct SleepBedtimeBoard: Equatable {
 
     /// "100 % of your need".
     static func share(_ goal: SleepSchedule.Goal) -> String {
-        String(localized: "\(goal.rawValue) % of your need")
+        String(localized: "\(goal.rawValue)\u{00A0}% of your need")
     }
 
     // MARK: tiles

@@ -38,7 +38,7 @@ struct NocturneStringsTests {
         "Slept enough on %lld of the last 7 nights; the last is the night shown",
         "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data",
         // Sleep
-        "Last night · %@", "Yesterday · %@", "Asleep · %lld %% of your need", "%lld percent of your need", "Asleep",
+        "Last night · %@", "Yesterday · %@", "Asleep · %lld\u{00A0}%% of your need", "%lld percent of your need", "Asleep",
         "Sleep duration scale", "0 h", "need %@", "10 h", "%@, on a scale from 0 to 10 hours. Your need is %@.", "h",
         "Deep + REM", "No newer night to show", "No older night to show", "Loading this night",
         "The timeline isn't available for this night.", "Hypnogram, %@ to %@",
