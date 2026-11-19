@@ -431,6 +431,18 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         if !journalLive { throw APIError.http(404, "not found") }
     }
 
+    #if DEBUG
+    /// Runs before a habit write (`"patchBehaviors"`, `"createBehavior"`, `"deleteBehavior"`) is applied and answered
+    /// (tests hold one open with it).
+    var beforeBehaviorWrite: (@Sendable (String) async -> Void)?
+    #endif
+
+    private func holdBehaviorWrite(_ name: String) async {
+        #if DEBUG
+        await beforeBehaviorWrite?(name)
+        #endif
+    }
+
     func behaviors() async throws -> [Behavior] {
         try enterJournal("behaviors")
         return lock.withLock { behaviorList }
@@ -438,6 +450,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func patchBehaviors(_ patch: BehaviorsPatch) async throws -> [Behavior] {
         try enterJournal("patchBehaviors")
+        await holdBehaviorWrite("patchBehaviors")
         return try lock.withLock {
             for (id, on) in patch.enabled {
                 guard let i = behaviorList.firstIndex(where: { $0.id.uuidString.lowercased() == id }) else {
@@ -451,6 +464,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func createBehavior(_ input: BehaviorInput) async throws -> Behavior {
         try enterJournal("createBehavior")
+        await holdBehaviorWrite("createBehavior")
         return try lock.withLock {
             if let existing = behaviorList.first(where: { $0.id == input.id }), !existing.isCustom {
                 throw APIError.http(409, "id taken")
@@ -468,6 +482,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func deleteBehavior(id: UUID) async throws {
         try enterJournal("deleteBehavior")
+        await holdBehaviorWrite("deleteBehavior")
         try lock.withLock {
             if let b = behaviorList.first(where: { $0.id == id }), !b.isCustom { throw APIError.http(403, "built-in") }
             behaviorList.removeAll { $0.id == id }

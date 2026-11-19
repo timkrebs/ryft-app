@@ -76,7 +76,8 @@ final class ScreenModels {
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
-        journal = JournalStore(env: state.env)
+        // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
+        journal = JournalStore(state: state)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)

@@ -206,33 +206,41 @@ struct JournalSettingsView: View {
     }
 }
 
-/// What Journal settings and Add a habit say when a change didn't go through, in words, with the status and request ID as
-/// the caption when RYFT answered (never the raw error text):
-/// - offline: nothing was sent, so nothing changed;
-/// - no answer (the connection dropped, a timeout, a `5xx`): it may have saved, so the user checks rather than assumes;
+/// What Journal settings and Add a habit say when a change didn't go through: the settings pages' words, judged by what
+/// left the phone (`SettingsWriteFailure`, shared with Notifications and the body-setting editors; PR 6 C review S4), with
+/// the status and request ID as the caption when RYFT answered (never the raw error text):
+/// - offline (`JournalError.offline`, or nothing sent): nothing changed;
+/// - no answer (a timeout, a dropped connection, the network gone while it was out, a `2xx` this build can't read): it may
+///   have saved, and the list is asked again (`JournalStore.rereading`);
+/// - a `5xx`: RYFT had a problem; the list is asked again too;
+/// - a `429`: RYFT is busy, nothing changed;
+/// - refused (`403`, a `409` twice, any other `4xx`): nothing changed;
 /// - a `422`: RYFT refused the values; trying the same again won't help, so it doesn't say to. (The platform's own sentence
 ///   is developer English and may say "behavior", F1, so the calm one shows and the request ID goes along.)
-/// - anything else (`409` twice, `403`, `429`): nothing changed; try again.
 struct JournalSettingsFailure: Equatable {
     let message: String
     let details: String?
+    let kind: SettingsWriteFailure
 
     init(_ error: Error) {
-        let api = error as? APIError
-        if (error as? JournalStore.JournalError) == .offline {
-            message = String(localized: "You're offline, so nothing changed. Try again when you're back online.",
-                             comment: "Journal settings and Add a habit: a change that needs the network, offline.")
-        } else if api?.isFieldError == true {
+        kind = Self.kind(of: error)
+        if (error as? APIError)?.isFieldError == true {
             message = String(localized: "RYFT didn't accept that, so nothing changed.",
                              comment: "Journal settings and Add a habit: RYFT refused the values (422); the same again won't help.")
-        } else if FailureKind.of(error) == .transient, api?.status != 429 {
-            message = String(localized: "RYFT didn't answer, so this may not have saved. Check the list, or try again.",
-                             comment: "Journal settings and Add a habit: no answer (a timeout, a dropped connection); it may have saved.")
         } else {
-            message = String(localized: "RYFT couldn't save that. Nothing changed; try again in a moment.",
-                             comment: "Journal settings and Add a habit: a change the platform refused.")
+            message = kind.saveMessage
         }
         details = error.diagnosticDetails
+    }
+
+    /// A Journal write's failure as the settings pages judge it: the store's own two first (offline: nothing was sent; a
+    /// taken id twice: RYFT said no), then the shared classifier.
+    static func kind(of error: Error) -> SettingsWriteFailure {
+        switch error as? JournalStore.JournalError {
+        case .offline?: return .offline
+        case .idTaken?: return .refused
+        case nil: return SettingsWriteFailure(error)
+        }
     }
 }
 
@@ -342,7 +350,7 @@ private struct HabitRow: View {
 
 /// Add a habit (PR 6 C §4.8, F1, F23): a sheet with its own header and Close; the name (1–60 characters), the answer kind and
 /// the category as select rows, and the pinned Add ("Adding…" while it goes). A failure shows above the groups and keeps
-/// what was typed; offline it says nothing was added (writes need the network).
+/// what was typed; offline it says it wasn't saved (writes need the network).
 ///
 /// - One habit per sheet: every Add sends the sheet's own ids (`POST` with the same id updates it, `200`), so a retry after
 ///   no answer can't add it twice.

@@ -33,13 +33,13 @@ struct ProfileSubpagesRulesTests {
         #expect(JournalSettingsView.deleteTitle("Evening walk") == "Delete “Evening walk”?")
     }
 
-    @Test("A failed journal change says nothing changed: offline in its own words, otherwise with the status as details")
+    @Test("A failed journal change in the settings pages' words: offline in its own, a refusal with the status as details")
     func journalFailureWords() {
         let offline = JournalSettingsFailure(JournalStore.JournalError.offline)
-        #expect(offline.message.hasPrefix("You're offline, so nothing changed."))
+        #expect(offline.message == SettingsWriteFailure.offline.saveMessage)
         #expect(offline.details == nil)
         let refused = JournalSettingsFailure(JournalStore.JournalError.idTaken)
-        #expect(refused.message.hasPrefix("RYFT couldn't save that. Nothing changed"))
+        #expect(refused.message == SettingsWriteFailure.refused.saveMessage)
         #expect(!refused.message.localizedCaseInsensitiveContains("behavior"))
     }
 
@@ -504,7 +504,9 @@ struct ProfileSubpagesHostedTests {
     }
 
     private func journalPage(online: Bool) -> (AnyView, JournalStore, MockPlatformAPI?) {
-        let state = AppState.preview(online: online)
+        // Offline is an account's: demo data answers on the phone, with no network to lose (PR 6 C review N6).
+        let state = online ? AppState.preview() : AppState(env: .test(clock: TestClock(now: .now), online: false))
+        if !online { state.user = MockData.user }
         let store = journalPreviewStore(state)
         return (SubpageShotScreen.pushed(state) { JournalSettingsView(store: store) }, store, state.env.api as? MockPlatformAPI)
     }
@@ -521,7 +523,7 @@ struct ProfileSubpagesHostedTests {
             try await w.wait("the trash") { w.node("Delete Late screen meeting", exactly: true) != nil }
             try await w.settle()
             try await deleteOwnHabit(w)
-            let sentence = "You're offline, so nothing changed. Try again when you're back online."
+            let sentence = "You're offline, so this wasn't saved. Try again when you're back online."
             try await w.wait("the notice") { w.node(sentence, exactly: true) != nil }
             try await w.settle()
             let notice = try node(w, sentence)
@@ -559,7 +561,7 @@ struct ProfileSubpagesHostedTests {
             try await w.settle()
             let alcohol = try node(w, "Alcohol", exactly: false)
             #expect(alcohol.activate())
-            let sentence = "You're offline, so nothing changed. Try again when you're back online."
+            let sentence = "You're offline, so this wasn't saved. Try again when you're back online."
             try await w.wait("the notice") { w.node(sentence, exactly: true) != nil }
             try await w.settle()
             let after = try node(w, "Alcohol", exactly: false)
@@ -673,7 +675,8 @@ struct ProfileSubpagesHostedTests {
             try await w.settle()
             let first = try node(w, id: "addHabit.add").activate()
             #expect(first)
-            let sentence = "RYFT didn't answer, so this may not have saved. Check the list, or try again."
+            // The editors' words (PR 6 C review S4): it may have saved.
+            let sentence = SettingsWriteFailure.noAnswer.saveMessage
             try await w.wait("the notice") { w.node(sentence, exactly: true) != nil }
             // It did arrive, as a timeout allows: the platform has the habit under the sheet's id.
             _ = try await api.createBehavior(BehaviorInput(id: id, name: "Evening walk", kind: .yesNo, category: .custom))

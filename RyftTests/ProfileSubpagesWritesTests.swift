@@ -26,7 +26,7 @@ struct JournalWriteOrderTests {
         store.beforeApplying = { route in if route == "behaviors" { await gate.wait() } }
         // The list is read (Alcohol on), then held on its way back.
         let opening = Task { await store.load() }
-        #expect(await eventually(timeout: .seconds(5)) { api.count("behaviors") == 2 })
+        #expect(await eventually { api.count("behaviors") == 2 })
         store.beforeApplying = nil
         try await store.setEnabled(MockJournal.alcohol, false)
         #expect(store.behavior(MockJournal.alcohol)?.enabled == false)
@@ -48,7 +48,7 @@ struct JournalWriteOrderTests {
         store.beforeApplying = { route in if route == "patchBehaviors" { await gate.wait() } }
         // Alcohol off: the platform answers with the whole list, the meeting still in it, and the answer is held.
         let toggle = Task { try await store.setEnabled(MockJournal.alcohol, false) }
-        #expect(await eventually(timeout: .seconds(5)) { api.count("patchBehaviors") == 1 })
+        #expect(await eventually { api.count("patchBehaviors") == 1 })
         try await store.delete(MockJournal.meeting)
         #expect(store.behavior(MockJournal.meeting) == nil)
         await gate.open()
@@ -114,33 +114,72 @@ struct JournalSettingsRulesTests {
         #expect(!AddBehaviorSheet.isFull(MockJournal.behaviors.filter { !$0.isCustom } + own(49), adding: UUID()))
     }
 
-    @Test("No answer: it may have saved, so check the list or try again", arguments: [
-        APIError.transport(URLError(.timedOut)), APIError.transport(URLError(.networkConnectionLost)),
-        APIError.http(503, "request timed out", requestID: "01a1-503"), APIError.http(500, "", requestID: "01a1-500"),
-    ])
-    func noAnswer(_ error: APIError) {
+    /// Journal's write failures and how the settings pages judge them (`SettingsWriteFailure`, PR 6 C review S4).
+    private nonisolated static let failures: [(any Error, SettingsWriteFailure)] = [
+        // Offline: nothing was sent.
+        (JournalStore.JournalError.offline, .offline), (APIError.transport(URLError(.notConnectedToInternet)), .offline),
+        // Sent, and no readable answer: it may have saved (an unreadable 2xx did: RYFT stored it).
+        (APIError.http(200, "unreadable"), .noAnswer), (APIError.transport(URLError(.timedOut)), .noAnswer),
+        (APIError.transport(URLError(.networkConnectionLost)), .noAnswer), (SettingsWrite.NoAnswer(), .noAnswer),
+        // RYFT answered.
+        (APIError.http(500, ""), .serverError), (APIError.http(503, "request timed out"), .serverError),
+        (APIError.http(429, "slow down"), .busy),
+        (APIError.http(409, ""), .refused), (APIError.http(403, "built-in"), .refused),
+        (JournalStore.JournalError.idTaken, .refused),
+    ]
+
+    @Test("Journal's failures in the settings pages' words: what left the phone decides", arguments: failures)
+    func classified(_ error: any Error, _ kind: SettingsWriteFailure) {
         let failure = JournalSettingsFailure(error)
-        #expect(failure.message == "RYFT didn't answer, so this may not have saved. Check the list, or try again.")
-        #expect(!failure.message.contains("Nothing changed"))
+        #expect(failure.kind == kind && failure.message == kind.saveMessage, "\(failure.message)")
+    }
+
+    @Test("An unreadable 2xx never says nothing changed: RYFT stored it")
+    func anUnreadableAnswerMayHaveSaved() {
+        let failure = JournalSettingsFailure(APIError.http(200, "", requestID: "01a1-200"))
+        #expect(failure.message == "RYFT didn't answer, so this may not have saved. Try again in a moment.")
+        #expect(!failure.message.localizedCaseInsensitiveContains("nothing changed") && failure.kind.rereads)
+        #expect(failure.details == "HTTP 200 · Request ID 01a1-200")
+    }
+
+    @Test("Busy, refused and a server error have their own words, not one \"try again in a moment\"")
+    func busyRefusedAndServerErrorDiffer() {
+        let busy = JournalSettingsFailure(APIError.http(429, "slow down")).message
+        let refused = JournalSettingsFailure(APIError.http(409, "")).message
+        let serverError = JournalSettingsFailure(APIError.http(503, "", requestID: "01a1-503"))
+        #expect(busy == "RYFT is busy right now, so this wasn't saved. Try again in a minute.")
+        #expect(refused == "RYFT couldn't save this change, so it's back as it was.")
+        #expect(serverError.message == "RYFT had a problem saving this, so it's back as it was. Try again in a moment.")
+        #expect(serverError.details == "HTTP 503 · Request ID 01a1-503")
+        #expect(JournalSettingsFailure(JournalStore.JournalError.offline).message
+            == "You're offline, so this wasn't saved. Try again when you're back online.")
     }
 
     @Test("A 422: RYFT refused it, calmly, without 'try again'; the request ID is the caption, never the platform's text")
     func refused() {
         let failure = JournalSettingsFailure(APIError.http(422, "too many custom behaviors", requestID: "01a1-422"))
         #expect(failure.message == "RYFT didn't accept that, so nothing changed.")
+        #expect(failure.kind == .refused && !failure.kind.rereads)
         #expect(!failure.message.localizedCaseInsensitiveContains("try again"))
         #expect(!failure.message.localizedCaseInsensitiveContains("behavior"))
         #expect(failure.details == "HTTP 422 · Request ID 01a1-422")
     }
 
-    @Test("Offline, too many requests, a taken id: nothing changed, in their own words")
-    func otherFailures() {
-        #expect(JournalSettingsFailure(JournalStore.JournalError.offline).message
-            == "You're offline, so nothing changed. Try again when you're back online.")
-        let generic = "RYFT couldn't save that. Nothing changed; try again in a moment."
-        #expect(JournalSettingsFailure(APIError.http(429, "slow down")).message == generic)
-        #expect(JournalSettingsFailure(JournalStore.JournalError.idTaken).message == generic)
-        #expect(JournalSettingsFailure(APIError.http(403, "built-in")).message == generic)
+    @Test("No answer or a 5xx: the list is asked again, so the page shows what RYFT holds; a refusal isn't")
+    func unsureWritesReread() async throws {
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: TestClock(now: .now))
+        let store = JournalStore(env: env)
+        await store.load()
+        for (error, rereads) in [(APIError.transport(URLError(.timedOut)), true), (APIError.http(200, ""), true),
+                                 (APIError.http(503, ""), true), (APIError.http(409, ""), false),
+                                 (APIError.http(429, ""), false)] {
+            let reads = api.count("behaviors")
+            api.failNext = error
+            await #expect(throws: (any Error).self) { try await store.setEnabled(MockJournal.magnesium, true) }
+            await store.rereading?.value
+            #expect((api.count("behaviors") == reads + 1) == rereads, "\(error): \(api.count("behaviors") - reads)")
+        }
     }
 }
 
@@ -165,10 +204,10 @@ struct NotificationSavesTests {
         let hold = RequestHold()
         api.beforePatchNotifications = { await hold.wait() }
         let first = Task { await model.setQuietFrom(NotificationSettingsViewModel.date("21:30")) }
-        #expect(await eventually(timeout: .seconds(5)) { hold.waiting == 1 })
+        #expect(await eventually { hold.waiting == 1 })
         #expect(model.saving)
         let second = Task { await model.setQuietFrom(NotificationSettingsViewModel.date("21:00")) }
-        #expect(await eventually(timeout: .seconds(5)) { model.prefs.quietHours?.from == "21:00" }, "shown at once")
+        #expect(await eventually { model.prefs.quietHours?.from == "21:00" }, "shown at once")
         #expect(api.count("patchNotifications") == 2, "the second waits for the first: \(api.count("patchNotifications"))")
         api.beforePatchNotifications = nil
         hold.release()

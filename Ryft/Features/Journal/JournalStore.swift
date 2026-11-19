@@ -9,7 +9,12 @@ import Observation
 /// - **Offline-first reads:** the catalog, each day and the last impacts are
 ///   kept in SwiftData (`CachedDocument` "journal.*").
 /// - **Writes need the network**; offline they fail with `JournalError.offline`
-///   and the screens show the Offline pill.
+///   and the screens show the Offline pill. A habit's change waits as every settings write does (`SettingsWrite`: one
+///   attempt, an answer within 25 s or none, none at once when the network goes); after no answer or a `5xx` the list is
+///   asked again (`rereading`).
+/// - **The account's**: every read and write is bound to the account signed in when it began (`AccountBinding` and
+///   `generation`); another account, a sign-out or the Demo data switch forgets what's shown (`accountChanged()`, run with
+///   the other account-state forgetters), and an answer for the previous one is dropped, in memory and on disk.
 @MainActor
 @Observable
 final class JournalStore {
@@ -41,9 +46,15 @@ final class JournalStore {
     /// meanwhile). A count, not a time: two writes in one tick of the clock still differ. Kept small on purpose: the
     /// durable outbox (O6) takes these writes over.
     private var completedWrites = 0
+    #if DEBUG
     /// Tests only: runs once a catalog answer arrived (`"behaviors"`, `"patchBehaviors"`), before it's applied, so a test
     /// can finish another write meanwhile.
     @ObservationIgnored var beforeApplying: (@MainActor (String) async -> Void)?
+    #endif
+    /// Bumped when the account's state is forgotten (`accountChanged()`): an answer asked for before it is dropped.
+    private var generation = 0
+    /// The list asked for again after a write that may have saved (no answer, a `5xx`); tests await it.
+    private(set) var rereading: Task<Void, Never>?
 
     static let behaviorsKey = "journal.behaviors"
     static let impactKey = "journal.impact"
@@ -56,8 +67,39 @@ final class JournalStore {
         if !behaviors.isEmpty { availability = .live }
     }
 
+    /// The app's journal: it forgets the account's state with the others (`AppState.forgetsAccountState`: a sign-out,
+    /// another account, a wipe, the Demo data switch).
+    convenience init(state: AppState) {
+        self.init(env: state.env)
+        state.forgetsAccountState { [weak self] in self?.accountChanged() }
+    }
+
+    /// The previous account's journal goes: its habits (custom names too), its days and its effects, and whether it was
+    /// live. An answer for it that arrives later changes nothing, here or in the store on disk. The next account's comes
+    /// with its own `load()`.
+    func accountChanged() {
+        generation += 1
+        rereading?.cancel()
+        rereading = nil
+        behaviors = []
+        days = [:]
+        impacts = nil
+        error = nil
+        availability = .unknown
+    }
+
+    /// Whose a read or write is: the account and side then, and no forgetting since.
+    private struct Owner: Equatable {
+        let binding: AccountBinding
+        let generation: Int
+    }
+
+    private var owner: Owner { Owner(binding: AccountBinding(env), generation: generation) }
+    private func owns(_ owner: Owner) -> Bool { owner == self.owner }
+
     var isLive: Bool { availability == .live }
-    private var isOnline: Bool { env.connectivity.isOnline }
+    /// Demo data answers on the phone: it has no network to lose (as Notifications and the editors).
+    private var isOnline: Bool { env.isDemo || env.connectivity.isOnline }
     private var now: Date { env.clock.now() }
 
     var yesterday: String { DayFormat.string(from: DayFormat.shift(now, days: -1)) }
@@ -93,17 +135,22 @@ final class JournalStore {
     /// The catalog (and with it, whether the journal is live).
     func load() async {
         guard env.isDemo || env.auth.isSignedIn else { return }
-        let api = env.api
+        let api = env.api, owner = self.owner
         let asked = completedWrites
         do {
             switch try await read("behaviors", { try await api.behaviors() }) {
             case .some(.some(let list)):
+                #if DEBUG
                 await beforeApplying?("behaviors")
+                #endif
+                // Another account's (or the other side of the Demo data switch): not this one's to show or keep.
+                guard owns(owner) else { return }
                 // A write completed while it was on its way: the list may be from before it, and the page has newer.
-                if completedWrites == asked { replace(list) }
+                if completedWrites == asked { replace(list, as: owner) }
                 availability = .live
                 error = nil
             case .some(.none):
+                guard owns(owner) else { return }
                 availability = .notLive
             case .none:
                 break // offline: the cache (and whether it was live) stays
@@ -120,9 +167,11 @@ final class JournalStore {
             days[day] = cached
         }
         guard isLive, isOnline else { return days[day] }
-        let api = env.api
-        switch try? await read("day.\(day)", { try await api.journal(day: day) }) {
-        case .some(.some(let fresh)): store(fresh)
+        let api = env.api, owner = self.owner
+        let answer = try? await read("day.\(day)", { try await api.journal(day: day) })
+        guard owns(owner) else { return nil }
+        switch answer {
+        case .some(.some(let fresh)): store(fresh, as: owner)
         case .some(.none): availability = .notLive
         case .none: break
         }
@@ -131,8 +180,10 @@ final class JournalStore {
 
     func loadImpacts() async {
         guard isLive, isOnline else { return }
-        let api = env.api
-        switch try? await read("impact", { try await api.behaviorImpact() }) {
+        let api = env.api, owner = self.owner
+        let answer = try? await read("impact", { try await api.behaviorImpact() })
+        guard owns(owner) else { return }
+        switch answer {
         case .some(.some(let fresh)):
             impacts = fresh
             env.persistence.saveDocument(fresh, key: Self.impactKey, at: now)
@@ -147,26 +198,34 @@ final class JournalStore {
 
     /// `PUT /v1/journal/{day}` with every row the sheet showed. After saving
     /// yesterday, the impacts are refreshed in the background.
+    /// The answer for an account that's gone ends like a cancelled save: nothing is kept, nothing is said.
     func save(day: String, entries: [JournalEntry]) async throws {
         guard isOnline else { throw JournalError.offline }
-        let saved = try await env.api.putJournal(day: day, JournalPut(entries: entries))
-        store(saved)
+        let api = env.api, owner = self.owner
+        let saved = try await api.putJournal(day: day, JournalPut(entries: entries))
+        guard owns(owner) else { throw CancellationError() }
+        store(saved, as: owner)
         if day == yesterday { Task { await loadImpacts() } }
     }
 
     /// `PATCH /v1/behaviors {enabled: {id: on}}`; the whole list comes back. Answered after another write completed, only
-    /// this habit's switch is taken from it (`completedWrites`).
+    /// this habit's switch is taken from it (`completedWrites`). Answered for an account that's gone, it ends like a
+    /// cancelled change.
     func setEnabled(_ id: UUID, _ on: Bool) async throws {
         guard isOnline else { throw JournalError.offline }
+        let api = env.api, owner = self.owner
         let asked = completedWrites
-        let list = try await env.api.patchBehaviors(BehaviorsPatch([id: on]))
+        let list = try await write { try await api.patchBehaviors(BehaviorsPatch([id: on])) }
+        #if DEBUG
         await beforeApplying?("patchBehaviors")
+        #endif
+        guard owns(owner) else { throw CancellationError() }
         if completedWrites == asked {
-            replace(list)
+            replace(list, as: owner)
         } else if let answered = list.first(where: { $0.id == id }), let index = behaviors.firstIndex(where: { $0.id == id }) {
             var merged = behaviors
             merged[index].enabled = answered.enabled
-            replace(merged)
+            replace(merged, as: owner)
         }
         completedWrites += 1
     }
@@ -182,17 +241,21 @@ final class JournalStore {
             BehaviorInput(id: id, name: name.trimmingCharacters(in: .whitespaces),
                           nameDe: german?.isEmpty == false ? german : nil, kind: kind, category: category)
         }
-        let created: Behavior
-        do {
-            created = try await env.api.createBehavior(input(id))
-        } catch let e as APIError where e.isIDTaken {
+        let api = env.api, owner = self.owner, first = input(id), retry = input(retryID)
+        // Both tries, within the one deadline: the sheet hears within 25 s either way.
+        let created: Behavior = try await write {
             do {
-                created = try await env.api.createBehavior(input(retryID))
-            } catch let again as APIError where again.isIDTaken {
-                throw JournalError.idTaken
+                return try await api.createBehavior(first)
+            } catch let e as APIError where e.isIDTaken {
+                do {
+                    return try await api.createBehavior(retry)
+                } catch let again as APIError where again.isIDTaken {
+                    throw JournalError.idTaken
+                }
             }
         }
-        replace(behaviors.filter { $0.id != created.id } + [created])
+        guard owns(owner) else { throw CancellationError() }
+        replace(behaviors.filter { $0.id != created.id } + [created], as: owner)
         completedWrites += 1
         return created
     }
@@ -201,19 +264,39 @@ final class JournalStore {
     func delete(_ id: UUID) async throws {
         guard behavior(id)?.isCustom == true else { return }
         guard isOnline else { throw JournalError.offline }
-        try await env.api.deleteBehavior(id: id)
-        replace(behaviors.filter { $0.id != id })
+        let api = env.api, owner = self.owner
+        try await write { try await api.deleteBehavior(id: id) }
+        guard owns(owner) else { throw CancellationError() }
+        replace(behaviors.filter { $0.id != id }, as: owner)
         completedWrites += 1
+    }
+
+    /// One habit write, as every settings write waits (`SettingsWrite`). When it may have saved (no answer, a `5xx`) the
+    /// list is asked again, outside the write, so the page's switch is free meanwhile: it then shows what RYFT holds.
+    private func write<T: Sendable>(_ send: @escaping @MainActor () async throws -> T) async throws -> T {
+        let owner = self.owner
+        do {
+            return try await SettingsWrite.answer(in: env, send)
+        } catch {
+            if !error.isCancellation, JournalSettingsFailure.kind(of: error).rereads, owns(owner), isOnline {
+                rereading = Task { await self.load() }
+            }
+            throw error
+        }
     }
 
     // MARK: cache
 
-    private func replace(_ list: [Behavior]) {
+    /// The list, in memory and on disk, while it's still `owner`'s (checked again here: nothing of a previous account's is
+    /// written into the next one's store).
+    private func replace(_ list: [Behavior], as owner: Owner) {
+        guard owns(owner) else { return }
         behaviors = list
         env.persistence.saveDocument(list, key: Self.behaviorsKey, at: now)
     }
 
-    private func store(_ day: JournalDay) {
+    private func store(_ day: JournalDay, as owner: Owner) {
+        guard owns(owner) else { return }
         days[day.day] = day
         env.persistence.saveDocument(day, key: Self.dayKey(day.day), at: now)
     }
