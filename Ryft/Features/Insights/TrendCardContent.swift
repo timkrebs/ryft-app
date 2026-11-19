@@ -86,8 +86,8 @@ struct TrendCardContent: Identifiable, Equatable {
     let isPending: Bool
     /// The range's series is cached (it may hold no value); `false` with `isPending` false reads "Not loaded".
     let isLoaded: Bool
-    /// "Band: your usual range", "SDNN", "Avg 7:31 h", "Band needs 7 days of data", "No data in this range", "Not loaded",
-    /// "As of Nov 15".
+    /// "Shaded: your usual range", "SDNN", "Avg 7:31 h", "Usual range needs 7 days of data", "No data in this range",
+    /// "Not loaded", "As of Nov 15".
     let note: String?
     /// For the expanded card: the series, its end, the baseline and Avg · Min · Max.
     let points: [TrendPoint]
@@ -106,7 +106,7 @@ struct TrendCardContent: Identifiable, Equatable {
     /// The usual range behind a banded card's line, or why there is none.
     enum UsualRange: Equatable {
         case range(ClosedRange<Double>)
-        /// The 30-day series is loaded, with fewer than 7 values before its newest one: "Band needs 7 days of data".
+        /// The 30-day series is loaded, with fewer than 7 values before its newest one: "Usual range needs 7 days of data".
         case tooShort
         /// No band: the metric has none, or its 30-day series isn't loaded (yet).
         case unavailable

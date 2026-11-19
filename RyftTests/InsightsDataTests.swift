@@ -134,7 +134,7 @@ struct InsightsDataTests {
         #expect(short.note == String(localized: "Usual range needs 7 days of data"))
     }
 
-    @Test("Spec 29: \"Band needs…\" only with the 30-day series loaded; without it, the metric's own note")
+    @Test("Spec 29: \"Usual range needs…\" only with the 30-day series loaded; without it, the metric's own note")
     func noBandUntilLoaded() {
         let s = Self.series(.readiness, [70, 72, 74], avg: 72)
         let card = Self.make(.readiness, series: s, monthly: nil)
@@ -383,10 +383,12 @@ struct InsightsDataTests {
         let (vm, _, source) = Self.scripted([.readiness: [0: 70, 1: 72]])
         source.holds[.month] = hold
         source.failing = [.readiness, .strain]
+        // A failed wait below must not leave the load held.
+        defer { hold.release() }
         // Before the first load, and while it runs: pending.
         #expect(vm.card(.strain).isPending)
         let load = Task { await vm.load() }
-        while hold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { hold.waiting > 0 }, "the 30-day reads are held")
         #expect(vm.card(.strain).isPending && vm.card(.readiness).note == nil)
         hold.release()
         await load.value
@@ -405,13 +407,14 @@ struct InsightsDataTests {
         let (vm, _, source) = Self.scripted([.readiness: [0: 70, 1: 72]])
         source.holds = [.month: monthHold, .week: weekHold]
         source.failing = [.strain]
+        defer { monthHold.release(); weekHold.release() }
         // 30 D, then 7 D, then back to 30 D, each load starting before the one before it ends (`.task(id:)`).
         vm.range = .month
         let first = Task { await vm.load() }
-        while monthHold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { monthHold.waiting > 0 }, "the 30-day reads are held")
         vm.range = .week
         let second = Task { await vm.load() }
-        while weekHold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { weekHold.waiting > 0 }, "the 7-day reads are held")
         vm.range = .month
         let third = Task { await vm.load() }
         // The 30-day reads answer: the first and the third load end; the second still waits for its 7-day reads.

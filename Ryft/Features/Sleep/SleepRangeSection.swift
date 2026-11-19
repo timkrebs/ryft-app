@@ -66,7 +66,7 @@ struct SleepRangeBoard: Equatable {
         let legend: [SleepStageKind?]
         /// Per night, oldest first: "Wednesday 18: Deep 1 hour 35 minutes, REM 1 hour 45 minutes, Light 4 hours 28 minutes".
         let spokenNights: [String]
-        /// The card's head as VoiceOver reads it: "7 hours 58 minutes average sleep".
+        /// The card's head as VoiceOver reads it: "Average sleep, 7 hours 58 minutes".
         let spokenAverage: String
     }
 
@@ -74,7 +74,7 @@ struct SleepRangeBoard: Equatable {
     let look: Look
     /// "7:58"; `nil` draws the unlit "0:00".
     let clock: String?
-    /// "7 hours 58 minutes average sleep", "Loading…"; `nil` hides the numeral from VoiceOver (the message, or the caption
+    /// "Average sleep, 7 hours 58 minutes", "Loading…"; `nil` hides the numeral from VoiceOver (the message, or the caption
     /// without an average, says it).
     let numeralLabel: String?
     /// "Average · last 7 nights", "Average · 4 nights", "Loading…"; empty keeps the line.

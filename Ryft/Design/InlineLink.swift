@@ -1,6 +1,6 @@
 // Links (Nocturne, docs/work/2026-11-16-nocturne/design.md §P5-1.4): ink, underlined at 50 %. The ink is the body text's, so
 // colour alone would not mark a link (17.35 against `textSecondary`'s 6.95 is 2.5:1, under WCAG 1.4.1's 3:1): the underline
-// does. One look for a link on its own line (`ryftLink()`) and a link inside a sentence (`Text(inlineLinks:)`).
+// does. One look for a link on its own line (`ryftLink()`) and a link inside a sentence (`InlineLink.styled`).
 import SwiftUI
 
 enum InlineLink {
@@ -14,7 +14,9 @@ enum InlineLink {
     static var ink: Color { Theme.textPrimary }
     static var underline: Text.LineStyle { Text.LineStyle(pattern: .solid, color: Theme.textPrimary.opacity(underlineOpacity)) }
 
-    /// `text` with every link run (`[words](url)`) in the link ink and underlined; the rest keeps the caller's style.
+    /// `text` with every link run (`[words](url)`) in the link ink and underlined; the rest keeps the caller's style. As
+    /// `Text(InlineLink.styled(…))` a tap goes through the environment's `openURL` (so `safariSheet` keeps it in the app),
+    /// and VoiceOver's Links rotor reaches each link.
     static func styled(_ text: AttributedString) -> AttributedString {
         var styled = text
         for range in text.runs.filter({ $0.link != nil }).map(\.range) {
@@ -22,15 +24,6 @@ enum InlineLink {
             styled[range].swiftUI.underlineStyle = underline
         }
         return styled
-    }
-}
-
-extension Text {
-    /// Running text with Markdown links (`"… the [Privacy Policy](https://ryftlab.de/privacy)."`), looked up in the string
-    /// catalog. The links are `textPrimary`, underlined at 50 %; the other words take the caller's font and colour. A tap goes
-    /// through the environment's `openURL` (so `safariSheet` keeps them in the app), and VoiceOver's Links rotor reaches each.
-    init(inlineLinks resource: LocalizedStringResource) {
-        self.init(InlineLink.styled(AttributedString(localized: resource)))
     }
 }
 

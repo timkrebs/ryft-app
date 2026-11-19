@@ -304,7 +304,7 @@ struct StrainBoard: Equatable {
     }
     static var noStrainTodaySentence: String {
         String(localized: "No strain yet today.",
-               comment: "Strain's caption under the unlit numeral today: nothing has added strain so far (the day isn't over).")
+               comment: "Strain's caption under the unlit numeral, and Profile's identity row (VoiceOver): nothing has added strain so far today.")
     }
     static var noZonesTodaySentence: String {
         String(localized: "No heart-rate zones yet today.",

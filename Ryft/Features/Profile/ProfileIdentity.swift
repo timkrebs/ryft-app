@@ -66,7 +66,7 @@ struct ProfileIdentity: Equatable, Sendable {
     var spokenStrain: String {
         guard let strain else {
             return String(localized: "No strain yet today.",
-                          comment: "VoiceOver, Profile's identity row: today's strain has no value yet (the ring shows its track only). The same words as the Strain tab's caption.")
+                          comment: "Strain's caption under the unlit numeral, and Profile's identity row (VoiceOver): nothing has added strain so far today.")
         }
         return String(localized: "Strain today \(Fmt.strain(strain)) of 21.",
                       comment: "VoiceOver, Profile's identity row: today's strain on its 0–21 scale, e.g. 12.4.")

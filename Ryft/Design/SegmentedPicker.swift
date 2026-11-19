@@ -1,7 +1,7 @@
-// The segmented control ("Day · Week · Month"). Two looks: PR 4's capsule (44 pt segments on a raised capsule, Sleep → Day
-// today) and Nocturne's ink fill (docs/work/2026-11-16-nocturne/design.md §P5-7.1: 34 pt segments in a 40 pt `surface`
-// control, the selected one filled with ink). The capsule stays the default until Sleep's modes move (T5.5), so Sleep → Day
-// keeps its layout; Insights and Sleep opt in with `look: .inkFill`.
+// The segmented control ("Day · Week · Month"). Two looks: PR 4's capsule (44 pt segments on a raised capsule) and Nocturne's
+// ink fill (docs/work/2026-11-16-nocturne/design.md §P5-7.1: 34 pt segments in a 40 pt `surface` control, the selected one
+// filled with ink). Sleep's modes (T5.5) and Insights' range take `look: .inkFill`; the capsule stays the default for the
+// screens Nocturne hasn't restyled yet (Train's plans and builder, the training import), until PR 6 moves them.
 import SwiftUI
 
 /// The control's numbers (a separate, non-generic type: `SegmentedPicker` is generic).
@@ -54,7 +54,7 @@ struct SegmentedPicker<Value: Hashable>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
-    ///   - look: `.capsule` (PR 4's, the default until T5.5) or `.inkFill` (§P5-7.1).
+    ///   - look: `.capsule` (PR 4's, the default while Train and the import use it) or `.inkFill` (§P5-7.1).
     ///   - width: `.inkFill` only; `.capsule` always fills.
     init(selection: Binding<Value>, options: [Value], look: SegmentedPickerSpec.Look = .capsule,
          width: SegmentedPickerSpec.Width = .fill, spokenTitle: ((Value) -> String)? = nil,

@@ -2289,7 +2289,7 @@
       "comment" : "Strain's caption under the unlit numeral: the past day loaded without a strain."
     },
     "No strain yet today." : {
-      "comment" : "Strain's caption under the unlit numeral today, and Profile's identity row (VoiceOver): nothing has added strain so far (the day isn't over)."
+      "comment" : "Strain's caption under the unlit numeral, and Profile's identity row (VoiceOver): nothing has added strain so far today."
     },
     "No time asleep yet, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need."
