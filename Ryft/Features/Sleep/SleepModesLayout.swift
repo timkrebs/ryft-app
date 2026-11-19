@@ -82,4 +82,11 @@ extension Fmt {
     static func clockParts(_ date: Date, locale: Locale = .autoupdatingCurrent) -> (digits: String, meridiem: String?) {
         clockParts(time(date, locale: locale))
     }
+
+    /// A wall-clock time without a day, as `time(_:locale:)` writes one ("6:30 AM", "06:30"): Bedtime & wake's times and
+    /// the strip's means. On 1 January 2001, a day without a clock change.
+    static func time(hour: Int, minute: Int, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) -> String {
+        let day = DateComponents(year: 2001, month: 1, day: 1, hour: hour, minute: minute)
+        return time(calendar.date(from: day), locale: locale)
+    }
 }
