@@ -226,6 +226,9 @@ struct RyftApp: App {
                     screens.trainImport.accountChanged()
                     // The import flow and any file it holds stay with the side they arrived on.
                     screens.importer.demoModeChanged()
+                    // Tonight's plan, reminders and alarms are the side's, as they're the account's: the other side's
+                    // go, this one's come back (demo data's plan was never in the account's store).
+                    Task { await screens.bedtime.accountChanged() }
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.

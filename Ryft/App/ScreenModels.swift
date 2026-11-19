@@ -81,6 +81,8 @@ final class ScreenModels {
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
+        // Sleep → Bedtime's plan is the account's, or demo data's: the other side's goes with the account-state forgetters.
+        state.forgetsAccountState { [weak sleep] in sleep?.planner.accountChanged() }
         strain = StrainViewModel(state: state, store: store)
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.

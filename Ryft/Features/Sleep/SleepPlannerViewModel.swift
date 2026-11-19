@@ -10,7 +10,8 @@ import SwiftUI
 /// three bedtimes for a wake time and the need behind them. With Bedtime & wake set
 /// up, the wake time is its next one (`follow`), so the numeral is tonight's bedtime,
 /// Today's and the widget's, until the picker moves. A wake-time change asks again
-/// after 300 ms of quiet; offline, the last plan stays with its time.
+/// after 300 ms of quiet; offline, the last plan stays with its time. The account's last plan is kept in its store, demo
+/// data's in memory only (`AppEnvironment.accountDocuments`); demo data plans offline too, on the phone.
 @MainActor
 @Observable
 final class SleepPlannerViewModel {
@@ -38,6 +39,8 @@ final class SleepPlannerViewModel {
     /// The failure's sentence.
     var error: String? { failure?.message }
     @ObservationIgnored private var pending: Task<Void, Never>?
+    /// Bumped by `accountChanged()`: an answer asked for before it is dropped.
+    @ObservationIgnored private var generation = 0
     /// Bedtime & wake's next wake while the board follows it: answers are aligned to it as Tonight's are
     /// (`BedtimePlanner.align`). `nil` once the picker moved, and without a schedule.
     @ObservationIgnored private var followed: Date?
@@ -46,14 +49,40 @@ final class SleepPlannerViewModel {
     /// The picker moved since Bedtime was entered or the schedule changed: the board shows the picker's wake time.
     @ObservationIgnored private(set) var pickerMoved = false
 
+    /// Demo data's last plan: in memory only, never in the account's store (`AppEnvironment.accountDocuments`).
+    @ObservationIgnored private var demoCached: Cached?
+
     init(state: AppState) {
         self.state = state
         let now = state.env.clock.now()
         wake = Self.defaultWake(state: state, now: now)
-        if let cached = state.env.persistence.document(Cached.self, key: Self.cacheKey) {
-            plan = cached.plan
-            asOf = cached.fetchedAt
-        }
+        adoptCached()
+    }
+
+    /// Signed out, another account, or the Demo data switch (an account-state forgetter, `ScreenModels`): the previous side's
+    /// plan goes, a request on its way is dropped, and this side's last plan shows until it's asked again.
+    func accountChanged() {
+        pending?.cancel()
+        pending = nil
+        generation += 1
+        demoCached = nil
+        plan = nil
+        asOf = nil
+        failure = nil
+        isLoading = false
+        adoptCached()
+    }
+
+    /// This side's last plan, as kept: the account's in its store, demo data's in memory.
+    private var cached: Cached? {
+        guard let documents = state.env.accountDocuments else { return demoCached }
+        return documents.document(Cached.self, key: Self.cacheKey)
+    }
+
+    private func adoptCached() {
+        guard let cached else { return }
+        plan = cached.plan
+        asOf = cached.fetchedAt
     }
 
     /// The most recent wake time from the week's bedtimes, else 07:00.
@@ -157,8 +186,10 @@ final class SleepPlannerViewModel {
     private func fetch() async {
         let hhmm = wakeText
         let target = followed
+        let asked = generation
         guard state.hasDataSource else { return }
-        guard state.env.connectivity.isOnline else {
+        // Demo data plans on the phone, with no network to lose (as Tonight's `BedtimePlanner`).
+        guard state.isDemo || state.env.connectivity.isOnline else {
             if plan != nil, asOf == nil { asOf = state.env.clock.now() }
             return
         }
@@ -167,26 +198,34 @@ final class SleepPlannerViewModel {
         do {
             var fresh = try await state.env.api.sleepPlan(wake: hhmm)
             guard hhmm == wakeText, target == followed else { return }   // superseded by a newer wake time
+            guard asked == generation else { return }   // the previous account's (or side's): not this one's to show
             // The API answers for the next `HH:MM`; tonight's wake may be a day later (Friday 07:30 → Saturday 08:00).
             if let target { fresh = BedtimePlanner.align(fresh, to: target) ?? fresh }
             plan = fresh
             asOf = nil
             failure = nil
-            state.env.persistence.saveDocument(Cached(plan: fresh, wake: hhmm, fetchedAt: state.env.clock.now()),
-                                               key: Self.cacheKey, at: state.env.clock.now())
+            keep(Cached(plan: fresh, wake: hhmm, fetchedAt: state.env.clock.now()))
         } catch where error.isCancellation {
             return
         } catch {
             // 422 only for a malformed time, which the picker can't make.
             assert((error as? APIError)?.status != 422, "sleep/plan rejected wake \(hhmm)")
-            guard hhmm == wakeText else { return }
+            guard hhmm == wakeText, asked == generation else { return }
             if plan == nil {
                 failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
                                            isDemo: state.isDemo, at: state.env.clock.now())
             } else if asOf == nil {
-                asOf = state.env.persistence.document(Cached.self, key: Self.cacheKey)?.fetchedAt ?? state.env.clock.now()
+                asOf = cached?.fetchedAt ?? state.env.clock.now()
             }
         }
+    }
+
+    private func keep(_ fresh: Cached) {
+        guard let documents = state.env.accountDocuments else {
+            demoCached = fresh
+            return
+        }
+        documents.saveDocument(fresh, key: Self.cacheKey, at: state.env.clock.now())
     }
 }
 
@@ -370,6 +409,10 @@ final class BedtimePlanner {
         let fetchedAt: Date
     }
 
+    /// Demo data's last plan: in memory only, never in the account's store (`AppEnvironment.accountDocuments`), so neither
+    /// side plans, reminds or shows from the other's.
+    @ObservationIgnored private var demoCached: Cached?
+
     init(state: AppState, alarms: WakeAlarms? = nil) {
         self.state = state
         self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier)
@@ -439,12 +482,14 @@ final class BedtimePlanner {
         if let schedule { adoptCached(for: schedule.nextWake(after: now)) }
     }
 
-    /// Signed out or another account signed in: the previous account's reminders, alarms and
-    /// widget bedtime go (and a change it was editing); this account's come back.
+    /// Signed out, another account signed in, or the Demo data switch: the previous account's (or side's) reminders, alarms,
+    /// plan and widget bedtime go (and a change it was editing); this one's come back.
     func accountChanged() async {
         generation += 1
         asking?.cancel()
         editor.discard()
+        // Demo data's plan goes with the side; turned on again, it plans afresh.
+        demoCached = nil
         load()
         needsTeardown = true
         await refresh()
@@ -609,7 +654,7 @@ final class BedtimePlanner {
                     plan = aligned
                     asOf = nil
                     problem = nil
-                    env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
+                    keep(Cached(plan: aligned, fetchedAt: now))
                 } else if plan == nil {
                     problem = .otherTimeZone
                 }
@@ -647,7 +692,7 @@ final class BedtimePlanner {
     /// they go, and Bedtime & wake says they resume once RYFT has tonight's plan (`remindersWaiting`).
     private func remindWithoutAPlan(_ schedule: SleepSchedule, wake: Date, gen: Int, owner: Owner) async {
         guard schedule.reminderOn, scheduledBedtime == nil else { return }
-        if let last = env.persistence.document(Cached.self, key: Self.cacheKey)?.plan {
+        if let last = cached?.plan {
             let estimate = Self.estimate(from: last, wake: wake)
             await scheduleReminders(schedule: schedule, plan: estimate)
             guard gen == generation, owner == self.owner else { return }
@@ -672,15 +717,28 @@ final class BedtimePlanner {
         if let plan, abs(plan.wake.timeIntervalSince(wake)) <= 60 { return }
         plan = nil
         asOf = nil
-        guard let cached = env.persistence.document(Cached.self, key: Self.cacheKey),
-              abs(cached.plan.wake.timeIntervalSince(wake)) <= 60 else { return }
+        guard let cached, abs(cached.plan.wake.timeIntervalSince(wake)) <= 60 else { return }
         plan = cached.plan
         asOf = cached.fetchedAt
     }
 
     /// The plan shown is the stored one: say since when.
     private func markCached() {
-        if asOf == nil { asOf = env.persistence.document(Cached.self, key: Self.cacheKey)?.fetchedAt ?? now }
+        if asOf == nil { asOf = cached?.fetchedAt ?? now }
+    }
+
+    /// This side's last plan: the account's, as kept in its store, or demo data's, in memory.
+    private var cached: Cached? {
+        guard let documents = env.accountDocuments else { return demoCached }
+        return documents.document(Cached.self, key: Self.cacheKey)
+    }
+
+    private func keep(_ fresh: Cached) {
+        guard let documents = env.accountDocuments else {
+            demoCached = fresh
+            return
+        }
+        documents.saveDocument(fresh, key: Self.cacheKey, at: now)
     }
 
     /// The plan for `wake`. The API takes `HH:MM` and answers for its next occurrence, so on a
