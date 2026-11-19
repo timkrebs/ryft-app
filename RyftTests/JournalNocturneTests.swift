@@ -19,12 +19,14 @@ struct JournalNocturneTests {
 
     // MARK: the model's states (no window)
 
+    /// The states' instant (`MockJournalStates.clock`), so every day of a test is counted from one reading.
+    private static var now: Date { MockJournalStates.clock.now() }
+
     private func journalStore(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true, cached days: [JournalDay] = [])
         -> (JournalStore, AppEnvironment) {
-        // The mock answers relative to the real date, so the clock starts there too.
-        let env = AppEnvironment.test(api: api, clock: TestClock(now: .now), online: online)
-        env.persistence.saveDocument(MockJournal.behaviors, key: JournalStore.behaviorsKey, at: .now)
-        for day in days { env.persistence.saveDocument(day, key: JournalStore.dayKey(day.day), at: .now) }
+        let env = AppEnvironment.test(api: api, clock: TestClock(now: Self.now), online: online)
+        env.persistence.saveDocument(MockJournal.behaviors, key: JournalStore.behaviorsKey, at: Self.now)
+        for day in days { env.persistence.saveDocument(day, key: JournalStore.dayKey(day.day), at: Self.now) }
         return (JournalStore(env: env), env)
     }
 
@@ -66,7 +68,7 @@ struct JournalNocturneTests {
 
     @Test("A cached day is its rows offline too; without a habit chosen it is the no-habits state")
     func cachedAndNoHabits() async {
-        let (store, _) = journalStore(online: false, cached: [MockJournal.journal(day: Self.yesterday)])
+        let (store, _) = journalStore(online: false, cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
         let model = JournalSheetModel(store: store)
         #expect(model.phase(isOnline: false) == .ready)
         let unanswered = JournalDay(day: MockJournalStates.day(2), answered: false, answeredAt: nil, editable: true, entries: [])
@@ -92,22 +94,48 @@ struct JournalNocturneTests {
         #expect(!content.saved && content.canSave)
     }
 
-    @Test("Save is off for a read-only day, without habits, while the day isn't here, and while it saves")
+    @Test("Save is off for a read-only day, without habits and while the day isn't here; its hint says why")
     func saveIsOff() {
         let states = Dictionary(uniqueKeysWithValues: MockJournalStates.Sheet.allCases.map { ($0, MockJournalStates.content($0)) })
-        #expect(states[.answered]?.canSave == true)
+        #expect(states[.answered]?.canSave == true && states[.answered]?.saveHint == nil)
         #expect(states[.offline]?.canSave == true, "a cached day offline: Save tries, and says so if it can't")
-        for off in [MockJournalStates.Sheet.readOnly, .noHabits, .loading, .offlineUncached, .failed, .saving] {
+        for off in [MockJournalStates.Sheet.readOnly, .noHabits, .loading, .offlineUncached] {
             #expect(states[off]?.canSave == false, "\(off)")
         }
         #expect(states[.readOnly]?.saveHint == "This day can't be changed any more.")
-        #expect(states[.saving]?.saveHint == nil, "busy says In progress, not a reason")
+        #expect(states[.noHabits]?.saveHint == "Choose habits in Profile → Journal.")
+        #expect(states[.loading]?.saveHint == "Available once this day has loaded.")
+        #expect(states[.offlineUncached]?.saveHint == "This day's answers appear once you're online.")
+    }
+
+    @Test("Save is off after a failed read (the hint says so) and while a save is out (no hint: it reads In progress)")
+    func saveIsOffFailedAndSaving() async throws {
+        let api = MockPlatformAPI()
+        let (store, env) = journalStore(api)
+        let failed = JournalSheetModel(store: store, day: MockJournalStates.day(3))
+        api.failure = APIError.http(400, "bad request", requestID: "req-read-1")
+        await failed.load()
+        let content = JournalSheetContent(failed, isOnline: true, readState: env.reads.states[.journal])
+        #expect(content.phase == .failed && !content.canSave)
+        #expect(content.saveHint == "Couldn't load this day.")
+        #expect(content.failedDetails?.contains("req-read-1") == true, "\(content.failedDetails ?? "nil")")
+        api.failure = nil
+
+        let gate = JournalTestGate()
+        let (cached, _) = journalStore(cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
+        let saving = JournalSheetModel(store: cached, saver: { _, _ in await gate.wait() })
+        let task = Task { await saving.save() }
+        #expect(await eventually { gate.waiting == 1 })
+        let busy = JournalSheetContent(saving, isOnline: true)
+        #expect(busy.isSaving && !busy.canSave && busy.saveHint == nil)
+        gate.open()
+        #expect(await task.value)
     }
 
     @Test("A failed save keeps its status and request ID for Details; offline it says nothing was sent")
     func saveFailure() async throws {
         let api = MockPlatformAPI()
-        let (store, env) = journalStore(api, cached: [MockJournal.journal(day: Self.yesterday)])
+        let (store, env) = journalStore(api, cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
         let model = JournalSheetModel(store: store)
         api.failNext = APIError.http(503, "request timed out", requestID: "req-journal-1")
         await model.save()
@@ -155,6 +183,23 @@ struct JournalNocturneTests {
         }
     }
 
+    @Test("A chip is a button VoiceOver activates: it selects its day")
+    func chipActivates() async throws {
+        let content = MockJournalStates.content(.answered)
+        let taps = Taps()
+        let strip = JournalDateStrip(days: content.days, selected: content.selected) { taps.days.append($0) }
+            .padding(20)
+            .environment(\.locale, Self.english)
+        try await HostedWindow.run(width: Self.width, height: 200, strip) { w in
+            try await w.settle()
+            let day = MockJournalStates.day(3)
+            let chip = try #require(w.nodes().first { $0.identifier == "journal.day.\(day)" })
+            #expect(chip.traits.contains(.button) && !chip.isSelected)
+            #expect(chip.activate())
+            try await w.wait("the day selected") { taps.days == [day] }
+        }
+    }
+
     // MARK: hosted: Save
 
     @Test("Save reads \"Saved\" once saved, and is off (with the reason) for a read-only day, without habits, while loading; busy while saving")
@@ -196,9 +241,16 @@ struct JournalNocturneTests {
             #expect(!nodes.contains { $0.label.localizedCaseInsensitiveContains("sync") || $0.label.contains("sent") },
                     "nothing promises a later upload")
         }
-        try await HostedWindow.run(width: Self.width, height: 844, sheet(MockJournalStates.content(.answered))) { w in
-            try await w.settle()
-            #expect(!w.nodes().contains { $0.identifier == "journal.offlinePill" })
+        // Online, a read-only day, no habits: nothing to save, so no pill.
+        var readOnly = MockJournalStates.content(.readOnly), noHabits = MockJournalStates.content(.noHabits)
+        readOnly.isOnline = false
+        noHabits.isOnline = false
+        #expect(!readOnly.showsOfflinePill && !noHabits.showsOfflinePill)
+        for content in [MockJournalStates.content(.answered), readOnly, noHabits] {
+            try await HostedWindow.run(width: Self.width, height: 844, sheet(content)) { w in
+                try await w.settle()
+                #expect(!w.nodes().contains { $0.identifier == "journal.offlinePill" }, "\(content.phase) \(content.editable)")
+            }
         }
     }
 
@@ -233,6 +285,7 @@ struct JournalNocturneTests {
         var choose = 0
         var setOn: [UUID] = []
         var retries = 0
+        var days: [String] = []
     }
 
     @Test("No habits: the sentence, then Choose habits (a 52 pt pill) that opens Profile → Journal")
@@ -256,13 +309,15 @@ struct JournalNocturneTests {
     @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet")
     func noHabitsLink() async throws {
         let state = AppState.preview()
-        let unanswered = JournalDay(day: Self.yesterday, answered: false, answeredAt: nil, editable: true, entries: [])
         state.env.persistence.saveDocument(MockJournal.noneEnabled, key: JournalStore.behaviorsKey, at: .now)
-        state.env.persistence.saveDocument(unanswered, key: JournalStore.dayKey(Self.yesterday), at: .now)
-        // The platform's yesterday unanswered too (the mock answers it as API.md's example otherwise).
-        let api = try #require(state.env.api as? MockPlatformAPI)
-        _ = try await api.putJournal(day: Self.yesterday, JournalPut(entries: []))
         let store = JournalStore(env: state.env)
+        // Yesterday by the store's own clock (the preview's), unanswered here and on the platform (the mock answers it as
+        // API.md's example otherwise).
+        let yesterday = store.yesterday
+        let unanswered = JournalDay(day: yesterday, answered: false, answeredAt: nil, editable: true, entries: [])
+        state.env.persistence.saveDocument(unanswered, key: JournalStore.dayKey(yesterday), at: .now)
+        let api = try #require(state.env.api as? MockPlatformAPI)
+        _ = try await api.putJournal(day: yesterday, JournalPut(entries: []))
         let view = JournalSheet(model: JournalSheetModel(store: store)).previewEnvironment(state).environment(\.locale, Self.english)
         try await HostedWindow.run(width: Self.width, height: 844, view) { w in
             try await w.wait("the no-habits state") { w.nodes().contains { $0.identifier == "journal.chooseHabits" } }
@@ -274,7 +329,7 @@ struct JournalNocturneTests {
         }
     }
 
-    @Test("Loading is one element over outline cards; a failed read says so with Try again")
+    @Test("Loading is one element over outline cards; a failed read says so with Try again and Details")
     func loadingAndFailed() async throws {
         try await HostedWindow.run(width: Self.width, height: 844, sheet(MockJournalStates.content(.loading))) { w in
             try await w.settle()
@@ -292,6 +347,10 @@ struct JournalNocturneTests {
             let retry = try #require(nodes.first { $0.identifier == "journal.failed.retry" })
             retry.activate()
             try await w.wait("Try again") { taps.retries == 1 }
+            // The status and request ID behind Details (the inline toggle has no identifier of its own).
+            let details = try #require(nodes.first { $0.label == "Details" })
+            details.activate()
+            try await w.wait("the request ID") { w.nodes().contains { $0.label.contains("Request ID 01JD8K2V9Q7M3X") } }
         }
     }
 
@@ -302,7 +361,8 @@ struct JournalNocturneTests {
         try await HostedWindow.run(width: Self.width, height: 844, sheet(MockJournalStates.content(.readOnly), actions: actions)) { w in
             try await w.settle()
             let nodes = w.nodes()
-            #expect(nodes.contains { $0.identifier == "journal.readOnly" || $0.label == "This day can't be changed any more." })
+            let notice = try #require(nodes.first { $0.identifier == "journal.readOnly" })
+            #expect(notice.label == "This day can't be changed any more.")
             let sauna = try #require(nodes.first { $0.identifier == "journal.habit.sauna" })
             let alcohol = try #require(nodes.first { $0.identifier == "journal.habit.alcohol" })
             #expect(sauna.isEnabled && sauna.value != alcohol.value, "on stays on, off stays off: \(sauna.value ?? "") \(alcohol.value ?? "")")
@@ -331,6 +391,7 @@ struct JournalNocturneTests {
     @Test("VoiceOver: \"Alcohol\", a switch, on; \"Drinks\", 2, adjustable; the header first")
     func voiceOver() async throws {
         let reference = try await systemSwitchValues()
+        let on = try #require(reference.on), off = try #require(reference.off)
         let state = AppState.preview()
         let store = journalPreviewStore(state)
         let model = JournalSheetModel(store: store)
@@ -343,12 +404,13 @@ struct JournalNocturneTests {
             let alcoholIndex = try #require(nodes.firstIndex { $0.identifier == "journal.habit.alcohol" })
             #expect(title < alcoholIndex, "the title before the rows")
             let alcohol = nodes[alcoholIndex]
-            #expect(alcohol.label == "Alcohol" && alcohol.value == reference.on, "\(alcohol.label) \(alcohol.value ?? "nil")")
+            #expect(alcohol.label == "Alcohol" && alcohol.value == on, "\(alcohol.label) \(alcohol.value ?? "nil")")
             #expect(alcohol.traits.contains(.toggleButton) || alcohol.traits.contains(.button))
             let screens = try #require(nodes.first { $0.identifier == "journal.habit.screens_in_bed" })
-            #expect(screens.value == reference.off)
+            #expect(screens.value == off)
             let drinks = try #require(nodes.first { $0.identifier == "journal.count.drinks" })
             #expect(drinks.label == "Drinks" && drinks.value == "2" && drinks.isAdjustable, "\(drinks.label) \(drinks.value ?? "")")
+            #expect(drinks.inputLabels == ["Drinks", "Count"], "Voice Control also says what is on screen")
             drinks.increment()
             try await w.wait("3 drinks") { model.groups.flatMap(\.rows).first { $0.id == MockJournal.drinks }?.count == 3 }
             // The time's chip is the system's compact picker (UIKit, outside SwiftUI's nodes), found by its habit.
@@ -406,10 +468,12 @@ struct JournalNocturneTests {
         }
     }
 
-    @Test("The card's disc and words are ink, never teal (L27)", arguments: [false, true])
+    @Test("The card is ink, never teal or Volt; \"Answer\" ends the first line, and from AX1 goes under the words",
+          arguments: [false, true])
     func cardDrawing(ax: Bool) throws {
+        let width = Self.width - 40
         let card = JournalCardBody(summary: nil) {}
-            .frame(width: Self.width - 40)
+            .frame(width: width)
             .background(Theme.background)
             .environment(\.dynamicTypeSize, ax ? .accessibility1 : .large)
             .environment(\.locale, Self.english)
@@ -420,9 +484,44 @@ struct JournalNocturneTests {
             for ix in 0..<shot.width where shot.px(ix, iy).near(teal, 24) || shot.px(ix, iy).near(volt, 24) { tinted += 1 }
         }
         #expect(tinted == 0, "no teal, no Volt: \(tinted) pixels")
-        // The words are drawn: the card's top line holds ink.
-        let ink = shot.bounds(xs: 60...Double(shot.size.width) - 16, ys: 12...40) { Tokens.luminance($0) > 0.5 }
-        #expect(ink != nil)
+        // Ink is the title and "Answer" (the line under the title is `textSecondary`, far dimmer; the underline is at 50 %).
+        // The words' column starts after the disc.
+        let isInk: (RGBA) -> Bool = { Tokens.luminance($0) > 0.55 }
+        let column = Double(CardSpec.padding + IconDisc.regularDiameter + JournalLayout.cardSpacing)
+        let height = Double(shot.size.height)
+        let ink = try #require(shot.bounds(xs: column...Double(width), ys: 0...height, where: isInk))
+        // The lowest line of ink: by default the title with "Answer" at its end, across the card; from AX1 "Answer" alone,
+        // under the words at the column's start.
+        let lowest = try #require(shot.bounds(xs: column...Double(width), ys: Double(ink.maxY) - 4...Double(ink.maxY), where: isInk))
+        let trailing = shot.bounds(xs: Double(width - CardSpec.padding) - 12...Double(width), ys: 0...height, where: isInk)
+        if ax {
+            #expect(trailing == nil, "nothing at the trailing edge: \(String(describing: trailing))")
+            #expect(lowest.width < 160 && abs(Double(lowest.minX) - column) < 6, "Answer under the words: \(lowest)")
+            #expect(Double(lowest.minY) > height / 2, "the last line: \(lowest) in \(height)")
+        } else {
+            #expect(trailing != nil, "Answer at the end of the first line")
+            #expect(lowest.width > 200 && Double(lowest.maxY) < height / 2, "the title's line: \(lowest) in \(height)")
+        }
+    }
+}
+
+/// Holds a call open until the test opens it (a save, a read).
+@MainActor
+final class JournalTestGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+    var waiting: Int { waiters.count }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        let waiting = waiters
+        waiters = []
+        waiting.forEach { $0.resume() }
     }
 }
 
