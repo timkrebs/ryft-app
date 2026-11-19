@@ -498,7 +498,7 @@ final class MockTrainSource: TrainDataSource, @unchecked Sendable {
             // The platform merges by set id while in progress.
             let merged = state.sessions[s.id].map { SessionMerge.merge(local: s, server: $0) } ?? s
             state.sessions[s.id] = merged
-            return .saved(merged)
+            return .saved
         }
     }
 

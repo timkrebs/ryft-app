@@ -390,4 +390,86 @@ struct TrainOutboxSchemaUpgradeTests {
         // The rows above are read through these: neither may go before the last read.
         withExtendedLifetime((container, fresh)) {}
     }
+
+    /// ADR 0022 §8, the other way: an older build installed over this one (TestFlight lets a tester pick one) opens the
+    /// store this build wrote with #107's models, and keeps its rows. What it can't read goes: the refusals (no
+    /// attribute for them there), and an `exercise` op it would read as a `PUT` of no session and drop (O1b queues it
+    /// again). Then this build opens it once more.
+    @Test func anOlderBuildOpensTheStoreThisOneWrote() throws {
+        let name = "Train-outbox-downgrade-\(UUID().uuidString)"
+        let session = UUID(), exercise = UUID()
+        let created = Date(timeIntervalSince1970: 1_795_000_000)
+        var files: [URL] = []
+        defer {
+            for file in files {
+                for suffix in ["", "-wal", "-shm"] {
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + suffix))
+                }
+            }
+        }
+
+        // This build: a workout refused (`422`), with an exercise's op ahead of its put and complete.
+        do {
+            let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false)
+            files.append(configuration.url)
+            let container = try ModelContainer(for: TrainStore.schema, configurations: configuration)
+            let context = container.mainContext
+            let logged = LocalSession(id: session, title: "Push", startedAt: created)
+            logged.pendingCompletion = true
+            logged.lastAttempt = UploadAttempt(at: created, request: .put, status: 422, code: nil, requestID: "req-o2",
+                                               kind: .other)
+            context.insert(logged)
+            let row = LocalSessionExercise(exerciseId: exercise, name: "Landmine press", kind: .barbell, loadType: .weight,
+                                           position: 0, restSec: 90)
+            context.insert(row)
+            logged.exercises.append(row)
+            let set = LocalSet(setIndex: 0, reps: 10, weightKg: 20)
+            context.insert(set)
+            row.sets.append(set)
+            let ahead = PendingTrainOp(seq: 0, kind: .exercise, sessionId: exercise, account: "account-a")
+            ahead.lastAttempt = UploadAttempt(at: created, request: .create, status: 422, code: nil, requestID: "req-ex",
+                                              kind: .other)
+            context.insert(ahead)
+            context.insert(PendingTrainOp(seq: 1, kind: .put, sessionId: session, account: "account-a"))
+            context.insert(PendingTrainOp(seq: 2, kind: .complete, sessionId: session, bodyweightKg: 82.5, account: "account-a"))
+            try context.save()
+        }
+
+        // #107 opens it: its four Train outbox models, and the rest of its schema, which O1 and O2 didn't change.
+        do {
+            let older = Schema([TrainOutboxSchemaBeforeO2.LocalSession.self, TrainOutboxSchemaBeforeO2.LocalSessionExercise.self,
+                                TrainOutboxSchemaBeforeO2.LocalSet.self, TrainOutboxSchemaBeforeO2.PendingTrainOp.self,
+                                CachedExercise.self, CachedPlan.self, ImportMapping.self, PendingImport.self]
+                               + TrainStore.readModels + TrainStore.activityModels)
+            let configuration = ModelConfiguration(name, schema: older, isStoredInMemoryOnly: false)
+            let container = try ModelContainer(for: older, configurations: configuration)
+            #expect(container.configurations.allSatisfy { !$0.isStoredInMemoryOnly })
+            #expect(container.configurations.first?.url == files.first)
+            let context = container.mainContext
+            let sessions = try context.fetch(FetchDescriptor<TrainOutboxSchemaBeforeO2.LocalSession>())
+            #expect(sessions.map(\.id) == [session] && sessions.first?.pendingCompletion == true)
+            let sets = try context.fetch(FetchDescriptor<TrainOutboxSchemaBeforeO2.LocalSet>())
+            #expect(sets.map(\.weightKg) == [20] && sets.first?.exercise?.session?.id == session)
+            let ops = try context.fetch(FetchDescriptor<TrainOutboxSchemaBeforeO2.PendingTrainOp>(sortBy: [SortDescriptor(\.seq)]))
+            #expect(ops.map(\.kindRaw) == ["exercise", "put", "complete"])
+            #expect(ops.map(\.account) == ["account-a", "account-a", "account-a"])
+            #expect(ops.last?.bodyweightKg == 82.5)
+            // It writes too (an older build keeps logging).
+            sessions.first?.title = "Push, older build"
+            try context.save()
+            withExtendedLifetime(container) {}
+        }
+
+        // This build again: the rows are there; the refusals didn't survive the older build.
+        let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false)
+        let container = try ModelContainer(for: TrainStore.schema, configurations: configuration)
+        let context = container.mainContext
+        let sessions = try context.fetch(FetchDescriptor<LocalSession>())
+        let reopened = try #require(sessions.first)
+        #expect(sessions.count == 1 && reopened.title == "Push, older build" && reopened.allSets.map(\.weightKg) == [20])
+        let ops = try context.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)]))
+        #expect(ops.map(\.kind) == [.exercise, .put, .complete])
+        #expect(reopened.lastAttempt == nil && ops.allSatisfy { $0.lastAttempt == nil })
+        withExtendedLifetime(container) {}
+    }
 }

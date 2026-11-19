@@ -86,7 +86,8 @@ final class PendingTrainOp {
         self.account = account
     }
 
-    var kind: Kind { Kind(rawValue: kindRaw) ?? .put }
+    /// Nil for a kind a later build queued (ADR 0022 §8): kept and passed over, never read as another kind.
+    var kind: Kind? { Kind(rawValue: kindRaw) }
 
     var lastAttempt: UploadAttempt? {
         get { WireCoding.decode(UploadAttempt.self, lastAttemptData) }

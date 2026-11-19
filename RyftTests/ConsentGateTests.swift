@@ -1093,7 +1093,8 @@ struct ConsentReleaseTests {
         -> (ScreenModels, SyncService) {
         let sync = SyncService.ungated(env: h.env)
         let store = TrainStore(inMemory: true)
-        let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, restore: false)
+        let outbox = trainSync ?? TrainSyncService.preview(store: store)
+        let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, outbox: { outbox }, restore: false)
         let screens = ScreenModels(state: h.state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: h.clock),
                                    store: store, library: library, apiStatus: h.status, trainSync: trainSync)
         return (screens, sync)
@@ -1289,7 +1290,7 @@ struct ConsentTrainTests {
         let api = MockPlatformAPI()
         let (sync, store) = outbox(api)
         sync.gate = { _ in .gate(.consentRequired) }
-        let library = TrainLibrary(store: store, remote: { api }, restore: false)
+        let library = TrainLibrary(store: store, remote: { api }, outbox: { sync }, restore: false)
         _ = await library.sessions()
         #expect(api.count("sessions") == 1)
     }

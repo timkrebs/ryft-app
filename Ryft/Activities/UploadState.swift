@@ -39,7 +39,17 @@ struct UploadAttempt: Codable, Equatable, Sendable {
 }
 
 extension UploadAttempt {
-    /// The platform refused the request (`400`, `404`, `409`, `413`, `422`, …): sent again unchanged it fails the same way
-    /// (API.md → Errors), so only Retry or an edit sends it again. Never a transient failure, a gate or a sign-out.
-    var isRefusal: Bool { kind == .other || kind == .appTooOld }
+    /// The platform refused this request (ADR 0022 §1, the one definition every outbox uses): sent again unchanged it
+    /// fails the same way (API.md → Errors), so only Retry or a newer edit sends it again. `400`, `409` (Train's `PUT`
+    /// only after its merge rounds), `413`, `422`, and `404` on a `complete` (the platform has no such session). Never a
+    /// transient failure, a sign-out, a gate or any `403`, a `404` on a `PUT` or `POST` (a route or server problem),
+    /// app-too-old, or a `2xx` the app couldn't read (that one was delivered).
+    var isRefusal: Bool {
+        guard kind == .other, let status else { return false }
+        switch status {
+        case 400, 409, 413, 422: return true
+        case 404: return request == .complete
+        default: return false
+        }
+    }
 }

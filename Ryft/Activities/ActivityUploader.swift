@@ -396,7 +396,7 @@ final class ActivityUploader {
     private func next(excluding passedOver: Set<Item>) -> Item? {
         let now = env?.clock.now() ?? Date()
         func ready(_ item: Item, _ attempt: UploadAttempt?) -> Bool {
-            !passedOver.contains(item) && !Self.isRefused(attempt) && (backoffs[item]?.due ?? .distantPast) <= now
+            !passedOver.contains(item) && attempt?.isRefusal != true && (backoffs[item]?.due ?? .distantPast) <= now
         }
         if let row = store.unconfirmed().first(where: { ready(.activity($0.id), $0.lastAttempt) }) {
             return .activity(row.id)
@@ -525,15 +525,17 @@ final class ActivityUploader {
             gated = true
             record(item, attempt)
             return .stop
-        case .transient, .signedOut:
+        case .other where !attempt.isRefusal, .appTooOld, .transient, .signedOut:
+            // Held with a backoff, never refused (ADR 0022 §1): also a 403 without a gate code, a 2xx this build
+            // couldn't read, app-too-old.
             record(item, attempt)
             let failures = (backoffs[item]?.failures ?? 0) + 1
             backoffs[item] = Backoff(failures: failures, due: due(after: failures, retryAfter: api?.retryAfter))
-            lostConnection = api?.status == nil
+            lostConnection = kind == .transient && api?.status == nil
             scheduleRetry()
             // Probably the platform or the network as a whole: stop. One item failing again and again is passed over.
             return failures >= Self.failedAfter ? .passOver : .stop
-        case .other, .appTooOld:
+        case .other:
             // The platform refused this revision: failed, kept, until Retry or an edit. A newer revision saved while
             // the request was out is still to be sent, so the refusal isn't recorded on it.
             if current { record(item, attempt) }
@@ -608,7 +610,7 @@ final class ActivityUploader {
 
     private func pending(_ item: Item, write: UploadWrite, lastAttempt: UploadAttempt?) -> UploadState {
         if inFlight == item { return .pending(.inFlight) }
-        if let lastAttempt, Self.isRefused(lastAttempt) { return .failed(lastAttempt) }
+        if let lastAttempt, lastAttempt.isRefusal { return .failed(lastAttempt) }
         let backoff = backoffs[item]
         if let lastAttempt, let backoff, backoff.failures >= Self.failedAfter { return .failed(lastAttempt) }
         guard let env, env.api.publishesActivities, !notAvailable else { return .pending(.notAvailableYet) }
@@ -623,12 +625,6 @@ final class ActivityUploader {
         if !online { return .pending(.offline) }
         if let backoff, backoff.due > env.clock.now() { return .pending(.retrying(at: backoff.due)) }
         return .pending(.queued)
-    }
-
-    /// The platform refused the request (`400`, `413`, `422`, …): only Retry or an edit sends it again.
-    private static func isRefused(_ attempt: UploadAttempt?) -> Bool {
-        guard let attempt else { return false }
-        return attempt.kind == .other || attempt.kind == .appTooOld
     }
 
     /// Whether the platform may hold the item: confirmed once, being sent, or sent without an answer that says

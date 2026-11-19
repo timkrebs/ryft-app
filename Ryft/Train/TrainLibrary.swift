@@ -6,7 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class TrainLibrary {
-    static let shared = TrainLibrary()
+    static let shared = TrainLibrary(outbox: { .shared })
 
     private(set) var exercises: [Exercise] = []
     private(set) var catalog: PlansOverview?
@@ -20,15 +20,22 @@ final class TrainLibrary {
     /// and per-resource record. Without one (tests) each read goes straight to the source.
     @ObservationIgnored var reads: ReadScheduler?
     private let remoteProvider: () -> TrainDataSource
-    /// Train's outbox, where a custom exercise's `POST` is queued (O1). By default the app's.
+    /// Train's outbox on the same store, where a custom exercise's `POST` is queued (O1) and a plan save waits for it.
     private let outbox: @MainActor () -> TrainSyncService
+    /// How long a plan save waits for the custom exercises it names (`savePlan`).
+    private let exerciseWait: Duration
     private var histories: [UUID: ExerciseHistory] = [:]
 
-    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil,
-         outbox: (@MainActor () -> TrainSyncService)? = nil, restore: Bool = true) {
+    /// The longest custom exercise name the platform takes, in Unicode scalars (API.md: `name` 1–80 characters, which
+    /// it counts as runes).
+    static let maxExerciseName = 80
+
+    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, outbox: @escaping @MainActor () -> TrainSyncService,
+         exerciseWait: Duration = .seconds(10), restore: Bool = true) {
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
-        self.outbox = outbox ?? { .shared }
+        self.outbox = outbox
+        self.exerciseWait = exerciseWait
         if restore {
             exercises = self.store.exercises()
             catalog = self.store.document(PlansOverview.self, key: Self.catalogKey)
@@ -241,12 +248,20 @@ final class TrainLibrary {
 
     /// Cached first, so it can be logged at once, offline too. Train's outbox sends it, ahead of every workout that uses
     /// it, and the answer replaces the cached row (O1); a refusal is kept there, never shown here. Returns the cached
-    /// copy at once (the sheet adds it to the workout); never nil.
+    /// copy at once (the sheet adds it to the workout). Nil, with `error`, for a name the platform would refuse (empty,
+    /// or over 80 characters): nothing is cached or queued.
     func createExercise(_ e: Exercise) async -> Exercise? {
+        guard Self.isValidName(e.name) else {
+            error = String(localized: "Give the exercise a name of up to 80 characters.")
+            errorDetails = nil
+            return nil
+        }
+        let outbox = outbox()
+        assert(outbox.store === store, "the library and its outbox share one store")
         store.cache(exercises: [e])
         exercises = store.exercises()
-        // The outbox caches it too (the row its `POST` sends): the same store in the app and the previews.
-        let replay = outbox().queueExercise(e)
+        // The outbox caches it too: the row its `POST` sends.
+        let replay = outbox.queueExercise(e)
         if let replay {
             // The platform's copy once the replay ends, however it ended.
             Task { [weak self] in
@@ -258,10 +273,19 @@ final class TrainLibrary {
         return e
     }
 
+    /// Not empty, and at most `maxExerciseName` Unicode scalars (as the platform counts).
+    static func isValidName(_ name: String) -> Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.unicodeScalars.count <= maxExerciseName
+    }
+
     // MARK: actions (online; the screen shows the error)
 
+    /// A custom exercise the plan names that's still queued goes first, for at most `exerciseWait`: the platform refuses
+    /// a plan with an exercise it doesn't have (ADR 0022 §7). Offline, or after the wait, the plan goes as before.
     @discardableResult
     func savePlan(_ p: Plan) async -> Bool {
+        let named = Set(p.days.flatMap { $0.exercises.map(\.exercise.id) })
+        await outbox().exercisesSent(named, upTo: exerciseWait)
         do {
             let saved = try await remote.savePlan(p)
             store.cache(plans: [saved])
@@ -372,13 +396,10 @@ final class TrainLibrary {
 // MARK: - previews
 
 extension TrainLibrary {
-    /// Filled from `MockTrain`, in an in-memory store.
-    static func preview(store: TrainStore, enrolled: Bool = true) -> TrainLibrary {
-        // Its own outbox on the same store, bound to demo, so a preview never queues into the app's.
-        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: false)
-        sync.gate = { _ in nil }
-        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { sync }, restore: false)
+    /// Filled from `MockTrain`, in an in-memory store. `outbox`: the caller's service on `store`, so no queue has two
+    /// replayers.
+    static func preview(store: TrainStore, outbox: TrainSyncService, enrolled: Bool = true) -> TrainLibrary {
+        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { outbox }, restore: false)
         store.cache(exercises: MockTrain.exercises)
         store.cache(plans: MockTrain.plans)
         lib.exercises = store.exercises()

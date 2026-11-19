@@ -533,7 +533,7 @@ struct TrainStoreWipeTests {
     @Test
     func theWipesTurnLetsGoOfTheOpenWorkout() throws {
         let rig = ReplaceRig()
-        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store, outbox: rig.sync),
                                            liveActivities: false)
         coordinator.live = rig.controller
         coordinator.refreshActive()
@@ -558,7 +558,7 @@ struct TrainStoreWipeTests {
         disk.relaunch()
         let sync = TrainSyncService(store: disk.store, remote: { MockPlatformAPI() }, owner: { "test" },
                                     debounce: .seconds(3600), monitorsNetwork: false)
-        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store),
+        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store, outbox: sync),
                                            liveActivities: false)
         coordinator.sessionLayout = { .list }
         coordinator.resume()
