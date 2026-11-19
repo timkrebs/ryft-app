@@ -392,7 +392,7 @@ struct ListSheetsNocturneTests {
         }
     }
 
-    @Test("Reorder: the header with Done (its own identifier), a 56 pt row per exercise, a superset named")
+    @Test("Reorder: the header with Done (its own identifier) and no close circle, a 56 pt row per exercise, a superset named")
     func reorder() async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }
@@ -400,6 +400,8 @@ struct ListSheetsNocturneTests {
             try await w.settle()
             #expect(w.node("Reorder", exactly: true)?.traits.contains(.header) == true)
             #expect(w.node("Done", exactly: true)?.identifier == "reorder.done")
+            // Done is the only way out (and the drag): no close circle saying the same.
+            #expect(w.node("Close", exactly: true) == nil)
             for ex in c.exercises.prefix(3) {
                 #expect(w.node(ex.name) != nil, "\(ex.name)")
             }
