@@ -1003,6 +1003,8 @@ private func noScoresState() -> AppState {
 private func offlineAccountState() -> AppState {
     let state = AppState(env: .test(clock: TestClock(now: .now), online: false))
     state.env.uploader.gate = { _ in nil }
+    // No coach marks, as on `AppState.preview` (only the preview that asks for them shows them).
+    state.env.defaults.set(true, forKey: CoachMarks.doneKey)
     state.history = MockData.history
     state.user = MockData.user
     state.insights = MockData.insights
