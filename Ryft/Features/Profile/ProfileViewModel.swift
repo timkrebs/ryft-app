@@ -71,6 +71,31 @@ final class ProfileViewModel {
         return email
     }
 
+    // MARK: identity row (Nocturne, design.md §P5-6.1)
+
+    /// Today's strain for the avatar's ring; nil until today is scored (the ring's track only).
+    var strainToday: Double? {
+        state.today?.score.strain ?? state.score(for: env.clock.now())?.strain
+    }
+
+    /// The identity row: `accountTitle`'s fallbacks (name → email → the account's description; "Demo data" signed out),
+    /// the initials and today's strain.
+    var identity: ProfileIdentity {
+        let fallback = isSignedIn ? auth.identityDescription : String(localized: "Demo data")
+        return ProfileIdentity.resolve(name: state.user?.name, email: accountEmail, fallback: fallback, strain: strainToday)
+    }
+
+    /// The status row under the name for Today's line (`TodayViewModel.syncLine`): the word, the dot, the tap.
+    func status(line: SyncLine) -> ProfileStatus {
+        ProfileStatus.decide(line, isDemo: demoMode, lastUpdated: state.lastUpdated)
+    }
+
+    /// The status row's "action needed": the gate's screen (consent, the invite), as Today's line opens it.
+    func resolve(_ step: OnboardingCoordinator.Step) { onboarding?.show(step) }
+
+    /// Whether the account has an email to show in Account when the name is the title.
+    var showsEmailRow: Bool { isSignedIn && accountSubtitle != nil }
+
     /// The platform's `User.provider`, else the session's `app_metadata.provider`.
     var provider: String? { state.user?.provider ?? auth.provider }
     var canChangePassword: Bool { provider == "email" }

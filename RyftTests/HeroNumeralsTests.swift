@@ -101,7 +101,8 @@ struct NocturneSharedHostedTests {
         let s = settings()
         try await HostedWindow.run(width: 390, height: 3200, ProfileView().environment(s)) { w in
             try await w.settle()
-            #expect(w.node("Display", exactly: true) != nil, "the section title")
+            // Nocturne (T5.4): the row is in Settings, a menu row (`HeroNumbersMenuRow`).
+            #expect(w.node("Settings", exactly: true) != nil, "the group title")
             #expect(w.node("Hero numbers", exactly: true) != nil, "the row's title")
             #expect(w.node("Large numbers on Today, Sleep and Strain.", exactly: true) != nil, "the footer")
             let picker = try #require(menu(w), "the menu")

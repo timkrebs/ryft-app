@@ -24,10 +24,10 @@ final class DemoExitUITests: XCTestCase {
     /// Profile → the Demo data switch, scrolled until it sits above the tab bar: far down the page it reports itself
     /// hittable while still off screen (seen on 27.2, frame below the window), so its frame decides.
     private func demoSwitch(in app: XCUIApplication) -> XCUIElement {
-        app.tabBars.buttons["Profile"].tap()
+        app.tab("Profile").tap()
         let toggle = app.switches["profile.demoMode"]
         XCTAssertTrue(toggle.waitForExistence(timeout: patience), "Profile → Demo data")
-        let bottom = app.tabBars.firstMatch.frame.minY
+        let bottom = app.tabBar.frame.minY
         for _ in 0..<15 where !toggle.isHittable || toggle.frame.maxY >= bottom { app.swipeUp() }
         XCTAssertLessThan(toggle.frame.maxY, bottom, "the switch is above the tab bar")
         return toggle
@@ -82,7 +82,7 @@ final class DemoExitUITests: XCTestCase {
         cancel(app)
         waitForAbsence(of: discard, timeout: patience, "the dialog closes")
         XCTAssertEqual(toggle.value as? String, "1", "Demo data stays on")
-        app.tabBars.buttons["Strain"].tap()
+        app.tab("Strain").tap()
         XCTAssertTrue(app.buttons["train.resume"].waitForExistence(timeout: patience), "the workout stays")
 
         // Off again → Discard and turn off: Demo data is off, and without an account that's Welcome.
@@ -92,7 +92,7 @@ final class DemoExitUITests: XCTestCase {
         XCTAssertTrue(again.waitForExistence(timeout: patience), "the dialog again")
         again.tap()
         XCTAssertTrue(app.buttons["Log in"].waitForExistence(timeout: patience), "Welcome")
-        XCTAssertFalse(app.tabBars.firstMatch.exists, "no tabs without the demo or an account")
+        XCTAssertFalse(app.tabBar.exists, "no tabs without the demo or an account")
 
         // Demo data on again, Train's store kept: Start, and no workout to resume.
         app.terminate()
