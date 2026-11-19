@@ -167,6 +167,8 @@ struct ShareSheet: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        // Health data on the pasteboard reaches every app that reads it (and Universal Clipboard): save or send the file.
+        controller.excludedActivityTypes = [.copyToPasteboard]
         controller.completionWithItemsHandler = { [completion] activity, completed, _, _ in
             if Self.isDone(activity: activity, completed: completed) { completion?() }
         }

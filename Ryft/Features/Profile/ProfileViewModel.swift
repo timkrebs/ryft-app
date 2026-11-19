@@ -54,14 +54,18 @@ final class ProfileViewModel {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+    /// The platform's `User` while it is the account's. In demo mode the store holds the demo's (`MockData.user`), which
+    /// never stands in for a signed-in account: its name, email, provider and zone come from the session then.
+    private var accountUser: User? { env.isDemo ? nil : state.user }
+
     /// `User.name` → email → "Apple ID".
     var accountTitle: String {
-        if let name = state.user?.name, !name.isEmpty { return name }
+        if let name = accountUser?.name, !name.isEmpty { return name }
         return accountEmail ?? auth.identityDescription
     }
 
     var accountEmail: String? {
-        let email = state.user?.email ?? auth.user?.email
+        let email = accountUser?.email ?? auth.user?.email
         return email?.isEmpty == false ? email : nil
     }
 
@@ -78,26 +82,45 @@ final class ProfileViewModel {
         state.today?.score.strain ?? state.score(for: env.clock.now())?.strain
     }
 
-    /// The identity row: `accountTitle`'s fallbacks (name → email → the account's description; "Demo data" signed out),
-    /// the initials and today's strain.
+    /// The identity row: signed in, the account's (`accountTitle`'s fallbacks: name → email → the account's description,
+    /// never the demo's person); signed out, the demo's person ("Alex Doe"), else "Demo data". The initials and today's
+    /// strain follow.
     var identity: ProfileIdentity {
-        let fallback = isSignedIn ? auth.identityDescription : String(localized: "Demo data")
-        return ProfileIdentity.resolve(name: state.user?.name, email: accountEmail, fallback: fallback, strain: strainToday)
+        guard isSignedIn else {
+            return ProfileIdentity.resolve(name: state.user?.name, email: state.user?.email,
+                                           fallback: String(localized: "Demo data"), strain: strainToday)
+        }
+        return ProfileIdentity.resolve(name: accountUser?.name, email: accountEmail, fallback: auth.identityDescription,
+                                       strain: strainToday)
     }
 
-    /// The status row under the name for Today's line (`TodayViewModel.syncLine`): the word, the dot, the tap.
+    /// The status row under the name for Today's line (`TodayViewModel.syncLine`): the word, the dot, the tap. Its ages
+    /// are the data's last load (`lastUpdated`) and Apple Health's last good upload (`Settings.lastSync`).
     func status(line: SyncLine) -> ProfileStatus {
-        ProfileStatus.decide(line, isDemo: demoMode, lastUpdated: state.lastUpdated)
+        ProfileStatus.decide(line, isDemo: demoMode, lastUpdated: state.lastUpdated, lastSync: settings.lastSync)
     }
 
-    /// The status row's "action needed": the gate's screen (consent, the invite), as Today's line opens it.
-    func resolve(_ step: OnboardingCoordinator.Step) { onboarding?.show(step) }
+    /// The status row's tap, as Today's line does it: true asks the page to push Sync details (the page owns its
+    /// navigation); the gate's screen, the retry and signing in again start here (`statusWork`).
+    func tapStatus(_ tap: ProfileStatus.Tap) -> Bool {
+        switch tap {
+        case .syncDetails: return true
+        case .gate(let step): onboarding?.show(step)
+        case .retry: statusWork = Task { await syncNow() }
+        case .signIn: statusWork = Task { await state.signInAgain() }
+        case .none: break
+        }
+        return false
+    }
 
-    /// Whether the account has an email to show in Account when the name is the title.
-    var showsEmailRow: Bool { isSignedIn && accountSubtitle != nil }
+    /// The status tap's work in flight (tests await it).
+    @ObservationIgnored private(set) var statusWork: Task<Void, Never>?
 
-    /// The platform's `User.provider`, else the session's `app_metadata.provider`.
-    var provider: String? { state.user?.provider ?? auth.provider }
+    /// The Email row: only while the name is the title (an email title says it already; "Apple ID" has none).
+    var showsEmailRow: Bool { isSignedIn && identity.source == .name && accountEmail != nil }
+
+    /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
+    var provider: String? { accountUser?.provider ?? auth.provider }
     var canChangePassword: Bool { provider == "email" }
 
     struct Badge: Equatable {
@@ -113,7 +136,8 @@ final class ProfileViewModel {
         }
     }
 
-    var timezone: String? { state.user?.tz }
+    /// The account's zone; none in demo mode (the demo's person has its own).
+    var timezone: String? { accountUser?.tz }
 
     /// "Phone: Europe/Lisbon" when the phone is elsewhere than the account's zone.
     var timezoneDetail: String? {
@@ -265,14 +289,6 @@ final class ProfileViewModel {
     /// Like pull to refresh: the upload starts, today and the sync status load at once, the rest after.
     func syncNow() async {
         await state.pullToRefresh(coordinator: coordinator)
-    }
-
-    /// Forget the anchors, upload 90 days again, rescore them, reload.
-    func fullResync() async {
-        await sync.fullResync()
-        let now = env.clock.now()
-        try? await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
-        await state.refresh()
     }
 
     // MARK: notifications
