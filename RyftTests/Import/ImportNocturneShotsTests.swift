@@ -37,7 +37,7 @@ struct ImportNocturneShotsTests {
         "3-choose", "3-choose-existing", "3-choose-nothing", "3-choose-range-empty",
         "4-map", "4-map-loading", "4-map-offline", "4-map-many",
         "5-preview-plan", "5-preview-history", "5-preview-unchecked", "5-preview-keep", "5-preview-already",
-        "6-preparing", "6-uploading", "6-offline", "6-retrying", "6-attention", "6-saved", "6-account", "6-done",
+        "6-preparing", "6-uploading", "6-offline", "6-retrying", "6-attention", "6-saved", "6-gated", "6-account", "6-done",
         "6-done-plan", "6-done-plan-left", "6-rejections",
         "sheet-unavailable", "rows-profile", "rows-resume",
     ]
@@ -108,6 +108,7 @@ struct ImportNocturneShotsTests {
         case "6-retrying": return AnyView(result(MockTrainImport.retrying))
         case "6-attention": return AnyView(result(MockTrainImport.status(.paused(.needsAttention), rejected: 3)))
         case "6-saved": return AnyView(result(MockTrainImport.savedOnPhone))
+        case "6-gated": return AnyView(result(MockTrainImport.status(.paused(.gated(.gate(.consentRequired))))))
         case "6-account": return AnyView(result(MockTrainImport.status(.paused(.waitingForAccount))))
         case "6-done": return AnyView(result(MockTrainImport.leftAsIsDone))
         case "6-done-plan": return AnyView(result(MockTrainImport.done))

@@ -336,8 +336,9 @@ struct ImportResultView: View {
         }
     }
 
-    /// One primary and at most one secondary (c-23d): I3 Open history, then Open plan; I4 Retry, then Done; saved on this
-    /// iPhone Done, then Discard; a gate Continue in RYFT, then Discard; paused, Done, then Discard as a text action.
+    /// One primary and at most one secondary (c-23d): I3 Open history, then Open plan; I4 Retry, then Done. Saved on this
+    /// iPhone and paused: Done; a gate: Continue in RYFT; each with Discard under it as a text action (C §2.6: a
+    /// destructive pill only where it is a page's only action).
     @ViewBuilder
     private var buttons: some View {
         if let name = model.waitingFileName(), job?.isFinished == true {
@@ -380,7 +381,7 @@ struct ImportResultView: View {
             // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
             // there, quieter, and still asks first.
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
-            ImportDestructiveTextButton(title: Self.discardTitle, identifier: "import.discardJob") { model.confirmsDiscardJob = true }
+            discardJob
         case .paused(.waitingForAccount)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
         default:
@@ -388,11 +389,9 @@ struct ImportResultView: View {
         }
     }
 
-    /// S2: a saved or paused job can always be discarded, after a confirmation.
+    /// S2: a saved or paused job can always be discarded, after a confirmation: a text action under the primary.
     private var discardJob: some View {
-        ImportSecondaryButton(title: Self.discardTitle, identifier: "import.discardJob", style: .destructive) {
-            model.confirmsDiscardJob = true
-        }
+        ImportDestructiveTextButton(title: Self.discardTitle, identifier: "import.discardJob") { model.confirmsDiscardJob = true }
     }
 
     private static var discardTitle: String {

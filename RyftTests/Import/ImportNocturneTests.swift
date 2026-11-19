@@ -166,6 +166,8 @@ struct ImportNocturneTests {
         PillCase(screen: "6-rejections", pills: ["import.retryRejected": "Retry 4", "import.done": "Done"],
                  absent: ["import.openHistory"]),
         PillCase(screen: "6-saved", pills: ["import.done": "Done", "import.discardJob": "Discard import"]),
+        PillCase(screen: "6-gated", pills: ["import.continueInApp": "Continue in RYFT", "import.discardJob": "Discard import"],
+                 absent: ["import.done"]),
         PillCase(screen: "6-offline", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
                  absent: ["import.openHistory"]),
         PillCase(screen: "6-retrying", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
@@ -196,12 +198,14 @@ struct ImportNocturneTests {
         }
     }
 
-    @Test("Paused (offline, a retry, a hold, refused): Done is the pill; Discard a quieter text action under it")
+    @Test("Saved on this iPhone, a gate, paused (offline, a retry, a hold, refused): one pill; Discard a quieter text action under it")
     func pausedBar() async throws {
-        for screen in ["6-offline", "6-retrying", "6-attention"] {
+        // C §2.6: a destructive pill only where it is a page's only action; here Done or Continue in RYFT is the pill.
+        for screen in ["6-saved", "6-gated", "6-offline", "6-retrying", "6-attention"] {
             try await host(screen) { w in
                 let nodes = w.nodes()
-                let done = try #require(nodes.first { $0.identifier == "import.done" }, "\(screen)")
+                let pill = nodes.first { $0.identifier == "import.done" || $0.identifier == "import.continueInApp" }
+                let done = try #require(pill, "\(screen)")
                 let discard = try #require(nodes.first { $0.identifier == "import.discardJob" }, "\(screen)")
                 #expect(discard.frame.minY >= done.frame.maxY - 0.5, "\(screen): under the pill \(discard.frame) \(done.frame)")
                 #expect(discard.frame.height >= 43.5, "\(screen): \(discard.frame)")

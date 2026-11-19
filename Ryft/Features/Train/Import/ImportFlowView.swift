@@ -206,16 +206,14 @@ struct ImportPrimaryButton: View {
     }
 }
 
-/// The bar's one secondary action under the primary ("Open plan", "Done"): the outline pill; `.destructive` for
-/// "Discard import".
+/// The bar's one secondary action under the primary ("Open plan", "Done"): the outline pill.
 struct ImportSecondaryButton: View {
     let title: String
     let identifier: String
-    var style: PillButton.Style = .secondary
     let action: () -> Void
 
     var body: some View {
-        PillButton(Text(verbatim: title), style: style, action: action)
+        PillButton(Text(verbatim: title), style: .secondary, action: action)
             .accessibilityIdentifier(identifier)
     }
 }
@@ -255,9 +253,9 @@ struct ImportTextButton: View {
     }
 }
 
-/// A destructive action that isn't the page's next step (step 6's "Discard import" while the upload waits): a text control
-/// on its own line, under the pill, as `ryftLink()` but in `alert` (6.09:1 on `background`), underlined at 50 % of it, at
-/// least 44 pt and all of it tappable. The caller confirms (S2).
+/// A destructive action that isn't the page's next step (step 6's "Discard import" under Done or Continue in RYFT): a text
+/// control on its own line, under the pill, as `ryftLink()` but in `alert` (6.09:1 on `background`), underlined at 50 % of
+/// it, at least 44 pt and all of it tappable. The caller confirms (S2).
 struct ImportDestructiveTextButton: View {
     let title: String
     let identifier: String
