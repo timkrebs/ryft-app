@@ -41,8 +41,8 @@ struct MyDayActions {
         return { retryRow(item) }
     }
 
-    /// Every entry offered, doing nothing (previews).
-    static let preview = MyDayActions(addActivity: {}, addSleep: {}, startStrength: {})
+    /// Every entry offered, and a failed row's Retry, doing nothing (previews).
+    static let preview = MyDayActions(addActivity: {}, addSleep: {}, startStrength: {}, retryRow: { _ in })
 }
 
 /// My Day on Today (ui.md §2.1, design.md §7.1): always today. Loads on Today's refreshes, opens the full screen

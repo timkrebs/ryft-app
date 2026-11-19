@@ -308,7 +308,7 @@ struct MyDayContent: Equatable {
     /// The day before today on the environment's clock and calendar (the full screen's "Yesterday · Tue, Nov 17").
     var isYesterday = false
 
-    /// No workout, session or activity (the night may be there): "Nothing yet today" (ui.md §2.1 M2).
+    /// No workout, session or activity (the night may be there): "Nothing logged yet today." (ui.md §2.1 M2).
     var hasNoActivities: Bool { !items.contains { !$0.kind.isSleep } }
     /// Nothing at all but, maybe, the missing night: "Nothing recorded on this day" (F3).
     var isEmpty: Bool { items.allSatisfy(\.kind.isMissingSleep) }
