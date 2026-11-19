@@ -666,9 +666,9 @@ struct RefreshDetailsSheet: View {
     }
 }
 
-/// The request ID exactly as received, selectable, with a copy button; support searches for it. A row of the Details card:
-/// "Request ID", and under it the 36 characters in monospaced type (they don't fit beside the label) with the copy button at
-/// the end. VoiceOver reads the label and the ID as one element and offers "Copy request ID" as an action.
+/// The request ID exactly as received, with a copy button; support searches for it. A row of the Details card:
+/// "Request ID", and under it the 36 characters in 12 pt monospaced type (they don't fit beside the label) with the copy
+/// button at the end. VoiceOver reads the label and the ID as one element and offers "Copy request ID" as an action.
 private struct RequestIDRow: View {
     let requestID: String?
     /// Something answered (a status came back): a missing ID means a proxy answered first.
