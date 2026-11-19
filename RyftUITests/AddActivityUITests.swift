@@ -47,11 +47,30 @@ final class AddActivityUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: wait), "Add activity in the plus menu")
         entry.tap()
         XCTAssertTrue(app.otherElements["addActivity.sheet"].waitForExistence(timeout: wait), "the Add activity sheet")
-        let start = app.datePickers["addActivity.start"]
-        XCTAssertTrue(start.waitForExistence(timeout: wait))
-        let startDate = start.buttons.element(boundBy: 1).label
-        let endDate = app.datePickers["addActivity.end"].buttons.element(boundBy: 1).label
+        XCTAssertTrue(app.datePickers["addActivity.start"].waitForExistence(timeout: wait))
+        let startDate = dateChip("addActivity.start", in: app).value as? String
+        let endDate = dateChip("addActivity.end", in: app).value as? String
+        XCTAssertNotNil(startDate)
         XCTAssertEqual(startDate, endDate, "the default window starts today, not yesterday")
+    }
+
+    // Start and End are two chips each (Nocturne PR 6 B §10.1): the date (the row's identifier) and the time (`.time`),
+    // each the system's compact picker behind the chip. The picker's one button is "Date Picker" or "Time Picker"; its value
+    // is what the chip shows.
+
+    /// The date chip's button (value "Nov 19, 2026").
+    private func dateChip(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.datePickers[identifier].buttons.firstMatch
+    }
+
+    /// The time chip's button (value "10:29 AM").
+    private func timeChip(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.datePickers["\(identifier).time"].buttons.firstMatch
+    }
+
+    /// The detail's pushed header: its label is the title.
+    private func detailHeader(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["activityDetail.header"]
     }
 
     private func choose(sport: String, in app: XCUIApplication) {
@@ -96,14 +115,13 @@ final class AddActivityUITests: XCTestCase {
     /// Moves the start's hour to the end's, so both are the same minute (the end picker's range follows the start).
     /// Only the hour and AM/PM wheels move; the minute is already equal because the default start is an hour before.
     private func setStartToEnd(_ app: XCUIApplication) {
-        let endTime = app.datePickers["addActivity.end"].buttons
-            .matching(NSPredicate(format: "label MATCHES %@", "\\d{1,2}:\\d{2}.*")).firstMatch
-        XCTAssertTrue(endTime.exists, "the end's time button")
-        let digits = endTime.label.prefix { $0 != ":" }
-        let suffix = endTime.label.uppercased().contains("PM") ? "PM" : "AM"
+        let endTime = timeChip("addActivity.end", in: app)
+        XCTAssertTrue(endTime.exists, "the end's time chip")
+        let shown = endTime.value as? String ?? ""
+        let digits = shown.prefix { $0 != ":" }
+        let suffix = shown.uppercased().contains("PM") ? "PM" : "AM"
 
-        app.datePickers["addActivity.start"].buttons
-            .matching(NSPredicate(format: "label MATCHES %@", "\\d{1,2}:\\d{2}.*")).firstMatch.tap()
+        timeChip("addActivity.start", in: app).tap()
         let wheels = app.pickerWheels
         XCTAssertTrue(wheels.element(boundBy: 0).waitForExistence(timeout: wait), "the time wheels")
         wheels.element(boundBy: 0).adjust(toPickerWheelValue: String(digits))
@@ -160,7 +178,7 @@ final class AddActivityUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["addActivity.issue.endInFuture"].exists)
 
         // The future: the start's calendar offers nothing after today.
-        app.datePickers["addActivity.start"].buttons.element(boundBy: 1).tap()
+        dateChip("addActivity.start", in: app).tap()
         let next = app.buttons["DatePicker.NextMonth"]
         XCTAssertTrue(next.waitForExistence(timeout: wait), "the start's calendar")
         XCTAssertFalse(next.isEnabled, "no later month")
@@ -184,7 +202,7 @@ final class AddActivityUITests: XCTestCase {
 
         let detail = app.scrollViews["activityDetail"]
         XCTAssertTrue(detail.waitForExistence(timeout: wait), "the detail")
-        XCTAssertTrue(app.navigationBars["Climbing"].exists, "titled with the sport")
+        XCTAssertEqual(detailHeader(app).label, "Climbing", "titled with the sport")
         XCTAssertTrue(app.staticTexts["activityDetail.notes"].waitForExistence(timeout: wait), "the notes card")
         XCTAssertTrue(app.staticTexts["activityDetail.notes"].label.contains("First note"))
 
@@ -192,18 +210,21 @@ final class AddActivityUITests: XCTestCase {
         app.buttons["activityDetail.menu"].tap()
         app.buttons["activityDetail.menu.edit"].tap()
         XCTAssertTrue(app.otherElements["addActivity.sheet"].waitForExistence(timeout: wait), "the edit sheet")
-        XCTAssertTrue(app.navigationBars["Edit activity"].exists)
+        XCTAssertTrue(app.staticTexts["Edit activity"].exists, "the sheet header's title")
         choose(sport: "cycling", in: app)
         type("Edited. ", into: "addActivity.notes", in: app)
         app.buttons["addActivity.save"].tap()
         waitForAbsence(of: app.otherElements["addActivity.sheet"], "the sheet closes on Save")
 
-        XCTAssertTrue(app.navigationBars["Cycling"].waitForExistence(timeout: wait), "the detail shows the new sport")
+        let retitled = detailHeader(app)
+        XCTAssertTrue(retitled.waitForExistence(timeout: wait))
+        let cycling = expectation(for: NSPredicate(format: "label == 'Cycling'"), evaluatedWith: retitled)
+        wait(for: [cycling], timeout: wait)
         let notes = app.staticTexts["activityDetail.notes"].label
         XCTAssertTrue(notes.contains("Edited.") && notes.contains("First note"), "and the new notes: \(notes)")
 
         // The row follows.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["activityDetail.back"].tap()
         XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait), "back on My Day")
         let edited = activityRow("Cycling", in: app)
         XCTAssertTrue(edited.waitForExistence(timeout: wait), "the row shows the new sport")
@@ -283,7 +304,7 @@ final class AddActivityUITests: XCTestCase {
         XCTAssertTrue(mobility.waitForExistence(timeout: wait), "the added-by-you mobility row")
         mobility.tap()
         XCTAssertTrue(app.scrollViews["activityDetail"].waitForExistence(timeout: wait), "its detail")
-        XCTAssertTrue(app.otherElements["activityDetail.header"].waitForExistence(timeout: wait))
+        XCTAssertTrue(detailHeader(app).waitForExistence(timeout: wait))
 
         XCTAssertFalse(app.buttons["activityDetail.menu"].exists, "no Edit or Delete menu")
         XCTAssertFalse(app.buttons["activityDetail.edit"].exists, "no Edit button")
