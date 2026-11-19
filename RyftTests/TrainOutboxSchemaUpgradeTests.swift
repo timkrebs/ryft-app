@@ -116,6 +116,125 @@ private enum TrainOutboxSchemaBeforeP2 {
     }
 }
 
+/// Train's outbox op and logged session as `main` wrote them before O2 (no `lastAttemptData` on either): the models as
+/// of #107, copied attribute for attribute.
+private enum TrainOutboxSchemaBeforeO2 {
+    @Model
+    final class LocalSession {
+        @Attribute(.unique) var id: UUID
+        var title: String
+        var startedAt: Date
+        var endedAt: Date?
+        var statusRaw: String
+        var planDayId: UUID?
+        var workoutId: UUID?
+        var notes: String
+        var bodyweightKg: Double?
+        var muscularTrimp: Double?
+        var strain: Double?
+        var volumeKg: Double?
+        @Relationship(deleteRule: .cascade, inverse: \LocalSessionExercise.session)
+        var exercises: [LocalSessionExercise] = []
+        var deletedSetIDs: [UUID] = []
+        var deletedExerciseIDs: [UUID] = []
+        var pendingCompletion = false
+        var uploaded = false
+        var uploadedTo: String?
+        var prsData: Data?
+        var restEndsAt: Date?
+        var restTotal: Double = 0
+        var currentExerciseID: UUID?
+        var updatedAt: Date
+
+        init(id: UUID, title: String, startedAt: Date) {
+            self.id = id
+            self.title = title
+            self.startedAt = startedAt
+            statusRaw = "completed"
+            notes = ""
+            pendingCompletion = true
+            updatedAt = startedAt
+        }
+    }
+
+    @Model
+    final class LocalSessionExercise {
+        @Attribute(.unique) var id: UUID
+        var exerciseId: UUID
+        var name: String
+        var kindRaw: String
+        var loadTypeRaw: String
+        var position: Int
+        var notes: String
+        var restSec: Int
+        var supersetGroup: Int?
+        var planExerciseId: UUID?
+        var targetSets: Int?
+        var targetRepsMin: Int?
+        var targetRepsMax: Int?
+        var targetKg: Double?
+        var targetKindRaw: String?
+        var targetValue: Double?
+        var lastTimeData: Data?
+        var session: LocalSession?
+        @Relationship(deleteRule: .cascade, inverse: \LocalSet.exercise)
+        var sets: [LocalSet] = []
+
+        init(id: UUID, exerciseId: UUID, name: String) {
+            self.id = id
+            self.exerciseId = exerciseId
+            self.name = name
+            kindRaw = "barbell"
+            loadTypeRaw = "weight"
+            position = 0
+            notes = ""
+            restSec = 120
+        }
+    }
+
+    @Model
+    final class LocalSet {
+        @Attribute(.unique) var id: UUID
+        var setIndex: Int
+        var reps: Int?
+        var weightKg: Double?
+        var rpe: Double?
+        var durationSec: Int?
+        var distanceM: Double?
+        var isWarmup: Bool
+        var completedAt: Date?
+        var updatedAt: Date
+        var exercise: LocalSessionExercise?
+
+        init(id: UUID, reps: Int, weightKg: Double, updatedAt: Date) {
+            self.id = id
+            setIndex = 0
+            self.reps = reps
+            self.weightKg = weightKg
+            isWarmup = false
+            self.updatedAt = updatedAt
+        }
+    }
+
+    @Model
+    final class PendingTrainOp {
+        var seq: Int
+        var kindRaw: String
+        var sessionId: UUID
+        var bodyweightKg: Double?
+        var createdAt: Date
+        var account: String?
+
+        init(seq: Int, kindRaw: String, sessionId: UUID, createdAt: Date, account: String) {
+            self.seq = seq
+            self.kindRaw = kindRaw
+            self.sessionId = sessionId
+            self.createdAt = createdAt
+            self.account = account
+        }
+    }
+}
+
 /// P2 adds `account` to `PendingTrainOp` and `uploadedTo` to `LocalSession` (ADR 0008: every op bound to its account
 /// or demo, a delete to where the uploads went). A store an earlier build left on disk must open with the new schema
 /// (a lightweight migration: added optional attributes) and keep every queued op and logged session, unbound:
@@ -179,6 +298,10 @@ struct TrainOutboxSchemaUpgradeTests {
         #expect(sessions.first?.deletedExerciseIDs == [])
         // The focused session's page (ADR 0014): nil until the screen pins it.
         #expect(sessions.first?.currentExerciseID == nil)
+        // O2's refusals: none yet, on the session or the ops.
+        let opened = try #require(sessions.first)
+        #expect(opened.lastAttemptData == nil)
+        #expect(ops.map(\.lastAttemptData) == [nil, nil])
         // And it writes the new attributes.
         first.account = "account-a"
         sessions.first?.uploadedTo = "account-a"
@@ -191,5 +314,80 @@ struct TrainOutboxSchemaUpgradeTests {
         #expect(try context.fetch(FetchDescriptor<LocalSession>()).first?.deletedExerciseIDs == [tombstone])
         #expect(try context.fetch(FetchDescriptor<LocalSession>()).first?.currentExerciseID == page)
         #expect(try context.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)])).first?.account == "account-a")
+    }
+
+    /// O1 and O2 add `PendingTrainOp.lastAttemptData`, `LocalSession.lastAttemptData` and the op kind `exercise`. A store
+    /// `main` wrote (#107's models) opens with them, lightweight: every op keeps its binding, the session keeps what
+    /// later builds added, and the new attributes read nil and save.
+    @Test func refusalsOpenEmptyOnTheStoreMainWrote() throws {
+        let name = "Train-outbox-o2-\(UUID().uuidString)"
+        let session = UUID(), tombstone = UUID(), page = UUID(), exercise = UUID()
+        let created = Date(timeIntervalSince1970: 1_795_000_000)
+        var files: [URL] = []
+        defer {
+            for file in files {
+                for suffix in ["", "-wal", "-shm"] {
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + suffix))
+                }
+            }
+        }
+
+        // `main` logs a session finished offline (one exercise, one set) and queues its put and complete for an account.
+        do {
+            let schema = Schema([TrainOutboxSchemaBeforeO2.LocalSession.self, TrainOutboxSchemaBeforeO2.LocalSessionExercise.self,
+                                 TrainOutboxSchemaBeforeO2.LocalSet.self, TrainOutboxSchemaBeforeO2.PendingTrainOp.self])
+            let configuration = ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: false)
+            files.append(configuration.url)
+            let container = try ModelContainer(for: schema, configurations: configuration)
+            let context = container.mainContext
+            let logged = TrainOutboxSchemaBeforeO2.LocalSession(id: session, title: "Push", startedAt: created)
+            logged.uploadedTo = "account-a"
+            logged.deletedExerciseIDs = [tombstone]
+            logged.currentExerciseID = page
+            let row = TrainOutboxSchemaBeforeO2.LocalSessionExercise(id: UUID(), exerciseId: exercise, name: "Landmine press")
+            let set = TrainOutboxSchemaBeforeO2.LocalSet(id: UUID(), reps: 10, weightKg: 20, updatedAt: created)
+            context.insert(logged)
+            row.session = logged
+            set.exercise = row
+            for (seq, kind) in [(1, "put"), (2, "complete")] {
+                context.insert(TrainOutboxSchemaBeforeO2.PendingTrainOp(seq: seq, kindRaw: kind, sessionId: session,
+                                                                        createdAt: created, account: "account-a"))
+            }
+            try context.save()
+        }
+
+        // This build opens it as `TrainStore` does: by name, with the whole app schema, on disk.
+        let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false)
+        let container = try ModelContainer(for: TrainStore.schema, configurations: configuration)
+        #expect(container.configurations.allSatisfy { !$0.isStoredInMemoryOnly })
+        #expect(container.configurations.first?.url == files.first)
+        let context = container.mainContext
+        let ops = try context.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)]))
+        #expect(ops.map(\.kind) == [.put, .complete])
+        #expect(ops.map(\.account) == ["account-a", "account-a"])
+        #expect(ops.map(\.lastAttemptData) == [nil, nil])
+        let sessions = try context.fetch(FetchDescriptor<LocalSession>())
+        let opened = try #require(sessions.first)
+        #expect(sessions.count == 1 && opened.id == session && opened.pendingCompletion)
+        #expect(opened.uploadedTo == "account-a" && opened.deletedExerciseIDs == [tombstone] && opened.currentExerciseID == page)
+        #expect(opened.allSets.map(\.weightKg) == [20])
+        #expect(opened.lastAttemptData == nil)
+
+        // And it writes them: a refusal on the session, and an exercise's op ahead of the rest with its own.
+        let refusal = UploadAttempt(at: created, request: .put, status: 422, code: nil, requestID: "req-o2", kind: .other)
+        opened.lastAttempt = refusal
+        let first = PendingTrainOp(seq: 0, kind: .exercise, sessionId: exercise, account: "account-a")
+        first.lastAttempt = UploadAttempt(at: created, request: .create, status: 422, code: nil, requestID: "req-ex",
+                                          kind: .other)
+        context.insert(first)
+        try context.save()
+        let fresh = ModelContext(container)
+        let reread = try fresh.fetch(FetchDescriptor<LocalSession>())
+        #expect(reread.map(\.lastAttempt) == [refusal])
+        let queue = try fresh.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)]))
+        #expect(queue.map(\.kind) == [.exercise, .put, .complete])
+        #expect(queue.map { $0.lastAttempt?.requestID } == ["req-ex", nil, nil])
+        // The rows above are read through these: neither may go before the last read.
+        withExtendedLifetime((container, fresh)) {}
     }
 }
