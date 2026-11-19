@@ -4,6 +4,11 @@ import Observation
 /// Profile → Notifications: iOS permission, one toggle per category and quiet
 /// hours, saved with `PATCH /v1/me/notifications`. Changes show at once and
 /// roll back if the platform refuses them.
+///
+/// Saves can overlap (a time chip's wheel sends each value it stops on): they go
+/// one after another, in the order they were made, so the platform ends with the
+/// latest; only the latest one's answer is shown, and if it fails the page goes
+/// back to what the platform last confirmed.
 @MainActor
 @Observable
 final class NotificationSettingsViewModel {
@@ -11,8 +16,19 @@ final class NotificationSettingsViewModel {
     private let push: PushRegistrar
 
     private(set) var prefs: NotificationPrefs
-    private(set) var saving = false
-    private(set) var error: String?
+    /// The last change that didn't save, in words (`NotificationSettingsFailure`).
+    private(set) var failure: NotificationSettingsFailure?
+    /// Saves on their way.
+    private var inFlight = 0
+    /// Saves started, never reset: an answer is shown only while its save is the latest.
+    private var saves = 0
+    /// The settings as the platform last confirmed them (or as loaded): where a failed latest save goes back to.
+    private var confirmed: NotificationPrefs
+    /// The last save handed on: the next one waits for it.
+    private var lastSave: Task<Void, Never>?
+
+    /// A change is on its way: every switch and time chip waits for it.
+    var saving: Bool { inFlight > 0 }
 
     /// The default window when quiet hours are switched on.
     static let defaultQuietHours = QuietHours(from: "22:30", to: "07:00")
@@ -20,7 +36,9 @@ final class NotificationSettingsViewModel {
     init(state: AppState, push: PushRegistrar) {
         self.state = state
         self.push = push
-        prefs = state.user?.notifications ?? .allOn
+        let saved = state.user?.notifications ?? .allOn
+        prefs = saved
+        confirmed = saved
     }
 
     /// `push.enabled` for this account.
@@ -51,7 +69,10 @@ final class NotificationSettingsViewModel {
     func load() async {
         (state.env.flags as? FlagStore)?.applyPending()
         await push.refresh()
-        if let saved = state.user?.notifications { prefs = saved }
+        if let saved = state.user?.notifications, !saving {
+            prefs = saved
+            confirmed = saved
+        }
     }
 
     func allow() async { await push.accept() }
@@ -117,26 +138,43 @@ final class NotificationSettingsViewModel {
     // MARK: saving
 
     private func save(_ patch: NotificationPatch, showing optimistic: NotificationPrefs) async {
-        let previous = prefs
+        saves += 1
+        let mine = saves
         prefs = optimistic
-        error = nil
-        saving = true
-        defer { saving = false }
+        failure = nil
+        inFlight += 1
+        defer { inFlight -= 1 }
         // The account's answer: a sign-out (another account) or the Demo data switch while the PATCH is out drops it.
         let binding = AccountBinding(state.env)
+        let before = lastSave
+        let turn = Task { @MainActor in
+            await before?.value
+            await self.send(patch, mine: mine, binding: binding)
+        }
+        lastSave = turn
+        await withTaskCancellationHandler { await turn.value } onCancel: { turn.cancel() }
+    }
+
+    /// One `PATCH`, once the saves before it are done.
+    private func send(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
         do {
             let saved = try await state.env.api.patchNotifications(patch)
             guard binding.isCurrent(in: state.env) else { return }
+            confirmed = saved
+            // A later change is on its way: its answer is the one to show.
+            guard mine == saves else { return }
             prefs = saved
             // The user as the platform has it now, these settings with it: asked again, not assembled here from the
             // cached user, which a change of the user stored meanwhile (the withdrawal) may already have replaced.
             try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.
-            prefs = previous
+            if mine == saves { prefs = confirmed }
         } catch {
-            prefs = previous
-            self.error = String(localized: "Couldn't save: \(error.localizedDescription)")
+            guard mine == saves else { return }
+            prefs = confirmed
+            failure = NotificationSettingsFailure(error, online: state.env.connectivity.isOnline,
+                                                  quietHours: patch.quietHours != nil)
         }
     }
 
@@ -151,5 +189,31 @@ final class NotificationSettingsViewModel {
     static func string(_ date: Date, calendar: Calendar = .current) -> String {
         let c = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+}
+
+/// What Notifications says when a change didn't save: calm words that it's back as it was, and the status and request ID as
+/// the caption when RYFT answered (never the raw error text).
+struct NotificationSettingsFailure: Equatable {
+    let message: String
+    let details: String?
+    /// The change was to quiet hours (its notice goes under them), not to a category.
+    let quietHours: Bool
+
+    init(_ error: Error, online: Bool, quietHours: Bool = false) {
+        self.quietHours = quietHours
+        var transport = error as? URLError
+        if case .transport(let inner)? = error as? APIError { transport = inner as? URLError }
+        if !online || transport?.code == .notConnectedToInternet {
+            message = String(localized: "You're offline, so this wasn't saved. Try again when you're back online.",
+                             comment: "Notifications: a switch or time went back because the iPhone is offline.")
+        } else if FailureKind.of(error) == .transient, (error as? APIError)?.status != 429 {
+            message = String(localized: "RYFT didn't answer, so this may not have saved. Try again in a moment.",
+                             comment: "Notifications: no answer (a timeout, a dropped connection); the page shows the last saved value.")
+        } else {
+            message = String(localized: "RYFT couldn't save this change, so it's back as it was.",
+                             comment: "Notifications: the platform refused the change; it went back.")
+        }
+        details = error.diagnosticDetails
     }
 }
