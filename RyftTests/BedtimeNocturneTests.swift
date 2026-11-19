@@ -1203,7 +1203,8 @@ struct BedtimeHostedTests {
         let view = AnyView(TodayPoke.Today(poke: poke)
             .environment(\.appEnvironment, state.env)
             .environment(screens)
-            .environment(Settings.shared)
+            // The graph's own settings (a private defaults suite, `AppEnvironment.test`): never the test host's.
+            .environment(state.env.settings)
             .environment(state.env.auth)
             .environment(sync)
             .environment(state)
