@@ -173,11 +173,18 @@ struct SleepModePicker: View {
 
     var body: some View {
         if typeSize.isAccessibilitySize {
-            SegmentedMenu(selection: $selection, options: modes, title: \.title)
+            SegmentedMenu(selection: $selection, options: modes, label: Self.menuLabel, title: \.title)
                 .accessibilityIdentifier("sleep.mode")
         } else {
             SegmentedPicker(selection: $selection, options: modes, look: .inkFill, title: \.title)
         }
+    }
+
+    /// The menu's VoiceOver label, before the current mode: "Range, Week".
+    static var menuLabel: Text {
+        // Its own key: "Range" is the training import's range picker.
+        Text(String(localized: "sleep.mode.menu", defaultValue: "Range",
+                    comment: "VoiceOver: the name of Sleep's mode menu (the largest text sizes), read before the current mode: \"Range, Week\"."))
     }
 }
 

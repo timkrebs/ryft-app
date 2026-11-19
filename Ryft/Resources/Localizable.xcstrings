@@ -2477,6 +2477,17 @@
         }
       }
     },
+    "sleep.mode.menu" : {
+      "comment" : "VoiceOver: the name of Sleep's mode menu (the largest text sizes), read before the current mode: \"Range, Week\".",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Range"
+          }
+        }
+      }
+    },
     "Slept enough on %lld of the last 7 nights; the last is the night shown" : {
       "comment" : "VoiceOver on the 7 dots of Today's Sleep tile: nights asleep 90 % of the need or more; the last is the night shown."
     },

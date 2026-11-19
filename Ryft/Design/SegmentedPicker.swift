@@ -160,15 +160,19 @@ struct SegmentedPicker<Value: Hashable>: View {
 
 /// The picker as one row from AX1 (§P5-7.1, PR 4's Sleep menu restyled), where segments would cut their titles: a `Menu` with the
 /// current value and a chevron, `.label` `textPrimary` on `surface`, radius 20, 44 high, full width; its items have the
-/// checkmark on the current one. Sleep's modes (T5.5) and any other picker that must not wrap use it.
+/// checkmark on the current one. Sleep's modes (T5.5) and any other picker that must not wrap use it. VoiceOver hears what the
+/// menu picks, then the current value ("Range, Week"), not the value alone.
 struct SegmentedMenu<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [Value]
+    /// What the menu picks ("Range"): its VoiceOver label; the current value is its VoiceOver value.
+    let label: Text
     let title: (Value) -> String
 
-    init(selection: Binding<Value>, options: [Value], title: @escaping (Value) -> String) {
+    init(selection: Binding<Value>, options: [Value], label: Text, title: @escaping (Value) -> String) {
         _selection = selection
         self.options = options
+        self.label = label
         self.title = title
     }
 
@@ -200,6 +204,8 @@ struct SegmentedMenu<Value: Hashable>: View {
             .background(Theme.surface, in: shape)
             .contentShape(shape)
         }
+        .accessibilityLabel(label)
+        .accessibilityValue(Text(title(selection)))
     }
 }
 
@@ -223,7 +229,7 @@ private struct SegmentedPickerPreview: View {
                                 spokenTitle: { "\($0.dropLast(2)) days" }) { $0 }
             }
             Text(verbatim: "menu (AX1+)").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
-            SegmentedMenu(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"]) { $0 }
+            SegmentedMenu(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"], label: Text(verbatim: "Range")) { $0 }
         }
     }
 }
