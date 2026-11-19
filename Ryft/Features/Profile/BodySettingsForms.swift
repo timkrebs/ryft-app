@@ -197,8 +197,8 @@ struct BodySettingContent: Equatable {
     }
 }
 
-/// Baseline sleep need: 15-minute steps, 4–12 h. A sheet from Profile and onboarding (`showsClose`), or pushed inside Sleep's
-/// need sheet (Back).
+/// Baseline sleep need: 15-minute steps, 4–12 h. A sheet's root from Profile and onboarding (`showsClose`), or pushed inside
+/// Sleep's need sheet (Back).
 struct BaselineSleepNeedForm: View {
     let editor: BodySettingsEditor
     var showsClose = false
@@ -251,7 +251,9 @@ private struct BodySettingPage: View {
 
     var body: some View {
         let content = content
-        SubpageScaffold(setting.title, navigation: showsClose ? .close() : .back(), isSheet: true) {
+        // A sheet's root (Close) sets the sheet's presentation; pushed inside Sleep's need sheet (Back) it only keeps the
+        // sheet's 26 pt top inset: setting the presentation again would move the grabber and the page down (C2's finding).
+        SubpageScaffold(setting.title, navigation: showsClose ? .close() : .back(), isSheet: showsClose) {
             VStack(alignment: .leading, spacing: 0) {
                 stepper(content)
                 if let source = content.source {
@@ -298,6 +300,7 @@ private struct BodySettingPage: View {
             .disabled(!content.canSave && running != .save)
             .accessibilityIdentifier(setting.saveIdentifier)
         }
+        .safeAreaPadding(.top, showsClose ? 0 : SubpageSpec.sheetTopInset)
         .onAppear {
             editor.begin()
             reset()
