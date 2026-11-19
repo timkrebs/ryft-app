@@ -9,8 +9,8 @@ struct NumberPad: View {
     var controller: SessionController
     var onPlates: (Double) -> Void
 
-    /// The keys: 56 high, radius 14. The step keys' outline: ink at 20 %.
-    static let keyHeight: CGFloat = 56, keyRadius: CGFloat = 14, stepEdge = 0.20
+    /// The keys: 56 high, radius 14 (the row's). The step keys are `OutlinedKey`s.
+    static let keyHeight: CGFloat = 56, keyRadius = LiveSessionSpec.rowRadius
 
     private var field: SetFocus.Field { controller.focus?.field ?? .kg }
 
@@ -109,11 +109,7 @@ struct NumberPad: View {
                 .font(.ryftNumber(size: 19))
                 .foregroundStyle(Theme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous)
-                        .strokeBorder(Theme.textPrimary.opacity(Self.stepEdge), lineWidth: Theme.Metrics.hairline)
-                }
-                .contentShape(Rectangle())
+                .outlinedKey()
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(direction > 0 ? "Increase" : "Decrease"))
@@ -146,7 +142,7 @@ struct PlateCalculatorSheet: View {
     var onUse: ((Double) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    /// The steps: 72 × 56, radius 14, ink at 20 %.
+    /// The steps: 72 × 56 `OutlinedKey`s.
     static let stepWidth: CGFloat = 72, stepHeight: CGFloat = 56
 
     private var load: PlateLoad { PlateCalculator.load(for: target) }
@@ -209,11 +205,7 @@ struct PlateCalculatorSheet: View {
                 .font(.ryftNumber(size: 19))
                 .foregroundStyle(Theme.textPrimary)
                 .frame(width: Self.stepWidth, height: Self.stepHeight)
-                .overlay {
-                    RoundedRectangle(cornerRadius: NumberPad.keyRadius, style: .continuous)
-                        .strokeBorder(Theme.textPrimary.opacity(NumberPad.stepEdge), lineWidth: Theme.Metrics.hairline)
-                }
-                .contentShape(Rectangle())
+                .outlinedKey()
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(delta > 0 ? "Add 2.5 kilograms" : "Remove 2.5 kilograms"))

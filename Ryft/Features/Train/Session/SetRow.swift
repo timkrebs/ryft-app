@@ -89,14 +89,15 @@ struct SetRow: View {
 
     private var ghost: (reps: Int?, kg: Double?) { controller.ghost(for: set, in: exercise) }
     /// The look: Focused's state, or List's (§4.7: done, the controller's current set, or upcoming). Inks only: what a tap or
-    /// VoiceOver does still follows `rowState`.
-    private var look: FocusedRowState {
+    /// VoiceOver does still follows `rowState`. Read once per body and passed down: List's `currentSetID` walks the session.
+    private var resolvedLook: FocusedRowState {
         rowState ?? FocusedRowState(isCompleted: set.isCompleted, isActive: controller.currentSetID == set.id)
     }
     private var usesWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
-        row
+        let look = resolvedLook
+        return row(look)
             .offset(x: swipe)
             .frame(maxWidth: .infinity)
             .overlay(alignment: .trailing) {
@@ -138,14 +139,14 @@ struct SetRow: View {
     /// Focused's row height, with the field and the check filling it as at the default size. List's is 56.
     private var rowHeight: CGFloat { columns?.rowHeight ?? 56 }
 
-    private var row: some View {
-        VStack(spacing: rpeLineIsQuiet ? 0 : 4) {
-            cells
-            if let columns, controller.showsRPELine(of: set, in: exercise, columns: columns) { rpeLine }
+    private func row(_ look: FocusedRowState) -> some View {
+        VStack(spacing: rpeLineIsQuiet(look) ? 0 : 4) {
+            cells(look)
+            if let columns, controller.showsRPELine(of: set, in: exercise, columns: columns) { rpeLine(look) }
         }
     }
 
-    private var cells: some View {
+    private func cells(_ look: FocusedRowState) -> some View {
         HStack(spacing: columns?.gap ?? 6) {
             Button {
                 tap { controller.toggleWarmup(set) }
@@ -161,16 +162,16 @@ struct SetRow: View {
             .accessibilityHidden(true)
 
             if usesWeight {
-                field(.kg, value: set.weightKg.map(Fmt.kgNumber), ghost: ghost.kg.map(Fmt.kgNumber))
+                field(.kg, value: set.weightKg.map(Fmt.kgNumber), ghost: ghost.kg.map(Fmt.kgNumber), look: look)
             }
             if let stored = storedValue {
-                readOnlyField(stored)
+                readOnlyField(stored, look: look)
             } else {
-                field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init))
+                field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init), look: look)
             }
             if columns?.hasFourth != false {
                 if controller.column(for: exercise) == .rpe {
-                    field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
+                    field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil, look: look)
                         .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
                 } else {
                     estimateCell
@@ -201,8 +202,9 @@ struct SetRow: View {
 
     /// RPE at the sizes without a fourth column (design.md §5.1): "RPE 8.5", full width, 44 high. It takes the row's taps as
     /// the field does.
-    private var rpeLine: some View {
+    private func rpeLine(_ look: FocusedRowState) -> some View {
         let focused = rpeLineIsFocused
+        let quiet = rpeLineIsQuiet(look)
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : set.rpe.map(Fmt.kgNumber)
         return Button {
             tapField(.rpe)
@@ -211,9 +213,9 @@ struct SetRow: View {
                 .font(.ryft(.callout))
                 .monospacedDigit()
                 .foregroundStyle(shown == nil || set.isCompleted ? Theme.textSecondary : Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: rpeLineIsQuiet ? .topLeading : .center)
-                .padding(.leading, rpeLineIsQuiet ? (columns?.number ?? 0) + (columns?.gap ?? 0) : 0)
-                .background(Theme.surfaceRaised.opacity(fieldOpacity(.rpe, focused: focused)),
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: quiet ? .topLeading : .center)
+                .padding(.leading, quiet ? (columns?.number ?? 0) + (columns?.gap ?? 0) : 0)
+                .background(Theme.surfaceRaised.opacity(fieldOpacity(.rpe, focused: focused, look: look)),
                             in: RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous)
                     .strokeBorder(focused ? FocusedRowInk.focusRing : .clear, lineWidth: 2))
@@ -221,14 +223,14 @@ struct SetRow: View {
         }
         .buttonStyle(.plain)
         // Over the row's empty lower edge, clear of the ✓, so it stays that row's caption. Its 44 pt stay whole.
-        .padding(.trailing, rpeLineIsQuiet ? (columns?.check ?? 0) + (columns?.gap ?? 0) : 0)
-        .padding(.top, rpeLineIsQuiet ? -(columns?.quietLineLift ?? 0) : 0)
+        .padding(.trailing, quiet ? (columns?.check ?? 0) + (columns?.gap ?? 0) : 0)
+        .padding(.top, quiet ? -(columns?.quietLineLift ?? 0) : 0)
     }
 
     private var rpeLineIsFocused: Bool { controller.focus == SetFocus(setID: set.id, field: .rpe) }
     /// A line with no field behind it reads as a caption, so it sits under its own row's values, nearer them than the next row.
     /// Centred, with the same gap above and below, it read as the next row's.
-    private var rpeLineIsQuiet: Bool { fieldOpacity(.rpe, focused: rpeLineIsFocused) == 0 }
+    private func rpeLineIsQuiet(_ look: FocusedRowState) -> Bool { fieldOpacity(.rpe, focused: rpeLineIsFocused, look: look) == 0 }
 
     // MARK: the looks (PR 6 B §4.3, §4.7)
 
@@ -245,7 +247,7 @@ struct SetRow: View {
 
     /// Only the active row's fields are raised, and RPE stays quieter: it is optional. List raises its upcoming fields too, at
     /// 55 %: it has no pager, so its rows read as a form (§4.7). A done row has no chrome in either.
-    private func fieldOpacity(_ f: SetFocus.Field, focused: Bool) -> Double {
+    private func fieldOpacity(_ f: SetFocus.Field, focused: Bool, look: FocusedRowState) -> Double {
         guard !focused else { return 1 }
         switch look {
         case .active: return f == .rpe ? 0.55 : 1
@@ -256,8 +258,9 @@ struct SetRow: View {
 
     /// A ghost reads as what you'll do, in a colour that holds 4.5:1; only an empty field is quieter than that. A done
     /// value is grey, told apart from a ghost by the check column.
-    private func valueColor(_ f: SetFocus.Field, focused: Bool, hasValue: Bool, hasGhost: Bool) -> Color {
-        FocusedRowInk.value(look, hasValue: hasValue, hasGhost: hasGhost, onRaisedField: fieldOpacity(f, focused: focused) > 0)
+    private func valueColor(_ f: SetFocus.Field, focused: Bool, look: FocusedRowState, hasValue: Bool, hasGhost: Bool) -> Color {
+        FocusedRowInk.value(look, hasValue: hasValue, hasGhost: hasGhost,
+                            onRaisedField: fieldOpacity(f, focused: focused, look: look) > 0)
     }
 
     private var deleteButton: some View {
@@ -380,7 +383,7 @@ struct SetRow: View {
         columns != nil && exercise.loadType == .bodyweight && set.weightKg == nil && ghost.kg == nil
     }
 
-    private func readOnlyField(_ stored: SetStoredValue) -> some View {
+    private func readOnlyField(_ stored: SetStoredValue, look: FocusedRowState) -> some View {
         Text(stored.text)
             .font(.ryftNumber(size: columns?.numeral ?? 22, weight: .regular))
             .monospacedDigit()
@@ -430,7 +433,7 @@ struct SetRow: View {
         }
     }
 
-    private func field(_ f: SetFocus.Field, value: String?, ghost: String?) -> some View {
+    private func field(_ f: SetFocus.Field, value: String?, ghost: String?, look: FocusedRowState) -> some View {
         let focused = controller.focus == SetFocus(setID: set.id, field: f)
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : value
         return Button {
@@ -447,11 +450,11 @@ struct SetRow: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(columns == nil ? 0.6 : 0.75)
-                        .foregroundStyle(valueColor(f, focused: focused, hasValue: shown != nil, hasGhost: ghost != nil))
+                        .foregroundStyle(valueColor(f, focused: focused, look: look, hasValue: shown != nil, hasGhost: ghost != nil))
                 }
             }
             .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
-            .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused)),
+            .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused, look: look)),
                         in: RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous)
                 .strokeBorder(focused ? FocusedRowInk.focusRing : .clear, lineWidth: 2))

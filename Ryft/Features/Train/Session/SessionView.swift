@@ -30,9 +30,9 @@ private struct FinishCap: ViewModifier {
     }
 }
 
-/// Text that stops growing at Focused's 320 pt. The keypad: every point it takes is the page's, and at AX3 with a rest the row
-/// being edited wouldn't fit. The session's title: beside „Beenden“ at AX3 it was cut to "Upp…". Wider screens and List keep
-/// their sizes.
+/// Text that stops growing at 320 pt. The keypad, in Focused: every point it takes is the page's, and at AX3 with a rest the
+/// row being edited wouldn't fit. The session's title, beside the buttons: at AX3 it was cut to "Upp…". Wider screens keep their
+/// sizes.
 private struct CompactTextCap: ViewModifier {
     let isOn: Bool
     let cap: DynamicTypeSize
@@ -118,7 +118,7 @@ struct SessionView: View {
             // the pager gives up its page, and with it the keypad.
             if controller.focus != nil, controller.layout == .list || width > 0 {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
-                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .xxLarge))
+                    .modifier(CompactTextCap(isOn: controller.layout == .focused && isCompactHeader, cap: .xxLarge))
                     .transition(.move(edge: .bottom))
             }
         }
@@ -177,8 +177,10 @@ struct SessionView: View {
 
     // MARK: header
 
-    /// Focused at 320 pt (design.md §2.1): an hour clock doesn't fit the middle at 30 pt. The list keeps its header.
-    private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width).isCompact }
+    /// 320 pt, in both layouts (design.md §2.1, PR 6 B §4.1): 12 pt sides, 6 pt gaps and the 26 pt clock on one line, since an
+    /// hour clock doesn't fit the middle at 30 pt. Finish and the title stop growing sooner.
+    private var isCompactHeader: Bool { SetTableColumns.fitting(width: width).isCompact }
+    private var headerGap: CGFloat { isCompactHeader ? LiveSessionSpec.compactHeaderGap : LiveSessionSpec.headerGap }
 
     /// List at the accessibility sizes: the buttons get a row of their own and the title and clock the full width under it.
     /// Side by side, Finish broke into "Finis/h" and at the largest sizes the title was cut. Focused keeps its one row (§5.1).
@@ -190,10 +192,10 @@ struct SessionView: View {
         Group {
             if stacksHeader {
                 // VoiceOver keeps the one-row order (Minimise, the title and clock, More, Finish), not the drawn one.
-                VStack(spacing: LiveSessionSpec.headerGap) {
-                    HStack(spacing: LiveSessionSpec.headerGap) {
+                VStack(spacing: headerGap) {
+                    HStack(spacing: headerGap) {
                         minimiseButton.accessibilitySortPriority(4)
-                        Spacer(minLength: LiveSessionSpec.headerGap)
+                        Spacer(minLength: headerGap)
                         moreMenu.accessibilitySortPriority(2)
                         finishButton.accessibilitySortPriority(1)
                     }
@@ -201,7 +203,7 @@ struct SessionView: View {
                 }
                 .accessibilityElement(children: .contain)
             } else {
-                HStack(spacing: isCompactHeader ? LiveSessionSpec.compactHeaderGap : LiveSessionSpec.headerGap) {
+                HStack(spacing: headerGap) {
                     minimiseButton
                     titleAndClock
                     moreMenu
@@ -228,7 +230,8 @@ struct SessionView: View {
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .modifier(SessionTitleLines(wraps: stacksHeader))
-                .modifier(CompactTextCap(isOn: isCompactHeader, cap: LiveSessionSpec.compactTitleCap))
+                // Beside the buttons only: List's stacked title has the full width.
+                .modifier(CompactTextCap(isOn: isCompactHeader && !stacksHeader, cap: LiveSessionSpec.compactTitleCap))
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(Fmt.clock(controller.elapsed(at: context.date)))
                     .font(.ryftNumber(size: isCompactHeader ? LiveSessionSpec.compactClock : LiveSessionSpec.clock))
@@ -243,7 +246,8 @@ struct SessionView: View {
         .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
     }
 
-    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers.
+    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers. Its type
+    /// doesn't grow, so a long press shows it large, as the circle buttons do.
     private var moreMenu: some View {
         Menu {
             Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
@@ -261,6 +265,9 @@ struct SessionView: View {
         }
         .headerEdgeButton()
         .accessibilityLabel(Text("More"))
+        .accessibilityShowsLargeContentViewer {
+            Label { Text("More") } icon: { Image(systemName: "ellipsis") }
+        }
     }
 
     /// An outline until every set is done, then filled (F14, D6B-5): one primary at a time, and at all-done the card's

@@ -206,7 +206,7 @@ struct FocusedPolishTests {
 
     /// Nocturne PR 6 B D6B-5, F14: List's Finish was filled from the start; it now waits for the last set, as Focused's does.
     @Test("List's Finish is an outline until every set is done, too")
-    func listKeepsItsFinish() {
+    func listFinishWaitsForTheLastSet() {
         let r = rig(.list)
         #expect(!r.controller.finishIsFilled)
         checkAll(r)
