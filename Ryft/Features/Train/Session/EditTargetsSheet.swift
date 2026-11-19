@@ -27,7 +27,7 @@ struct EditTargetsSheet: View {
     private var showsWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
-        SessionSheetFrame(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."),
+        SheetFrame(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."),
                           closeLabel: Text("Cancel")) {
             PillButton(Text("Done"), size: .compact) {
                 if targets != controller.targets(of: exercise) { controller.setTargets(targets, for: exercise) }

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Drag to reorder (the list is in edit mode; PR 6 B §4.8). `SheetHeader("Reorder")` with a compact "Done"; each move is made
-/// at once, so the close circle and Done both just close. Rows on `surface`, at least 56 high, the name 15 pt ink and a
+/// Drag to reorder (the list is in edit mode; PR 6 B §4.8). `SheetHeader("Reorder")` with a compact "Done" and no close circle:
+/// each move is made at once, so a close beside Done would say the same twice (the drag down still closes). Rows on `surface`, at least 56 high, the name 15 pt ink and a
 /// superset's `link` in grey (named for VoiceOver). The handles are the system's ("Reorder Bench press").
 struct ReorderSheet: View {
     var controller: SessionController
@@ -18,6 +18,7 @@ struct ReorderSheet: View {
                 PillButton(Text("Done"), size: .compact) { dismiss() }
                     .accessibilityIdentifier("reorder.done")
             }
+            .closeHidden()
             .padding(.horizontal, SheetHeaderSpec.sidePadding)
             .padding(.top, SheetHeaderSpec.topInset)
             List {

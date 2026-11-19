@@ -130,7 +130,7 @@ private struct PlanBuilderScreen: View {
     /// what is missing.
     private var header: some View {
         SheetHeader(model.isNew ? Text("New plan") : Text("Edit plan"), closeLabel: Text("Cancel"), onClose: {
-            // Cancel waits for a save in flight (`SheetHeader` can't turn its circle off on its own).
+            // Off while a save is in flight (`closeDisabled` below); the guard keeps a tap already under way harmless.
             guard !model.saving else { return }
             if model.hasChanges { confirmDiscard = true } else { dismiss() }
         }) {
@@ -144,6 +144,8 @@ private struct PlanBuilderScreen: View {
             // A compact pill keeps its one line (`SheetHeader`).
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         }
+        // Cancel is dimmed and does nothing while the plan saves.
+        .closeDisabled(model.saving)
         .padding(.horizontal, SheetHeaderSpec.sidePadding)
         .padding(.top, SheetHeaderSpec.topInset)
     }

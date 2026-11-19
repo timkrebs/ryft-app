@@ -76,7 +76,7 @@ struct AddExerciseSheet: View {
     private var pinsPlanControl: Bool { !typeSize.isAccessibilitySize }
 
     var body: some View {
-        SessionSheetFrame(navigationTitle) {
+        SheetFrame(navigationTitle) {
             EmptyView()
         } pinned: {
             SearchField(text: $query, prompt: Text("Search exercises"), identifier: "exercise.search")
@@ -335,7 +335,7 @@ struct CustomExerciseForm: View {
     }
 
     var body: some View {
-        SessionSheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel")) {
+        SheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel")) {
             PillButton(Text("Add"), size: .compact, busy: saving) { await save() }
                 .disabled(!draft.canSave)
                 .accessibilityIdentifier("customExercise.add")

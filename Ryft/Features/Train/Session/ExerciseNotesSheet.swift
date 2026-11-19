@@ -21,7 +21,7 @@ struct ExerciseNotesSheet: View {
     }
 
     var body: some View {
-        SessionSheetFrame(Text("Notes", comment: "Title of an exercise's notes sheet in a workout."), closeLabel: Text("Cancel")) {
+        SheetFrame(Text("Notes", comment: "Title of an exercise's notes sheet in a workout."), closeLabel: Text("Cancel")) {
             PillButton(Text("Save"), size: .compact) {
                 controller.setNotes(text, for: exercise)
                 dismiss()
