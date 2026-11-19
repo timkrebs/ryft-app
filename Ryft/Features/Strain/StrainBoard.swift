@@ -191,9 +191,9 @@ struct StrainZones: Equatable {
     static func spokenRange(_ zone: Int) -> String {
         let bounds = reserveBounds[min(max(zone, 1), count) - 1]
         guard let hi = bounds.hi else {
-            return String(localized: "\(bounds.lo) percent or more", comment: "VoiceOver: zone 5's heart-rate-reserve range.")
+            return String(localized: "\(bounds.lo)\u{00A0}percent or more", comment: "VoiceOver: zone 5's heart-rate-reserve range.")
         }
-        return String(localized: "\(bounds.lo) to \(hi) percent", comment: "VoiceOver: a zone's heart-rate-reserve range.")
+        return String(localized: "\(bounds.lo) to \(hi)\u{00A0}percent", comment: "VoiceOver: a zone's heart-rate-reserve range.")
     }
 }
 
@@ -376,7 +376,7 @@ enum StrainRows {
             spoken.append(StrainFormat.spokenDistance(m, locale: locale))
         } else if let hr = w.avgHr {
             meta.append(String(localized: "\(Int(hr.rounded())) bpm"))
-            spoken.append(String(localized: "average heart rate \(Int(hr.rounded())) bpm",
+            spoken.append(String(localized: "average heart rate \(Int(hr.rounded()))\u{00A0}bpm",
                                  comment: "VoiceOver in an activity row: the workout's average heart rate."))
         }
         // A logged session's load replaces the old load chip (a workout that carries one without its session, too).

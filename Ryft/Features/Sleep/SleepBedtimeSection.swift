@@ -148,7 +148,7 @@ struct SleepBedtimeBoard: Equatable {
         meridiem = parts.meridiem
         numeralLabel = String(localized: "Go to bed at \(Fmt.time(bed, locale: locale))",
                               comment: "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for your goal (\"Go to bed at 10:06 PM\").")
-        caption = String(localized: "In bed by · \(goal.rawValue) % of your need",
+        caption = String(localized: "In bed by · \(goal.rawValue)\u{00A0}% of your need",
                          comment: "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's need (\"In bed by · 100 % of your need\").")
         ruler = SleepRuler(totalMin: Self.sleepMin(plan, goal: goal), needMin: plan.needMin, locale: locale)
         let inBed = Int((Double(plan.inBedMin) * Double(goal.rawValue) / 100).rounded())
@@ -187,7 +187,7 @@ struct SleepBedtimeBoard: Equatable {
         var notes: [SleepTile.Note] = []
         if let efficiency {
             notes.append(SleepTile.Note(text: "\(efficiency) %", ink: .tertiary))
-            spoken += ", " + String(localized: "at \(efficiency) percent efficiency",
+            spoken += ", " + String(localized: "at \(efficiency)\u{00A0}percent efficiency",
                                     comment: "VoiceOver on Sleep → Bedtime's Time in bed tile, after the time: the assumed efficiency (\"at 90 percent …\").")
         }
         return SleepTile(kind: .timeInBed, value: Fmt.clock(minutes: minutes), unit: hours, notes: notes, marks: [],

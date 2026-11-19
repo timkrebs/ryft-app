@@ -130,8 +130,8 @@ struct SleepRangeBoard: Equatable {
         clock = range.avgTotalMin.map { Fmt.clock(minutes: $0) }
         caption = Self.caption(nights: range.nights, kind: kind)
         numeralLabel = range.avgTotalMin.map {
-            String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) average sleep",
-                   comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep (\"7 hours 58 minutes average sleep\").")
+            String(localized: "Average sleep, \(Fmt.spokenDuration(minutes: $0, locale: locale))",
+                   comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\".")
         }
         let newest = Self.newestNight(summary.totals)
         delta = Self.delta(summary.totals)
@@ -289,7 +289,8 @@ struct SleepRangeBoard: Equatable {
             + (present.contains(nil) ? [nil] : [])
         let average = String(localized: "avg \(summary.averageSleep)")
         let spokenAverage = range.avgTotalMin.map {
-            String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) average sleep")
+            String(localized: "Average sleep, \(Fmt.spokenDuration(minutes: $0, locale: locale))",
+                       comment: "VoiceOver on Sleep → Week or Month's stage card: the range's average time asleep. %@: the duration.")
         } ?? average
         return Stages(segments: segments, average: average, averageHours: summary.averageHours, top: top,
                       yTicks: Array(stride(from: 0, through: top, by: SleepModesLayout.hourStep)), start: start, end: end,

@@ -177,12 +177,12 @@ struct TrendCardContent: Identifiable, Equatable {
             return String(localized: "As of \(day.formatted(.dateTime.month(.abbreviated).day()))")
         }
         if usual == .tooShort {
-            return String(localized: "Band needs 7 days of data",
-                          comment: "A trend card's note: the usual range behind the line needs 7 days before the newest.")
+            return String(localized: "Usual range needs 7 days of data",
+                          comment: "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed.")
         }
         switch metric {
         case .readiness where usual.band != nil:
-            return String(localized: "Band: your usual range", comment: "The readiness trend card's note: the band behind the line is the usual range.")
+            return String(localized: "Shaded: your usual range", comment: "The readiness trend card's note: the shaded area behind the line is the usual range.")
         case .hrv: return String(localized: "SDNN", comment: "The HRV trend card's note: the kind of HRV the number is.")
         default:
             return series.avg.map { avg in

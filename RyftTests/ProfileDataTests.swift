@@ -54,7 +54,7 @@ struct ProfileDataTests {
         // The number as the app writes it in the phone's region ("12.4", "12,4").
         #expect(identity.spokenLabel(status, now: now) == "Alex Doe. Apple Health, up to date. Strain today \(Fmt.strain(12.4)) of 21.")
         let none = ProfileIdentity.resolve(name: "Alex Doe", email: nil, fallback: "", strain: nil)
-        #expect(none.spokenLabel(status, now: now).hasSuffix("Strain not scored yet today."))
+        #expect(none.spokenLabel(status, now: now).hasSuffix("No strain yet today."))
     }
 
     @Test("Spec 31: the model's identity: today's strain, the account's title, Demo data signed out")

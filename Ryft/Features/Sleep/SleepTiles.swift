@@ -20,7 +20,7 @@ struct SleepTile: Equatable, Identifiable {
             case .efficiency: return String(localized: "Efficiency")
             case .restorative: return String(localized: "Restorative")
             case .quality: return String(localized: "Quality")
-            case .need: return String(localized: "Need", comment: "Sleep → Bedtime's tile: tonight's sleep need (\"8:01 h\").")
+            case .need: return String(localized: "Sleep need", comment: "Sleep → Bedtime's tile: tonight's sleep need (\"8:01 h\").")
             case .timeInBed: return String(localized: "Time in bed")
             }
         }

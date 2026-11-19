@@ -97,7 +97,7 @@ struct SleepRangeBoardTests {
         let average = try #require(range.avgTotalMin)
         #expect(board.look == .loaded)
         #expect(board.clock == Fmt.clock(minutes: average))
-        #expect(board.numeralLabel == "\(Fmt.spokenDuration(minutes: average, locale: enUS)) average sleep")
+        #expect(board.numeralLabel == "Average sleep, \(Fmt.spokenDuration(minutes: average, locale: enUS))")
         #expect(board.caption == (range.nights >= 7 ? "Average · last 7 nights" : "Average · \(range.nights) nights"))
         let strip = try #require(board.strip)
         #expect(strip.rowHeight == 14 && strip.showsRowLabels && strip.bedtimes == range.bedtimes)
@@ -324,10 +324,10 @@ struct SleepBedtimeBoardTests {
         let parts = Fmt.clockParts(plan.bedtime100, locale: enUS)
         #expect(board.look == .planned && board.digits == parts.digits && board.meridiem == parts.meridiem)
         #expect(board.numeralLabel == "Go to bed at \(Fmt.time(plan.bedtime100, locale: enUS))")
-        #expect(board.caption == "In bed by · 100 % of your need")
+        #expect(board.caption == "In bed by · 100\u{00A0}% of your need")
         let perform = SleepBedtimeBoard(plan: plan, wake: wake, goal: .perform, locale: enUS)
         #expect(perform.digits == Fmt.clockParts(plan.bedtime85, locale: enUS).digits)
-        #expect(perform.caption == "In bed by · 85 % of your need")
+        #expect(perform.caption == "In bed by · 85\u{00A0}% of your need")
         // 24-hour: no meridiem.
         #expect(SleepBedtimeBoard(plan: plan, wake: wake, goal: .peak, locale: enGB).meridiem == nil)
     }

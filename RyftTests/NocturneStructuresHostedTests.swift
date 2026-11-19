@@ -104,6 +104,7 @@ struct NocturneStructuresHostedTests {
             #expect(units.traits.contains(.button) && units.value == "Metric" && units.hint == "Opens the units")
             let link = try node(w, "Privacy policy")
             #expect(link.traits.contains(.link) && !link.traits.contains(.button), "link-out: \(link.traits.rawValue)")
+            // The fixture is a file URL, not a web page: the row says where it goes outside the app.
             #expect(link.hint == "Opens outside the app", "hint \(String(describing: link.hint))")
             let sync = try node(w, "Sync now")
             #expect(sync.traits.contains(.button) && sync.value == "Last sync 2 min ago")
@@ -325,7 +326,7 @@ struct NocturneStructuresHostedTests {
         #expect(ink.at(10, 20).near(fill, 3), "\(Tokens.describe(ink.at(10, 20)))")
         #expect(!ink.at(10, 1.5).near(fill, 3), "3 pt of surface above the segment")
         // §P5-5.1: from AX1 the control is at least 44 high.
-        let large = try #require(ControlRender(SegmentedPicker(selection: .constant("7 D"), options: ["7 D", "30 D", "90 D"],
+        let large = try #require(ControlRender(SegmentedPicker(selection: .constant("7\u{00A0}D"), options: ["7\u{00A0}D", "30\u{00A0}D", "90\u{00A0}D"],
                                                                look: .inkFill) { $0 }
             .frame(width: 350).environment(\.dynamicTypeSize, .accessibility1), scale: 2))
         #expect(large.size.height >= 44 - 0.5, "AX1: \(large.size)")
@@ -333,7 +334,7 @@ struct NocturneStructuresHostedTests {
 
     @Test("§P5-5.1: spokenTitle names a segment for VoiceOver (\"7 days\" for \"7 D\")")
     func pickerSpokenTitles() async throws {
-        let picker = SegmentedPicker(selection: .constant("7 D"), options: ["7 D", "30 D"], look: .inkFill, width: .content,
+        let picker = SegmentedPicker(selection: .constant("7\u{00A0}D"), options: ["7\u{00A0}D", "30\u{00A0}D"], look: .inkFill, width: .content,
                                      spokenTitle: { "\($0.dropLast(2)) days" }) { $0 }
         try await host(picker) { w in
             try await w.settle()
@@ -350,7 +351,7 @@ struct NocturneStructuresHostedTests {
                 CircleButton(systemImage: "plus", iconSize: 14, accessibilityLabel: Text(verbatim: "Add activity")) {}
             }
             ScreenHeader(title: Text(verbatim: "Insights"), trailingLayout: .wide) {
-                SegmentedPicker(selection: .constant("30 D"), options: ["7 D", "30 D", "90 D"], look: .inkFill, width: .content) { $0 }
+                SegmentedPicker(selection: .constant("30\u{00A0}D"), options: ["7\u{00A0}D", "30\u{00A0}D", "90\u{00A0}D"], look: .inkFill, width: .content) { $0 }
             }
         }
         try await host(header) { w in
@@ -359,13 +360,13 @@ struct NocturneStructuresHostedTests {
             #expect(title.traits.contains(.header) && abs(title.frame.minX - 20) <= 0.5, "\(title.frame)")
             #expect(abs(add.frame.maxX - (370 + 2)) <= 0.5 && abs(add.frame.height - 44) <= 0.5, "the button at the inset: \(add.frame)")
             #expect(abs(add.frame.midY - title.frame.midY) <= 1, "one row: \(add.frame) \(title.frame)")
-            let insights = try node(w, "Insights"), week = try node(w, "7 D")
+            let insights = try node(w, "Insights"), week = try node(w, "7\u{00A0}D")
             #expect(abs(week.frame.midY - insights.frame.midY) <= 2, "the control on the title's line: \(week.frame) \(insights.frame)")
-            #expect(try node(w, "90 D").frame.maxX <= 370 + 0.5)
+            #expect(try node(w, "90\u{00A0}D").frame.maxX <= 370 + 0.5)
         }
         try await host(header, typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
             try await w.settle()
-            let insights = try node(w, "Insights"), week = try node(w, "7 D"), all = try node(w, "90 D")
+            let insights = try node(w, "Insights"), week = try node(w, "7\u{00A0}D"), all = try node(w, "90\u{00A0}D")
             #expect(week.frame.minY >= insights.frame.maxY, "under the title: \(week.frame) \(insights.frame)")
             #expect(abs(week.frame.minX - 20 - 3) <= 1 && abs(all.frame.maxX - 370 + 3) <= 1, "full width: \(week.frame) \(all.frame)")
         }

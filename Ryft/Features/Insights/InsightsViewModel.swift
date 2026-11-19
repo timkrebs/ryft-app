@@ -62,9 +62,9 @@ final class InsightsViewModel {
     /// The range on its segment: "7 D".
     static func rangeShortTitle(_ r: TrendRange) -> String {
         switch r {
-        case .week: return String(localized: "7 D", comment: "Insights' range control: 7 days.")
-        case .month: return String(localized: "30 D", comment: "Insights' range control: 30 days.")
-        case .quarter: return String(localized: "90 D", comment: "Insights' range control: 90 days.")
+        case .week: return String(localized: "7\u{00A0}D", comment: "Insights' range control: 7 days.")
+        case .month: return String(localized: "30\u{00A0}D", comment: "Insights' range control: 30 days.")
+        case .quarter: return String(localized: "90\u{00A0}D", comment: "Insights' range control: 90 days.")
         }
     }
 

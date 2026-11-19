@@ -74,7 +74,7 @@ import UIKit
                 + [header, firstNight]
             #expect(!order.contains(-1) && order == order.sorted(), "\(order) in \(nodes.map { $0.identifier ?? $0.label })")
             let numeral = try #require(nodes.first { $0.identifier == "sleep.range.numeral" })
-            #expect(numeral.label.hasSuffix("average sleep"), "\(numeral.label)")
+            #expect(numeral.label.hasPrefix("Average sleep, "), "\(numeral.label)")
             let bedtimes = try #require(nodes.first { $0.identifier == "sleep.range.bedtimes" })
             #expect(bedtimes.label == "Bed and wake times" && (bedtimes.value ?? "").contains("nights. Mean bedtime"))
         }

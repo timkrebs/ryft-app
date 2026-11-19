@@ -131,7 +131,7 @@ struct InsightsDataTests {
         let six = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 66])
         let short = Self.make(.hrv, series: six, monthly: six)
         #expect(short.band == nil)
-        #expect(short.note == String(localized: "Band needs 7 days of data"))
+        #expect(short.note == String(localized: "Usual range needs 7 days of data"))
     }
 
     @Test("Spec 29: \"Band needs…\" only with the 30-day series loaded; without it, the metric's own note")
@@ -147,7 +147,7 @@ struct InsightsDataTests {
     func notes() {
         let month = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 60, 70, 66])
         #expect(Self.make(.readiness, series: Self.series(.readiness, [70]), monthly: month).note
-                == String(localized: "Band: your usual range"))
+                == String(localized: "Shaded: your usual range"))
         #expect(Self.make(.hrv, series: Self.series(.hrv, [60]), monthly: month).note == String(localized: "SDNN"))
         let sleep = Self.make(.sleepMin, series: Self.series(.sleepMin, [468], avg: 451), monthly: month)
         #expect(sleep.note == String(localized: "Avg \("7:31 h")"))
@@ -259,7 +259,7 @@ struct InsightsDataTests {
         #expect(card.chartEnding == TrendLine.spoken(.above))
         #expect(card.spokenValue.hasPrefix("78"))
         #expect(card.spokenValue.contains(String(localized: "versus 7 days")))
-        #expect(card.spokenValue.contains(String(localized: "Band: your usual range")))
+        #expect(card.spokenValue.contains(String(localized: "Shaded: your usual range")))
         #expect(card.spokenValue.hasSuffix(TrendLine.spoken(.above)))
         // Without a band, the sentence ends at the value.
         let strain = Self.make(.strain, series: Self.series(.strain, [9, 12.4]))

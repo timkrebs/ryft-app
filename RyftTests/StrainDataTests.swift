@@ -67,9 +67,9 @@ struct StrainZoneTickTests {
         #expect(zones.rows.map(\.value) == ["6", "14", "27", "24", "11"])
         #expect(zones.rows.map(\.label) == ["Z5 · Max", "Z4 · Threshold", "Z3 · Tempo", "Z2 · Aerobic", "Z1 · Easy"])
         let z3 = try #require(zones.rows.first { $0.zone == 3 })
-        #expect(z3.spoken == "Zone 3, tempo, 70 to 80 percent of heart-rate reserve, 27 minutes")
+        #expect(z3.spoken == "Zone 3, tempo, 70 to 80\u{00A0}percent of heart-rate reserve, 27 minutes")
         let z5 = try #require(zones.rows.first { $0.zone == 5 })
-        #expect(z5.spoken.contains("90 percent or more"))
+        #expect(z5.spoken.contains("90\u{00A0}percent or more"))
         #expect(zones.head.replacingOccurrences(of: "\u{00A0}", with: " ") == "82 min · TRIMP 112")
         #expect(zones.spokenValue(missing: "x").hasSuffix("TRIMP 112. Zones are in % of heart-rate reserve."))
     }
@@ -207,7 +207,7 @@ struct StrainRowTests {
     @Test func withoutADistanceTheAverageHeartRate() {
         let row = StrainRows.workout(workout("hiit", distance: nil), session: nil, locale: gb)
         #expect(row.meta == MyDayText.join([seven10, "42 min", "148 bpm"]))
-        #expect(row.spoken.contains("average heart rate 148 bpm"))
+        #expect(row.spoken.contains("average heart rate 148\u{00A0}bpm"))
     }
 
     @Test func aLoggedSessionAddsItsLoad() throws {
