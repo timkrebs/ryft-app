@@ -309,7 +309,11 @@ final class BedtimePlanner {
     private(set) var plan: SleepPlan?
     /// Set when `plan` is the last one fetched (offline, or the request failed).
     private(set) var asOf: Date?
-    private(set) var error: String?
+    /// Why there is no plan to show (nothing cached): offline, another time zone, or the request's failure in calm words
+    /// (`SleepLoadFailure`, as Sleep → Bedtime says it), never the system's error text.
+    private(set) var problem: TonightProblem?
+    /// The problem's sentence.
+    var error: String? { problem?.message }
     /// iOS doesn't allow the alarm (any more): it was turned off, and this says why.
     private(set) var alarmProblem: String?
     /// What each night planned, by its wake day (planned vs actual).
@@ -349,6 +353,10 @@ final class BedtimePlanner {
     private var env: AppEnvironment { state.env }
     private var now: Date { env.clock.now() }
     var isEnabled: Bool { env.flags.isOn(.sleepPlanner) }
+    /// What the planner asks when it plans (`fetchPlan`): Tonight says offline from it, and plans again once it's back.
+    var isOnline: Bool { env.connectivity.isOnline }
+    /// The app's clock: Bedtime & wake's page waits its 400 ms on it (`BedtimeScheduleEditor`).
+    var clock: AppClock { env.clock }
     /// The schedule to edit: the saved one, or a starting point.
     var draft: SleepSchedule { schedule ?? .default }
     var alarmsRing: Bool { alarms.ringsLikeAnAlarm }
@@ -360,9 +368,10 @@ final class BedtimePlanner {
     /// 24-hour clock), or "Off".
     var summary: String { Self.summary(schedule) }
 
-    /// `summary` in `locale`: the weekdays' wake time, and the weekend's when it differs, as `Fmt.time` writes a time.
-    static func summary(_ schedule: SleepSchedule?, locale: Locale = .autoupdatingCurrent,
-                        calendar: Calendar = .current) -> String {
+    /// `summary` in `locale`: the weekdays' wake time, and the weekend's when it differs, as `Fmt.time` writes a time. Pure
+    /// (Tonight's board builds it off the main actor's planner).
+    nonisolated static func summary(_ schedule: SleepSchedule?, locale: Locale = .autoupdatingCurrent,
+                                    calendar: Calendar = .current) -> String {
         guard let schedule else { return String(localized: "Off") }
         let weekdays = SleepSchedule.clock(schedule.wake[0], locale: locale, calendar: calendar)
         guard schedule.wake[0] != schedule.wake[5] else { return weekdays }
@@ -393,7 +402,7 @@ final class BedtimePlanner {
             .flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) } ?? [:]
         plan = nil
         asOf = nil
-        error = nil
+        problem = nil
         alarmProblem = nil
         scheduledBedtime = nil
         if let schedule { adoptCached(for: schedule.nextWake(after: now)) }
@@ -442,7 +451,7 @@ final class BedtimePlanner {
         await syncAlarms()
         guard new != nil else {
             plan = nil
-            error = nil
+            problem = nil
             state.repository.tonightBedtime = nil
             return
         }
@@ -461,6 +470,9 @@ final class BedtimePlanner {
 
     /// The alarm asks for AlarmKit (iOS 26+) or notifications (older iOS).
     func allowAlarm() async -> Bool { await alarms.authorize() }
+
+    /// A failed plan's Sign in (the session ended), as Sleep → Bedtime's: the sign-in screen, Bedtime & wake kept.
+    func signIn() async { await state.signInAgain() }
 
     // MARK: planning
 
@@ -503,19 +515,25 @@ final class BedtimePlanner {
                 let fresh = try await env.api.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake))
                 guard gen == generation else { return }   // the schedule or the account changed meanwhile
                 guard let aligned = Self.align(fresh, to: wake) else {
-                    if plan == nil { error = String(localized: "Tonight's plan is for another time zone than this iPhone's.") }
+                    if plan == nil { problem = .otherTimeZone }
                     return
                 }
                 plan = aligned
                 asOf = nil
-                error = nil
+                problem = nil
                 env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
             } catch {
                 guard gen == generation, !error.isCancellation else { return }
-                if plan == nil { self.error = error.localizedDescription } else { markCached() }
+                if plan == nil {
+                    // Offline, no answer or refused, in the app's words; the status and request ID go to Details.
+                    problem = .failed(SleepLoadFailure(error, isOnline: state.isDemo || env.connectivity.isOnline,
+                                                       isDemo: state.isDemo, at: now))
+                } else {
+                    markCached()
+                }
             }
         } else if plan == nil {
-            error = String(localized: "Tonight's bedtime needs a connection. It appears once you're online.")
+            problem = .offline
         } else {
             markCached()
         }
@@ -642,6 +660,293 @@ final class BedtimePlanner {
 
     /// What the schedule planned for the night ending on `day`.
     func planned(nightEnding day: String) -> PlannedNight? { records[day] }
+
+    /// The user's hero numbers (Profile → Display): Tonight's numeral draws as Sleep's and Strain's do.
+    var numeralStyle: DotNumeral.Style { env.settings.heroNumerals.style }
+
+    /// Tonight as the card shows it.
+    func tonight(locale: Locale = .autoupdatingCurrent) -> TonightBoard {
+        TonightBoard(schedule: schedule, plan: plan, problem: problem, isOnline: isOnline, asOf: asOf,
+                     alarmProblem: alarmProblem, locale: locale)
+    }
+}
+
+// MARK: - Tonight, as the card shows it
+
+/// Why Tonight has no plan to show with nothing cached (PR 6 C §4.13; T5.5's open item): calm words, never the system's
+/// error text.
+enum TonightProblem: Equatable {
+    /// Offline before asking: the plan comes by itself once the iPhone is back online (Tonight asks again then).
+    case offline
+    /// The platform answered for another time zone than this iPhone's: asking again gives the same answer.
+    case otherTimeZone
+    /// The request failed: offline, no answer or refused, as Sleep → Bedtime says it (`SleepLoadFailure`), the status and
+    /// request ID as Details, and the button that helps: Try again, Sign in once the session ended, none for an outdated app.
+    case failed(SleepLoadFailure)
+
+    var message: String {
+        switch self {
+        case .offline: return String(localized: "Tonight's bedtime needs a connection. It appears once you're online.")
+        case .otherTimeZone: return String(localized: "Tonight's plan is for another time zone than this iPhone's.")
+        case .failed(let failure): return failure.message
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .offline: return "wifi.exclamationmark"
+        case .otherTimeZone: return "globe"
+        case .failed(let failure): return failure.systemImage
+        }
+    }
+
+    /// "HTTP 503 · Request ID …" behind Details; none without a response.
+    var details: String? {
+        if case .failed(let failure) = self { return failure.details }
+        return nil
+    }
+
+    /// No button offline (the plan comes once online) or for another time zone (trying again doesn't change it).
+    var action: RefreshIssue.Reason.Action {
+        if case .failed(let failure) = self { return failure.action }
+        return .noButton
+    }
+}
+
+/// Tonight as values (PR 6 C §4.13): which state the card is in, the bedtime as the numeral and its meridiem, the line under
+/// it, the three goals, the "As of" note of a plan fetched earlier, why there is none, and what VoiceOver reads. Pure:
+/// tests build it without a view.
+struct TonightBoard: Equatable {
+    enum Look: Equatable {
+        /// No Bedtime & wake: the outline card, the sentence and Set up.
+        case notSetUp
+        /// A plan, fresh or the last one fetched ("As of"): the glow tile, then Why this need and Bedtime & wake.
+        case planned
+        /// Asking with nothing cached: the outline card, the unlit numeral, "Planning tonight…". Never a spinner.
+        case planning
+        /// Offline with nothing cached: the offline line; the plan comes once online. Never the planning outline.
+        case offline
+        /// The plan couldn't load with nothing cached: the calm sentence, Details and Try again (or Sign in).
+        case failed
+    }
+
+    /// One goal in the tile: the marker (filled for the user's goal, a ring for the others), "Peak · 100 %", the bedtime.
+    struct Goal: Equatable, Identifiable {
+        let goal: SleepSchedule.Goal
+        /// "Peak · 100 %".
+        let title: String
+        /// "10:41 PM".
+        let time: String
+        let isGoal: Bool
+        /// "Peak, 100 percent, 10:41 PM, your goal".
+        let spoken: String
+        var id: Int { goal.rawValue }
+    }
+
+    let look: Look
+    /// "10:41" and "PM" (`nil` on a 24-hour clock); `nil` digits draw the unlit "00:00".
+    let digits: String?
+    let meridiem: String?
+    /// "for 100 % · wake 6:30 AM · need 8:18".
+    let line: String
+    let goals: [Goal]
+    /// "As of 5:42 PM": the plan is the last one fetched (offline, or the request failed).
+    let asOf: String?
+    /// The tile as one VoiceOver summary: the bedtime, the wake and the need, "As of", then the three goals.
+    let spoken: String
+    /// Why there is no plan (offline, failed).
+    let problem: TonightProblem?
+    /// The need, term by term (Why this need).
+    let plan: SleepPlan?
+    /// The wake alarm couldn't be set: an amber notice above the group.
+    let alarmProblem: String?
+    /// Bedtime & wake's row value (`BedtimePlanner.summary`: "6:30 AM · weekend 8:00 AM").
+    let summary: String
+
+    /// - Parameters:
+    ///   - isOnline: what the planner asks before planning. Offline with nothing cached is always the offline line; online,
+    ///     an offline problem from before is not shown while Tonight asks again.
+    init(schedule: SleepSchedule?, plan: SleepPlan?, problem: TonightProblem? = nil, isOnline: Bool = true,
+         asOf: Date? = nil, alarmProblem: String? = nil, locale: Locale = .autoupdatingCurrent) {
+        self.alarmProblem = alarmProblem
+        summary = BedtimePlanner.summary(schedule, locale: locale)
+        guard let schedule, let plan else {
+            self.plan = nil
+            digits = nil
+            meridiem = nil
+            line = ""
+            goals = []
+            self.asOf = nil
+            if schedule == nil {
+                look = .notSetUp
+                self.problem = nil
+            } else if !isOnline {
+                look = .offline
+                self.problem = .offline
+            } else if let problem, problem != .offline {
+                look = .failed
+                self.problem = problem
+            } else {
+                look = .planning
+                self.problem = nil
+            }
+            spoken = look == .planning ? Self.planningText : ""
+            return
+        }
+        look = .planned
+        self.plan = plan
+        self.problem = nil
+        let bed = schedule.goal.bedtime(in: plan)
+        let parts = Fmt.clockParts(bed, locale: locale)
+        digits = parts.digits
+        meridiem = parts.meridiem
+        let wake = Fmt.time(plan.wake, locale: locale)
+        let need = Fmt.clock(minutes: plan.needMin)
+        // swiftlint:disable:next line_length
+        line = String(localized: "for \(schedule.goal.rawValue) % · wake \(wake) · need \(need)", comment: "Today's Tonight tile, under the bedtime: the share of tonight's need it gives, the wake time and the need as hours:minutes (\"for 100 % · wake 6:30 AM · need 8:18\").")
+        goals = SleepSchedule.Goal.allCases.map { option in
+            let time = Fmt.time(option.bedtime(in: plan), locale: locale)
+            var spoken = [option.title, String(localized: "\(option.rawValue) percent"), time]
+            if option == schedule.goal {
+                spoken.append(String(localized: "your goal",
+                                     comment: "VoiceOver on Sleep → Bedtime's go-to-bed tile, after the goal that is yours (the filled marker)."))
+            }
+            return Goal(goal: option, title: String(localized: "\(option.title) · \(option.rawValue) %"), time: time,
+                        isGoal: option == schedule.goal, spoken: spoken.joined(separator: ", "))
+        }
+        let asOfText = asOf.map { String(localized: "As of \(Fmt.time($0, locale: locale))") }
+        self.asOf = asOfText
+        let bedTime = Fmt.time(bed, locale: locale), spokenNeed = Fmt.spokenDuration(minutes: plan.needMin, locale: locale)
+        // swiftlint:disable:next line_length
+        let summary = String(localized: "In bed by \(bedTime), for \(schedule.goal.rawValue) percent of your need. Wake \(wake), need \(spokenNeed).", comment: "VoiceOver on Today's Tonight tile: tonight's bedtime for the goal, its share of the need, the wake time and the need (\"In bed by 10:41 PM, for 100 percent of your need. Wake 6:30 AM, need 8 hours 18 minutes.\").")
+        spoken = ([summary] + (asOfText.map { [$0 + "."] } ?? []) + goals.map { $0.spoken + "." }).joined(separator: " ")
+    }
+
+    /// The planning outline's line, and what VoiceOver reads for it.
+    static var planningText: String {
+        String(localized: "Planning tonight…", comment: "Today's Tonight card while tonight's plan loads with nothing saved on this iPhone.")
+    }
+}
+
+// MARK: - Bedtime & wake, as the page edits it
+
+/// Bedtime & wake's page (PR 6 C §4.13): the schedule as edited. A change shows at once and is saved 400 ms after the last
+/// one (a wheel sends many) and when the page goes, one save after the other, so the last change is the one kept. Saving is
+/// the planner's, on this iPhone, online or not. A switch iOS refuses stays off and says why; an alarm iOS stops allowing
+/// goes back off with the planner's sentence (`alarmProblem`).
+@MainActor
+@Observable
+final class BedtimeScheduleEditor {
+    let planner: BedtimePlanner
+    private(set) var draft: SleepSchedule
+    /// iOS said no: the switch stayed off, and its group says why until it is turned on.
+    private(set) var reminderRefused = false
+    private(set) var alarmRefused = false
+    /// Changed here: only then does leaving save (opening "Set up" and going back doesn't).
+    @ObservationIgnored private(set) var edited = false
+    @ObservationIgnored private var pending: Task<Void, Never>?
+    @ObservationIgnored private var lastSave: Task<Void, Never>?
+
+    /// Quiet after the last change before it is saved.
+    static let saveDelay: Duration = .milliseconds(400)
+
+    init(planner: BedtimePlanner) {
+        self.planner = planner
+        draft = planner.draft
+    }
+
+    /// A change: shown at once, saved once the page has been still for `saveDelay`.
+    func edit(_ change: (inout SleepSchedule) -> Void) {
+        var next = draft
+        change(&next)
+        guard next != draft else { return }
+        draft = next
+        edited = true
+        pending?.cancel()
+        let clock = planner.clock
+        pending = Task { [weak self] in
+            do { try await clock.sleep(for: Self.saveDelay) } catch { return }
+            // A later change replaced this one while it woke: that one saves.
+            guard !Task.isCancelled, let self else { return }
+            self.pending = nil
+            self.save(self.draft)
+        }
+    }
+
+    /// The page goes: a change made just before still counts.
+    func leave() {
+        pending?.cancel()
+        pending = nil
+        guard edited, draft != planner.schedule else { return }
+        save(draft)
+    }
+
+    /// Back to "Off": no reminders, no alarms, no Tonight. Waits for the saves before it.
+    func turnOff() async {
+        pending?.cancel()
+        pending = nil
+        edited = false
+        await save(nil).value
+    }
+
+    /// The reminder asks for notifications as it's turned on. `false`: iOS said no, the switch stays off.
+    @discardableResult
+    func setReminder(_ on: Bool) async -> Bool {
+        guard on else {
+            edit { $0.reminderOn = false }
+            return true
+        }
+        guard await planner.allowReminders() else {
+            reminderRefused = true
+            return false
+        }
+        reminderRefused = false
+        edit { $0.reminderOn = true }
+        return true
+    }
+
+    /// The alarm asks for AlarmKit (or notifications) as it's turned on. `false`: iOS said no, the switch stays off.
+    @discardableResult
+    func setAlarm(_ on: Bool) async -> Bool {
+        guard on else {
+            edit { $0.alarmOn = false }
+            return true
+        }
+        guard await planner.allowAlarm() else {
+            alarmRefused = true
+            return false
+        }
+        alarmRefused = false
+        edit { $0.alarmOn = true }
+        return true
+    }
+
+    /// The planner turned the alarm off (iOS no longer allows it): the switch goes back off. Nothing to save: the planner
+    /// saved it, and a save still waiting takes the draft as it is now.
+    func alarmWentOff() {
+        guard planner.schedule?.alarmOn == false, draft.alarmOn else { return }
+        draft.alarmOn = false
+    }
+
+    /// Waits for the save in waiting and the saves on their way (tests).
+    func settle() async {
+        await pending?.value
+        await lastSave?.value
+    }
+
+    /// Hands `schedule` to the planner once the saves before it are done. An alarm iOS doesn't allow (any more) can't be
+    /// set: the planner turns it off and says why (`alarmProblem`, amber in the alarm's group), and the switch goes back.
+    @discardableResult
+    private func save(_ schedule: SleepSchedule?) -> Task<Void, Never> {
+        let before = lastSave
+        let turn = Task { [weak self, planner] in
+            await before?.value
+            await planner.update(schedule)
+            if schedule?.alarmOn == true, planner.schedule?.alarmOn == false { self?.alarmWentOff() }
+        }
+        lastSave = turn
+        return turn
+    }
 }
 
 enum WakeAlarmError: Error {
