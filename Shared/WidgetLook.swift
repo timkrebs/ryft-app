@@ -1,12 +1,14 @@
-// The widget's look decided without words or fonts (ADR 0010): the ink each line takes in each state, where Volt may go,
-// the small family's layout and how old a snapshot is. The extension can't be imported by the app's tests, so its
-// decisions live here, where `WidgetNocturneTests` reaches them through the app target; the widget (`RyftWidgets/`) draws
-// them in the system face with its own words and `Brand` colours. Nocturne PR 6 C §4.15, B §8 (D6B-11), F21, F24, L27.
+// The widget's look decided without words or fonts (ADR 0010): the ink each line takes in each state, what a redaction
+// leaves, the families' layout, how each grows with Dynamic Type, and how old a snapshot is. The extension can't be
+// imported by the app's tests, so its decisions live here, where `WidgetNocturneTests` reaches them through the app
+// target; the widget (`RyftWidgets/`) draws them in the system face with its own words and `Brand` colours. Nocturne
+// PR 6 C §4.15, B §8 (D6B-11), F21, F24, L27.
 import SwiftUI
 
 /// The neutral ladder the widget draws its text in: `Brand.mist` at the strengths of the app's `textPrimary`,
-/// `textSecondary` and `textTertiary`. Volt isn't on it: only the running rest's dot and bar take it
-/// (`WorkoutActivityLook.restMarks`), and teal only the orbit's recovery (`OrbitGaugePalette`).
+/// `textSecondary` and `textTertiary`. No colour is on it. Volt is the orbit's readiness marker (the shared drawing's
+/// `Signal`, in every family, as on Today) and the running rest's dot and bar (`Brand.signal`, `Inks.restMarks`); teal
+/// is only the orbit's recovery (`OrbitGaugePalette`).
 enum WidgetInk: Equatable, Sendable {
     /// A value, tonight's bedtime, a clock, the "Open" pill's fill.
     case primary
@@ -23,34 +25,82 @@ enum WidgetInk: Equatable, Sendable {
         case .tertiary: return 0.48
         }
     }
+}
 
-    /// The track under a bar: ink at 16 %, the pixel `SurfaceRaised` is.
-    static let trackOpacity = 0.16
+/// What a redaction leaves of the widget's values. A locked device (`.privacy`) and the system's placeholder
+/// (`.placeholder`) both draw the orbit's tracks only and say only "Readiness"; they differ in the number. `.privacy`
+/// boxes the `privacySensitive` views, so the centre holds a constant ("00") whose width gives nothing away. The
+/// placeholder doesn't box them (`privacySensitive` exempts its subtree from `.placeholder`), so it holds no number:
+/// the dash, and no value beside the rectangle's orbit.
+enum WidgetConcealment: Equatable, Sendable {
+    case none
+    case locked
+    case placeholder
+
+    init(_ reasons: RedactionReasons) {
+        if reasons.contains(.placeholder) {
+            self = .placeholder
+        } else if reasons.contains(.privacy) {
+            self = .locked
+        } else {
+            self = .none
+        }
+    }
+
+    /// The tracks only, and the constant words.
+    var hidesValues: Bool { self != .none }
+}
+
+/// VoiceOver's sentences in the widget: the parts joined by ". ", or by a space after one that already ends ("." or
+/// "…"), so nothing is read with a double stop; missing and empty parts are skipped.
+enum WidgetSpeech {
+    static func sentences(_ parts: [String?]) -> String {
+        parts.compactMap { $0 }.filter { !$0.isEmpty }.reduce("") { text, part in
+            if text.isEmpty { return part }
+            return text + (text.hasSuffix(".") || text.hasSuffix("…") ? " " : ". ") + part
+        }
+    }
 }
 
 /// How old what the widget shows is, once the app hasn't written it on the day shown: "As of yesterday", "As of
-/// Monday", "As of Nov 16".
+/// Monday", "As of Nov 16", "As of Dec 20, 2026".
 enum WidgetAge: Equatable, Sendable {
     case yesterday
     /// Two to six days ago: the weekday.
     case weekday(Date)
-    /// A week or more ago: the date.
-    case date(Date)
+    /// A week or more ago: the date, with its year when that isn't the year of the day shown.
+    case date(Date, withYear: Bool)
 
-    /// `nil` while the snapshot is of `date`'s day: what it says is the day's. The app writes the file on the first
-    /// refresh of every day (its `day` changes), so a snapshot of an earlier day means the app hasn't refreshed since,
-    /// and the widget (which turns it over, `ReadinessSnapshot.asOf`) says when it last did. The words are the widget's;
-    /// a locked device never shows the age (`ReadinessWidgetLook.line`).
-    static func of(_ snapshot: ReadinessSnapshot?, at date: Date, calendar: Calendar = .current) -> WidgetAge? {
-        guard let snapshot, snapshot.day != ReadinessSnapshot.dayString(date) else { return nil }
+    /// The calendar the snapshot's `day` is written in (`ReadinessSnapshot.dayString`): Gregorian, the device's zone.
+    static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }
+
+    /// `nil` while what the widget shows is the day's: the snapshot is of `date`'s day, or the app wrote it on that day
+    /// (or later, after a change of clock or zone). The app writes the file on the first refresh of every day (its `day`
+    /// changes), so a snapshot of an earlier day means the app hasn't refreshed since, and the widget (which turns it
+    /// over, `ReadinessSnapshot.asOf`) says when it last did. One calendar decides both, in calendar days, so a change to
+    /// or from daylight saving time doesn't move a day. The words are the widget's; a locked device never shows the age
+    /// (`ReadinessWidgetLook.line`).
+    static func of(_ snapshot: ReadinessSnapshot?, at date: Date, calendar: Calendar = WidgetAge.calendar) -> WidgetAge? {
+        guard let snapshot, snapshot.day != day(of: date, in: calendar) else { return nil }
         let written = snapshot.updatedAt
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: written),
-                                           to: calendar.startOfDay(for: date)).day ?? 1
+        guard let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: written),
+                                                 to: calendar.startOfDay(for: date)).day, days > 0 else { return nil }
         switch days {
-        case ...1: return .yesterday
+        case 1: return .yesterday
         case 2...6: return .weekday(written)
-        default: return .date(written)
+        default:
+            return .date(written, withYear: calendar.component(.year, from: written) != calendar.component(.year, from: date))
         }
+    }
+
+    /// `date`'s day the way `ReadinessSnapshot.dayString` writes it ("2026-11-19"), in `calendar`.
+    static func day(of date: Date, in calendar: Calendar) -> String {
+        let day = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
     }
 }
 
@@ -72,46 +122,63 @@ enum ReadinessWidgetLook {
     /// Medium, since a Light stroke vanishes in the vibrant rendering.
     static let lightNumberFrom: CGFloat = 20
 
+    /// The dial that fits a square of `side`: the frame's 6 pt for the outer dot on each side come off.
+    static func dial(inSide side: CGFloat) -> CGFloat { max((side - 12).rounded(.down), 0) }
+
+    /// The circle's dial: `circularAir` clear of the circle's edge (62 in the 76 pt circle, 58 in the 72), but never
+    /// so small that it loses the number where the frame alone leaves room for it: the SE's 68 pt circle keeps 56
+    /// (`OrbitGaugeGeometry.minDialForNumber`), its outer dot at the edge.
+    static func circularDial(side: CGFloat) -> CGFloat {
+        max(side - circularAir, min(side - 12, OrbitGaugeGeometry.minDialForNumber), 0)
+    }
+
+    // MARK: Dynamic Type
+
     /// The small tile's words grow up to AX1: two caption lines there still leave the orbit room for its number
     /// (`OrbitGaugeGeometry.minDialForNumber`), down to the smallest iPhones' 148 pt tile. Larger, the caption would
     /// take the number's place.
     static let smallLargestType: DynamicTypeSize = .accessibility1
-    /// The rectangle is 76 pt high, and its four lines (13, 22, 11 and 11 pt) fill it at the default size, so they keep
-    /// it; the line family, VoiceOver and the app say the same at any size.
-    static let rectangularLargestType: DynamicTypeSize = .large
-    static let rectangularHeight: CGFloat = 76
+    /// The rectangle grows to xxLarge (it is 72 pt high, 68 on the SE, 76 on the largest iPhones): folded, it measures
+    /// 66 pt there, in 72 and in the SE's 68. Larger, its value and one line no longer fit 72 pt.
+    static let rectangularLargestType: DynamicTypeSize = .xxLarge
 
-    /// The rectangle's tallest stack: "Readiness", the value and two 11 pt lines.
-    static func rectangularStack(label: CGFloat, value: CGFloat, line: CGFloat) -> CGFloat { label + value + 2 * line }
+    /// Above the default size the rectangle folds its four lines into three: "Readiness", the value, and one line,
+    /// tonight's bedtime taking the status's place as on the small tile (`smallCaption`). At the default size it folds
+    /// too where four lines don't fit (the view tries them first).
+    static func rectangularFolds(_ size: DynamicTypeSize) -> Bool { size > .large }
 
-    /// The dial that fits a square of `side`: the frame's 6 pt for the outer dot on each side come off.
-    static func dial(inSide side: CGFloat) -> CGFloat { max((side - 12).rounded(.down), 0) }
-
-    /// The small family's dial: the orbit fills what the caption leaves of the tile, square (104 in the 158 pt tile
-    /// with one 11 pt line, frame 116; it shrinks for a second line or a larger text size).
-    static func smallDial(tile: CGFloat, captionHeight: CGFloat) -> CGFloat {
-        let content = tile - 2 * smallInset
-        return dial(inSide: min(content, content - captionGap - captionHeight))
+    /// The lines the rectangle's status may take: unfolded, it wraps before it truncates (two lines under a value, three
+    /// without one, one beside tonight's bedtime); folded, one under a value and two without.
+    static func rectangularLineLimit(hasValue: Bool, hasBedtime: Bool, folded: Bool) -> Int {
+        if folded { return hasValue ? 1 : 2 }
+        if hasBedtime { return 1 }
+        return hasValue ? 2 : 3
     }
 
     // MARK: the centre
 
     /// What the orbit's centre holds.
     enum Centre: Equatable {
-        /// A locked device or the placeholder: one constant ("00"), since a redaction keeps its text's width.
+        /// A locked device: one constant ("00") under the box, since a redaction keeps its text's width.
         case hidden
         /// A readiness; `dimmed`: a previous day's, while the night is scored or awaited.
         case readiness(Int, dimmed: Bool)
         /// The baselines counted (the caption or the line beside says "of 7").
         case baselines(Int)
-        /// No number known: the dash.
+        /// No number known, or the placeholder, which has none: the dash.
         case dash
     }
 
     /// The day's readiness for a score; the previous day's (the drawing's, else `previousReadiness`) while pending or
     /// awaited; the nights counted while calibrating; `readiness` when the mode is unknown (a file from before the orbit).
-    static func centre(_ mode: OrbitGaugeMode?, readiness: Int?, previousReadiness: Int?, hidden: Bool) -> Centre {
-        if hidden { return .hidden }
+    /// The constant on a locked device, the dash in the placeholder.
+    static func centre(_ mode: OrbitGaugeMode?, readiness: Int?, previousReadiness: Int?,
+                       concealment: WidgetConcealment = .none) -> Centre {
+        switch concealment {
+        case .locked: return .hidden
+        case .placeholder: return .dash
+        case .none: break
+        }
         switch mode {
         case .scored(let values, _)?: return values.readiness.map { .readiness($0, dimmed: false) } ?? .dash
         case .pending(let previous)?: return (previous?.readiness ?? previousReadiness).map { .readiness($0, dimmed: true) } ?? .dash
@@ -140,13 +207,13 @@ enum ReadinessWidgetLook {
     }
 
     /// The line under a value: a snapshot of an earlier day says how old it is (the widget doesn't know whether the night
-    /// has come since); otherwise the band word for a score, else the status. One constant on a locked device.
+    /// has come since); otherwise the band word for a score, else the status. One constant when values are hidden.
     static func line(_ shown: ReadinessSnapshot?, age: WidgetAge?, redacted: Bool) -> Line {
         if !redacted, let age { return .age(age) }
         return .slot(ReadinessSnapshot.lineSlot(shown, redacted: redacted))
     }
 
-    /// The small family's one caption: tonight's bedtime in the evening, else `line`.
+    /// The small family's one caption, and the folded rectangle's one line: tonight's bedtime in the evening, else `line`.
     static func smallCaption(_ shown: ReadinessSnapshot?, bedtime: Date?, age: WidgetAge?, redacted: Bool) -> Line {
         let bedtime = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: redacted)
         return bedtime == .none ? line(shown, age: age, redacted: redacted) : .slot(bedtime)
@@ -159,11 +226,15 @@ enum ReadinessWidgetLook {
     }
 
     /// The rectangle's value beside the orbit, decided like the centre: today's readiness, a previous day's dimmed, the
-    /// baselines' count ("3 of 7"), the constant when locked; none without a snapshot or a number.
-    static func rectangularValue(_ shown: ReadinessSnapshot?, redacted: Bool) -> Centre? {
-        if redacted { return .hidden }
+    /// baselines' count ("3 of 7"), the constant when locked; none without a snapshot or a number, nor in the placeholder.
+    static func rectangularValue(_ shown: ReadinessSnapshot?, concealment: WidgetConcealment = .none) -> Centre? {
+        switch concealment {
+        case .locked: return .hidden
+        case .placeholder: return nil
+        case .none: break
+        }
         guard let shown else { return nil }
-        let value = centre(shown.gauge, readiness: shown.readiness, previousReadiness: shown.previousReadiness, hidden: false)
+        let value = centre(shown.gauge, readiness: shown.readiness, previousReadiness: shown.previousReadiness)
         return value == .dash ? nil : value
     }
 }
@@ -197,7 +268,7 @@ enum WorkoutActivityLook {
         var islandLabel: WidgetInk
         /// The clock and the next set.
         var clock: WidgetInk
-        /// The 6 pt dot before "Rest" and the rest's bar, in Volt. The only Volt in the extension (L27: "now"); neither is
+        /// The 6 pt dot before "Rest" and the rest's bar, in Volt (L27: "now"), the activity's only colour; neither is
         /// drawn otherwise.
         var restMarks: Bool
     }
@@ -206,9 +277,9 @@ enum WorkoutActivityLook {
         Inks(label: .secondary, islandLabel: .primary, clock: .primary, restMarks: restRunning)
     }
 
-    /// The dot before "Rest", the bar's height, the "Open" pill's height (D6C-10: the activity's height is the system's,
-    /// so not the app's 52), the padding and the gap between rows.
-    static let dot: CGFloat = 6, bar: CGFloat = 4, openPill: CGFloat = 32, padding: CGFloat = 16, rowGap: CGFloat = 12
+    /// The dot before "Rest", the "Open" pill's height (D6C-10: the activity's height is the system's, so not the app's
+    /// 52), the padding and the gap between rows.
+    static let dot: CGFloat = 6, openPill: CGFloat = 32, padding: CGFloat = 16, rowGap: CGFloat = 12
     /// The next set may take two lines on the lock screen (D6B-11: one line cut it at the load); one in the island.
     static let nextLines = 2, islandNextLines = 1
     /// Between the label and the session title on the lock screen.
@@ -216,21 +287,16 @@ enum WorkoutActivityLook {
     /// The island's keyline: ink at half strength, never Volt or teal (C §4.15).
     static let keylineOpacity = 0.5
 
-    /// iOS truncates a Live Activity taller than 160 pt on the lock screen.
-    static let lockScreenLimit: CGFloat = 160
-    /// The activities' words keep the default size: the resting card takes about 154 of the lock screen's 160 pt there
-    /// (one size up passes it), and the island's compact and minimal regions are fixed. The clocks and "Open" have fixed
-    /// sizes anyway; VoiceOver reads every word.
-    static let largestType: DynamicTypeSize = .large
+    /// Above the default size the lock screen card condenses, so it stays within the 160 pt iOS gives a Live Activity
+    /// there: the session title goes, and the next set keeps one line, cut in the middle so the set and the load stay.
+    static func condenses(_ size: DynamicTypeSize) -> Bool { size > .large }
 
-    /// The lock screen card's height for its lines: the padding; the top row, where the label's first baseline sits on
-    /// the clock's (so the label drops by `baselineDrop`); the rest's bar while it runs; the next set's two lines beside
-    /// "Open".
-    static func lockScreenHeight(clockLine: CGFloat, baselineDrop: CGFloat, labelStack: CGFloat, nextLine: CGFloat,
-                                 restBar: Bool) -> CGFloat {
-        let top = max(clockLine, baselineDrop + labelStack)
-        let bar = restBar ? rowGap + self.bar : 0
-        let next = max(CGFloat(nextLines) * nextLine, openPill)
-        return 2 * padding + top + bar + rowGap + next
-    }
+    /// The lines the lock screen's next set may take at `size`.
+    static func nextLineLimit(_ size: DynamicTypeSize) -> Int { condenses(size) ? 1 : nextLines }
+
+    /// The lock screen card and the expanded island grow to AX4: condensed, the resting card measures 158 pt there (140 at
+    /// xLarge, 151 at AX3) and 167 at AX5, past the lock screen's 160.
+    static let largestType: DynamicTypeSize = .accessibility4
+    /// The island's compact and minimal regions are fixed (37 pt high): their glyph keeps the default size.
+    static let glanceLargestType: DynamicTypeSize = .large
 }

@@ -1,7 +1,7 @@
 // The workout's Live Activity: lock screen and Dynamic Island. Started, updated and ended locally by the app
 // (RestActivityController); no push. Nocturne (b-16, c-26): the system face with Light numbers, ink and its ladder, Volt
-// only for the running rest's dot and bar (D6B-11), the light "Open" pill (F24). The decisions are `WorkoutActivityLook`'s
-// (`Shared/WidgetLook.swift`).
+// for the running rest's dot and bar and nothing else in the activity (D6B-11), the light "Open" pill (F24). The decisions
+// are `WorkoutActivityLook`'s (`Shared/WidgetLook.swift`).
 import ActivityKit
 import SwiftUI
 import WidgetKit
@@ -16,8 +16,8 @@ enum Brand {
     static let slate = Color(red: 0x12 / 255, green: 0x15 / 255, blue: 0x14 / 255)
     /// `Theme.mist`, the ink.
     static let mist = Color(red: 0xF2 / 255, green: 0xF1 / 255, blue: 0xEC / 255)
-    /// `Theme.signal`, Volt: the running rest's dot and bar, and nothing else in the extension (D6B-11, L27;
-    /// `WidgetNocturneTests` scans for it).
+    /// `Theme.signal`, Volt, as the extension draws it itself: the running rest's dot and bar only (D6B-11, L27;
+    /// `WidgetNocturneTests` scans for it). The orbit's readiness marker is Volt too, from the shared palette's `Signal`.
     static let signal = Color(red: 0xD8 / 255, green: 0xFF / 255, blue: 0x4F / 255)
     static let deepLink = URL(string: "ryft://train/session")
 
@@ -90,12 +90,16 @@ struct WorkoutShown {
 }
 
 /// The lock screen (b-16 with F24's pill): the label with the rest's Volt dot and the session title, the clock 40 Light;
-/// the rest's bar; the next set (two lines) and "Open". One element for VoiceOver.
+/// the rest's bar; the next set (two lines) and "Open". Above the default size it condenses to stay within the lock
+/// screen's 160 pt: no session title, the next set on one line cut in the middle (`WorkoutActivityLook.condenses`). One
+/// element for VoiceOver.
 struct WorkoutLockScreen: View {
     let workout: WorkoutShown
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let inks = workout.inks
+        let condensed = WorkoutActivityLook.condenses(typeSize)
         VStack(alignment: .leading, spacing: WorkoutActivityLook.rowGap) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: WorkoutActivityLook.labelGap) {
@@ -104,9 +108,11 @@ struct WorkoutLockScreen: View {
                         Text(workout.label)
                             .font(.caption2.weight(.medium))
                     }
-                    Text(workout.title)
-                        .font(.caption)
-                        .privacySensitive()
+                    if !condensed {
+                        Text(workout.title)
+                            .font(.caption)
+                            .privacySensitive()
+                    }
                 }
                 .foregroundStyle(inks.label.colour)
                 .lineLimit(1)
@@ -122,7 +128,8 @@ struct WorkoutLockScreen: View {
                 NextLine(state: workout.state)
                     .font(.subheadline)
                     .foregroundStyle(inks.clock.colour)
-                    .lineLimit(WorkoutActivityLook.nextLines)
+                    .lineLimit(WorkoutActivityLook.nextLineLimit(typeSize))
+                    .truncationMode(condensed ? .middle : .tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 OpenPill()
             }
@@ -174,6 +181,7 @@ struct WorkoutIslandBottom: View {
                 NextLine(state: workout.state)
                     .font(.system(size: 14))
                     .lineLimit(WorkoutActivityLook.islandNextLines)
+                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 OpenPill()
             }
@@ -183,14 +191,16 @@ struct WorkoutIslandBottom: View {
     }
 }
 
-/// Compact and minimal: the glyph in ink.
+/// Compact and minimal: the glyph in ink, at the default size (the regions are fixed); VoiceOver says "Rest" or
+/// "Workout".
 struct WorkoutGlyph: View {
     let workout: WorkoutShown
 
     var body: some View {
         Image(systemName: workout.glyph)
             .foregroundStyle(workout.inks.islandLabel.colour)
-            .dynamicTypeSize(...WorkoutActivityLook.largestType)
+            .dynamicTypeSize(...WorkoutActivityLook.glanceLargestType)
+            .accessibilityLabel(Text(workout.label))
     }
 }
 
@@ -235,8 +245,8 @@ struct WorkoutClock: View {
     }
 }
 
-/// The 6 pt dot before "Rest" while a rest runs: Volt, one of the extension's two Volt marks (the other is `RestTimerBar`).
-/// Decoration: the word says the state.
+/// The 6 pt dot before "Rest" while a rest runs: Volt (`Brand.signal`), with `RestTimerBar` the only Volt the extension
+/// draws itself. Decoration: the word says the state.
 struct RestTimerDot: View {
     var body: some View {
         Circle()

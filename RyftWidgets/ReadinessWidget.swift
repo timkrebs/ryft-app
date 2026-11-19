@@ -29,8 +29,11 @@ struct ReadinessProvider: TimelineProvider {
         ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
     }
 
+    /// The widget gallery (`isPreview`) shows the user's own latest snapshot; the synthetic sample only when the app
+    /// hasn't written one yet, so the gallery isn't empty.
     func getSnapshot(in context: Context, completion: @escaping (ReadinessEntry) -> Void) {
-        completion(ReadinessEntry(date: .now, snapshot: context.isPreview ? .preview(.score) : ReadinessSnapshot.load()))
+        let latest = ReadinessSnapshot.load()
+        completion(ReadinessEntry(date: .now, snapshot: latest ?? (context.isPreview ? .preview(.score) : nil)))
     }
 
     /// Now, and the next midnight (the day turns over without the app); then ask again.
@@ -127,29 +130,31 @@ enum Words {
         }
     }
 
-    /// The small tile's caption for a score: "Readiness · High".
+    /// The small tile's caption for a score: "Readiness · High" (a no-break space keeps the dot with "Readiness").
     static func bandCaption(_ readiness: Int) -> String {
-        String(localized: "Readiness · \(band(readiness))", comment: "Widget, under the orbit: the readiness band, e.g. Readiness · High.")
+        String(localized: "Readiness\u{00A0}· \(band(readiness))",
+               comment: "Widget, under the orbit: the readiness band, e.g. Readiness · High. Keep the no-break space before the dot.")
     }
 
-    /// "As of yesterday", "As of Monday", "As of Nov 16": when the app last wrote what the widget shows.
+    /// "As of yesterday", "As of Monday", "As of Nov 16", "As of Dec 20, 2026": when the app last wrote what the widget
+    /// shows.
     static func age(_ age: WidgetAge) -> String {
+        let day: String
         switch age {
         case .yesterday:
             return String(localized: "As of yesterday", comment: "Widget: the app last updated it yesterday; what it shows is from then.")
-        case .weekday(let date):
-            return String(localized: "As of \(date.formatted(.dateTime.weekday(.wide)))",
-                          comment: "Widget: the app last updated it on that day, a weekday (Monday) or a date (Nov 16).")
-        case .date(let date):
-            return String(localized: "As of \(date.formatted(.dateTime.month(.abbreviated).day()))",
-                          comment: "Widget: the app last updated it on that day, a weekday (Monday) or a date (Nov 16).")
+        case .weekday(let date): day = date.formatted(.dateTime.weekday(.wide))
+        case .date(let date, let withYear):
+            day = withYear ? date.formatted(.dateTime.month(.abbreviated).day().year()) : date.formatted(.dateTime.month(.abbreviated).day())
         }
+        return String(localized: "As of \(day)",
+                      comment: "Widget: the app last updated it on that day: a weekday (Monday), a date (Nov 16) or one with its year.")
     }
 
-    /// The rectangle's value while the baselines count: "3 of 7".
+    /// The rectangle's value while the baselines count: "3 of 7" (no-break spaces: it never wraps).
     static func baselinesValue(_ counted: Int) -> String {
-        String(localized: "\(counted) of \(ReadinessSnapshot.baselineNightsRequired)",
-               comment: "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7.")
+        String(localized: "\(counted)\u{00A0}of\u{00A0}\(ReadinessSnapshot.baselineNightsRequired)",
+               comment: "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7. Keep the no-break spaces.")
     }
 
     /// The rectangle's line under "3 of 7".
@@ -199,22 +204,21 @@ enum Words {
         case .name: return String(localized: "Readiness")
         case .openApp: spoken = status(nil)
         case .score(let readiness, let values):
-            let r = readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
-            spoken = values.map { r + ". " + scores($0) } ?? r
+            spoken = WidgetSpeech.sentences([readiness.map { String(localized: "Readiness \($0), \(band($0))") }, values.map(scores)])
         case .night(_, let previous):
-            spoken = status(s) + (previous.map { " " + String(localized: "Last readiness \($0).") } ?? "")
+            spoken = WidgetSpeech.sentences([status(s), previous.map { String(localized: "Last readiness \($0).") }])
         case .baselines:
             spoken = status(s)
         }
-        let asOf = ReadinessWidgetLook.line(s, age: age, redacted: redacted).age.map { ". " + Words.age($0) } ?? ""
-        return spoken + asOf + (bedtime.map { ". " + bedBy($0) } ?? "")
+        let asOf = ReadinessWidgetLook.line(s, age: age, redacted: redacted).age.map(Words.age)
+        return WidgetSpeech.sentences([spoken, asOf, bedtime.map(bedBy)])
     }
 }
 
-/// The lock screen hides the values until the device is unlocked (`.privacy` redaction), and the placeholder has none:
-/// the orbit's tracks only, the number and words redacted, VoiceOver "Readiness".
+/// The lock screen hides the values until the device is unlocked (`.privacy` redaction: the constant "00", boxed), and
+/// the placeholder has none (the dash): the orbit's tracks only, VoiceOver "Readiness" (`WidgetConcealment`).
 extension RedactionReasons {
-    var hidesValues: Bool { contains(.privacy) || contains(.placeholder) }
+    var concealment: WidgetConcealment { WidgetConcealment(self) }
 }
 
 /// Whether a family draws the orbit for `s`: a readiness, the baselines counting, a night pending or awaited (the
@@ -263,7 +267,7 @@ private struct SmallReadiness: View {
     var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
 
-    private var hidden: Bool { redaction.hidesValues }
+    private var hidden: Bool { redaction.concealment.hidesValues }
 
     var body: some View {
         Group {
@@ -320,7 +324,7 @@ private struct CircularReadiness: View {
     var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
 
-    private var hidden: Bool { redaction.hidesValues }
+    private var hidden: Bool { redaction.concealment.hidesValues }
 
     var body: some View {
         Group {
@@ -332,7 +336,7 @@ private struct CircularReadiness: View {
                     ZStack {
                         AccessoryWidgetBackground()
                         WidgetOrbitGauge(mode: snapshot?.gauge,
-                                         size: .custom(dial: max(side - ReadinessWidgetLook.circularAir, 0)),
+                                         size: .custom(dial: ReadinessWidgetLook.circularDial(side: side)),
                                          readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
                                          prominentNumber: true)
                     }
@@ -352,14 +356,18 @@ private struct CircularReadiness: View {
 }
 
 /// The orbit at 44 without a number, then "Readiness" (13 Medium, accentable), the value (22 Light), the band word, a
-/// status or how old the snapshot is (11), and tonight's bedtime (11): at most three lines under "Readiness".
+/// status or how old the snapshot is (11), and tonight's bedtime (11). Above the default size, and wherever four lines
+/// don't fit (the SE's 68 pt slot), it folds to one line under the value, tonight's bedtime taking the status's place
+/// (`ReadinessWidgetLook.rectangularFolds`); it grows up to `rectangularLargestType`.
 private struct RectangularReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
     var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var hidden: Bool { redaction.hidesValues }
+    private var concealment: WidgetConcealment { redaction.concealment }
+    private var hidden: Bool { concealment.hidesValues }
 
     var body: some View {
         HStack(spacing: ReadinessWidgetLook.rectangularGap) {
@@ -369,7 +377,14 @@ private struct RectangularReadiness: View {
                                  readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
                                  showsNumber: false)
             }
-            lines
+            if ReadinessWidgetLook.rectangularFolds(typeSize) {
+                lines(folded: true)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    lines(folded: false)
+                    lines(folded: true)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dynamicTypeSize(...ReadinessWidgetLook.rectangularLargestType)
@@ -377,11 +392,13 @@ private struct RectangularReadiness: View {
         .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: hidden)))
     }
 
-    private var lines: some View {
-        let value = ReadinessWidgetLook.rectangularValue(snapshot, redacted: hidden)
+    private func lines(folded: Bool) -> some View {
+        let value = ReadinessWidgetLook.rectangularValue(snapshot, concealment: concealment)
         let bedtimeSlot = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: hidden)
-        // The status wraps before it truncates: two lines under a value with no bedtime, three without a value.
-        let lineLimit = bedtimeSlot != .none ? 1 : (value == nil ? 3 : 2)
+        let line = folded ? ReadinessWidgetLook.smallCaption(snapshot, bedtime: bedtime, age: age, redacted: hidden)
+            : ReadinessWidgetLook.line(snapshot, age: age, redacted: hidden)
+        let lineLimit = ReadinessWidgetLook.rectangularLineLimit(hasValue: value != nil, hasBedtime: bedtimeSlot != .none,
+                                                                 folded: folded)
         return VStack(alignment: .leading, spacing: 0) {
             Text("Readiness")
                 .font(.footnote.weight(.medium))
@@ -395,14 +412,19 @@ private struct RectangularReadiness: View {
                     .privacySensitive()
             }
             Group {
-                LineText(line: ReadinessWidgetLook.line(snapshot, age: age, redacted: hidden), snapshot: snapshot,
-                         besideCount: true)
+                LineText(line: line, snapshot: snapshot, besideCount: true)
                     .lineLimit(lineLimit)
-                LineText(line: .slot(bedtimeSlot), snapshot: snapshot)
-                    .lineLimit(1)
+                if !folded {
+                    LineText(line: .slot(bedtimeSlot), snapshot: snapshot)
+                        .lineLimit(1)
+                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
+            // Shrinks before it truncates, never below the default 11 pt from xxLarge's 15 ("Bed by 10:41 PM" on the SE).
+            // The scale is a linear guess and SF's smaller sizes track looser, so it may also tighten the last points.
+            .minimumScaleFactor(0.75)
+            .allowsTightening(true)
             .privacySensitive()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -429,9 +451,9 @@ private struct InlineReadiness: View {
 
     var body: some View {
         // Locked: one constant line ("Readiness") under the redaction, whatever the state.
-        Text(Words.inline(snapshot, bedtime: bedtime, redacted: redaction.hidesValues))
+        Text(Words.inline(snapshot, bedtime: bedtime, redacted: redaction.concealment.hidesValues))
             .privacySensitive()
-            .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: redaction.hidesValues)))
+            .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: redaction.concealment.hidesValues)))
     }
 }
 
@@ -529,6 +551,7 @@ extension ReadinessEntry {
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: .previewWritten(daysAgo: 1))
     ReadinessEntry(date: .now, snapshot: nil)
+    ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
 }
 
 #Preview("Circular", as: .accessoryCircular) {
@@ -540,6 +563,7 @@ extension ReadinessEntry {
     ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
     ReadinessEntry(date: .now, snapshot: .previewHundred)
     ReadinessEntry(date: .now, snapshot: nil)
+    ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
 }
 
 #Preview("Inline", as: .accessoryInline) {
