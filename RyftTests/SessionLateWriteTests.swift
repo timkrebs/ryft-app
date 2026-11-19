@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Ryft
 
@@ -30,14 +31,20 @@ struct SessionLateWriteTests {
         #expect(rig.store.pendingOps().count == ops, "nothing queued")
     }
 
+    /// Discard deletes the session and, by cascade, its rows; what the deleted session's relationship still holds after that is
+    /// in no fixed order (any part of the rows, or none), so the store is what's checked: no row for the late pick, nothing left.
     @Test("A late add after Discard changes nothing")
-    func aLateAddAfterDiscard() {
+    func aLateAddAfterDiscard() throws {
         let rig = ReplaceRig()
         let c = rig.controller
-        let before = c.exercises.map(\.id)
+        let sessionID = rig.session.id
         c.discard()
         #expect(c.add(MockTrain.plank) == nil)
-        #expect(c.exercises.map(\.id) == before)
+        let rows = try rig.store.context.fetch(FetchDescriptor<LocalSessionExercise>())
+        #expect(!rows.contains { $0.exerciseId == MockTrain.plank.id }, "no row for the late pick")
+        #expect(rows.isEmpty, "the discarded session's rows went with it: \(rows.map(\.name))")
+        #expect(try rig.store.context.fetch(FetchDescriptor<LocalSession>()).allSatisfy { $0.id != sessionID })
+        #expect(rig.store.pendingOps().allSatisfy { $0.sessionId != sessionID }, "nothing queued for it")
     }
 
     @Test("A late add after the controller stopped (an account change) changes nothing")
