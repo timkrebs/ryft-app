@@ -88,11 +88,11 @@ struct TodayView: View {
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal))
                 }
-                // The status line's tap: Sync details over Today, with its own stack.
+                // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
                     SyncDetailsSheet(model: screens.profile.syncDetails)
                 }
-                // The calibration note's link: the tracker's card, Check sync or Devices & sync, with Done.
+                // The calibration note's link: the tracker's card, Check sync or Devices & sync, each with Close.
                 .sheet(item: $calibrationLink, onDismiss: { linkCheck = nil }) { link in
                     CalibrationLinkSheet(link: link, check: linkCheck)
                 }
@@ -613,7 +613,8 @@ private struct GaugeEntranceConsumer: ViewModifier {
 }
 
 /// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
-/// sync, each a sheet's page with its own stack and Close (Nocturne PR 6 C2), like Sync details from the status line.
+/// sync, each the root of its own stack as a sheet's page with Close (Nocturne PR 6 C2); what Devices & sync pushes keeps
+/// the sheet's top inset (`DevicesPagePlacement.pushedInSheet`). Sync details from the status line is the same kind of page.
 private struct CalibrationLinkSheet: View {
     let link: CalibrationLink
     /// Check sync's model, made on the tap (`TodayView.open`).

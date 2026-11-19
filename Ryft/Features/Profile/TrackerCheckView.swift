@@ -9,6 +9,8 @@ import SwiftUI
 /// appearance. Offline it says RYFT can't be reached; the check itself reads Apple Health on this iPhone and still runs.
 struct TrackerCheckView: View {
     @State private var model: TrackerCheckModel
+    /// Allow access's prompt is up: the pill is busy until it answers.
+    @State private var asking = false
     private let embedded: Bool
     private let placement: DevicesPagePlacement
 
@@ -37,6 +39,7 @@ struct TrackerCheckView: View {
                 }
                 // Pinned, so it's reachable at every text size.
                 .pinnedBar { primary(.primary) }
+                .devicesPagePlacement(placement)
             }
         }
         .task { await model.start(stagger: !reduceMotion) }
@@ -95,8 +98,15 @@ struct TrackerCheckView: View {
     @ViewBuilder private func primary(_ style: PillButton.Style) -> some View {
         switch CheckSyncPrimary.decide(model.phase) {
         case .allowAccess:
-            PillButton(Text("Allow access"), style: style) { await model.requestAccess() }
-                .accessibilityIdentifier("check.allow")
+            PillButton(Text("Allow access"), style: style, busy: asking) {
+                // Busy before the task starts: a second tap in the same frame finds it busy.
+                asking = true
+                Task {
+                    await model.requestAccess()
+                    asking = false
+                }
+            }
+            .accessibilityIdentifier("check.allow")
         case .checkAgain(let busy, let enabled):
             PillButton(busy ? Text("Checking…") : Text("Check again"), style: style, systemImage: PillButton.Icon.retry,
                        busy: busy) {
@@ -119,7 +129,7 @@ struct TrackerCheckView: View {
             HStack(alignment: .firstTextBaseline, spacing: InlineMessageSpec.glyphGap) {
                 Image(systemName: "lock")
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
+                    .foregroundStyle(Theme.textSecondary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: CheckSyncSpec.stepSpacing) {
                     if model.mayNotRead {
