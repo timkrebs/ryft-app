@@ -132,7 +132,7 @@ struct ExerciseStrip: View {
                     addTile
                 }
                 .padding(.horizontal, inset)
-                .padding(.top, 8)
+                .padding(.top, LiveSessionSpec.stripTop)
                 // Top-aligned, so a strip without a superset's bar doesn't sit 3 pt lower.
                 .frame(height: Self.height(typeSize), alignment: .top)
             }

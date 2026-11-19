@@ -9,11 +9,11 @@ import Testing
 struct LiveSessionShellTests {
     // MARK: the numbers (§4)
 
-    @Test("The header: 16 pt sides (12 at 320), 44 pt buttons, 56 high at least, 8 apart (6 at 320)")
+    /// Its height is pinned in a window: `LiveSessionShellHostedTests.headerGeometry`.
+    @Test("The header: 16 pt sides (12 at 320), 44 pt buttons, 6 above and below, 8 apart (6 at 320)")
     func header() {
         #expect(LiveSessionSpec.sidePadding == 16 && LiveSessionSpec.compactSidePadding == 12)
-        #expect(LiveSessionSpec.headerRow == 44)
-        #expect(LiveSessionSpec.headerMinHeight == 56)
+        #expect(LiveSessionSpec.headerRow == 44 && LiveSessionSpec.headerVerticalPadding == 6)
         #expect(LiveSessionSpec.headerGap == 8 && LiveSessionSpec.compactHeaderGap == 6)
         #expect(LiveSessionSpec.clock == 30 && LiveSessionSpec.compactClock == 26 && LiveSessionSpec.compactClockScale == 0.8)
         #expect(LiveSessionSpec.finishCap == .xxLarge && LiveSessionSpec.compactFinishCap == .large)
@@ -30,7 +30,7 @@ struct LiveSessionShellTests {
     /// The geometry the Focused tests pinned before: Nocturne changes inks, not these.
     @Test("The strip, its tiles and the page's fade keep their sizes")
     func focusedGeometry() {
-        #expect(ExerciseStrip.height == 76 && LiveSessionSpec.strip == 76)
+        #expect(ExerciseStrip.height == 76 && LiveSessionSpec.strip == 76 && LiveSessionSpec.stripTop == 8)
         #expect(ExerciseTile.size == 56 && ExerciseTile.largeSize == 64)
         #expect(FocusedSessionView.topFade == 16)
         #expect(SetTableColumns.fitting(width: 390).padding == LiveSessionSpec.sidePadding)
@@ -158,6 +158,13 @@ struct LiveSessionShellHostedTests {
             #expect(abs(finish.minX - (more.maxX - Self.overhang) - s.gap) < 0.5, "More \(more), Finish \(finish)")
             #expect(abs(finish.height - PillButton.compactHitHeight) < 0.5, "\(finish)")
             #expect(abs(finish.midY - more.midY) < 0.5 && abs(more.midY - minimise.midY) < 0.5, "one row")
+            // Its height, from the window's top to the strip (its first tile less the strip's top): 6 + the taller of the
+            // buttons and the title over the clock + 6. The strip's own element isn't in the tree the window walks.
+            let titleAndClock = try #require(w.node("\(c.session.title), elapsed time", exactly: true)).frame
+            let tile = try #require(w.nodes().first { $0.identifier?.hasPrefix("session.strip.") == true }).frame
+            let height = tile.minY - LiveSessionSpec.stripTop - w.host.view.safeAreaInsets.top
+            let expected = 2 * LiveSessionSpec.headerVerticalPadding + max(LiveSessionSpec.headerRow, titleAndClock.height)
+            #expect(abs(height - expected) < 0.5, "header \(height), title and clock \(titleAndClock), tile \(tile)")
         }
     }
 
@@ -208,6 +215,9 @@ struct LiveSessionShellHostedTests {
 
     private static func rgb(_ color: Color) -> RGB { FocusedPolishHostedTests.rgb(color) }
 
+    /// For a flat colour, where the render is exact: a 6 % tint or a 4-point change of an outline's opacity stays outside it.
+    private static let exact = FocusedPolishHostedTests.exact
+
     private static func isClose(_ p: RGB, _ color: Color, tolerance: Double = 0.06) -> Bool {
         FocusedPolishHostedTests.isClose(p, to: rgb(color), tolerance: tolerance)
     }
@@ -248,7 +258,7 @@ struct LiveSessionShellHostedTests {
             let pill = try #require(w.node("Rest", exactly: true)).frame
             #expect(c.rest.isRunning)
             let inside = try #require(w.pixel(at: CGPoint(x: pill.maxX - 12, y: pill.minY + 6)))
-            #expect(Self.isClose(inside, Theme.surface), "\(inside)")
+            #expect(Self.isClose(inside, Theme.surface, tolerance: Self.exact), "\(inside)")
             // The ring's top, where its progress starts: the pill centres its content in its 144 pt, so walk the leading half
             // of that line. Nothing else in the pill is Volt.
             let top = pill.midY - RestPill.ring / 2
@@ -278,7 +288,7 @@ struct LiveSessionShellHostedTests {
                 #expect(Self.isClose(check, Theme.surface), "\(name) ✓ \(check)")
             }
             let doneGround = try #require(w.pixel(at: CGPoint(x: done.minX + 4, y: done.midY)))
-            #expect(Self.isClose(doneGround, Theme.surface), "a done row has no tint: \(doneGround)")
+            #expect(Self.isClose(doneGround, Theme.surface, tolerance: Self.exact), "a done row has no tint: \(doneGround)")
         }
     }
 

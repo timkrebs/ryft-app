@@ -10,13 +10,12 @@ enum LiveSessionSpec {
     /// The page's sides: 16 (358 pt of content), 12 at 320 (D6B-2), in both layouts. The table's own padding is
     /// `SetTableColumns.padding`.
     nonisolated static let sidePadding: CGFloat = 16, compactSidePadding: CGFloat = 12
-    /// Above and below the header's row.
+    /// Above and below the header's row. The header is 6 + the taller of the buttons' 44 and the title over the clock + 6; the
+    /// title over the clock is the taller at every size, so the header is never the 56 of the buttons alone (pinned in a window
+    /// by `LiveSessionShellHostedTests.headerGeometry`).
     nonisolated static let headerVerticalPadding: CGFloat = 6
     /// The row of buttons: a circle button's 44 pt box, with a 40 pt circle or the compact pill in it (D6B-3, was 48).
     nonisolated static let headerRow: CGFloat = Theme.Metrics.minHitTarget
-    /// The header's least height, 56 (was 64). The title over the clock is taller than the buttons, so the header takes their
-    /// height and 6 above and below.
-    nonisolated static let headerMinHeight: CGFloat = headerRow + 2 * headerVerticalPadding
     /// Between the header's items, from circle edge to circle edge: 8, and 6 at 320.
     nonisolated static let headerGap: CGFloat = 8, compactHeaderGap: CGFloat = 6
     /// The minimise and More circles' glyph.
@@ -32,7 +31,7 @@ enum LiveSessionSpec {
     // MARK: the Focused page (§4.2)
 
     /// The strip: 8 above, the 56 pt tile, 3, the 3 pt superset bar, 6 below. 84 with the AX3 tile of 64.
-    nonisolated static let strip: CGFloat = 76
+    nonisolated static let strip: CGFloat = 76, stripTop: CGFloat = 8
     /// The strip's tiles: 56, 64 from AX3; radius 14.
     nonisolated static let tile: CGFloat = 56, largeTile: CGFloat = 64, tileRadius: CGFloat = 14
     /// The page's soft top edge under the strip.

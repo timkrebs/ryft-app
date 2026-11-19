@@ -117,7 +117,8 @@ struct FocusedPolishHostedTests {
             let frame = try #require(w.node("Finish", exactly: true)).frame
             let edge = try #require(w.pixel(at: CGPoint(x: frame.minX + 0.5, y: frame.midY)))
             let inside = try #require(w.pixel(at: CGPoint(x: frame.minX + 4, y: frame.midY)))
-            #expect(Self.isClose(edge, to: Self.over(Theme.textPrimary.opacity(PillButton.outlineOpacity), Theme.background)), "\(edge)")
+            #expect(Self.isClose(edge, to: Self.over(Theme.textPrimary.opacity(PillButton.outlineOpacity), Theme.background),
+                                 tolerance: Self.exact), "\(edge)")
             #expect(Self.isClose(inside, to: Self.rgb(Theme.background)), "\(inside)")
         }
     }
@@ -151,6 +152,9 @@ struct FocusedPolishHostedTests {
         let a = Double(t.opacity)
         return (Double(t.red) * a + b.r * (1 - a), Double(t.green) * a + b.g * (1 - a), Double(t.blue) * a + b.b * (1 - a))
     }
+
+    /// For a flat colour, where the render is exact: a 6 % tint or a 4-point change of an outline's opacity stays outside it.
+    static let exact = 0.02
 
     static func isClose(_ p: RGB, to c: RGB, tolerance: Double = 0.06) -> Bool {
         abs(p.r - c.r) < tolerance && abs(p.g - c.g) < tolerance && abs(p.b - c.b) < tolerance
