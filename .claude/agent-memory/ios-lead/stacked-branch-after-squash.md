@@ -18,4 +18,12 @@ On 2026-10-26, P2 (#57) was stacked on A2 (#54). The merge re-added A2's `syncGa
    PR (here, just `PrivacyInfo.xcprivacy`). Restore anything else from the branch head.
 3. Run a strict build before pushing.
 
+**Better: rebase --onto instead of merging main.** Write down the parent's commit you branched from (e.g. into a
+scratchpad file) when creating the stacked branch. After the parent is squash-merged, run
+`git rebase --onto origin/main <that commit> <branch>`. Only the branch's own commits are replayed. Then check that
+`git diff --stat origin/main..HEAD` shows only the branch's files.
+
+On 2026-11-17 this worked cleanly for Nocturne PR 4 (three docs commits) after PR 3 (#114). Check
+`git diff <parent head> <squash commit>` is empty first, which proves the squash holds everything.
+
 See [[integration-branch]].

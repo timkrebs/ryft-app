@@ -1,8 +1,8 @@
 - [Today-state review checks](review_checks_today_state.md) — day words, per-body cost, first-frame catalog, widget republish triggers, readiness⇔recovery
 - [Outbox/queue review checks](review-checks-outbox-queues.md) — stale snapshots, late answers, epoch timing, never-sent markers, unknown 403 codes, whole-batch 4xx
 - [Shared transport/coalescing checks](review-checks-shared-transport.md) — error-shape audits, cancellable waits, joined replays, global holds, debounced-save flush, flakes
-- [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merge-tree, merged-in open PRs
-- [Derived states](review-checks-derived-states.md) — server aggregates, night flags, kept starts, after-midnight, derive-once, nil on unscored days
+- [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merged-in PRs, deleted views' stale keys
+- [Derived states](review-checks-derived-states.md) — server aggregates, after-midnight, nil unscored, ScoringWord.state, tonight = BedtimePlanner
 - [Dark launch + remote content](review-checks-dark-launch.md) — flag-off leaks, shared string keys, RootView modifiers, remote glyphs, launch args
 - [Wire drafts + flags](review-checks-wire-drafts-and-flags.md) — flag key grammar vs platform, stub errors recorded as success, whole-doc PUTs, cache removal
 - [Numeric pipelines](review-checks-numeric-pipelines.md) — noise vs design, few-seed tests, limit hysteresis, sliding multipath, window anchors, swiftc probes
@@ -13,6 +13,27 @@
 - [Multi-step flows](review-checks-multistep-flows.md) — stale prepare Tasks after back/forward, reused sheets with side effects, auto-seen results
 - [Session UI planners](review-checks-session-ui.md) — planner vs nextUp warm-ups, children:.ignore, VO on collapse, cover updates while dismissing, fold vs keypad
 - [Undo windows + held uploads](review-checks-undo-windows.md) — queued ops leak held state, tasks outliving Finish, chained plan PUTs, probe copies
-- [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, String enums, parity exceptions, legacy-removal field loss, task id vs env flag, phaseAnimator
+- [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, parity exceptions, task id vs env flag, v3 halo-clip/entrance-end tautologies
 - [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, enum collapse, probe recipe
 - [Design notes before code](review-checks-design-notes.md) — "only site" claims, dark value of swaps, ticket order, Shared visibility, stale base
+- [Tokens + dark-only](review-checks-tokens-dark-only.md) — mid-branch ADRs, dropped scheme asserts, exposed call-site tracking, CI fetches fonts, icon checks
+- [Design components ahead of screens](review-checks-design-components.md) — glow-tile text colours, doc drift, fixedSize HStack overflow, FP ties, test guard bounds
+- [Launch overlays](review-checks-launch-overlays.md) — side effects under the cover, XCUITest dumps, idle waits, hand-off geometry, .global across TabView
+- [Async write queues](review-checks-async-write-queues.md) — unawaited clear, one lock value+save, no escalation, as-of without order, 0xdead10cc, harness gaps
+- [Large-text fixes](review-checks-large-text.md) — ViewThatFits lifetimes (probed), bounds at capped size, per-test fails-on-main, pixel diff, custom Layout agreement
+- [Polling rules (settle/wait)](review-checks-polling-rules.md) — mutate each clause vs the PR tests (swiftc probe), injected clock, what sampling cannot see
+- [Ownership marker lists](review-checks-ownership-lists.md) — marker after row, prune vs fallback store, unobserved body reads, pre-upgrade rows, stale ADR amendments
+- [Deployment target + Info.plist keys](review-checks-deployment-target.md) — INFOPLIST_KEY_* inert on app target, OS switch tables, Xcode-version vs 26.1 APIs
+- [Screen loads (.task(id:))](review-checks-screen-loads.md) — new task starts before old unwinds (probed), defer-clobbered flags, swallowed-error absences, clamped deep links
+- [Trend cards](review-checks-trend-cards.md) — degenerate bands, deltas differing by range (recurs), "Last night" on older nights, offline as-of, HH:MM
+- [Form and onboarding restyles](review-checks-form-restyles.md) — label-as-placeholder, .task autofocus on pop, pop-gesture keepers (hidesBackButton), over-applied fallbacks
+- [List rewrites](review-checks-list-rewrites.md) — status word vs timestamp, ids on wrappers, rows moved into gated groups, leftovers, test-count claims vs logs
+- [Mutant + OS-run evidence](review-checks-mutant-evidence.md) — which assertion a mutant failed, gated probes, mtimes vs runs, delayed Tasks holding rows
+- [Screen restyles](review-checks-screen-restyles.md) — pixel tolerance, unused spec consts, shared inks, API-impossible mocks, unplaced issues, endless loads
+- [Detail pages](review-checks-detail-pages.md) — try? loaders vs "none yet", re-reads dropping data, windowed counts, plurals in shots, two roundings, per-kind pages
+- [List + session sheets](review-checks-list-and-sheets.md) — compact pills stacked only at AX3 (tnum CoreText), trailing pills truncating labels, vacuous save tests, Cancel mid-await
+- [Row adapters on shared rows](review-checks-row-adapters.md) — preview-only closures, 320 x xxxL word breaks, key comments, fake offline tests
+- [Activity sheets + detail](review-checks-activity-sheets.md) — "waiting for HR" on unsent rows, hidden units, grid circles at 320, chip-row squeeze, DatePicker value vs label
+- [Settings subpages](review-checks-settings-subpages.md) — FormField drops lineLimit (AX prompt cut), "nothing changed" vs lost responses, List-row notices mute, silent tap guards
+- [Sync status pages](review-checks-sync-status-pages.md) — "Up to date" from last-good stamp, gated reads uncounted, every outbox, placement presenters, sheet insets
+- [Refusals as states](review-checks-refusal-states.md) — what the old drop let through, 2xx-undecodable, queued creates vs online callers, silent 422s, Retry with no dependency

@@ -10,8 +10,14 @@ I don't use `isolation: worktree`, and I don't use local `main`, because local `
 on a busy day. Afterwards:
 - Copy in the git-ignored files the build needs: `Config/Debug.xcconfig`, `Config/Release.xcconfig` and
   `Ryft/Resources/Fonts/*.otf`.
-- Give each agent its own simulator in the brief (e.g. iPhone 18 Pro / 17 / Air / 18 Pro Max / 17e), or let it
-  `simctl create` a private one and delete it afterwards. The Makefile's `iPhone 17 Pro` isn't installed on this Mac.
+- Give each agent its own simulator. Since 2026-11-16 the named iOS 27.0 devices (e.g. iPhone 18 Pro `D23B7086`,
+  iPhone 17 `A79A36CA`) don't boot ("runtime not available"). So create a private one per agent with
+  `xcrun simctl create <name> com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-2`,
+  pass its UDID in the brief, and delete it afterwards. Tests there need `-parallel-testing-enabled NO`, because
+  parallel clones fail.
+- `git worktree add -b … origin/main` sets the new branch's upstream to `origin/main`. Push with
+  `git push -u origin <branch>`. A sibling branch merged into another one then reports "not fully merged": check
+  `git merge-base --is-ancestor` before `git branch -D`.
 - Put this in every brief: **never `pkill -f xcodebuild/xctest/Simulator`; kill only your own PIDs.** On 2026-10-22 a
   profiler's broad pkill shut down a shared simulator mid-run.
 - Before starting an agent, `git merge --ff-only origin/main` the empty branches. Main moves often, because the user

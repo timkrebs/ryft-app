@@ -1,12 +1,20 @@
 - [Parallel worktrees](parallel-worktrees.md) — scratchpad worktrees from origin/main, copy xcconfigs+fonts, one simulator each
-- [Integration branch](integration-branch.md) — pre-resolve multi-PR conflicts on one branch; its CI proves the combined state
-- [CI UI timeouts](ci-ui-timeouts.md) — tally + per-step breakdown first; runner = this Mac; wedged "RYFT CI" sim → delete it, script recreates
+- [Integration branch](integration-branch.md) — trial-merge EVERY PR of a batch (semantic conflicts), strict-build + Unit; strict up-to-date = 1 CI per merge
+- [CI UI timeouts](ci-ui-timeouts.md) — runner offline (session expired) → launchctl kickstart; tally + steps first; wedged "RYFT CI" sim → delete
 - [Device sessions](device-sessions.md) — user's own iPhone: start only when he says it's free; screenshot only with RYFT in front
 - [Strings catalog edits](strings-catalog-edits.md) — never re-serialise xcstrings; check --stat + semantic diff + trailer of every strings commit
 - [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
 - [swiftc via make](swiftc-via-make.md) — direct swiftc/sips/python refused for agents; wire scripts into Makefile targets
+- [Headless: no background](headless-no-background.md) — ending the turn kills background agents; run them foreground, never "wait"
 - [Headless permission preflight](headless-permission-preflight.md) — probe git write + xcodebuild first; if refused, plan read-only, never edit on main
-- [Nightly signing blocked](nightly-signing-blocked.md) — since 11-05 the archive fails (cert limit, then unsigned PLA); a merge ships nothing until fixed
-- [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
+- [Nightly = TestFlight](nightly-testflight.md) — every main merge ships next morning; user wants whole feature sets, ask before mid-series merges
+- [Stacked branch after squash](stacked-branch-after-squash.md) — prefer `rebase --onto origin/main <base>`; merging main can resurrect code
+- [Resumed agent reports](resumed-agent-reports.md) — a SendMessage-resumed agent may finish silently; verify from git, rerun tests/lint myself
+- [claude.ai sources](claude-ai-sources.md) — canvases readable via list_files/read_file; project knowledge files aren't, ask for a paste
+- [Lint is two targets](lint-is-two-targets.md) — CI Lint = `make lint` + `make style` (swiftlint); run both before push
 - [Simulator language](simulator-language.md) — German runs: change only the sim (simctl spawn / full .plist path); a defaults path write once hit the Mac
+- [Strict warnings build](strict-warnings-build.md) — CI = RYFT_STRICT_WARNINGS=YES + warning grep; build that way before push, agents miss warnings
+- [Big programs in parallel](big-programs-parallel.md) — plan + parallel agents, max 5 builders, 4 while PRs wait on CI (runner = this Mac); batched questions
+- [Copilot review threads](copilot-review-threads.md) — unresolved Copilot threads keep a green PR BLOCKED; list them, verify, fix or answer, resolve
+- [Offline-first rule](offline-first-requirement.md) — user 2026-11-19: everything visible offline; offline data kept + uploaded on reconnect

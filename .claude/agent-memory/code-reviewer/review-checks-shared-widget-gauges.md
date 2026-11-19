@@ -60,3 +60,17 @@ Gauge drawing keyed on the score, reviewed 2026-11-06:
   level tests use `.scored`, and pending tests use `previewScored` (71, solid), so nothing sees it. Render pending at 50 and 20.
 - **Contrast pinned on the app's ground isn't the widget's:** `Brand.background` is hard-coded in `RyftWidgets.swift`, not a
   colour set. Recompute any light ratio on it. **Worth grepping:** spec lines repeated in a later section (8.1 "Same:" columns).
+
+OrbitGauge v3 (Nocturne PR 3, 2026-11-16); geometry, rounding, contrast and Shared all right:
+- **"Not clipped" pixel tests must sample outside the square frame**, not just past the inscribed circle. A halo at the
+  board's strain (212.6 deg) never leaves the 260 square; it does so only when the head is within ~13 deg of an axis
+  (strain ~0, 5.25, 10.5, 15.75, 21). Check `hypot(...) > half` guards against the rect.
+- **"Entrance last frame == static" tests frozen at `end`** hit `elapsed >= end -> settled`, so they compare the static
+  drawing with itself. Ask for `end - 1e-4` (the choreography branch) too.
+- **Probed (macOS swiftc + ImageRenderer):** `.compositingGroup()` with a `destinationOut` child does not clip to the
+  frame; without the group the cut goes through the background as well (black in an opaque render). No need to re-probe.
+- **Whole-or-absent ticks by centre distance** still let a tick corner reach ~20 % into the clear ring (0.59 of 3 pt at
+  260, strain 20.3). For integer readiness the Volt ring is never entered (nearest drawn tick 7.59 vs cut 7.5).
+- **Evidence without building:** `xcrun xcresulttool get test-results summary --path <wt>/build/*.xcresult` plus `.dia`
+  sizes, compared with `git log --date=format:%H:%M:%S` commit times and the sources' `ls -lT` mtimes. zsh does not
+  word-split `$FILES`: use `git diff --name-only -z | xargs -0` for swiftformat/swiftlint.
