@@ -14,7 +14,8 @@ import UIKit
 struct TrainPlansSummaryShotsTests {
     /// The screens, each its own test (a test has a minute).
     nonisolated static let screens = ["summary", "summary-no-records", "summary-pending", "banner", "plans", "plans-paused",
-                          "plans-empty-mine", "plan-detail", "plan-detail-active", "plan-builder", "plan-builder-new"]
+                                      "plans-empty-mine", "plans-import", "plan-detail", "plan-detail-active", "plan-builder",
+                                      "plan-builder-new"]
 
     /// The screen and its window's height at the default size and at AX3. The summary's window holds the whole sheet, so its
     /// pinned Done shows once (a paged shot repeats what floats over the page, and hides what sits under it); the banner's
@@ -26,7 +27,9 @@ struct TrainPlansSummaryShotsTests {
         case "summary-pending": return (AnyView(TrainShotFixtures.pendingSummary()), 1_000, 2_300)
         case "banner": return (AnyView(TrainShotFixtures.banner()), 300, 500)
         case "plans": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog())), 844, 844)
-        case "plans-paused": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(paused: true))), 844, 844)
+        // Paused as the platform reports it: no enrolment, the plan remembered on this iPhone (set in `writeScreen`).
+        case "plans-paused": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(enrolled: false))), 844, 844)
+        case "plans-import": return (AnyView(TrainShotFixtures.importPlans()), 844, 844)
         case "plans-empty-mine": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(enrolled: false, mine: false))), 844, 844)
         case "plan-detail": return (AnyView(TrainShotFixtures.planDetail(MockTrain.fullBody.id)), 844, 844)
         case "plan-detail-active": return (AnyView(TrainShotFixtures.planDetail(MockTrain.upperLower.id)), 844, 844)
@@ -41,7 +44,8 @@ struct TrainPlansSummaryShotsTests {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["TRAIN_PLANS_SHOTS_DIR"] else { return }
         if let only = env["TRAIN_PLANS_SHOTS_ONLY"], !only.split(separator: ",").contains(Substring(name)) { return }
-        UserDefaults.standard.removeObject(forKey: "train.pausedPlanID")
+        let previous = TrainShotFixtures.setPausedPlan(name == "plans-paused" ? MockTrain.upperLower.id : nil)
+        defer { TrainShotFixtures.setPausedPlan(previous) }
         let (view, height, ax3Height) = Self.view(name)
         for (size, typeSize, category, h) in [("default", DynamicTypeSize.large, UIContentSizeCategory.large, height),
                                               ("ax3", .accessibility3, .accessibilityExtraLarge, ax3Height)] {
@@ -51,9 +55,31 @@ struct TrainPlansSummaryShotsTests {
                                            .environment(\.locale, Locale(identifier: "en_US"))) { w in
                 try await w.settle()
                 try await w.settle()
-                let image = try await PagedWindowShot.image(w)
+                let image = name == "plans-import" ? try await Self.openMenu(w) : try await PagedWindowShot.image(w)
                 let data = try #require(image.pngData())
                 try data.write(to: URL(fileURLWithPath: "\(dir)/\(name)-\(size).png"))
+            }
+        }
+    }
+}
+
+extension TrainPlansSummaryShotsTests {
+    /// New plan's menu open over Plans: the window, and the scene's window that holds the menu drawn over it. Without a
+    /// menu (it didn't open), the page alone.
+    private static func openMenu(_ w: HostedWindow) async throws -> UIImage {
+        let newPlan = try #require(w.nodes().first { $0.identifier == "plans.newPlan" })
+        _ = newPlan.activate()
+        try? await w.wait("the menu") { w.menuItem("Start from scratch") != nil }
+        try await w.settle()
+        let menuWindow = (w.menuItem("Start from scratch") as? UIView)?.window
+        let bounds = w.window.bounds
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = true
+        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in
+            w.window.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            if let menuWindow, menuWindow !== w.window {
+                menuWindow.drawHierarchy(in: menuWindow.convert(menuWindow.bounds, to: w.window), afterScreenUpdates: true)
             }
         }
     }
@@ -70,9 +96,72 @@ private extension View {
     }
 }
 
+/// The platform out of reach: every call fails as a dropped connection does.
+struct OfflineTrainSource: TrainDataSource {
+    private var offline: URLError { URLError(.notConnectedToInternet) }
+    func exercises() async throws -> [Exercise] { throw offline }
+    func createExercise(_ e: Exercise) async throws -> Exercise { throw offline }
+    func exerciseHistory(id: UUID) async throws -> ExerciseHistory { throw offline }
+    func plans() async throws -> PlansOverview { throw offline }
+    func plan(id: UUID) async throws -> Plan { throw offline }
+    func savePlan(_ p: Plan) async throws -> Plan { throw offline }
+    func deletePlan(id: UUID) async throws { throw offline }
+    func enroll(planID: UUID) async throws -> Enrollment { throw offline }
+    func pauseEnrollment() async throws { throw offline }
+    func planToday() async throws -> PlanToday? { throw offline }
+    func sessions(from: Date, to: Date) async throws -> [SessionSummary] { throw offline }
+    func session(id: UUID) async throws -> TrainSession { throw offline }
+    func putSession(_ s: TrainSession) async throws -> SessionPutResult { throw offline }
+    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession { throw offline }
+    func deleteSession(id: UUID) async throws { throw offline }
+}
+
 /// The states the shots draw, each from its own store where it needs one.
 @MainActor
 enum TrainShotFixtures {
+    /// Sets the plan remembered as paused (`train.pausedPlanID`; nil: none) and returns the one that was there, to put back.
+    @discardableResult
+    static func setPausedPlan(_ id: UUID?) -> UUID? {
+        let key = "train.pausedPlanID"
+        let previous = UserDefaults.standard.string(forKey: key).flatMap(UUID.init(uuidString:))
+        if let id {
+            UserDefaults.standard.set(id.uuidString, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        return previous
+    }
+
+    /// Runs `body` with `id` remembered as paused, then puts back what was there.
+    static func withPausedPlan(_ id: UUID?, _ body: () -> Void) {
+        let previous = setPausedPlan(id)
+        defer { setPausedPlan(previous) }
+        body()
+    }
+
+    /// Offline for the reads (nothing is sent); kept alive, as the scheduler holds its environment weakly.
+    private static let offlineEnvironment = AppEnvironment.test(online: false)
+
+    /// Plans with nothing cached, offline.
+    static func offlinePlans() -> some View {
+        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: true)
+        library.reads = offlineEnvironment.reads
+        return NavigationStack { PlansView().trainDestinations() }
+            .environment(library)
+    }
+
+    /// A plan page whose plan is neither cached nor loadable.
+    static func unloadablePlan(_ id: UUID) -> some View {
+        NavigationStack { PlanDetailView(planID: id) }
+            .environment(TrainLibrary(store: TrainStore(inMemory: true), remote: { OfflineTrainSource() }, restore: true))
+    }
+
+    /// Plans with `train.import` on: New plan is a menu (Start from scratch, Import from file).
+    static func importPlans() -> some View {
+        plans(MockTrain.catalog())
+            .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
+    }
+
     /// A library whose cached catalog is `catalog` (an active, a paused or no enrolment), restored as the app restores it.
     static func library(_ catalog: PlansOverview) -> TrainLibrary {
         let store = TrainStore(inMemory: true)

@@ -10,23 +10,22 @@ enum SessionSummaryLayout {
     nonisolated static let spacing: CGFloat = 12
     /// The header's height (no buttons) and the title → the subtitle.
     nonisolated static let headerHeight: CGFloat = 40, subtitleGap: CGFloat = 2
-    /// The records card: the label → the first record.
-    nonisolated static let recordsTitleGap: CGFloat = 8
+    /// The records card: the label → the first record; between the records once they stack (AX sizes).
+    nonisolated static let recordsTitleGap: CGFloat = 8, stackedRecordsGap: CGFloat = 12
     /// Under the last block, above the pinned Done.
     nonisolated static let bottomPadding: CGFloat = 24
 }
 
 /// What the summary says (PR 6 B §5.1), from the session as `…/complete` answered it, or as it was logged here while that
 /// answer is pending. The phone computes no strain: without the platform's answer the numeral is unlit and the ruler has no
-/// needle. Pure, so the tests read its states.
+/// needle. `…/complete` always returns a strain (the muscular load on the strain scale, heart rate or not), so a session
+/// without one is one the platform hasn't scored yet. Pure, so the tests read its states.
 struct SessionSummaryContent: Equatable {
     enum StrainState: Equatable {
         /// The platform's strain.
         case scored
         /// No answer yet (offline, queued), or not scored yet.
         case pending
-        /// Answered without a strain, and the matched workout has no heart rate.
-        case noHeartRate
     }
 
     let title: String
@@ -46,9 +45,7 @@ struct SessionSummaryContent: Equatable {
     ///   - session: the platform's answer, else the local document.
     ///   - answered: `…/complete` answered (the session's scores are the platform's).
     ///   - pendingCompletion: the local session waits for `…/complete` (offline).
-    ///   - hasHeartRate: the matched workout's heart rate, once looked up; nil while unknown.
-    init(session: TrainSession?, answered: Bool, pendingCompletion: Bool, hasHeartRate: Bool?,
-         locale: Locale = .autoupdatingCurrent) {
+    init(session: TrainSession?, answered: Bool, pendingCompletion: Bool, locale: Locale = .autoupdatingCurrent) {
         let title = session?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.title = title.isEmpty ? String(localized: "Workout") : title
         let date = session.map { $0.endedAt ?? $0.startedAt }
@@ -64,13 +61,7 @@ struct SessionSummaryContent: Equatable {
         }
 
         let strain = session?.strain
-        if strain != nil {
-            strainState = .scored
-        } else if answered, hasHeartRate == false {
-            strainState = .noHeartRate
-        } else {
-            strainState = .pending
-        }
+        strainState = strain != nil ? .scored : .pending
         hero = StrainHero(strain: strain, namesStrain: true, missingCaption: Self.missingCaption(strainState))
         tiles = Self.tiles(session, locale: locale)
         showsWillSync = !answered && pendingCompletion
@@ -84,9 +75,6 @@ struct SessionSummaryContent: Equatable {
         case .pending:
             return String(localized: "Strain · arrives once your workout is scored",
                           comment: "Workout summary, under the unlit strain numeral: the platform hasn't scored the session yet.")
-        case .noHeartRate:
-            return String(localized: "Strain · no heart rate for this workout",
-                          comment: "Workout summary, under the unlit strain numeral: scored, but no heart rate came with it.")
         }
     }
 
@@ -101,24 +89,33 @@ struct SessionSummaryContent: Equatable {
             duration = WorkoutStat(id: "duration", label: String(localized: "Duration"), value: shown.value, unit: shown.unit,
                                    spoken: Fmt.spokenDuration(minutes: minutes, locale: locale))
         }
-        let volume = volumeParts(session.map { $0.volumeKg ?? Volume.of(sets) })
+        let volume = volumeParts(session.map { $0.volumeKg ?? Volume.of(sets) }, locale: locale)
         let completed = sets.filter { $0.completedAt != nil }.count
         return [
             duration,
-            WorkoutStat(id: "volume", label: String(localized: "Volume"), value: volume.value, unit: volume.unit),
+            WorkoutStat(id: "volume", label: String(localized: "Volume"), value: volume.value, unit: volume.unit,
+                        spoken: volume.spoken),
             WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(session?.muscularTrimp)),
             WorkoutStat(id: "sets", label: String(localized: "Sets"), value: session == nil ? Fmt.placeholder : "\(completed)"),
         ]
     }
 
-    /// "7,500" + "kg"; "12.4" + "t" from 10 t (`Fmt.volume`'s rule, split for the tile's unit).
-    static func volumeParts(_ kg: Double?) -> (value: String, unit: String?) {
-        guard let kg else { return (Fmt.placeholder, nil) }
+    /// "7,500" + "kg" ("7,500 kilograms"); "12.4" + "t" from 10 t ("12.4 tonnes"): `Fmt.volume`'s rule, split for the
+    /// tile's unit.
+    static func volumeParts(_ kg: Double?, locale: Locale = .autoupdatingCurrent) -> (value: String, unit: String?, spoken: String?) {
+        guard let kg else { return (Fmt.placeholder, nil, nil) }
         if kg >= 10_000 {
-            return ((kg / 1000).formatted(.number.precision(.fractionLength(1))),
-                    String(localized: "t", comment: "Tonnes, the unit after a training volume of 10 t or more: \"12.4 t\"."))
+            let tonnes = (kg / 1000).formatted(.number.precision(.fractionLength(1)).locale(locale))
+            return (tonnes,
+                    String(localized: "summary.volume.tonnes", defaultValue: "t",
+                           comment: "Workout summary, the Volume tile: the unit after a volume of 10 tonnes or more (\"12.4 t\")."),
+                    String(localized: "summary.volume.tonnesSpoken", defaultValue: "\(tonnes) tonnes",
+                           comment: "VoiceOver, the workout summary's Volume tile from 10 tonnes: \"12.4 tonnes\"."))
         }
-        return (kg.formatted(.number.precision(.fractionLength(0))), String(localized: "kg"))
+        let spoken = Measurement(value: kg, unit: UnitMass.kilograms)
+            .formatted(.measurement(width: .wide, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0)))
+                .locale(locale))
+        return (kg.formatted(.number.precision(.fractionLength(0)).locale(locale)), String(localized: "kg"), spoken)
     }
 }
 
@@ -157,8 +154,7 @@ struct SessionSummarySheet: View {
 
     var body: some View {
         let content = SessionSummaryContent(session: completed ?? session?.wire, answered: completed != nil,
-                                            pendingCompletion: session?.pendingCompletion == true,
-                                            hasHeartRate: heartRate?.hasHeartRate, locale: locale)
+                                            pendingCompletion: session?.pendingCompletion == true, locale: locale)
         let prs = completed?.prs ?? session?.prs ?? []
         ScrollView {
             VStack(spacing: 0) {
@@ -200,7 +196,8 @@ struct SessionSummarySheet: View {
                 .accessibilityIdentifier("summary.done")
         }
         .presentationBackground(Theme.background)
-        .presentationDragIndicator(.visible)
+        // It can't be swiped away (Done saves the notes), so no grabber promises it.
+        .presentationDragIndicator(.hidden)
         .sensoryFeedback(.success, trigger: appeared)
         .onAppear {
             notes = session?.notes ?? ""
@@ -239,7 +236,8 @@ struct SessionSummarySheet: View {
                 Text("Personal records")
                     .ryftLabelStyle()
                     .accessibilityAddTraits(.isHeader)
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading,
+                       spacing: typeSize.isAccessibilitySize ? SessionSummaryLayout.stackedRecordsGap : 0) {
                     ForEach(prs, id: \.self) { pr in
                         PRBadge(record: pr, exerciseName: library.exercise(id: pr.exerciseId)?.name)
                     }
@@ -313,7 +311,7 @@ struct SessionSummarySheet: View {
     }
 
     /// A watch's (or another app's) workout with heart rate; RYFT's own session has none.
-    static func hasHeartRate(_ workout: Workout) -> Bool {
+    private static func hasHeartRate(_ workout: Workout) -> Bool {
         workout.avgHr != nil && workout.source != "ryft-session"
     }
 
@@ -326,18 +324,16 @@ struct SessionSummarySheet: View {
     }
 }
 
-/// The heart-rate line under the records, and whether there was heart rate at all (the unlit numeral's caption).
+/// The heart-rate line under the records.
 struct SummaryHeartRate: Equatable {
     let text: String
-    let hasHeartRate: Bool
 
-    init(text: String, hasHeartRate: Bool) {
+    init(text: String) {
         self.text = text
-        self.hasHeartRate = hasHeartRate
     }
 
     init(_ workout: Workout) {
-        self.init(text: SessionSummarySheet.heartRateLine(workout), hasHeartRate: SessionSummarySheet.hasHeartRate(workout))
+        self.init(text: SessionSummarySheet.heartRateLine(workout))
     }
 }
 
@@ -382,9 +378,7 @@ private enum SummaryPreview {
         return FinishSummary(sessionID: s.id, completed: nil)
     }
 
-    static let garmin = SummaryHeartRate(text: "Heart rate from Garmin Connect", hasHeartRate: true)
-    static let noHeartRate = SummaryHeartRate(
-        text: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.", hasHeartRate: false)
+    static let garmin = SummaryHeartRate(text: "Heart rate from Garmin Connect")
 }
 
 #Preview("Summary · scored, records") {
@@ -401,12 +395,6 @@ private enum SummaryPreview {
 
 #Preview("Summary · pending strain, will sync") {
     SessionSummarySheet(summary: SummaryPreview.pending())
-        .previewEnvironment()
-}
-
-#Preview("Summary · no heart rate") {
-    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completedUnscored.id, completed: MockTrain.completedUnscored),
-                        heartRate: SummaryPreview.noHeartRate)
         .previewEnvironment()
 }
 

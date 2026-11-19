@@ -108,6 +108,8 @@ private struct PlansScreen: View {
                     }
                     if model.isLoading {
                         placeholders
+                    } else if model.isOffline {
+                        offline
                     } else {
                         section(Text("Built-in"), rows: model.builtinRows)
                         section(Text("My plans"), rows: model.mineRows)
@@ -128,11 +130,11 @@ private struct PlansScreen: View {
         .sheet(item: $editing) { PlanBuilderView(plan: $0) }
     }
 
-    /// New plan, and under it, while the user has no plans of their own, where they will appear.
+    /// New plan, and under it, once the plans are known and none is the user's own, where they will appear.
     private var newPlanBlock: some View {
         VStack(alignment: .leading, spacing: PlansLayout.footnoteGap) {
             newPlan
-            if !model.isLoading, model.mine.isEmpty {
+            if model.hasCatalog, model.mine.isEmpty {
                 Text("Plans you make or copy appear here.",
                      comment: "Plans, under New plan while the user has no plans of their own.")
                     .font(.ryft(.caption))
@@ -200,6 +202,15 @@ private struct PlansScreen: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Loading plans", comment: "VoiceOver: Plans' outline rows while the plans load the first time."))
         .accessibilityIdentifier("plans.loading")
+    }
+
+    /// Nothing cached and no load running (offline, or the reads wait to retry): a calm line instead of outlines that
+    /// would never fill. Try again, or pull, loads again.
+    private var offline: some View {
+        InlineMessage(message: String(localized: "Plans appear once you're online.",
+                                      comment: "Plans, with no plans saved on this iPhone and no connection to load them."),
+                      systemImage: "wifi.slash", retry: { await model.refresh() }, identifier: "plans.offline",
+                      announces: false)
     }
 
     @ViewBuilder
@@ -353,6 +364,10 @@ private struct PlanDetailScreen: View {
                             .accessibilityIdentifier("plan.delete")
                             .padding(.top, PlansLayout.daysGap)
                     }
+                } else if let failure = model.failure {
+                    InlineMessage(message: failure, details: model.errorDetails, retry: { await model.load() },
+                                  identifier: "plan.loadError")
+                        .padding(.top, PlansLayout.headerGap)
                 } else {
                     loading
                         .padding(.top, PlansLayout.headerGap)
@@ -439,18 +454,21 @@ private struct PlanDetailScreen: View {
                 }
                 .accessibilityIdentifier("plan.enroll")
             }
-            if p.isBuiltin {
-                PillButton(Text("Copy and edit"), style: .secondary) { editing = p.copy() }
-                    .accessibilityIdentifier("plan.copy")
-            } else {
-                PillButton(Text("Edit"), style: .secondary) { editing = p }
-                    .accessibilityIdentifier("plan.edit")
+            // While enrolling, pausing or resuming, that pill is busy (it ignores taps itself); the others are off.
+            Group {
+                if p.isBuiltin {
+                    PillButton(Text("Copy and edit"), style: .secondary) { editing = p.copy() }
+                        .accessibilityIdentifier("plan.copy")
+                } else {
+                    PillButton(Text("Edit"), style: .secondary) { editing = p }
+                        .accessibilityIdentifier("plan.edit")
+                }
             }
+            .disabled(model.working)
             if let error = model.error {
                 InlineMessage(message: error, details: model.errorDetails)
             }
         }
-        .disabled(model.working)
     }
 
     /// While the detail loads (not cached): two day cards' outlines; VoiceOver hears it once.
@@ -459,7 +477,8 @@ private struct PlanDetailScreen: View {
             ForEach(0..<2, id: \.self) { _ in PlaceholderRow(height: PlansLayout.dayPlaceholderHeight) }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Loading plans", comment: "VoiceOver: Plans' outline rows while the plans load the first time."))
+        .accessibilityLabel(Text("Loading the plan", comment: "VoiceOver: a plan page's outline cards while its days load."))
+        .accessibilityIdentifier("plan.loading")
     }
 
     /// "Day A ~55 min", the exercises between hairlines, and the day's own Start (`b-11`). One container, "Day A, about 55
@@ -486,7 +505,7 @@ private struct PlanDetailScreen: View {
             ForEach(day.exercises.sorted { $0.position < $1.position }) { exerciseRow($0) }
             PillButton(Text("Start \(day.name)"), style: .secondary) { coordinator.start(day: day) }
                 .disabled(coordinator.active != nil)
-                .accessibilityIdentifier("plan.startDay")
+                .accessibilityIdentifier("plan.startDay.\(day.dayIndex)")
                 .padding(.horizontal, GroupedListSpec.rowInset)
                 .padding(.top, PlansLayout.startTopGap - PlansLayout.exerciseRowPadding)
                 .padding(.bottom, PlansLayout.startBottomGap)
@@ -542,6 +561,12 @@ private enum PlansPreview {
         if catalog.active?.status == .active { store.saveDocument(MockTrain.planToday, key: "train.today") }
         return TrainLibrary(store: store, remote: { MockTrainSource.shared }, restore: true)
     }
+
+    /// Paused as the platform reports it: no enrolment in `GET /v1/plans`, the plan remembered on this iPhone.
+    static func pausedLibrary() -> TrainLibrary {
+        UserDefaults.standard.set(MockTrain.upperLower.id.uuidString, forKey: "train.pausedPlanID")
+        return library(MockTrain.catalog(enrolled: false, mine: false))
+    }
 }
 
 #Preview("Plans · active") {
@@ -552,7 +577,7 @@ private enum PlansPreview {
 #Preview("Plans · paused, no plans of your own") {
     // Inside `previewEnvironment`: the nearer library wins.
     NavigationStack { PlansView().trainDestinations() }
-        .environment(PlansPreview.library(MockTrain.catalog(paused: true, mine: false)))
+        .environment(PlansPreview.pausedLibrary())
         .previewEnvironment()
 }
 
