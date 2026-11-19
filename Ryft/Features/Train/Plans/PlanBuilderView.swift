@@ -23,15 +23,30 @@ enum PlanBuilderRules {
         attempted || hasChanges ? issues : []
     }
 
-    /// Save is on once the plan is valid (a name, an exercise on every day) and no save is running.
-    static func canSave(issues: [PlanIssue], saving: Bool) -> Bool {
-        issues.isEmpty && !saving
+    /// Save is on once the plan is valid (a name, an exercise on every day). While it saves it is busy, not off.
+    static func canSave(issues: [PlanIssue]) -> Bool {
+        issues.isEmpty
     }
 
-    /// The Rest menu's choices: the session's presets, and the exercise's own when it is none of them.
+    /// The issues no field carries (no day at all, a superset of one, sets or rest out of range from an older plan): each
+    /// a line above Add day, so a Save that is off always says why. One line per sentence.
+    static func formIssues(_ shown: [PlanIssue]) -> [PlanIssue] {
+        var seen = Set<String>()
+        return shown.filter { issue in
+            switch issue {
+            case .noDays, .lonelySuperset, .sets, .rest: return seen.insert(issue.message).inserted
+            default: return false
+            }
+        }
+    }
+
+    /// The rests the old stepper reached that the session's presets leave out: none, 30 s, 45 s, and 6 to 15 minutes.
+    static let extraRests = [0, 30, 45, 360, 480, 600, 900]
+
+    /// The Rest menu's choices: the session's presets, `extraRests`, and the exercise's own, in order.
     @MainActor
     static func restChoices(current: Int) -> [Int] {
-        RestChoices.presets.contains(current) ? RestChoices.presets : (RestChoices.presets + [current]).sorted()
+        Array(Set(RestChoices.presets + extraRests + [current])).sorted()
     }
 }
 
@@ -77,12 +92,15 @@ private struct PlanBuilderScreen: View {
                     basics
                     descriptionField
                     ForEach(Bindable(model).plan.days) { $day in dayEditor($day) }
+                    formIssueLines
                     PillButton(Text("Add day"), style: .secondary) { model.addDay() }
                         .accessibilityIdentifier("planBuilder.addDay")
                 }
                 .padding(.horizontal, Theme.Metrics.screenPadding)
                 .padding(.top, PlanBuilderLayout.headerGap)
                 .padding(.bottom, PlanBuilderLayout.bottomPadding)
+                // While Save is busy, nothing else changes the plan it is sending.
+                .disabled(model.saving)
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -103,7 +121,7 @@ private struct PlanBuilderScreen: View {
         .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard changes", role: .destructive) { dismiss() }
         }
-        .interactiveDismissDisabled(model.hasChanges)
+        .interactiveDismissDisabled(model.hasChanges || model.saving)
     }
 
     // MARK: sections
@@ -111,12 +129,16 @@ private struct PlanBuilderScreen: View {
     /// Cancel (it asks first when something changed) · "Edit plan" / "New plan" · Save, off until the plan is valid, its hint
     /// what is missing.
     private var header: some View {
-        SheetHeader(model.isNew ? Text("New plan") : Text("Edit plan"), closeLabel: Text("Cancel"),
-                    onClose: { if model.hasChanges { confirmDiscard = true } else { dismiss() } }) {
+        SheetHeader(model.isNew ? Text("New plan") : Text("Edit plan"), closeLabel: Text("Cancel"), onClose: {
+            // Cancel waits for a save in flight (`SheetHeader` can't turn its circle off on its own).
+            guard !model.saving else { return }
+            if model.hasChanges { confirmDiscard = true } else { dismiss() }
+        }) {
+            // Busy while saving (it ignores taps itself); off only while the plan isn't valid.
             PillButton(Text("Save"), size: .compact, busy: model.saving) {
                 Task { if await model.save() { dismiss() } }
             }
-            .disabled(!PlanBuilderRules.canSave(issues: model.issues, saving: model.saving))
+            .disabled(!PlanBuilderRules.canSave(issues: model.issues))
             .accessibilityHint(Text(verbatim: model.issues.first?.message ?? ""))
             .accessibilityIdentifier("planBuilder.save")
             // A compact pill keeps its one line (`SheetHeader`).
@@ -236,6 +258,19 @@ private struct PlanBuilderScreen: View {
                 GroupedRow.action(Text("Add exercise"), systemImage: "plus") { addingTo = dayID }
                     .accessibilityIdentifier("planBuilder.addExercise")
             }
+        }
+    }
+
+    /// The shown issues no field carries, above Add day.
+    @ViewBuilder
+    private var formIssueLines: some View {
+        let issues = PlanBuilderRules.formIssues(shownIssues)
+        if !issues.isEmpty {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
+                ForEach(issues) { issueText($0) }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("planBuilder.issues")
         }
     }
 

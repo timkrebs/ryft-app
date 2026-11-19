@@ -155,14 +155,16 @@ final class PlansViewModel {
         return library.catalog?.summary(id: id)?.name ?? library.plan(id: id)?.name ?? String(localized: "Your plan")
     }
 
-    /// The active plan's glow tile, or the paused plan's outline (PR 6 B §6.1). The next day is today's prescription while
-    /// active, else the enrolment's day in the cached plan; a pause the app only remembers has neither.
+    /// The active plan's glow tile, or the paused plan's outline (PR 6 B §6.1). Active: the week, and the next day from
+    /// today's prescription, else (only then: it reads the cached plan) the enrolment's day in it. Paused: neither, since
+    /// `GET /v1/plans` reports no paused enrolment (API_REQUESTS Train #2).
     var tile: PlanTileContent? {
         guard let id = currentPlanID else { return nil }
+        if isPaused { return PlanTileContent(planID: id, paused: true, name: currentName, week: nil, nextDay: nil) }
         let enrollment = library.activeEnrollment
-        let derived = PlanTileContent.nextDayName(plan: library.plan(id: id), enrollment: enrollment)
-        let next = isPaused ? derived : library.today?.day.name ?? derived
-        return PlanTileContent(planID: id, paused: isPaused, name: currentName, week: enrollment?.currentWeek, nextDay: next)
+        let next = library.today?.day.name
+            ?? PlanTileContent.nextDayName(plan: library.plan(id: id), enrollment: enrollment)
+        return PlanTileContent(planID: id, paused: false, name: currentName, week: enrollment?.currentWeek, nextDay: next)
     }
 
     var builtin: [PlanSummary] { library.catalog?.builtin ?? [] }
@@ -175,14 +177,26 @@ final class PlansViewModel {
         return isPaused ? .paused : .active
     }
 
-    /// The first load, with nothing cached: three outline rows instead of a spinner.
-    var isLoading: Bool { library.catalog == nil && library.error == nil }
+    /// Whether the first load has started: until then, as while it runs, the outline rows show.
+    private(set) var startedLoading = false
+
+    var hasCatalog: Bool { library.catalog != nil }
+    /// The first load, with nothing cached: three outline rows instead of a spinner. Only while a load runs (or is about to).
+    var isLoading: Bool { !hasCatalog && (library.isLoading || !startedLoading) }
+    /// Nothing cached and no load running, without a failure to show: offline, or the reads are held back for a retry.
+    var isOffline: Bool { !hasCatalog && !isLoading && library.error == nil }
     var error: String? { library.error }
     var errorDetails: String? { library.errorDetails }
 
     /// Only the first visit loads; pull to refresh reloads.
-    func loadIfNeeded() async { if library.catalog == nil { await library.refresh() } }
-    func refresh() async { await library.refresh() }
+    func loadIfNeeded() async {
+        startedLoading = true
+        if library.catalog == nil { await library.refresh() }
+    }
+    func refresh() async {
+        startedLoading = true
+        await library.refresh()
+    }
 
     func togglePause() async {
         working = true
@@ -201,6 +215,8 @@ final class PlanDetailViewModel {
     private(set) var plan: Plan?
     var week = 1
     private(set) var working = false
+    /// The last load came back without the plan (not cached, and the platform failed).
+    private(set) var loadFailed = false
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -227,8 +243,14 @@ final class PlanDetailViewModel {
         return days.sorted { $0.dayIndex < $1.dayIndex }
     }
 
+    /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
+    var failure: String? { plan == nil && loadFailed ? library.error : nil }
+
     func load() async {
-        plan = await library.loadPlan(id: planID)
+        loadFailed = false
+        let loaded = await library.loadPlan(id: planID)
+        if loaded != nil || plan == nil { plan = loaded }
+        loadFailed = plan == nil && !Task.isCancelled
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }
 
@@ -317,6 +339,8 @@ final class PlanBuilderViewModel {
             plan.days[d].exercises[i + 1].supersetGroup = nil
             if i == 0 || !isLinked(dayID: dayID, i - 1) { plan.days[d].exercises[i].supersetGroup = nil }
         }
+        // Unlinking A from B in A→B→C leaves C alone in the group: a lonely superset isn't one.
+        renumber(dayID: dayID)
     }
 
     func remove(dayID: UUID, _ i: Int) {

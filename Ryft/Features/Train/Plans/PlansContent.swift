@@ -15,44 +15,31 @@ struct PlanTileContent: Equatable {
     let name: String
     /// "Active" / "Paused" at the head's left.
     let stateText: String
-    /// "Week 6" at the head's right, while active. A paused plan's right ("since Nov 3") needs a paused date the API
-    /// does not report.
+    /// "Week 6" at the head's right, while active. A paused plan has none: `GET /v1/plans` reports no paused enrolment, so
+    /// neither its week nor its paused date ("since Nov 3") is known (API_REQUESTS Train #2).
     let weekText: String?
-    /// "Next: Upper A"; paused "Next: Upper A · week 6 waits", or "Resume continues where you stopped." when the next day
-    /// is not known.
+    /// "Next: Upper A" while active and the day is known; paused, always "Resume continues where you stopped.".
     let nextText: String?
-    /// "Upper/Lower 4×, Active, Week 6, Next: Upper A".
+    /// "Upper/Lower 4×, Active, Week 6, Next: Upper A"; "Upper/Lower 4×, Paused, Resume continues where you stopped.".
     let spoken: String
 
     /// - Parameters:
-    ///   - week: the enrolment's week, when the platform reported it.
-    ///   - nextDay: the day the plan continues with, when known.
+    ///   - week: the active enrolment's week, when the platform reported it.
+    ///   - nextDay: the day the active plan continues with, when known.
+    ///   A paused plan uses neither: nothing real reports them.
     init(planID: UUID, paused: Bool, name: String, week: Int?, nextDay: String?) {
         self.planID = planID
         self.name = name
         state = paused ? .paused : .active
         stateText = paused ? String(localized: "Paused") : String(localized: "Active")
-        let next = nextDay.map { String(localized: "Next: \($0)") }
-        var spokenParts = [name, stateText]
         if paused {
             weekText = nil
-            if let next {
-                let waits = week.map {
-                    String(localized: "week \($0) waits",
-                           comment: "Plans, a paused plan's tile, after \"Next: Upper A · \": the week the plan continues with.")
-                }
-                nextText = [next, waits].compactMap { $0 }.joined(separator: " · ")
-                spokenParts += [next, waits].compactMap { $0 }
-            } else {
-                nextText = String(localized: "Resume continues where you stopped.")
-                spokenParts.append(nextText ?? "")
-            }
+            nextText = String(localized: "Resume continues where you stopped.")
         } else {
             weekText = week.map { String(localized: "Week \($0)") }
-            nextText = next
-            spokenParts += [weekText, next].compactMap { $0 }
+            nextText = nextDay.map { String(localized: "Next: \($0)") }
         }
-        spoken = spokenParts.joined(separator: ", ")
+        spoken = ([name, stateText] + [weekText, nextText].compactMap { $0 }).joined(separator: ", ")
     }
 
     /// The day an enrolment continues with, from the plan's detail: the day at `currentDayIndex` in its week (a plan
@@ -105,7 +92,8 @@ enum PlanSpeech {
                comment: "VoiceOver, a plan day's card: the day's name and its estimated length (\"Day A, about 55 minutes\").")
     }
 
-    /// "Back squat, 5 sets of 5 at 100 kilograms, rest 3 minutes"; "Superset" first for a superset member.
+    /// "Back squat, 5 sets of 5 at 100 kilograms, rest 3 minutes"; "Superset" first for a superset member; the exercise's
+    /// notes last, as the row shows them.
     static func exercise(_ e: PlanExercise, locale: Locale = .autoupdatingCurrent) -> String {
         let reps = e.repsMin == e.repsMax
             ? "\(e.repsMin)"
@@ -118,6 +106,8 @@ enum PlanSpeech {
                           comment: "VoiceOver, a plan exercise's rest between sets (\"rest 3 minutes\").")
         var parts = [e.exercise.name, prescription, rest]
         if e.supersetGroup != nil { parts.insert(String(localized: "Superset"), at: 0) }
+        let notes = e.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !notes.isEmpty { parts.append(notes) }
         return parts.joined(separator: ", ")
     }
 
