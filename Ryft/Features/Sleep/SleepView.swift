@@ -294,18 +294,14 @@ struct SleepNightCards: View {
     var body: some View {
         VStack(spacing: SleepLayout.cardGap) {
             if let need = sleep.need {
-                Button { showsNeed = true } label: {
-                    Card { SleepNeedBar(need: need) }
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityHint(Text("Shows how your sleep need adds up, and your baseline to change"))
-                .accessibilityIdentifier("sleep.need")
+                SleepNeedCard(need: need) { showsNeed = true }
             }
             stages
             details
         }
         .sheet(isPresented: $showsNeed) {
-            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings)
+            SleepNeedSheet(need: sleep.need, total: summary.need, needMinutes: score?.sleepNeedMin,
+                           night: screens.sleep.subtitle, editor: screens.bodySettings)
         }
     }
 

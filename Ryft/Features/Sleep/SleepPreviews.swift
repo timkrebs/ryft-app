@@ -224,14 +224,38 @@ private extension View {
 #Preview("Sleep · Bedtime · AX3") { SleepModePreview(mode: .plan).previewEnvironment().ax3() }
 
 #Preview("Sleep need") {
-    let state = AppState.preview()
-    SleepNeedSheet(need: MockData.todayDetail.sleep?.need, total: "8h 18m", editor: BodySettingsEditor(state: state))
+    let state = MockSleepNeedStates.state()
+    SleepNeedSheet(need: MockSleepNeedStates.need, total: "8h 18m", night: "Last night · Sun, Nov 15",
+                   editor: BodySettingsEditor(state: state))
+        .previewEnvironment(state)
+}
+
+#Preview("Sleep need · AX3") {
+    let state = MockSleepNeedStates.state()
+    SleepNeedSheet(need: MockSleepNeedStates.needWithNap, total: "7h 53m", night: "Last night · Sun, Nov 15",
+                   editor: BodySettingsEditor(state: state))
+        .previewEnvironment(state)
+        .ax3()
+}
+
+#Preview("Sleep need · no breakdown") {
+    let state = MockSleepNeedStates.state()
+    SleepNeedSheet(need: nil, total: "8h 18m", needMinutes: 498, night: "Last night · Sun, Nov 15",
+                   editor: BodySettingsEditor(state: state))
         .previewEnvironment(state)
 }
 
 #Preview("Sleep need · no breakdown · AX3") {
-    let state = AppState.preview()
-    SleepNeedSheet(need: nil, total: "8h 10m", editor: BodySettingsEditor(state: state))
+    let state = MockSleepNeedStates.state()
+    SleepNeedSheet(need: nil, total: "8h 18m", needMinutes: 498, night: "Last night · Sun, Nov 15",
+                   editor: BodySettingsEditor(state: state))
         .previewEnvironment(state)
         .ax3()
+}
+
+#Preview("Sleep need · offline, no account") {
+    let state = MockSleepNeedStates.state(account: false, online: false)
+    SleepNeedSheet(need: MockSleepNeedStates.need, total: "8h 18m", night: "Last night · Sun, Nov 15",
+                   editor: BodySettingsEditor(state: state))
+        .previewEnvironment(state)
 }

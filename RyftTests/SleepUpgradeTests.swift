@@ -16,15 +16,16 @@ struct SleepNeedBreakdownTests {
     @Test func termsAndSentenceComeFromTheAPI() {
         let b = SleepNeedBreakdown(SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 0, total: 538))
         #expect(b.terms.map(\.kind) == [.base, .strain, .debt])   // a zero credit is left out
-        #expect(b.terms.map(\.signed) == ["7h 40m", "+37m", "+41m"])
-        #expect(b.sentence.contains(Fmt.duration(minutes: 538)))
-        #expect(b.sentence.contains("37m") && b.sentence.contains("41m"))
+        // Clocks, as Nocturne's numerals and totals are (PR 6 C §4.12).
+        #expect(b.terms.map(\.signed) == ["7:40", "+0:37", "+0:41"])
+        #expect(b.sentence.contains(Fmt.clock(minutes: 538)))
+        #expect(b.sentence.contains("0:37") && b.sentence.contains("0:41"))
     }
 
     @Test func aNapIsACredit() {
         let b = SleepNeedBreakdown(SleepNeed(base: 460, strain: 0, debt: 12, napCredit: 35, total: 437))
         #expect(b.terms.map(\.kind) == [.base, .debt, .nap])
-        #expect(b.terms.last?.signed == "−35m")
+        #expect(b.terms.last?.signed == "−0:35")
         #expect(b.total == 437)
     }
 }
@@ -168,7 +169,7 @@ struct SleepBaselineTests {
         manual.sleepBaseLearnedMin = 455
         state.user = manual
         #expect(e.sleepBaseSourceText == String(localized: "Set by you · learned \(Fmt.duration(minutes: 455))"))
-        #expect(e.canUseLearnedBase && e.usesLearnedTitle == String(localized: "Use the learned value"))
+        #expect(e.canUseLearnedBase && e.usesLearnedTitle == String(localized: "Use RYFT's estimate"))
         manual.sleepBaseLearnedMin = nil
         state.user = manual
         #expect(e.usesLearnedTitle == String(localized: "Use the default"))
@@ -254,7 +255,8 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failNext = APIError.http(500, "", requestID: "rid-500")
         #expect(!(await e.setSleepBase(500)))
-        #expect(e.error == APIError.http(500, "").localizedDescription)
+        // In words, as Journal settings say it (PR 6 C §4.11): no answer, so it may not have saved.
+        #expect(e.error == "RYFT didn't answer, so this may not have saved. Try again in a moment.")
         #expect(e.errorDetails?.contains("rid-500") == true)
         #expect(state.refreshIssue == nil)
     }
@@ -278,7 +280,7 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failNext = APIError.http(503, "")
         #expect(!(await e.setBirthYear(1990)))
-        #expect(e.birthYearError == APIError.http(503, "").localizedDescription && e.error == nil)
+        #expect(e.birthYearError == "RYFT didn't answer, so this may not have saved. Try again in a moment." && e.error == nil)
         #expect(await e.setBirthYear(1990))
         #expect(e.birthYearError == nil)
     }
@@ -304,8 +306,8 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failure = APIError.http(500, "", requestID: "rid-rescore")
         await e.rescore()
-        #expect(e.rescoreStatus == APIError.http(500, "").localizedDescription)
-        #expect(e.rescoreDetails?.contains("rid-rescore") == true)
+        #expect(e.rescoreStatus == "RYFT didn't answer, so the rescore may not have started. Try again in a moment.")
+        #expect(e.rescoreDetails?.contains("rid-rescore") == true && e.rescoreFailed)
     }
 
     @Test func theMockPlatformKeepsEachChange() async throws {
