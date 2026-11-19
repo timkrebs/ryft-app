@@ -400,7 +400,7 @@ enum MockTrainScoring {
         if let best = all.max(by: { (E1RM.estimate(weightKg: $0.1.weightKg, reps: $0.1.reps) ?? 0)
                                     < (E1RM.estimate(weightKg: $1.1.weightKg, reps: $1.1.reps) ?? 0) }),
            let v = E1RM.estimate(weightKg: best.1.weightKg, reps: best.1.reps) {
-            out.append(record(.e1rm, E1RM.rounded(v), best))
+            out.append(record(.e1rm, E1RMChange.rounded(v), best)) // to the tenth, as the API's estimates
         }
         if let heavy = all.max(by: { ($0.1.weightKg ?? 0) < ($1.1.weightKg ?? 0) }), let kg = heavy.1.weightKg {
             out.append(record(.maxWeight, kg, heavy))

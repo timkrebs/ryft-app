@@ -40,9 +40,44 @@ enum TrainHistoryRows {
                                        valueCaption: loadCaption)
     }
 
+    /// A failed read with nothing cached.
+    static var failureText: String {
+        String(localized: "Your workouts couldn't be loaded. Try again when you're online.",
+               comment: "History: the platform couldn't be reached and nothing is cached (as the session detail's message).")
+    }
+
     /// The word under a row's load.
     static var loadCaption: String {
         String(localized: "load", comment: "History: under a session's muscular load at the right of its row (\"85.0\" over \"load\").")
+    }
+}
+
+/// "Offline · as of 14:05" (History, the exercise page): the copy on this phone after a failed read, quiet (`caption`,
+/// `textTertiary`, `wifi.slash`). The time is when the copy was fetched, never relative ("14:05", "Yesterday 14:05", "Tue 14:05").
+struct TrainOfflineNote: View {
+    let fetchedAt: Date?
+    var identifier = "train.offline"
+    var now: Date = .now
+
+    static func text(fetchedAt: Date?, now: Date) -> String {
+        guard let fetchedAt else { return String(localized: "Offline") }
+        return String(localized: "Offline · as of \(SyncLine.dataTime(fetchedAt, now: now))",
+                      comment: "Train's History and exercise page: offline, showing the copy fetched at this time (\"14:05\", \"Yesterday 14:05\").")
+    }
+
+    var body: some View {
+        Label {
+            Text(verbatim: Self.text(fetchedAt: fetchedAt, now: now))
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "wifi.slash")
+        }
+        .font(.ryft(.caption))
+        .monospacedDigit()
+        .foregroundStyle(Theme.textTertiary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -70,11 +105,22 @@ struct TrainHistoryView: View {
     }
 }
 
-/// The pushed page (PR 6 B §7.1, `b-13`): Back, "History" over "8 workouts", then per week its title and totals over the
-/// session rows. Loading the first time is three outline rows; none yet is an outlined card that says where they come from.
-/// Layout only; the first model handed in is kept for the screen's lifetime.
+/// Wiring; the first model handed in is kept for the screen's lifetime.
 private struct TrainHistoryScreen: View {
     @State var model: TrainHistoryViewModel
+
+    var body: some View {
+        TrainHistoryPage(model: model)
+            .task { await model.load() }
+    }
+}
+
+/// The pushed page (PR 6 B §7.1, `b-13`): Back, "History" over "25 workouts · last 90 days", then per week its title and
+/// totals over the session rows. Loading the first time is three outline rows; none yet (the platform said so) is an outlined
+/// card that says where they come from; a failed read with nothing cached is the message with Try again; the copy on this
+/// phone after a failed read carries "Offline · as of 14:05". Layout only.
+struct TrainHistoryPage: View {
+    let model: TrainHistoryViewModel
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -82,10 +128,14 @@ private struct TrainHistoryScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 PushedHeader(Text("History"), subtitle: model.subtitle.map { Text(verbatim: $0) }, identifierPrefix: "history")
                 VStack(alignment: .leading, spacing: TrainHistoryLayout.weekSpacing) {
-                    if model.isLoading {
-                        placeholders
-                    } else if model.isEmpty {
-                        empty
+                    if model.isOffline {
+                        TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline")
+                    }
+                    switch model.state {
+                    case .loading: placeholders
+                    case .empty: empty
+                    case .failed: failure
+                    case .list: EmptyView()
                     }
                     ForEach(model.weeks) { week($0) }
                 }
@@ -98,7 +148,6 @@ private struct TrainHistoryScreen: View {
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
-        .task { await model.load() }
         .refreshable { await model.refresh() }
     }
 
@@ -129,7 +178,7 @@ private struct TrainHistoryScreen: View {
         .accessibilityIdentifier("history.loading")
     }
 
-    /// No session yet: a calm outlined card, the dumbbell and the sentence.
+    /// No session in 90 days, as the platform said: a calm outlined card, the dumbbell and the sentence.
     private var empty: some View {
         PlaceholderRow(height: ActivityListRowSpec.minHeight, radius: ActivityListRowSpec.radius) {
             HStack(alignment: .center, spacing: TrainHistoryLayout.emptyGlyphGap) {
@@ -146,6 +195,11 @@ private struct TrainHistoryScreen: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("history.empty")
+    }
+
+    /// The read failed and nothing is cached: say so, with Try again (the session detail's words).
+    private var failure: some View {
+        InlineMessage(message: TrainHistoryRows.failureText, retry: { await model.refresh() }, identifier: "history.failure")
     }
 }
 
@@ -239,6 +293,27 @@ enum TrainHistoryPreview {
     NavigationStack { TrainHistoryView().trainDestinations() }
         .environment(TrainHistoryPreview.emptyLibrary)
         .previewEnvironment()
+}
+
+#Preview("History · loading") {
+    NavigationStack { TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary)) }
+        .previewEnvironment()
+}
+
+#Preview("History · offline") {
+    NavigationStack {
+        TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary,
+                                                      sessions: MockTrain.history.reversed().map(SessionSummary.init),
+                                                      fresh: false, fetchedAt: .now.addingTimeInterval(-3 * 3600)))
+    }
+    .previewEnvironment()
+}
+
+#Preview("History · failed") {
+    NavigationStack {
+        TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary, sessions: [], fresh: false))
+    }
+    .previewEnvironment()
 }
 
 #Preview("History · AX3") {

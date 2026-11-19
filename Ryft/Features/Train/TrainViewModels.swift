@@ -5,14 +5,28 @@ import Observation
 // `TrainLibrary` (offline library + platform) and `TrainSyncService` (outbox) are
 // the services these read from.
 
-/// Finished sessions grouped by calendar week, newest first.
+/// Finished sessions of the last 90 days grouped by calendar week, newest first.
 @MainActor
 @Observable
 final class TrainHistoryViewModel {
+    /// History shows the last 90 days: the window the platform's list is read for.
+    nonisolated static let windowDays = 90
+
     private let library: TrainLibrary
+    private let now: () -> Date
 
     private(set) var sessions: [SessionSummary] = []
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the list on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+
+    /// What the page shows. `empty` only after the platform answered with no session (now, or in the copy on this phone);
+    /// a failed read with nothing cached is `failed`, never "No workouts logged yet".
+    enum State: Equatable {
+        case loading, failed, empty, list
+    }
 
     struct Week: Identifiable, Equatable {
         let start: Date
@@ -51,8 +65,18 @@ final class TrainHistoryViewModel {
         }
     }
 
-    init(library: TrainLibrary) {
+    init(library: TrainLibrary, now: @escaping () -> Date = { .now }) {
         self.library = library
+        self.now = now
+    }
+
+    /// A list already read (previews, tests): `fresh` false is the copy on this phone after a failed read.
+    convenience init(library: TrainLibrary, sessions: [SessionSummary], fresh: Bool, fetchedAt: Date? = nil) {
+        self.init(library: library)
+        self.sessions = sessions
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
+        loaded = true
     }
 
     var weeks: [Week] {
@@ -62,24 +86,45 @@ final class TrainHistoryViewModel {
             .sorted { $0.start > $1.start }
     }
 
-    var isEmpty: Bool { sessions.isEmpty }
+    var state: State {
+        if !sessions.isEmpty { return .list }
+        if !loaded { return .loading }
+        return fresh || fetchedAt != nil ? .empty : .failed
+    }
 
     /// The first visit with nothing cached: outline rows, not a spinner.
-    var isLoading: Bool { !loaded && sessions.isEmpty }
+    var isLoading: Bool { state == .loading }
+    /// The platform answered: no session in 90 days.
+    var isEmpty: Bool { state == .empty }
+    /// The read failed and nothing is cached: the message with Try again.
+    var failed: Bool { state == .failed }
+    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && (!sessions.isEmpty || fetchedAt != nil) }
 
-    /// The header's subtitle, "8 workouts"; nil while loading and when there are none.
+    /// The header's subtitle, "25 workouts · last 90 days"; nil while there are none.
     var subtitle: String? {
-        sessions.isEmpty ? nil : String(localized: "\(sessions.count) workouts")
+        guard !sessions.isEmpty else { return nil }
+        let window = String(localized: "last 90 days",
+                            comment: "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\").")
+        return StrainRows.join([String(localized: "\(sessions.count) workouts"), window])
     }
 
-    /// Cached at once, then the platform's.
+    /// The 90 days cached at once (nothing the read would drop), then the platform's.
     func load() async {
-        sessions = library.cachedSessions()
-        sessions = await library.sessions()
+        if sessions.isEmpty { sessions = library.cachedSessions(days: Self.windowDays, now: now()) }
+        await read()
+    }
+
+    /// Pull to refresh, and the failure's Try again.
+    func refresh() async { await read() }
+
+    private func read() async {
+        let read = await library.sessionsRead(days: Self.windowDays, now: now())
+        sessions = read.value
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
         loaded = true
     }
-
-    func refresh() async { sessions = await library.sessions() }
 }
 
 /// One exercise: e1RM over the last 90 days, records, recent sets.
@@ -93,6 +138,16 @@ final class ExerciseDetailViewModel {
 
     private(set) var history: ExerciseHistory?
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the history on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+
+    /// What leads the page (PR 6 B §7.3, review S6): the estimate (hero and chart); for a bodyweight exercise without
+    /// added weight the unlit hero and why; for a timed or distance exercise, which has no 1RM, the recent sets.
+    enum Lead: Equatable {
+        case estimate, noAddedWeight, sets
+    }
 
     init(exerciseID: UUID, name: String? = nil, library: TrainLibrary, clock: AppClock) {
         self.exerciseID = exerciseID
@@ -101,24 +156,44 @@ final class ExerciseDetailViewModel {
         self.clock = clock
     }
 
-    /// A history already read (previews, tests): the page draws it as loaded.
-    convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock) {
+    /// A history already read (previews, tests): the page draws it as loaded; `fresh` false is the copy on this phone after
+    /// a failed read.
+    convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock, fresh: Bool = true,
+                     fetchedAt: Date? = nil) {
         self.init(exerciseID: exerciseID, library: library, clock: clock)
         self.history = history
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
         loaded = true
     }
 
     var exercise: Exercise? { library.exercise(id: exerciseID) }
     var title: String { exercise?.name ?? fallbackName ?? "" }
 
-    /// The chart window: the last 90 days.
+    /// Every estimate, oldest first.
+    var allPoints: [E1RMPoint] { (history?.e1rm ?? []).sorted { $0.day < $1.day } }
+
+    /// The chart window: the last 90 days, today and the 89 before.
     var points: [E1RMPoint] {
         let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
-        return (history?.e1rm ?? []).filter { $0.day >= from }
+        return allPoints.filter { $0.day >= from }
     }
 
-    /// The newest estimate in the window, the page's hero (PR 6 B §7.3); nil without one.
-    var latest: Double? { points.last?.value }
+    /// The hero's estimate: the newest in the window, or, when the last one is older, the newest of all (with its date).
+    var heroPoint: E1RMPoint? { points.last ?? allPoints.last }
+
+    /// The hero's number (PR 6 B §7.3); nil without any estimate.
+    var latest: Double? { heroPoint?.value }
+
+    /// The hero's caption when its estimate is older than the window: "As of Jul 28" ("As of Jul 28, 2025" from another
+    /// year); nil inside it.
+    func heroDate(locale: Locale = .autoupdatingCurrent) -> String? {
+        guard points.isEmpty, let point = allPoints.last else { return nil }
+        let sameYear = Calendar.current.isDate(point.date, equalTo: clock.now(), toGranularity: .year)
+        let style = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(locale)
+        // The key Sleep's planner and Insights use too ("As of %@").
+        return String(localized: "As of \(point.date.formatted(sameYear ? style : style.year()))")
+    }
 
     /// Now, by the app's clock: the chart's window ends here.
     var now: Date { clock.now() }
@@ -126,6 +201,14 @@ final class ExerciseDetailViewModel {
     /// "Barbell · Chest · Triceps".
     var subtitle: String? {
         exercise.map { ([$0.kind.title] + $0.primaryMuscles.map(\.title)).joined(separator: " · ") }
+    }
+
+    var lead: Lead {
+        switch exercise?.loadType {
+        case .time?, .distance?: return .sets
+        case .bodyweight? where history != nil && allPoints.isEmpty: return .noAddedWeight
+        default: return .estimate
+        }
     }
 
     /// The change over the window, first estimate to the newest, in kg ("▲ 11.6 kg in 90 days"); nil with fewer than two.
@@ -146,32 +229,56 @@ final class ExerciseDetailViewModel {
     var hasTrend: Bool { points.count >= 2 }
     /// The first visit with nothing cached: outline cards, not "Loading…".
     var isLoading: Bool { !loaded && history == nil }
-    var emptyChartText: String { String(localized: "Log this exercise twice to see a trend.") }
+    /// The read failed and nothing is cached (the platform sends empty arrays for "no history"): the message with Try
+    /// again, never "No sets logged" or an unlit hero.
+    var failed: Bool { loaded && history == nil }
+    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && history != nil }
+
+    var emptyChartText: String {
+        String(localized: "Log this exercise a few more times to see a trend.",
+               comment: "The exercise page's chart card with fewer than two estimates in 90 days (PR 6 B §7.3).")
+    }
+
     var emptySetsText: String { String(localized: "No sets logged for this exercise yet.") }
+
+    /// Under the unlit hero of a bodyweight exercise logged without added weight.
+    var noAddedWeightText: String {
+        String(localized: "An estimated 1RM needs sets with added weight.",
+               comment: "The exercise page of a bodyweight exercise with no weighted set: why there is no estimated 1RM.")
+    }
 
     /// One recent session: its day, the working sets, their best e1RM.
     struct RecentRow: Identifiable, Equatable {
         let id: Int
         let date: String
         let sets: String
+        /// "5 reps at 80 kilograms, 5 reps at 80 kilograms", "45 seconds, 45 seconds" (VoiceOver).
+        let spokenSets: String
         let best: Double?
-        var bestText: String? { best.map { Fmt.kgNumber(E1RM.rounded($0)) } }
-        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RM.rounded($0)))") } }
+        /// "93.3": to the tenth, as the API's estimates and the chart are.
+        var bestText: String? { best.map { E1RMChange.number(E1RMChange.rounded($0)) } }
+        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RMChange.rounded($0)))") } }
     }
 
-    /// The last ten sessions with this exercise.
-    var recentRows: [RecentRow] {
+    /// The last ten sessions with this exercise; a set as the session detail draws it ("80 kg × 5", "0:45", "3.1 mi").
+    func recentRows(locale: Locale = .autoupdatingCurrent) -> [RecentRow] {
         (history?.sessions ?? []).prefix(10).enumerated().map { i, entry in
             let working = entry.sets.filter { !$0.isWarmup }
-            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated)),
-                             sets: StrainRows.join(working.map(SetText.short)),
+            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated).locale(locale)),
+                             sets: StrainRows.join(working.map { SessionDetailContent.text($0) }),
+                             spokenSets: working.map { SessionDetailContent.spoken($0, locale: locale) }.joined(separator: ", "),
                              best: E1RM.best(of: working))
         }
     }
 
+    /// The cached copy at once, then the platform's; a failed read keeps the copy and says so.
     func load() async {
-        history = library.cachedHistory(for: exerciseID)
-        history = await library.history(for: exerciseID) ?? history
+        if history == nil { history = library.cachedHistory(for: exerciseID) }
+        let read = await library.historyRead(for: exerciseID)
+        history = read.value ?? history
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
         loaded = true
     }
 }

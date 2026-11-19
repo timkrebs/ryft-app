@@ -10,8 +10,24 @@ struct TrainHistoryTests {
     private let english = Locale(identifier: "en_US")
     private static let width: CGFloat = 390
 
-    /// The text with its no-break spaces as plain ones.
-    private func plain(_ s: String?) -> String? { s?.replacingOccurrences(of: "\u{00A0}", with: " ") }
+    /// The text with its no-break spaces (and the narrow one before "PM") as plain ones.
+    private func plain(_ s: String?) -> String? {
+        s?.replacingOccurrences(of: "\u{00A0}", with: " ").replacingOccurrences(of: "\u{202F}", with: " ")
+    }
+
+    /// `day` (YYYY-MM-DD) at noon here.
+    private func noon(_ day: String) -> Date {
+        (DayFormat.date(from: day) ?? .now).addingTimeInterval(12 * 3600)
+    }
+
+    private func point(_ day: String, _ kg: Double) -> E1RMPoint { E1RMPoint(day: day, value: kg) }
+
+    /// A finished Upper A `days` before `now`, as History's list carries it.
+    private func summary(daysAgo days: Int, now: Date = .now) -> SessionSummary {
+        let start = now.addingTimeInterval(-Double(days) * 86_400)
+        return SessionSummary(TrainSession(title: "Upper A", startedAt: start, endedAt: start.addingTimeInterval(55 * 60),
+                                           status: .completed, muscularTrimp: 85, strain: 10.4, volumeKg: 7_500, exercises: []))
+    }
 
     /// Friday, November 13 2026, 17:30 here.
     private var friday: Date {
@@ -64,13 +80,64 @@ struct TrainHistoryTests {
     @Test func historyLoadsWithOutlinesThenSaysWhereSessionsComeFrom() async {
         let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
         let vm = TrainHistoryViewModel(library: library)
-        #expect(vm.isLoading && vm.subtitle == nil, "outline rows, no subtitle while loading")
+        #expect(vm.state == .loading && vm.subtitle == nil, "outline rows, no subtitle while loading")
         await vm.load()
-        #expect(!vm.isLoading && vm.isEmpty && vm.subtitle == nil)
+        #expect(vm.state == .empty && vm.isEmpty && !vm.failed && vm.subtitle == nil, "the platform said: none")
+    }
 
-        let demo = TrainHistoryViewModel(library: TrainHistoryFixtures.library())
-        await demo.load()
-        #expect(demo.subtitle == "\(demo.sessions.count) workouts")
+    @Test func theSubtitleCountsTheLast90Days() {
+        let library = TrainHistoryFixtures.library()
+        let many = TrainHistoryViewModel(library: library, sessions: (0..<25).map { summary(daysAgo: $0) }, fresh: true)
+        #expect(plain(many.subtitle) == "25 workouts · last 90 days")
+        let one = TrainHistoryViewModel(library: library, sessions: [summary(daysAgo: 3)], fresh: true)
+        #expect(plain(one.subtitle) == "1 workout · last 90 days")
+        #expect(TrainHistoryViewModel(library: library, sessions: [], fresh: true).subtitle == nil)
+    }
+
+    @Test func aFailedReadWithNothingCachedIsAFailureNotEmpty() async {
+        let rig = TrainHistoryFixtures.rig(cached: false, fails: true)
+        let vm = TrainHistoryViewModel(library: rig.library)
+        await vm.load()
+        #expect(vm.state == .failed && vm.failed && !vm.isEmpty && !vm.isLoading && !vm.isOffline)
+        #expect(vm.subtitle == nil && vm.weeks.isEmpty)
+        // Try again, online.
+        rig.source.fails = false
+        await vm.refresh()
+        #expect(vm.state == .list && vm.fresh && !vm.isOffline && !vm.sessions.isEmpty)
+    }
+
+    @Test func onlyTheEmptyListThePlatformSentIsEmpty() async {
+        let rig = TrainHistoryFixtures.rig(cached: false, list: [])
+        let vm = TrainHistoryViewModel(library: rig.library)
+        await vm.load()
+        #expect(vm.state == .empty && !vm.isOffline)
+        // Offline later: the platform's empty list, as of when it came, said to be the copy.
+        rig.source.fails = true
+        await vm.refresh()
+        #expect(vm.state == .empty && vm.isOffline && vm.fetchedAt != nil)
+    }
+
+    @Test func historysFirstPaintAndItsOfflineCopyKeepToTheLast90Days() async {
+        let recent = summary(daysAgo: 10), old = summary(daysAgo: 100)
+        let rig = TrainHistoryFixtures.rig(cached: false, fails: true)
+        let fetched = Date.now.addingTimeInterval(-3_600)
+        rig.store.saveDocument([recent, old], key: "train.sessions", at: fetched)
+        #expect(rig.library.cachedSessions().map(\.id) == [recent.id, old.id], "the cache keeps both")
+        #expect(rig.library.cachedSessions(days: 90).map(\.id) == [recent.id], "the first paint: nothing the read would drop")
+        let vm = TrainHistoryViewModel(library: rig.library)
+        await vm.load()
+        #expect(vm.sessions.map(\.id) == [recent.id])
+        #expect(vm.state == .list && vm.isOffline && !vm.fresh)
+        #expect(abs((vm.fetchedAt ?? .distantPast).timeIntervalSince(fetched)) < 0.01)
+        #expect(plain(vm.subtitle) == "1 workout · last 90 days")
+    }
+
+    @Test func theOfflineLineSaysWhenTheCopyWasFetched() {
+        let fetched = noon("2026-11-13").addingTimeInterval(2 * 3600 + 5 * 60) // 14:05
+        #expect(plain(TrainOfflineNote.text(fetchedAt: fetched, now: friday)) == "Offline · as of 2:05 PM")
+        #expect(plain(TrainOfflineNote.text(fetchedAt: fetched.addingTimeInterval(-86_400), now: friday))
+                == "Offline · as of Yesterday 2:05 PM")
+        #expect(TrainOfflineNote.text(fetchedAt: nil, now: friday) == "Offline", "only this phone's sessions: no time to give")
     }
 
     // MARK: session detail
@@ -107,8 +174,10 @@ struct TrainHistoryTests {
         #expect(loading.state == .loading && loading.title == MockTrain.completed.title)
         #expect(loading.hero.strain == MockTrain.completed.strain && loading.exercises.isEmpty)
         let failed = SessionDetailContent(summary: nil, session: nil, loaded: true, locale: english)
-        #expect(failed.state == .failed && failed.subtitle == nil && failed.title == String(localized: "Workout"))
+        #expect(failed.state == .failed && failed.subtitle == nil && failed.title == "Workout")
         #expect(failed.hero.caption.isEmpty, "the failure's message speaks, not the caption")
+        let unknown = SessionDetailContent(summary: nil, session: nil, loaded: false, locale: english)
+        #expect(unknown.state == .loading && unknown.title == nil, "nothing known yet: the title is an outline, not \"Workout\"")
     }
 
     @Test func timedAndDistanceSetsShowTheirTimeAndDistance() {
@@ -118,6 +187,27 @@ struct TrainHistoryTests {
         #expect(plain(distance) == plain(Fmt.distance(meters: 5_000)) && distance != Fmt.placeholder)
         #expect(plain(SessionDetailContent.text(set(0, seconds: 1_500, meters: 5_000))) == plain("\(distance) · 25:00"))
         #expect(SessionDetailContent.text(set(0, reps: 8)) == "× 8")
+    }
+
+    @Test func timedAndDistanceSetsAreSpokenInWords() {
+        #expect(SessionDetailContent.spoken(set(0, seconds: 45), locale: english) == "45 seconds")
+        #expect(SessionDetailContent.spoken(set(0, seconds: 90), locale: english) == "1 minute, 30 seconds")
+        #expect(SessionDetailContent.spoken(set(0, seconds: 120), locale: english) == "2 minutes")
+        #expect(SessionDetailContent.spoken(set(0, seconds: 1_500, meters: 5_000), locale: english) == "3.1 miles, 25 minutes")
+        let line = SessionDetailContent.lines([set(0, seconds: 45, warmup: false)], locale: english)
+        #expect(line.first?.spokenValue == "45 seconds")
+    }
+
+    @Test func aFailedReadAgainKeepsTheSession() async {
+        let rig = TrainHistoryFixtures.rig(session: MockTrain.completed)
+        let vm = SessionDetailViewModel(sessionID: MockTrain.completed.id, library: rig.library)
+        await vm.load()
+        #expect(vm.content(locale: english).state == .loaded)
+        // Back from the exercise page, offline: the read again fails; the session stays, no outlines meanwhile.
+        rig.source.fails = true
+        await vm.load()
+        #expect(vm.session?.id == MockTrain.completed.id && vm.loaded)
+        #expect(vm.content(locale: english).state == .loaded && !vm.content(locale: english).exercises.isEmpty)
     }
 
     // MARK: exercise page
@@ -134,27 +224,83 @@ struct TrainHistoryTests {
         #expect(MetricSpec.e1rm.color == Theme.metricStrain)
     }
 
-    @Test func theHeroIsTheNewestEstimate() {
-        let history = MockTrain.exerciseHistory(for: MockTrain.bench.id, sessions: MockTrain.history)
-        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, history: history,
-                                         library: TrainHistoryFixtures.library(), clock: TestClock(now: .now))
-        #expect(!vm.isLoading && vm.hasTrend)
-        let points = vm.points
-        #expect(vm.latest == points.last?.value)
-        if let first = points.first?.value, let last = points.last?.value {
-            #expect(vm.change == last - first)
-            #expect(vm.lastChange == last - points[points.count - 2].value)
-        }
-        let once = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id,
-                                           history: MockTrain.firstTimeHistory(for: MockTrain.bench.id),
-                                           library: TrainHistoryFixtures.library(), clock: TestClock(now: .now))
-        #expect(!once.hasTrend && once.change == nil && once.lastChange == nil)
-        #expect(once.emptyChartText == String(localized: "Log this exercise twice to see a trend."))
+    private func benchPage(_ e1rm: [E1RMPoint], now: String = "2026-11-13", exercise: UUID = MockTrain.bench.id,
+                           library: TrainLibrary? = nil) -> ExerciseDetailViewModel {
+        ExerciseDetailViewModel(exerciseID: exercise, history: ExerciseHistory(exerciseId: exercise, prs: [], sessions: [], e1rm: e1rm),
+                                library: library ?? TrainHistoryFixtures.library(), clock: TestClock(now: noon(now)))
+    }
+
+    @Test func theHeroIsTheNewestEstimateAndTheChangeSpansTheWindow() throws {
+        let vm = benchPage([point("2026-09-01", 81.5), point("2026-10-20", 90.4), point("2026-11-12", 93.3)])
+        #expect(!vm.isLoading && vm.hasTrend && vm.lead == .estimate)
+        #expect(vm.latest == 93.3 && vm.heroDate(locale: english) == nil)
+        #expect(E1RMChange.rounded(try #require(vm.change)) == 11.8, "93.3 − 81.5")
+        #expect(E1RMChange.rounded(try #require(vm.lastChange)) == 2.9, "93.3 − 90.4")
+        let once = benchPage([point("2026-11-12", 93.3)])
+        #expect(!once.hasTrend && once.latest == 93.3 && once.change == nil && once.lastChange == nil)
+        #expect(once.emptyChartText == "Log this exercise a few more times to see a trend.")
+    }
+
+    @Test func anEstimateOlderThanTheWindowStillLeadsWithItsDate() {
+        // The last session 120 days ago: the newest estimate overall, dated, rather than an unlit hero.
+        let vm = benchPage([point("2026-06-01", 85.0), point("2026-07-16", 88.5)])
+        #expect(vm.points.isEmpty && !vm.hasTrend && vm.change == nil)
+        #expect(vm.latest == 88.5)
+        #expect(vm.heroDate(locale: english) == "As of Jul 16")
+        let lastYear = benchPage([point("2025-12-20", 88.5)], now: "2026-11-13")
+        #expect(lastYear.heroDate(locale: english) == "As of Dec 20, 2025")
+    }
+
+    @Test func exercisesWithoutAn1RMLeadWithWhatTheyHave() {
+        let library = TrainHistoryFixtures.library()
+        #expect(benchPage([], exercise: MockTrain.plank.id, library: library).lead == .sets, "a timed exercise has no 1RM")
+        let pullUps = benchPage([], exercise: MockTrain.pullUp.id, library: library)
+        #expect(pullUps.lead == .noAddedWeight && pullUps.latest == nil)
+        #expect(pullUps.noAddedWeightText == "An estimated 1RM needs sets with added weight.")
+        #expect(benchPage([point("2026-11-12", 95)], exercise: MockTrain.pullUp.id, library: library).lead == .estimate,
+                "weighted pull-ups have their estimate")
+        #expect(benchPage([], library: library).lead == .estimate, "a barbell lift without sets yet: the unlit hero")
+    }
+
+    @Test func aRecentSessionsBestIsToTheTenth() {
+        let row = ExerciseDetailViewModel.RecentRow(id: 0, date: "Nov 13", sets: "", spokenSets: "", best: 93.33)
+        #expect(row.bestText == "93.3", "as the hero and the chart, not to the half kilogram (93.5)")
+        #expect(plain(row.bestSpoken) == "e1RM 93.3 kg")
+        #expect(ExerciseDetailViewModel.RecentRow(id: 1, date: "", sets: "", spokenSets: "", best: 99.96).bestText == "100")
+    }
+
+    @Test func aFailedExerciseReadWithNothingCachedIsAFailure() async {
+        let rig = TrainHistoryFixtures.rig(cached: false, fails: true)
+        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: rig.library, clock: TestClock(now: .now))
+        await vm.load()
+        #expect(vm.failed && !vm.isLoading && !vm.isOffline && vm.history == nil)
+        rig.source.fails = false
+        await vm.load()
+        #expect(!vm.failed && vm.fresh && vm.history != nil)
+    }
+
+    @Test func aFailedExerciseReadShowsTheCopyOffline() async {
+        let rig = TrainHistoryFixtures.rig()
+        let online = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: rig.library, clock: TestClock(now: .now))
+        await online.load()
+        #expect(online.fresh && !online.isOffline)
+        // Relaunched, offline: the store's copy, said to be one.
+        rig.source.fails = true
+        let relaunched = TrainLibrary(store: rig.store, remote: { rig.source }, restore: true)
+        let offline = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: relaunched, clock: TestClock(now: .now))
+        await offline.load()
+        #expect(offline.isOffline && !offline.failed && offline.history?.e1rm == online.history?.e1rm)
+        #expect(offline.fetchedAt != nil)
     }
 
     // MARK: in a window
 
     private func ids(_ w: HostedWindow) -> [String] { w.nodes().compactMap(\.identifier) }
+
+    /// The "Recent sets" group's title (the group itself, a container without a label, isn't one of VoiceOver's nodes).
+    private func hasRecentSets(_ w: HostedWindow) -> Bool {
+        w.nodes().contains { $0.label == String(localized: "Recent sets") && $0.traits.contains(.header) }
+    }
 
     @Test func historyDrawsWeeksOfActivityRows() async throws {
         let view = NavigationStack { TrainHistoryView().trainDestinations() }.environment(TrainHistoryFixtures.library())
@@ -273,6 +419,128 @@ struct TrainHistoryTests {
             #expect(!ids(w).contains("exerciseDetail.chart"))
             let hero = try #require(w.nodes().first { $0.identifier == "exerciseDetail.numeral" })
             #expect(!(hero.value ?? "").contains("90 days"), "one point: no change to show")
+        }
+    }
+
+    @Test func historyThatCannotLoadSaysSoAndTriesAgain() async throws {
+        let rig = TrainHistoryFixtures.rig(cached: false, fails: true)
+        let view = NavigationStack { TrainHistoryView() }.environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 844, view) { w in
+            try await w.wait("the failure") { ids(w).contains("history.failure.retry") }
+            #expect(w.node("Your workouts couldn't be loaded.") != nil)
+            #expect(!ids(w).contains("history.empty") && !ids(w).contains("history.loading"), "never \"No workouts logged yet\"")
+            rig.source.fails = false
+            try #require(w.nodes().first { $0.identifier == "history.failure.retry" }).activate()
+            try await w.wait("rows") { ids(w).contains { $0.hasPrefix("history.row.") } }
+            #expect(!ids(w).contains("history.failure.retry") && !ids(w).contains("history.offline"))
+        }
+    }
+
+    @Test func historyOfflineShowsTheCopyAndWhenItCame() async throws {
+        let rig = TrainHistoryFixtures.rig()
+        _ = await rig.library.sessionsRead()
+        rig.source.fails = true
+        let view = NavigationStack { TrainHistoryView() }.environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the offline line") { ids(w).contains("history.offline") }
+            let line = try #require(w.nodes().first { $0.identifier == "history.offline" })
+            #expect(line.label.hasPrefix("Offline · as of "), "\(line.label)")
+            #expect(ids(w).contains { $0.hasPrefix("history.row.") })
+            #expect(!ids(w).contains("history.failure.retry"))
+        }
+    }
+
+    @Test func theSessionDetailKeepsItsSessionWhenAReadFailsOnReturn() async throws {
+        let rig = TrainHistoryFixtures.rig(session: MockTrain.completed)
+        let view = NavigationStack { SessionDetailView(sessionID: MockTrain.completed.id).trainDestinations() }
+            .environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 2_400, bottomInset: 0, view) { w in
+            try await w.wait("exercises") { ids(w).contains { $0.hasPrefix("sessionDetail.exercise.") } }
+            let reads = rig.source.sessionReads
+            let head = try #require(w.nodes().first { $0.hint == String(localized: "Opens the exercise's history") })
+            head.activate()
+            try await w.wait("the exercise page") { ids(w).contains("exerciseDetail.numeral") }
+            // Offline now; back on the session, it reads again and fails.
+            rig.source.fails = true
+            try #require(w.nodes().first { $0.identifier == "exerciseDetail.back" }).activate()
+            try await w.wait("the session again") { !ids(w).contains("exerciseDetail.numeral") && ids(w).contains("sessionDetail.numeral") }
+            try await w.settle()
+            // The hosted window doesn't appear the page again (no second read): the failing read again is
+            // `aFailedReadAgainKeepsTheSession`'s.
+            #expect(rig.source.sessionReads >= reads)
+            let shown = ids(w)
+            #expect(shown.filter { $0.hasPrefix("sessionDetail.exercise.") && $0.hasSuffix(".open") }.count
+                    == MockTrain.completed.exercises.count, "the cards stay")
+            #expect(!shown.contains("sessionDetail.failure.retry") && !shown.contains("sessionDetail.loading"))
+        }
+    }
+
+    @Test func anExercisePageThatCannotLoadSaysSoAndNothingElse() async throws {
+        let rig = TrainHistoryFixtures.rig(cached: false, fails: true)
+        let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id, name: "Bench press") }.environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the failure") { ids(w).contains("exerciseDetail.failure.retry") }
+            #expect(w.node("This exercise's history couldn't be loaded.") != nil)
+            let shown = ids(w)
+            for absent in ["exerciseDetail.numeral", "exerciseDetail.loading", "exerciseDetail.noTrend", "exerciseDetail.chartHead"] {
+                #expect(!shown.contains(absent), "\(absent): no unlit hero, no chart card")
+            }
+            #expect(w.node("No sets logged") == nil && !hasRecentSets(w), "no \"No sets logged\", no Recent sets")
+            rig.source.fails = false
+            try #require(w.nodes().first { $0.identifier == "exerciseDetail.failure.retry" }).activate()
+            try await w.wait("the estimate") { ids(w).contains("exerciseDetail.numeral") }
+            #expect(!ids(w).contains("exerciseDetail.failure.retry"))
+        }
+    }
+
+    @Test func anExercisePageOfflineShowsTheCopyAndWhenItCame() async throws {
+        let rig = TrainHistoryFixtures.rig()
+        _ = await rig.library.historyRead(for: MockTrain.bench.id)
+        rig.source.fails = true
+        let relaunched = TrainLibrary(store: rig.store, remote: { rig.source }, restore: true)
+        let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id) }.environment(relaunched)
+        try await HostedWindow.run(width: Self.width, height: 2_000, bottomInset: 0, view) { w in
+            try await w.wait("the offline line") { ids(w).contains("exerciseDetail.offline") }
+            let line = try #require(w.nodes().first { $0.identifier == "exerciseDetail.offline" })
+            #expect(line.label.hasPrefix("Offline · as of "), "\(line.label)")
+            #expect(ids(w).contains("exerciseDetail.numeral") && hasRecentSets(w))
+            #expect(!ids(w).contains("exerciseDetail.failure.retry"))
+        }
+    }
+
+    @Test func aTimedExerciseLeadsWithItsRecentSets() async throws {
+        let holds = (0..<3).map { SessionSet(setIndex: $0, durationSec: 45) }
+        let history = ExerciseDetailPreview.withoutEstimates(MockTrain.plank, sets: holds)
+        let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.plank.id) }
+            .environment(TrainHistoryFixtures.library(history: history))
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the sets") { hasRecentSets(w) }
+            try await w.settle()
+            let shown = ids(w)
+            #expect(!shown.contains("exerciseDetail.numeral") && !shown.contains("exerciseDetail.chartHead")
+                    && !shown.contains("exerciseDetail.noTrend"), "no 1RM for a hold")
+            let nodes = w.nodes()
+            let header = try #require(nodes.first { $0.label == MockTrain.plank.name && $0.traits.contains(.header) })
+            let title = try #require(nodes.first { $0.label == String(localized: "Recent sets") && $0.traits.contains(.header) })
+            #expect(title.frame.minY - header.frame.maxY >= ExerciseDetailLayout.heroGap - 1, "Recent sets first, 22 under the header")
+            #expect(nodes.contains { $0.label.contains("45 seconds, 45 seconds, 45 seconds") }, "\(nodes.map(\.label))")
+        }
+    }
+
+    @Test func aBodyweightExerciseWithoutAddedWeightSaysWhyThereIsNo1RM() async throws {
+        let reps = (0..<3).map { SessionSet(setIndex: $0, reps: 8) }
+        let history = ExerciseDetailPreview.withoutEstimates(MockTrain.pullUp, sets: reps)
+        let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.pullUp.id) }
+            .environment(TrainHistoryFixtures.library(history: history))
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the hero") { ids(w).contains("exerciseDetail.numeral") }
+            try await w.settle()
+            let hero = try #require(w.nodes().first { $0.identifier == "exerciseDetail.numeral" })
+            #expect(hero.value == "An estimated 1RM needs sets with added weight.")
+            #expect(w.node("An estimated 1RM needs sets with added weight.") == nil, "one element: the hero says it")
+            let shown = ids(w)
+            #expect(!shown.contains("exerciseDetail.chartHead") && !shown.contains("exerciseDetail.noTrend"))
+            #expect(hasRecentSets(w) && w.node("No sets logged") == nil)
         }
     }
 

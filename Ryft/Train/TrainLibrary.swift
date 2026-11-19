@@ -375,3 +375,61 @@ extension TrainLibrary {
         return lib
     }
 }
+
+// MARK: - reads that say whether they reached the platform
+
+/// One read of Train's history: what to show, and whether the platform answered (`fresh`) or the copy on this phone is all
+/// there is. A failed read with nothing cached is an error, not "no workouts" (the API sends empty arrays for none).
+struct TrainRead<Value> {
+    let value: Value
+    /// The platform answered this time.
+    let fresh: Bool
+    /// When the copy shown was fetched; nil when nothing was ever saved (only sessions logged on this phone).
+    let fetchedAt: Date?
+}
+
+extension TrainLibrary {
+    /// The first day of the last `days`, as `sessions(days:)` asks for it.
+    nonisolated static func sessionsWindowStart(days: Int, now: Date) -> Date {
+        DayFormat.shift(Calendar.current.startOfDay(for: now), days: -(days - 1))
+    }
+
+    /// `sessions(days:)`, saying whether the platform answered (History's offline and failed states).
+    func sessionsRead(days: Int = 90, now: Date = .now) async -> TrainRead<[SessionSummary]> {
+        let from = Self.sessionsWindowStart(days: days, now: now)
+        let remoteList: [SessionSummary]
+        let fresh: Bool
+        if let list = try? await remote.sessions(from: from, to: now) {
+            remoteList = list
+            fresh = true
+            store.saveDocument(list, key: Self.sessionsKey)
+        } else {
+            remoteList = (store.document([SessionSummary].self, key: Self.sessionsKey) ?? []).filter { $0.startedAt >= from }
+            fresh = false
+        }
+        return TrainRead(value: Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList),
+                         fresh: fresh, fetchedAt: store.documentFetchedAt(key: Self.sessionsKey))
+    }
+
+    /// `cachedSessions()` within the last `days`, so History's first paint shows what the read will (nothing that vanishes).
+    func cachedSessions(days: Int, now: Date = .now) -> [SessionSummary] {
+        let from = Self.sessionsWindowStart(days: days, now: now)
+        return cachedSessions().filter { $0.startedAt >= from }
+    }
+
+    /// `history(for:)`, saying whether the platform answered (the exercise page's offline and failed states). A history
+    /// read earlier in this run counts as fresh.
+    func historyRead(for exerciseID: UUID) async -> TrainRead<ExerciseHistory?> {
+        let key = Self.historyKey(exerciseID)
+        if let h = histories[exerciseID] { return TrainRead(value: h, fresh: true, fetchedAt: store.documentFetchedAt(key: key)) }
+        do {
+            let h = try await remote.exerciseHistory(id: exerciseID)
+            histories[exerciseID] = h
+            store.saveDocument(h, key: key)
+            return TrainRead(value: h, fresh: true, fetchedAt: store.documentFetchedAt(key: key))
+        } catch {
+            return TrainRead(value: store.document(ExerciseHistory.self, key: key), fresh: false,
+                             fetchedAt: store.documentFetchedAt(key: key))
+        }
+    }
+}
