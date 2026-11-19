@@ -84,6 +84,11 @@ struct SessionView: View {
     @State private var historyFor: ExerciseRef?
     @State private var width: CGFloat = 0
 
+    /// Discarded: the store has deleted the session, and the delete empties the relationships of its rows and their sets in
+    /// no fixed order while the screen slides away. The page then shows its header only, not a random part of the workout
+    /// (or "An empty session" with its Add exercise).
+    private var isDiscarded: Bool { controller.phase == .discarded }
+
     private struct PlateRequest: Identifiable {
         let kg: Double
         let fromKeypad: Bool
@@ -102,24 +107,28 @@ struct SessionView: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background { controller.pause() } else if phase == .active { controller.resume() }
                 }
-            // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
-            if restBarState != 0 {
-                RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-            }
-            if controller.layout == .focused {
-                FocusedSessionView(controller: controller, actions: actions)
+            if isDiscarded {
+                Spacer(minLength: 0)
             } else {
-                listContent
-            }
-            // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing and
-            // the pager gives up its page, and with it the keypad.
-            if controller.focus != nil, controller.layout == .list || width > 0 {
-                NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
-                    .modifier(CompactTextCap(isOn: controller.layout == .focused && isCompactHeader, cap: .xxLarge))
-                    .transition(.move(edge: .bottom))
+                // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
+                if restBarState != 0 {
+                    RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
+                if controller.layout == .focused {
+                    FocusedSessionView(controller: controller, actions: actions)
+                } else {
+                    listContent
+                }
+                // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing
+                // and the pager gives up its page, and with it the keypad.
+                if controller.focus != nil, controller.layout == .list || width > 0 {
+                    NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
+                        .modifier(CompactTextCap(isOn: controller.layout == .focused && isCompactHeader, cap: .xxLarge))
+                        .transition(.move(edge: .bottom))
+                }
             }
         }
         .animation(Theme.Motion.quick, value: controller.focus == nil)

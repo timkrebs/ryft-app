@@ -67,6 +67,28 @@ struct ListSheetsBehaviourTests {
         }
     }
 
+    // MARK: Discard
+
+    /// The delete empties the deleted session's relationships in no fixed order: drawn from them, the page lost cards and set
+    /// rows at random (or showed "An empty session") while it slid away. Repeated: the order changes from run to run.
+    @Test("Discard: the page keeps its header and shows none of the deleted workout while it goes", arguments: 0..<5)
+    func discardShowsNothingDeleted(_ run: Int) async throws {
+        let c = SessionSheetsPreview.listDraft()
+        defer { c.stop() }
+        let names = c.exercises.map(\.name)
+        try await HostedWindow.run(width: 390, height: 1_400, SessionView(controller: c)) { w in
+            try await w.settle()
+            #expect(w.nodes().contains { $0.identifier?.hasPrefix("set.") == true })
+            c.discard()
+            try await w.settle()
+            let nodes = w.nodes()
+            #expect(!nodes.contains { node in names.contains(node.label) }, "no card")
+            #expect(!nodes.contains { $0.identifier?.hasPrefix("set.") == true }, "no set row")
+            #expect(!nodes.contains { $0.label.hasPrefix("An empty session") }, "not the empty session")
+            #expect(w.node("Finish", exactly: true) != nil, "the header stays")
+        }
+    }
+
     // MARK: the custom exercise
 
     @Test("Add exercise → Custom exercise → Add: the saved exercise is the pick")
