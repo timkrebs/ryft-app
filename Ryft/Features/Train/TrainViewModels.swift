@@ -147,22 +147,36 @@ final class PlansViewModel {
         self.library = library
     }
 
-    /// The plan the card is about: the active one, else the paused one.
+    /// The plan the tile is about: the active one, else the paused one.
     var currentPlanID: UUID? { library.activeEnrollment?.planId ?? library.pausedPlanID }
     var isPaused: Bool { library.isPaused }
     var currentName: String {
         guard let id = currentPlanID else { return String(localized: "Your plan") }
         return library.catalog?.summary(id: id)?.name ?? library.plan(id: id)?.name ?? String(localized: "Your plan")
     }
-    var currentWeekText: String? { library.activeEnrollment.map { String(localized: "Week \($0.currentWeek)") } }
-    /// "Resume continues where you stopped." / "Next: Upper A".
-    var currentDetail: String? {
-        if isPaused { return String(localized: "Resume continues where you stopped.") }
-        return library.today.map { String(localized: "Next: \($0.day.name)") }
+
+    /// The active plan's glow tile, or the paused plan's outline (PR 6 B §6.1). The next day is today's prescription while
+    /// active, else the enrolment's day in the cached plan; a pause the app only remembers has neither.
+    var tile: PlanTileContent? {
+        guard let id = currentPlanID else { return nil }
+        let enrollment = library.activeEnrollment
+        let derived = PlanTileContent.nextDayName(plan: library.plan(id: id), enrollment: enrollment)
+        let next = isPaused ? derived : library.today?.day.name ?? derived
+        return PlanTileContent(planID: id, paused: isPaused, name: currentName, week: enrollment?.currentWeek, nextDay: next)
     }
 
     var builtin: [PlanSummary] { library.catalog?.builtin ?? [] }
     var mine: [PlanSummary] { library.catalog?.mine ?? [] }
+    var builtinRows: [PlanRowContent] { builtin.map { PlanRowContent($0, status: status(of: $0.id)) } }
+    var mineRows: [PlanRowContent] { mine.map { PlanRowContent($0, status: status(of: $0.id)) } }
+
+    private func status(of id: UUID) -> PlanTileContent.State? {
+        guard id == currentPlanID else { return nil }
+        return isPaused ? .paused : .active
+    }
+
+    /// The first load, with nothing cached: three outline rows instead of a spinner.
+    var isLoading: Bool { library.catalog == nil && library.error == nil }
     var error: String? { library.error }
     var errorDetails: String? { library.errorDetails }
 
@@ -196,6 +210,10 @@ final class PlanDetailViewModel {
     /// Active or paused: this plan is the one the user is on.
     var isCurrent: Bool { (library.activeEnrollment?.planId ?? library.pausedPlanID) == planID }
     var isPaused: Bool { library.isPaused }
+    /// The enrolment's week on this plan, when it is the active one ("Active · week 6").
+    var activeWeek: Int? { isCurrent && !isPaused ? library.activeEnrollment?.currentWeek : nil }
+    /// The header's title before the detail has loaded: the name from the plans overview.
+    var name: String? { plan?.name ?? library.catalog?.summary(id: planID)?.name }
     var hasEnrollment: Bool { library.activeEnrollment != nil }
     var currentPlanName: String { library.activePlanName ?? String(localized: "Your current plan") }
     var error: String? { library.error }

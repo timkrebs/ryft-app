@@ -1,19 +1,152 @@
 import SwiftUI
 
-/// After Finish: duration, volume, muscular load, strain, PRs, notes → Done.
+/// The summary's numbers (PR 6 B §5.1, `b-09`).
+enum SessionSummaryLayout {
+    /// The header → the numeral.
+    nonisolated static let heroGap: CGFloat = 22
+    /// The ruler → the tiles: 26, of which the hero keeps 20 under the ruler (its labels hang into it, `StrainLayout`).
+    nonisolated static let tilesGap: CGFloat = 26 - StrainLayout.rulerFollowingGap
+    /// Between the tiles, and between the blocks under them (records, the heart-rate line, Apple Health, notes).
+    nonisolated static let spacing: CGFloat = 12
+    /// The header's height (no buttons) and the title → the subtitle.
+    nonisolated static let headerHeight: CGFloat = 40, subtitleGap: CGFloat = 2
+    /// The records card: the label → the first record.
+    nonisolated static let recordsTitleGap: CGFloat = 8
+    /// Under the last block, above the pinned Done.
+    nonisolated static let bottomPadding: CGFloat = 24
+}
+
+/// What the summary says (PR 6 B §5.1), from the session as `…/complete` answered it, or as it was logged here while that
+/// answer is pending. The phone computes no strain: without the platform's answer the numeral is unlit and the ruler has no
+/// needle. Pure, so the tests read its states.
+struct SessionSummaryContent: Equatable {
+    enum StrainState: Equatable {
+        /// The platform's strain.
+        case scored
+        /// No answer yet (offline, queued), or not scored yet.
+        case pending
+        /// Answered without a strain, and the matched workout has no heart rate.
+        case noHeartRate
+    }
+
+    let title: String
+    /// "Workout done · Wed, Nov 18".
+    let subtitle: String
+    /// "Workout done, Wednesday 18 November" (VoiceOver).
+    let spokenSubtitle: String
+    let strainState: StrainState
+    /// The numeral, its caption and the ruler (`StrainHeroView`): "Strain · of 21 · moderate" when scored.
+    let hero: StrainHero
+    /// Duration, Volume, Muscular load, Sets.
+    let tiles: [WorkoutStat]
+    /// "Saved on this phone. Will sync when you're back online."
+    let showsWillSync: Bool
+
+    /// - Parameters:
+    ///   - session: the platform's answer, else the local document.
+    ///   - answered: `…/complete` answered (the session's scores are the platform's).
+    ///   - pendingCompletion: the local session waits for `…/complete` (offline).
+    ///   - hasHeartRate: the matched workout's heart rate, once looked up; nil while unknown.
+    init(session: TrainSession?, answered: Bool, pendingCompletion: Bool, hasHeartRate: Bool?,
+         locale: Locale = .autoupdatingCurrent) {
+        let title = session?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.title = title.isEmpty ? String(localized: "Workout") : title
+        let date = session.map { $0.endedAt ?? $0.startedAt }
+        let done = String(localized: "Workout done")
+        if let date {
+            let shown = date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().locale(locale))
+            subtitle = String(localized: "Workout done · \(shown)",
+                              comment: "The workout summary's subtitle under the session's title: the day it ended (\"Wed, Nov 18\").")
+            spokenSubtitle = "\(done), \(date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale)))"
+        } else {
+            subtitle = done
+            spokenSubtitle = done
+        }
+
+        let strain = session?.strain
+        if strain != nil {
+            strainState = .scored
+        } else if answered, hasHeartRate == false {
+            strainState = .noHeartRate
+        } else {
+            strainState = .pending
+        }
+        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: Self.missingCaption(strainState))
+        tiles = Self.tiles(session, locale: locale)
+        showsWillSync = !answered && pendingCompletion
+    }
+
+    /// The caption under an unlit numeral.
+    static func missingCaption(_ state: StrainState) -> String? {
+        switch state {
+        case .scored:
+            return nil
+        case .pending:
+            return String(localized: "Strain · arrives once your workout is scored",
+                          comment: "Workout summary, under the unlit strain numeral: the platform hasn't scored the session yet.")
+        case .noHeartRate:
+            return String(localized: "Strain · no heart rate for this workout",
+                          comment: "Workout summary, under the unlit strain numeral: scored, but no heart rate came with it.")
+        }
+    }
+
+    /// Duration, Volume, Muscular load, Sets (strain is the hero). Without the platform's answer the volume is the logged
+    /// sets' and the load "–".
+    static func tiles(_ session: TrainSession?, locale: Locale = .autoupdatingCurrent) -> [WorkoutStat] {
+        let sets = session?.exercises.flatMap(\.sets) ?? []
+        var duration = WorkoutStat(id: "duration", label: String(localized: "Duration"), value: Fmt.placeholder)
+        if let session, let end = session.endedAt {
+            let minutes = StrainFormat.minutes(end.timeIntervalSince(session.startedAt))
+            let shown = StrainFormat.duration(minutes: minutes)
+            duration = WorkoutStat(id: "duration", label: String(localized: "Duration"), value: shown.value, unit: shown.unit,
+                                   spoken: Fmt.spokenDuration(minutes: minutes, locale: locale))
+        }
+        let volume = volumeParts(session.map { $0.volumeKg ?? Volume.of(sets) })
+        let completed = sets.filter { $0.completedAt != nil }.count
+        return [
+            duration,
+            WorkoutStat(id: "volume", label: String(localized: "Volume"), value: volume.value, unit: volume.unit),
+            WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(session?.muscularTrimp)),
+            WorkoutStat(id: "sets", label: String(localized: "Sets"), value: session == nil ? Fmt.placeholder : "\(completed)"),
+        ]
+    }
+
+    /// "7,500" + "kg"; "12.4" + "t" from 10 t (`Fmt.volume`'s rule, split for the tile's unit).
+    static func volumeParts(_ kg: Double?) -> (value: String, unit: String?) {
+        guard let kg else { return (Fmt.placeholder, nil) }
+        if kg >= 10_000 {
+            return ((kg / 1000).formatted(.number.precision(.fractionLength(1))),
+                    String(localized: "t", comment: "Tonnes, the unit after a training volume of 10 t or more: \"12.4 t\"."))
+        }
+        return (kg.formatted(.number.precision(.fractionLength(0))), String(localized: "kg"))
+    }
+}
+
+/// After Finish (PR 6 B §5.1, `b-09`): the title over "Workout done · Wed, Nov 18", the strain numeral and its ruler, the
+/// four tiles, the records, where the heart rate came from, Apple Health's one-time ask, notes, and Done pinned at the
+/// bottom. No celebration: one success haptic, nothing moves. VoiceOver starts on the header.
 struct SessionSummarySheet: View {
     let summary: FinishSummary
+
     @Environment(TrainSyncService.self) private var sync
     @Environment(TrainLibrary.self) private var library
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.locale) private var locale
     @State private var notes = ""
-    @State private var celebrate = false
+    @State private var appeared = false
     /// Where the strain's heart rate came from (the platform's workout for the session).
-    @State private var heartRate: String?
+    @State private var heartRate: SummaryHeartRate?
     @State private var savingToHealth = false
+    @AccessibilityFocusState private var headerFocused: Bool
     private var export: WorkoutHealthExport { .shared }
+
+    /// `heartRate`: previews only (the line is looked up once the platform has answered).
+    init(summary: FinishSummary, heartRate: SummaryHeartRate? = nil) {
+        self.summary = summary
+        _heartRate = State(initialValue: heartRate)
+    }
 
     private var session: LocalSession? { sync.store.session(id: summary.sessionID) }
 
@@ -23,116 +156,124 @@ struct SessionSummarySheet: View {
     }
 
     var body: some View {
-        let doc = completed ?? session?.wire
+        let content = SessionSummaryContent(session: completed ?? session?.wire, answered: completed != nil,
+                                            pendingCompletion: session?.pendingCompletion == true,
+                                            hasHeartRate: heartRate?.hasHeartRate, locale: locale)
         let prs = completed?.prs ?? session?.prs ?? []
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    VStack(spacing: 6) {
-                        Image(systemName: prs.isEmpty ? "checkmark.seal.fill" : "trophy.fill")
-                            .font(.system(size: 44, weight: .medium))
-                            .foregroundStyle(prs.isEmpty ? Theme.accent : Theme.warning)
-                            .symbolEffect(.bounce, value: celebrate)
-                            .scaleEffect(celebrate || reduceMotion ? 1 : 0.6)
-                            .animation(reduceMotion ? nil : Theme.Motion.standard.delay(0.15),
-                                       value: celebrate)
-                        Text(prs.isEmpty ? String(localized: "Workout done")
-                                         : String(localized: "\(prs.count) new PRs"))
-                            .font(.ryft(.title))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(doc?.title ?? "")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .padding(.top, 8)
-                    .accessibilityElement(children: .combine)
-
-                    HStack(spacing: 10) {
-                        MetricTile(title: "Duration", value: duration(doc), systemImage: "clock")
-                        MetricTile(title: "Volume", value: Fmt.volume(doc?.volumeKg ?? session?.liveVolumeKg),
-                                   systemImage: "scalemass")
-                    }
-                    HStack(spacing: 10) {
-                        MetricTile(title: "Muscular load", value: Fmt.load(doc?.muscularTrimp),
-                                   systemImage: "dumbbell.fill", tint: Theme.accentSecondary)
-                        MetricTile(title: "Strain", value: Fmt.strain(doc?.strain), systemImage: "bolt.fill")
-                    }
-                    if completed == nil && session?.pendingCompletion == true {
-                        WillSyncNote().frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let heartRate {
-                        Label(heartRate, systemImage: "heart")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(spacing: 0) {
+                header(content)
+                StrainHeroView(hero: content.hero, key: summary.sessionID.uuidString,
+                               numeralStyle: state.env.settings.heroNumerals.style, identifierPrefix: "summary")
+                    .padding(.top, SessionSummaryLayout.heroGap)
+                SummaryTiles(tiles: content.tiles)
+                    .padding(.top, SessionSummaryLayout.tilesGap)
+                VStack(alignment: .leading, spacing: SessionSummaryLayout.spacing) {
+                    if content.showsWillSync {
+                        WillSyncNote()
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if !prs.isEmpty { records(prs) }
+                    if let heartRate {
+                        Label(heartRate.text, systemImage: "heart")
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("summary.heartRate")
                     }
                     if export.shouldAsk { saveToHealth }
-                    if !prs.isEmpty {
-                        Card {
-                            VStack(alignment: .leading, spacing: 12) {
-                                CardHeader(title: "Personal records")
-                                ForEach(prs, id: \.self) { pr in
-                                    PRBadge(record: pr, exerciseName: library.exercise(id: pr.exerciseId)?.name)
-                                }
-                            }
-                        }
-                    }
-                    Card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            CardHeader(title: "Notes")
-                            TextField("How did it feel?", text: $notes, axis: .vertical)
-                                .font(.ryft(.body))
-                                .lineLimit(3...6)
-                        }
-                    }
-                    Button("Done") { done() }
-                        .buttonStyle(TealButtonStyle())
-                        .accessibilityIdentifier("summary.done")
+                    notesCard
                 }
-                .padding(Theme.Metrics.screenPadding)
+                .padding(.top, SessionSummaryLayout.spacing)
             }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .navigationBar)
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.top, SheetHeaderSpec.topInset)
+            .padding(.bottom, SessionSummaryLayout.bottomPadding)
         }
-        .sensoryFeedback(.success, trigger: celebrate)
+        .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background.ignoresSafeArea())
+        .pinnedBar {
+            PillButton(Text("Done"), systemImage: PillButton.Icon.confirm) { done() }
+                .accessibilityIdentifier("summary.done")
+        }
+        .presentationBackground(Theme.background)
+        .presentationDragIndicator(.visible)
+        .sensoryFeedback(.success, trigger: appeared)
         .onAppear {
             notes = session?.notes ?? ""
-            celebrate = true
+            appeared = true
+            headerFocused = true
         }
         .task(id: completed?.workoutId) { await loadHeartRate() }
         .interactiveDismissDisabled()
+    }
+
+    /// No buttons: the title over "Workout done · Wed, Nov 18", one header element.
+    private func header(_ content: SessionSummaryContent) -> some View {
+        VStack(spacing: SessionSummaryLayout.subtitleGap) {
+            Text(verbatim: content.title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+            Text(verbatim: content.subtitle)
+                .font(.ryft(.caption))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: SessionSummaryLayout.headerHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: content.title))
+        .accessibilityValue(Text(verbatim: content.spokenSubtitle))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityFocused($headerFocused)
+        .accessibilityIdentifier("summary.header")
+    }
+
+    private func records(_ prs: [PersonalRecord]) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: SessionSummaryLayout.recordsTitleGap) {
+                Text("Personal records")
+                    .ryftLabelStyle()
+                    .accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(prs, id: \.self) { pr in
+                        PRBadge(record: pr, exerciseName: library.exercise(id: pr.exerciseId)?.name)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("summary.records")
     }
 
     /// Once, after the first completed workout: RYFT writes nothing to Apple Health unless asked.
     private var saveToHealth: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Save workouts to Apple Health?", systemImage: "heart.text.square")
+                Text("Save workouts to Apple Health?")
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
                 Text("Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 12) {
-                    Button {
+                let layout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                    : AnyLayout(HStackLayout(spacing: 8))
+                layout {
+                    PillButton(Text("Save"), size: .compact, busy: savingToHealth) {
                         savingToHealth = true
-                        Task {
-                            defer { savingToHealth = false }
-                            guard await export.turnOn(), let s = session, let end = s.endedAt else { return }
-                            await export.save(sessionID: s.id, start: s.startedAt, end: end)
-                        }
-                    } label: {
-                        Text("Save")
+                        defer { savingToHealth = false }
+                        guard await export.turnOn(), let s = session, let end = s.endedAt else { return }
+                        await export.save(sessionID: s.id, start: s.startedAt, end: end)
                     }
-                    .buttonStyle(TealButtonStyle(prominent: true))
-                    .disabled(savingToHealth)
-                    Button { export.turnOff() } label: { Text("Not now") }
-                        .buttonStyle(TealButtonStyle(prominent: false))
+                    PillButton(Text("Not now"), style: .secondary, size: .compact) { export.turnOff() }
                         .disabled(savingToHealth)
                 }
                 if export.needsAccess { HealthWriteAccessHint() }
@@ -142,25 +283,38 @@ struct SessionSummarySheet: View {
         .accessibilityIdentifier("summary.saveToHealth")
     }
 
-    /// "Heart rate from Garmin Connect" when the platform matched a watch's workout; otherwise
-    /// how to get heart-rate strain next time.
+    private var notesCard: some View {
+        Card {
+            TextField(text: $notes, prompt: Text("How did it feel?").foregroundStyle(Theme.textTertiary), axis: .vertical) {
+                Text("Notes")
+            }
+            .font(.ryft(.body))
+            .foregroundStyle(Theme.textPrimary)
+            .tint(Theme.textPrimary)
+            .lineLimit(1...6)
+            .accessibilityLabel(Text("Notes"))
+        }
+    }
+
+    /// "Heart rate from Garmin Connect" when the platform matched a watch's workout; otherwise how to get heart-rate strain
+    /// next time.
     private func loadHeartRate() async {
         guard let id = completed?.workoutId else { return }
         guard let detail = try? await state.source.workout(id: id) else { return }
-        heartRate = Self.heartRateLine(detail.workout)
+        heartRate = SummaryHeartRate(detail.workout)
     }
 
     static func heartRateLine(_ workout: Workout) -> String {
-        if workout.avgHr != nil, workout.source != "ryft-session" {
+        if hasHeartRate(workout) {
             return String(localized: "Heart rate from \(workout.source)")
         }
         // A watch workout may still be on its way (it's matched once it syncs).
         return String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
     }
 
-    private func duration(_ doc: TrainSession?) -> String {
-        guard let doc, let end = doc.endedAt else { return Fmt.placeholder }
-        return Fmt.duration(seconds: end.timeIntervalSince(doc.startedAt))
+    /// A watch's (or another app's) workout with heart rate; RYFT's own session has none.
+    static func hasHeartRate(_ workout: Workout) -> Bool {
+        workout.avgHr != nil && workout.source != "ryft-session"
     }
 
     private func done() {
@@ -172,19 +326,93 @@ struct SessionSummarySheet: View {
     }
 }
 
-#Preview("Summary · dark") {
-    let s = MockTrain.liveSession(in: TrainPreview.store)
-    s.status = .completed
-    s.endedAt = .now
-    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: MockTrain.completed))
+/// The heart-rate line under the records, and whether there was heart rate at all (the unlit numeral's caption).
+struct SummaryHeartRate: Equatable {
+    let text: String
+    let hasHeartRate: Bool
+
+    init(text: String, hasHeartRate: Bool) {
+        self.text = text
+        self.hasHeartRate = hasHeartRate
+    }
+
+    init(_ workout: Workout) {
+        self.init(text: SessionSummarySheet.heartRateLine(workout), hasHeartRate: SessionSummarySheet.hasHeartRate(workout))
+    }
+}
+
+/// The four tiles, two by two and 12 apart, each pair as tall as the taller; one column from AX1.
+private struct SummaryTiles: View {
+    let tiles: [WorkoutStat]
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(spacing: SessionSummaryLayout.spacing) {
+            if typeSize.isAccessibilitySize {
+                ForEach(tiles) { tile($0) }
+            } else {
+                ForEach(Array(stride(from: 0, to: tiles.count, by: 2)), id: \.self) { i in
+                    HStack(spacing: SessionSummaryLayout.spacing) {
+                        tile(tiles[i])
+                        if i + 1 < tiles.count { tile(tiles[i + 1]) } else { Color.clear.frame(maxWidth: .infinity) }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func tile(_ stat: WorkoutStat) -> some View {
+        NeutralTile(Text(verbatim: stat.label), value: Text(verbatim: stat.value), unit: stat.unit.map { Text(verbatim: $0) },
+                    accessibilityValue: stat.spoken.map { Text(verbatim: $0) })
+            .accessibilityIdentifier("summary.stat.\(stat.id)")
+    }
+}
+
+// MARK: - previews (dark only)
+
+@MainActor
+private enum SummaryPreview {
+    /// A session finished offline, waiting for `…/complete`.
+    static func pending() -> FinishSummary {
+        let s = MockTrain.liveSession(in: TrainPreview.store, started: -52 * 60, checked: 17)
+        s.status = .completed
+        s.endedAt = .now
+        s.pendingCompletion = true
+        return FinishSummary(sessionID: s.id, completed: nil)
+    }
+
+    static let garmin = SummaryHeartRate(text: "Heart rate from Garmin Connect", hasHeartRate: true)
+    static let noHeartRate = SummaryHeartRate(
+        text: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.", hasHeartRate: false)
+}
+
+#Preview("Summary · scored, records") {
+    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completed.id, completed: MockTrain.completed),
+                        heartRate: SummaryPreview.garmin)
         .previewEnvironment()
 }
 
-#Preview("Summary · light, will sync") {
-    let s = MockTrain.liveSession(in: TrainPreview.store)
-    s.status = .completed
-    s.endedAt = .now
-    s.pendingCompletion = true
-    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: nil))
-        .previewEnvironment(scheme: .light)
+#Preview("Summary · no records") {
+    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completedWithoutRecords.id,
+                                               completed: MockTrain.completedWithoutRecords))
+        .previewEnvironment()
+}
+
+#Preview("Summary · pending strain, will sync") {
+    SessionSummarySheet(summary: SummaryPreview.pending())
+        .previewEnvironment()
+}
+
+#Preview("Summary · no heart rate") {
+    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completedUnscored.id, completed: MockTrain.completedUnscored),
+                        heartRate: SummaryPreview.noHeartRate)
+        .previewEnvironment()
+}
+
+#Preview("Summary · AX3") {
+    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completed.id, completed: MockTrain.completed),
+                        heartRate: SummaryPreview.garmin)
+        .previewEnvironment()
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
