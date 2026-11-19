@@ -1,14 +1,15 @@
 import SwiftUI
 import UIKit
 
-/// Account, body settings, data/sync and about. Replaces the scaffold's SettingsView.
+/// Profile's main list in Nocturne (docs/work/2026-11-16-nocturne/design.md §P5-6): the header, the identity row, the app's
+/// real rows in seven grouped cards (`ProfileRows`), the buttons row, and the Developer group in Debug builds. The subpages
+/// are pushed (`ProfileRoute`) and keep their code (PR 6 C restyles them); every sheet and dialog is as before.
 struct ProfileView: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(Settings.self) private var settings
     @Environment(\.openURL) private var openURL
-    private var apiStatus = APIStatus.shared
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    @State private var showResyncConfirm = false
     @State private var showLogOutConfirm = false
     /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
     @State private var unsentAtLogOut = 0
@@ -20,30 +21,20 @@ struct ProfileView: View {
     @State private var confirmDemoExit: DemoWorkouts?
     @State private var legal: LegalPage?
     @State private var editing: BodySetting?
+    /// The identity row's tap: Sync details, pushed.
+    @State private var showsSyncDetails = false
 
     private var model: ProfileViewModel { screens.profile }
 
+    private typealias L = ProfileLayout
+
     var body: some View {
         NavigationStack {
-            ScreenScaffold {
-                Text("Profile")
-                    .font(.ryft(.title))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                account
-                bodySection
-                sleepSection
-                privacy
-                data
-                if model.showsTraining { training }
-                if model.showsNotifications { notifications }
-                if screens.journal.isLive { journal }
-                display
-                about
-                #if DEBUG
-                developer
-                #endif
+            ScreenScaffold(showsHeader: false) {
+                page
             }
+            .navigationDestination(for: ProfileRoute.self) { destination($0) }
+            .navigationDestination(isPresented: $showsSyncDetails) { SyncDetailsView(model: model.syncDetails) }
         }
         .safariSheet($legal)
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
@@ -52,14 +43,6 @@ struct ProfileView: View {
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
-        .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
-                            titleVisibility: .visible) {
-            Button("Re-sync", role: .destructive) {
-                Task { await model.fullResync() }
-            }
-        } message: {
-            Text("This uploads everything again. It can take a few minutes on the first run.")
-        }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
             if unsentAtLogOut > 0 {
                 // Send first (10 s at most), then log out if nothing is left and it's still the same account;
@@ -78,14 +61,14 @@ struct ProfileView: View {
                     } label: {
                         Text("Send first", comment: "Log out: upload the activities and nights not at RYFT yet, then log out.")
                     }
-                    .accessibilityIdentifier("profile.logOut.sendFirst")
+                    .accessibilityIdentifier(ProfileRows.logOutSendFirst)
                 }
                 Button(role: .destructive) {
                     Task { await model.logOut() }
                 } label: {
                     Text("Log out anyway", comment: "Log out: delete the activities and nights not at RYFT yet.")
                 }
-                .accessibilityIdentifier("profile.logOut.anyway")
+                .accessibilityIdentifier(ProfileRows.logOutAnyway)
             } else {
                 Button("Log out", role: .destructive) {
                     Task { await model.logOut() }
@@ -135,628 +118,597 @@ struct ProfileView: View {
             } label: {
                 Text("Discard and turn off", comment: "Deletes them and turns Demo data off")
             }
-            .accessibilityIdentifier("profile.demo.discard")
+            .accessibilityIdentifier(ProfileRows.demoDiscard)
             Button(role: .cancel) {} label: {
                 Text("Keep Demo data", comment: "Demo data stays on; nothing is deleted")
             }
-            .accessibilityIdentifier("profile.demo.keep")
+            .accessibilityIdentifier(ProfileRows.demoKeep)
         } message: { workouts in
             Text("The \(workouts.count) workouts you logged with Demo data will be discarded. This can't be undone.",
                  comment: "The count includes one in progress. They're deleted from this iPhone; they only ever reached the demo's sample platform.")
         }
     }
 
-    // MARK: account
+    // MARK: the page (§P5-6.1)
 
-    private var account: some View {
-        ProfileSection(title: "Account") {
+    private var page: some View {
+        let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled)
+        let groups = ProfileRows.groups(facts)
+        return VStack(alignment: .leading, spacing: 0) {
+            ScreenHeader(title: Text("Profile"))
+            ProfileIdentitySection(showsSyncDetails: $showsSyncDetails)
+                .padding(.top, L.headerToIdentity)
+            ForEach(groups) { entry in
+                if entry.group == .about {
+                    // The brand lock-up above the About group (as before), a group's gap above and under it.
+                    BrandLockup()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, L.groupGap)
+                }
+                group(entry.group, rows: entry.rows)
+                    .padding(.top, entry.group == .about ? L.lockUpToGroup
+                        : entry.id == groups.first?.id ? L.identityToFirstGroup : L.groupGap)
+            }
+            buttons(ProfileRows.buttons(facts))
+            #if DEBUG
+            ProfileDeveloperGroup(model: model)
+                .padding(.top, L.buttonsToDeveloper)
+            #endif
+        }
+    }
+
+    /// A group's card; its footer only when there is one, so an empty footer adds no gap.
+    @ViewBuilder private func group(_ group: ProfileGroup, rows: [ProfileRow]) -> some View {
+        if hasFooter(group) {
+            GroupedCard(GroupTitle(group.title)) { self.rows(rows) } footer: { footer(group) }
+        } else {
+            GroupedCard(group.title) { self.rows(rows) }
+        }
+    }
+
+    private func rows(_ rows: [ProfileRow]) -> some View {
+        ForEach(rows) { row in
+            if row.setsOwnIdentifier {
+                self.row(row)
+            } else {
+                self.row(row).accessibilityIdentifier(row.identifier)
+            }
+        }
+    }
+
+    // MARK: rows (§P5-6.2)
+
+    // One switch over every row: the rows are the app's own, each with its behaviour from before Nocturne.
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
+    @ViewBuilder private func row(_ row: ProfileRow) -> some View {
+        let editor = model.bodySettings
+        switch row {
+        // About you
+        case .birthYear:
+            BirthYearMenuRow(editor: editor)
+        case .maxHR:
+            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.maxHRText),
+                            detail: editor.maxHRSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor")) {
+                editing = .maxHR
+            }
+        case .sleepBase:
+            GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: editor.sleepBaseText),
+                            detail: editor.sleepBaseSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor")) {
+                editing = .sleepBase
+            }
+        case .rescore:
+            GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring) {
+                Task { await editor.rescore() }
+            }
+            .disabled(!editor.canSave || (editor.saving && !editor.rescoring))
+        // Devices and sync
+        case .devices:
+            GroupedRow.push(Text("Devices & sync"), value: Text(verbatim: model.devices.summary), route: ProfileRoute.devices)
+        case .appleHealth:
+            GroupedRow.value(Text("Apple Health"), value: Text(verbatim: model.healthStatusText)
+                .foregroundStyle(model.healthNeedsAttention ? Theme.warning : Theme.textTertiary))
+        case .allowHealth:
+            GroupedRow.action(Text("Allow access"), systemImage: "heart") {
+                Task { await model.requestHealthAccess() }
+            }
+        case .openHealth:
+            GroupedRow.action(model.devices.isEnabled ? Text("Open Health") : Text("Open Health permissions"),
+                              systemImage: "arrow.up.right") {
+                HealthLinks.open(with: openURL)
+            }
+        case .lastSync:
+            GroupedRow.value(Text("Last sync"), value: Text(verbatim: model.lastSyncText))
+        case .deviceID:
+            GroupedRow.value(Text("Device ID"), value: Text(verbatim: model.deviceIDText))
+        case .syncNow:
+            GroupedRow.action(Text("Sync now"), detail: model.isSyncing ? Text(verbatim: model.syncProgress) : nil,
+                              systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing) {
+                Task { await model.syncNow() }
+            }
+            .disabled(!model.canSync && !model.isSyncing)
+        case .syncDetails:
+            GroupedRow.push(Text("Sync details"), route: ProfileRoute.syncDetails)
+        case .importTraining:
+            // Area B's rows (`ImportProfileRows`), each laid out as a grouped row.
+            ImportProfileRows()
+                .frame(maxWidth: .infinity, minHeight: L.rowMinHeight, alignment: .leading)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
+        case .demoMode:
+            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
+            GroupedRow.toggle(Text("Demo data"), detail: Text("Show a realistic sample history instead of your server."),
+                              isOn: demoSwitch)
+                .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
+                    : Text("Turning it off discards the workouts logged with Demo data.",
+                           comment: "Only while such workouts exist"))
+        // Training
+        case .jumpToNext:
+            GroupedRow.toggle(Text("Advance to the next exercise",
+                                   comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one."),
+                              detail: Text("Jumps to the next set when you finish an exercise.",
+                                           comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\"."),
+                              isOn: Bindable(settings).jumpToNextExercise)
+        case .sessionLayout:
+            SessionLayoutMenuRow(selection: Bindable(settings).sessionLayout)
+        case .saveWorkouts:
+            // On only while iOS still allows it; otherwise where to allow it (under the card).
+            GroupedRow.toggle(Text("Save strength workouts to Apple Health"),
+                              detail: Text("Each workout you log appears in Fitness and Health. Only the workout: no heart rate."),
+                              isOn: Binding(get: { WorkoutHealthExport.shared.isWriting }, set: { on in
+                                  if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
+                              }))
+        // Settings
+        case .notifications:
+            GroupedRow.push(Text("Notifications"), route: ProfileRoute.notifications)
+        case .journal:
+            GroupedRow.push(Text("Journal"), route: ProfileRoute.journal)
+        case .heroNumerals:
+            HeroNumbersMenuRow(selection: Bindable(settings).heroNumerals)
+        case .bedtime:
+            GroupedRow.push(Text("Bedtime & wake"), value: Text(verbatim: screens.bedtime.summary),
+                            detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, route: ProfileRoute.bedtime)
+        // Privacy
+        case .consent:
+            GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)
+                .foregroundStyle(model.consentIsCurrent ? Theme.textTertiary : Theme.warning))
+        case .reviewConsent:
+            GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward) { model.reviewConsent() }
+        case .withdrawConsent:
+            GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent) { showWithdrawConfirm = true }
+        // Account
+        case .email:
+            GroupedRow.value(Text("Email"), value: Text(verbatim: model.accountSubtitle ?? ""))
+        case .timezone:
+            GroupedRow.value(Text("Timezone"), value: Text(verbatim: model.timezone ?? ""),
+                             detail: model.timezoneDetail.map { Text(verbatim: $0) })
+        case .signInMethods:
+            // The provider was the account card's badge ("Apple", "Email").
+            GroupedRow.push(Text("Sign-in methods"), value: model.providerBadge.map { Text(verbatim: $0.title) },
+                            route: ProfileRoute.signInMethods)
+        case .changePassword:
+            GroupedRow.push(Text("Change password")) { showChangePassword = true }
+        case .deleteAccount:
+            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking) { showDeleteConfirm = true }
+        case .signedIn:
+            GroupedRow.value(Text("Signed in"), value: Text("No"))
+        // About
+        case .version:
+            GroupedRow.value(Text("Version"), value: Text(verbatim: Self.version))
+        case .reportProblem:
+            let waiting = model.report.waiting
+            GroupedRow.push(Text("Report a problem"), value: waiting > 0 ? Text("\(waiting) waiting to send") : nil,
+                            route: ProfileRoute.reportProblem)
+                .task { model.report.reloadWaiting() }
+        case .privacyPolicy:
+            // The policy in force (`GET /v1/config`), in the in-app Safari sheet (`safariSheet` catches ryftapp.de).
+            GroupedRow.linkOut(Text("Privacy Policy"), hint: Self.browserHint, url: model.policyPage.url)
+        case .terms:
+            GroupedRow.linkOut(Text("Terms of Use"), hint: Self.browserHint, url: LegalPage.terms.url)
+        case .appleHealthPrivacy:
+            if let url = URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/") {
+                GroupedRow.linkOut(Text("Apple Health privacy"), hint: Self.browserHint, url: url)
+            }
+        case .garminHealth:
+            if let url = URL(string: "https://support.garmin.com/?q=apple%20health") {
+                GroupedRow.linkOut(Text("Garmin Connect and Apple Health"), hint: Self.browserHint, url: url)
+            }
+        case .licences:
+            GroupedRow.push(Text("Licences"), route: ProfileRoute.licences)
+        }
+    }
+
+    /// The Demo data switch: on at once; off asks first when the demo logged workouts, and stays on when refused.
+    private var demoSwitch: Binding<Bool> {
+        Binding(get: { model.demoMode }, set: { on in
+            guard !on else {
+                Task { await model.setDemoMode(true) }
+                return
+            }
+            switch model.switchingDemoOff() {
+            case .confirm(let workouts): confirmDemoExit = workouts
+            case .exit: Task { await model.endDemo() }
+            case .refused: break // the switch stays on, and the message under the card says why
+            }
+        })
+    }
+
+    static let browserHint = Text("Opens in the browser", comment: "VoiceOver hint of a Profile row that opens a web page.")
+
+    // MARK: footers: notices and sentences under each card, 8 below it
+
+    private func hasFooter(_ group: ProfileGroup) -> Bool {
+        switch group {
+        case .aboutYou, .settings, .about: return true
+        case .devicesAndSync:
+            return model.syncNotice != nil || model.demoExitError != nil || !model.devices.isEnabled
+                || !model.devices.healthAccessSteps.isEmpty
+        case .training: return WorkoutHealthExport.shared.needsAccess || model.showsSessionLayout
+        case .privacy: return model.consentError != nil || model.consentDetail != nil
+        case .account: return !model.isSignedIn || model.accountError != nil
+        }
+    }
+
+    @ViewBuilder private func footer(_ group: ProfileGroup) -> some View {
+        switch group {
+        case .aboutYou:
+            let editor = model.bodySettings
+            FooterStack {
+                if let error = editor.birthYearError {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
+                }
+                RescoreStatus(editor: editor)
+                GroupFooter(Text("Changing a setting doesn't rescore past days on its own."))
+            }
+        case .devicesAndSync:
+            FooterStack {
+                switch model.syncNotice {
+                case .retrying(let notice):
+                    InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
+                case .failed(let message, let details):
+                    InlineMessage(message: message, systemImage: "exclamationmark.arrow.triangle.2.circlepath", details: details)
+                case nil:
+                    EmptyView()
+                }
+                if let error = model.demoExitError {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                }
+                // With `devices.setup` the path to RYFT's permission comes from the catalog, and Devices & sync has each
+                // tracker's own steps.
+                if model.devices.isEnabled {
+                    if !model.devices.healthAccessSteps.isEmpty {
+                        GroupFooter(Text(verbatim: model.devices.healthAccessSteps.joined(separator: " ")))
+                    }
+                } else {
+                    GroupFooter(Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT)."))
+                }
+            }
+        case .training:
+            FooterStack {
+                if WorkoutHealthExport.shared.needsAccess { HealthWriteAccessHint() }
+                if model.showsSessionLayout {
+                    GroupFooter(Text("Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout.",
+                                     comment: "Footer under Profile → Training → Session layout."))
+                }
+            }
+        case .settings:
+            GroupFooter(Text("Large numbers on Today, Sleep and Strain.",
+                             comment: "Footer under Profile → Display → Hero numbers: where the dots or thin digits show."))
+        case .privacy:
+            FooterStack {
+                if let error = model.consentError {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                }
+                if let detail = model.consentDetail {
+                    GroupFooter(Text(verbatim: detail))
+                }
+            }
+        case .account:
             if model.isSignedIn {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.accountTitle)
-                            .font(.ryft(.headline))
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let email = model.accountSubtitle {
-                            Text(email)
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    if let badge = model.providerBadge {
-                        ProviderBadge(title: badge.title, systemImage: badge.systemImage)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                if let tz = model.timezone {
-                    StatRow(title: "Timezone", value: tz, detail: model.timezoneDetail)
-                }
-                NavigationLink {
-                    SignInMethodsView()
-                } label: {
-                    HStack {
-                        Text("Sign-in methods").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.textTertiary)
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("profile.signInMethods")
-                Divider().overlay(Theme.separator)
-                if model.canChangePassword {
-                    PrimaryButton(title: "Change password", style: .secondary) { showChangePassword = true }
-                }
-                PrimaryButton(title: "Log out", style: .secondary, busy: sendsFirst) {
-                    unsentAtLogOut = model.unconfirmedActivities
-                    showLogOutConfirm = true
-                }
-                .accessibilityIdentifier("profile.logOut")
-                PrimaryButton(title: "Delete account", style: .destructive, busy: model.isWorking) {
-                    showDeleteConfirm = true
-                }
                 if let error = model.accountError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.accountErrorDetails)
                 }
             } else {
-                StatRow(title: "Signed in", value: String(localized: "No"), valueColor: Theme.textSecondary)
-                Text("Turn off Demo data to log in or create an account.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
+                GroupFooter(Text("Turn off Demo data to log in or create an account."))
             }
+        case .about:
+            GroupFooter(Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns."))
         }
     }
 
-    // MARK: developer (Debug builds only)
+    // MARK: the buttons row (§P5-6.1 row 4)
 
-    #if DEBUG
-    /// Platform overrides for a compose stack, API key mode (`AUTH_MODE=apikey`),
-    /// request IDs of recent failures and a connection test. Not in Release.
-    private var developer: some View {
-        ProfileSection(title: "Developer") {
-            Text("Debug builds only.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-            NavigationLink {
-                DebugComponentCatalog()
-            } label: {
-                Label("Component catalog", systemImage: "square.grid.2x2")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            }
-            .accessibilityIdentifier("dev.catalog")
-            NavigationLink {
-                FeatureFlagsDebugView()
-            } label: {
-                Label("Feature flags", systemImage: "flag")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            }
-            .accessibilityIdentifier("dev.flags")
-            HStack {
-                Text(verbatim: "Push registration").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
-                Spacer()
-                Text(verbatim: screens.push.lastResult ?? "—").font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
-            }
-            FieldLabel("API URL override")
-            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
-                .ryftField()
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            FieldLabel("Ingest URL override (compose: :8081)")
-            TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
-                .ryftField()
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-
-            Toggle(isOn: Bindable(settings).apiKeyMode) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("API key mode")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            }
-            .tint(Theme.accent)
-            if settings.apiKeyMode {
-                FieldLabel("API key")
-                SecureField("Bearer token", text: Bindable(settings).devAPIKey)
-                    .ryftField()
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-            }
-
-            Toggle(isOn: Bindable(settings).showRequestIDs) {
-                Text("Show request IDs")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-            }
-            .tint(Theme.accent)
-            if settings.showRequestIDs {
-                if apiStatus.failures.isEmpty {
-                    Text("No failed requests since launch.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                ForEach(apiStatus.failures) { f in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: "\(f.status) \(f.method) \(redactedPath(f.path))")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Text(verbatim: "\(f.requestID ?? "–") · \(f.date.formatted(date: .omitted, time: .standard))")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(Theme.textTertiary)
-                            .textSelection(.enabled)
+    @ViewBuilder private func buttons(_ buttons: [ProfileButton]) -> some View {
+        if !buttons.isEmpty {
+            let stacked = typeSize.isAccessibilitySize
+            VStack(alignment: .leading, spacing: L.buttonsToMessage) {
+                let layout = stacked ? AnyLayout(VStackLayout(spacing: L.buttonsGap)) : AnyLayout(HStackLayout(spacing: L.buttonsGap))
+                layout {
+                    ForEach(buttons) { button in
+                        switch button {
+                        case .export:
+                            PillButton(Text("Export data", comment: "Profile: the button that creates a file of your data to share or save."),
+                                       systemImage: PillButton.Icon.download, busy: model.exporting) {
+                                await model.export()
+                            }
+                            .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
+                            .accessibilityIdentifier(button.identifier)
+                        case .logOut:
+                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst) {
+                                unsentAtLogOut = model.unconfirmedActivities
+                                showLogOutConfirm = true
+                            }
+                            // As wide as its title plus 22 a side beside Export; full width when the row stacks.
+                            .fixedSize(horizontal: !stacked && buttons.count > 1, vertical: false)
+                            .accessibilityIdentifier(button.identifier)
+                        }
                     }
                 }
-            }
-
-            PrimaryButton(title: "Test connection", style: .secondary, busy: model.testingConnection) {
-                await model.testConnection()
-            }
-            switch model.connection {
-            case .ok(let text):
-                Label(text, systemImage: "checkmark.circle.fill")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
-            case .failed(let text):
-                InlineMessage(message: text, systemImage: "exclamationmark.circle")
-            case nil:
-                EmptyView()
-            }
-        }
-    }
-
-    #endif
-
-    // MARK: body
-
-    private var bodySection: some View {
-        let editor = model.bodySettings
-        return ProfileSection(title: "Body") {
-            SettingRow(title: "Maximum heart rate", value: editor.maxHRText, detail: editor.maxHRSourceText) {
-                editing = .maxHR
-            }
-            HStack {
-                Text("Birth year").font(.ryft(.body)).foregroundStyle(Theme.textPrimary)
-                Spacer()
-                Picker("Birth year", selection: Binding(get: { editor.birthYear },
-                                                        set: { y in if let y { Task { await editor.setBirthYear(y) } } })) {
-                    if editor.birthYear == nil { Text("Not set").tag(Int?.none) }
-                    ForEach(editor.birthYears, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
-                }
-                .pickerStyle(.menu)
-                .tint(Theme.accent)
-                .disabled(editor.isBusy)
-            }
-            .frame(minHeight: 44)
-            if let error = editor.birthYearError {
-                InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
-            }
-            Text("Changing a setting doesn't rescore past days on its own.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
-                await editor.rescore()
-            }
-            .disabled(!editor.canSave || editor.saving)
-            RescoreStatus(editor: editor)
-        }
-    }
-
-    // MARK: sleep
-
-    private var sleepSection: some View {
-        let editor = model.bodySettings
-        return ProfileSection(title: "Sleep") {
-            SettingRow(title: "Baseline sleep need", value: editor.sleepBaseText, detail: editor.sleepBaseSourceText) {
-                editing = .sleepBase
-            }
-            .accessibilityIdentifier("profile.sleepBase")
-            Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            if screens.bedtime.isEnabled {
-                Divider().overlay(Theme.separator)
-                NavigationLink {
-                    SleepScheduleView(planner: screens.bedtime)
-                } label: {
-                    SettingRowLabel(title: "Bedtime & wake", value: screens.bedtime.summary,
-                                    detail: screens.bedtime.summaryDetail)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("profile.bedtime")
-            }
-        }
-    }
-
-    // MARK: privacy
-
-    /// Consent to health-data processing: when, for which policy, withdraw or agree.
-    private var privacy: some View {
-        ProfileSection(title: "Privacy") {
-            StatRow(title: "Health-data consent", value: model.consentText,
-                    valueColor: model.consentIsCurrent ? Theme.textPrimary : Theme.warning)
-            if let detail = model.consentDetail {
-                Text(detail)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if model.consentIsCurrent {
-                PrimaryButton(title: "Withdraw consent", style: .destructive, busy: model.withdrawingConsent) {
-                    showWithdrawConfirm = true
-                }
-            } else {
-                PrimaryButton(title: "Review and agree") { model.reviewConsent() }
-            }
-            if let error = model.consentError {
-                InlineMessage(message: error, systemImage: "exclamationmark.circle")
-            }
-            Button {
-                legal = model.policyPage
-            } label: {
-                Text("Privacy Policy").font(.ryft(.callout)).foregroundStyle(Theme.accent).frame(minHeight: 44)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: data
-
-    private var data: some View {
-        ProfileSection(title: "Data") {
-            // `devices.setup`: what you wear, each tracker's setup and what Apple Health has seen.
-            if model.devices.isEnabled {
-                NavigationLink {
-                    DevicesAndSyncView(model: model.devices)
-                } label: {
-                    DevicesRowLabel(summary: model.devices.summary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("profile.devices")
-                Divider().overlay(Theme.separator)
-            }
-            StatRow(title: "Apple Health", value: model.healthStatusText,
-                    valueColor: model.healthNeedsAttention ? Theme.warning : Theme.textPrimary)
-            HStack(spacing: 10) {
-                if model.canAskForHealth {
-                    PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
-                }
-                if model.devices.isEnabled {
-                    PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
-                } else {
-                    PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
-                }
-            }
-            // With `devices.setup` the path to RYFT's permission comes from the catalog, and Devices & sync has each
-            // tracker's own steps.
-            if model.devices.isEnabled {
-                if !model.devices.healthAccessSteps.isEmpty {
-                    Text(verbatim: model.devices.healthAccessSteps.joined(separator: " "))
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT).")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // On only while iOS still allows it; otherwise where to allow it.
-            Toggle(isOn: Binding(get: { WorkoutHealthExport.shared.isWriting },
-                                 set: { on in
-                                     if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
-                                 })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Save strength workouts to Apple Health")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Each workout you log appears in Fitness and Health. Only the workout: no heart rate.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(Theme.accent)
-            .accessibilityIdentifier("profile.saveWorkouts")
-            if WorkoutHealthExport.shared.needsAccess { HealthWriteAccessHint() }
-
-            Divider().overlay(Theme.separator)
-            StatRow(title: "Last sync", value: model.lastSyncText)
-            StatRow(title: "Device ID", value: model.deviceIDText)
-            if model.isSyncing {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(Theme.accent)
-                    Text(model.syncProgress)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            switch model.syncNotice {
-            case .retrying(let notice):
-                InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
-            case .failed(let message, let details):
-                InlineMessage(message: message, systemImage: "exclamationmark.arrow.triangle.2.circlepath",
-                              details: details)
-            case nil:
-                EmptyView()
-            }
-            HStack(spacing: 10) {
-                PrimaryButton(title: "Sync now", style: .secondary, busy: model.isSyncing) { await model.syncNow() }
-                PrimaryButton(title: "Full re-sync", style: .destructive) { showResyncConfirm = true }
-            }
-            .disabled(!model.canSync)
-            NavigationLink {
-                SyncDetailsView(model: model.syncDetails)
-            } label: {
-                Label("Sync details", systemImage: "list.bullet.rectangle")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            }
-            .accessibilityIdentifier("profile.syncDetails")
-
-            // The training import: in, then Export: out (ui.md §3.2).
-            ImportProfileRows()
-            if model.canExport {
-                PrimaryButton(title: "Export my data", style: .secondary, busy: model.exporting) { await model.export() }
-                    .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
                 if let error = model.exportError {
                     InlineMessage(message: error, systemImage: "square.and.arrow.up")
                 }
             }
-
-            Divider().overlay(Theme.separator)
-            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
-            Toggle(isOn: Binding(get: { model.demoMode }, set: { on in
-                guard !on else {
-                    Task { await model.setDemoMode(true) }
-                    return
-                }
-                switch model.switchingDemoOff() {
-                case .confirm(let workouts): confirmDemoExit = workouts
-                case .exit: Task { await model.endDemo() }
-                case .refused: break // the switch stays on, and the message under it says why
-                }
-            })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Demo data")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Show a realistic sample history instead of your server.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            }
-            .tint(Theme.accent)
-            .accessibilityIdentifier("profile.demoMode")
-            .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
-                : Text("Turning it off discards the workouts logged with Demo data.",
-                       comment: "Only while such workouts exist"))
-            if let error = model.demoExitError {
-                InlineMessage(message: error, systemImage: "exclamationmark.circle")
-            }
+            .padding(.top, L.buttonsTop)
         }
     }
 
-    // MARK: notifications
+    // MARK: subpages (PR 6 C restyles them)
 
-    private var notifications: some View {
-        ProfileSection(title: "Notifications") {
-            NavigationLink {
-                NotificationSettingsView()
-            } label: {
-                HStack {
-                    Text("Categories and quiet hours").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("profile.notifications")
-        }
-    }
-
-    // MARK: training
-
-    private var training: some View {
-        ProfileSection(title: "Training") {
-            Toggle(isOn: Bindable(settings).jumpToNextExercise) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Advance to the next exercise",
-                         comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one.")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Jumps to the next set when you finish an exercise.",
-                         comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\".")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(Theme.accent)
-            .accessibilityIdentifier("profile.jumpToNext")
-            if model.showsSessionLayout { sessionLayout }
-        }
-    }
-
-    private var sessionLayout: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Session layout", comment: "Profile → Training: how a workout shows its exercises, one per page or all in one list.")
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
-            SegmentedPicker(selection: Bindable(settings).sessionLayout, options: SessionLayout.allCases, title: \.title)
-                .accessibilityIdentifier("profile.sessionLayout")
-            Text("Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout.",
-                 comment: "Footer under Profile → Training → Session layout.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    // MARK: journal
-
-    private var journal: some View {
-        ProfileSection(title: "Journal") {
-            NavigationLink {
-                JournalSettingsView(store: screens.journal)
-            } label: {
-                HStack {
-                    Text("Behaviors to track").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("profile.journal")
-        }
-    }
-
-    // MARK: display
-
-    /// The hero numbers' look (L19, design.md §P4-6): it applies at once, the screens read the observable `Settings`.
-    private var display: some View {
-        ProfileSection(title: "Display") {
-            HeroNumeralsRow(selection: Bindable(settings).heroNumerals)
-            Text("Large numbers on Today, Sleep and Strain.",
-                 comment: "Footer under Profile → Display → Hero numbers: where the dots or thin digits show.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    // MARK: about
-
-    private var about: some View {
-        ProfileSection(title: "About") {
-            BrandLockup()
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-            StatRow(title: "Version", value: Self.version)
-            Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Divider().overlay(Theme.separator)
-            NavigationLink {
-                ReportProblemView(model: model.report)
-            } label: {
-                ReportProblemRow(waiting: model.report.waiting)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("profile.reportProblem")
-            .task { model.report.reloadWaiting() }
-            LinkRow(title: "Privacy Policy", url: LegalPage.privacy.url)
-            LinkRow(title: "Terms of Use", url: LegalPage.terms.url)
-            NavigationLink {
-                LicensesView()
-            } label: {
-                HStack {
-                    Text("Licences").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            Divider().overlay(Theme.separator)
-            if !model.devices.isEnabled {
-                LinkRow(title: "Garmin Connect and Apple Health", url: URL(string: "https://support.garmin.com/?q=apple%20health"))
-            }
-            LinkRow(title: "Apple Health privacy", url: URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/"))
+    @ViewBuilder private func destination(_ route: ProfileRoute) -> some View {
+        switch route {
+        case .devices: DevicesAndSyncView(model: model.devices)
+        case .syncDetails: SyncDetailsView(model: model.syncDetails)
+        case .notifications: NotificationSettingsView()
+        case .journal: JournalSettingsView(store: screens.journal)
+        case .bedtime: SleepScheduleView(planner: screens.bedtime)
+        case .signInMethods: SignInMethodsView()
+        case .reportProblem: ReportProblemView(model: model.report)
+        case .licences: LicensesView()
+        #if DEBUG
+        case .catalog: DebugComponentCatalog()
+        case .flags: FeatureFlagsDebugView()
+        #endif
         }
     }
 
     static var version: String { AppInfo.version }
 }
 
-// MARK: - building blocks
-
-private struct FieldLabel: View {
-    let text: LocalizedStringKey
-    init(_ text: LocalizedStringKey) { self.text = text }
+/// A card's footer parts, 8 apart (`GroupedListSpec.footerGap`); nothing when there are none.
+private struct FooterStack<Content: View>: View {
+    @ViewBuilder var content: () -> Content
 
     var body: some View {
-        Text(text)
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.bottom, -6)
+        VStack(alignment: .leading, spacing: GroupedListSpec.footerGap) { content() }
     }
 }
 
-private struct ProviderBadge: View {
-    let title: String
-    let systemImage: String
-
-    var body: some View {
-        Label(title, systemImage: systemImage)
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Theme.surfaceRaised, in: Capsule())
+extension ProfileRowFacts {
+    /// The page's facts: the model's account, flags and switches, and the two shared stores'.
+    @MainActor
+    init(_ model: ProfileViewModel, journalLive: Bool, bedtimeEnabled: Bool) {
+        self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
+                  showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
+                  showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
+                  consentIsCurrent: model.consentIsCurrent, canChangePassword: model.canChangePassword,
+                  hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
     }
 }
 
-private extension View {
-    func ryftField() -> some View {
-        font(.ryft(.body))
-            .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Theme.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
+// MARK: - the identity row's models
 
-#Preview("Profile · dark") {
-    ProfileView().previewEnvironment()
-}
-
-/// Profile → Data's first row while `devices.setup` is on: "Devices & sync", and what's chosen.
-private struct DevicesRowLabel: View {
-    let summary: String
+/// The identity row, reading the sync's line in its own body: the line changes with every sync step, and only this row
+/// shows it, so the page's groups don't re-render for it.
+private struct ProfileIdentitySection: View {
+    @Binding var showsSyncDetails: Bool
+    @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityHidden(true)
-            SettingRowLabel(title: "Devices & sync", value: summary)
+        let model = screens.profile
+        let status = model.status(line: screens.today.syncLine)
+        ProfileIdentityRow(identity: model.identity, status: status) {
+            switch status.tap {
+            case .syncDetails: showsSyncDetails = true
+            case .gate(let step): model.resolve(step)
+            case .retry: Task { await model.syncNow() }
+            case .none: break
+            }
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
-#Preview("Profile · Data row · dark") {
-    ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]))
+// MARK: - developer (Debug builds only)
+
+#if DEBUG
+/// Platform overrides for a compose stack, API key mode (`AUTH_MODE=apikey`), request IDs of recent failures and a connection
+/// test, in the page's grouped card (§P5-6.2: the same rows). Not in Release; English only, never in the catalog.
+private struct ProfileDeveloperGroup: View {
+    let model: ProfileViewModel
+    @Environment(ScreenModels.self) private var screens
+    @Environment(Settings.self) private var settings
+    private let apiStatus = APIStatus.shared
+
+    var body: some View {
+        GroupedCard(GroupTitle(Text(verbatim: "Developer"))) {
+            GroupedRow.push(Text(verbatim: "Component catalog"), icon: nil, route: ProfileRoute.catalog)
+                .accessibilityIdentifier(ProfileRows.devCatalog)
+            GroupedRow.push(Text(verbatim: "Feature flags"), route: ProfileRoute.flags)
+                .accessibilityIdentifier(ProfileRows.devFlags)
+            GroupedRow.value(Text(verbatim: "Push registration"), value: Text(verbatim: screens.push.lastResult ?? "—"))
+            field("API URL override") {
+                TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
+                    .keyboardType(.URL)
+            }
+            field("Ingest URL override (compose: :8081)") {
+                TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
+                    .keyboardType(.URL)
+            }
+            GroupedRow.toggle(Text(verbatim: "API key mode"),
+                              detail: Text(verbatim: "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
+                              isOn: Bindable(settings).apiKeyMode)
+            if settings.apiKeyMode {
+                field("API key") {
+                    SecureField("Bearer token", text: Bindable(settings).devAPIKey)
+                }
+            }
+            GroupedRow.toggle(Text(verbatim: "Show request IDs"), isOn: Bindable(settings).showRequestIDs)
+            if settings.showRequestIDs {
+                requestIDs
+            }
+            GroupedRow.action(Text(verbatim: "Test connection"), systemImage: "network", busy: model.testingConnection) {
+                Task { await model.testConnection() }
+            }
+        } footer: {
+            FooterStack {
+                switch model.connection {
+                case .ok(let text):
+                    InlineMessage(message: text, systemImage: "checkmark.circle", announces: false)
+                case .failed(let text):
+                    InlineMessage(message: text, systemImage: "exclamationmark.circle")
+                case nil:
+                    EmptyView()
+                }
+                GroupFooter(Text(verbatim: "Debug builds only."))
+            }
+        }
+    }
+
+    /// A text field under its label, in the card's row padding.
+    private func field<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: label)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+            field()
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Theme.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .groupedRowHairline()
+    }
+
+    @ViewBuilder private var requestIDs: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if apiStatus.failures.isEmpty {
+                Text(verbatim: "No failed requests since launch.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            ForEach(apiStatus.failures) { f in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "\(f.status) \(f.method) \(redactedPath(f.path))")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: "\(f.requestID ?? "–") · \(f.date.formatted(date: .omitted, time: .standard))")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Theme.textTertiary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .groupedRowHairline()
+    }
 }
+#endif
+
+// MARK: - previews (dark; default and AX3; design.md §P5-11)
+
+#if DEBUG
+/// Profile on a graph of its own: signed in or not, Demo data on or off, the account and today's strain as the state needs.
+/// Syncing is the identity row's preview (`ProfileIdentity.swift`): the line comes from the sync's own state.
+@MainActor
+private enum ProfilePreview {
+    enum Case {
+        case signedIn, noName, noStrain, signedOutDemo, offline, consentOutdated
+    }
+
+    static func page(_ kind: Case, ax3: Bool = false) -> some View {
+        let demo = kind == .signedOutDemo
+        let defaults = UserDefaults(suiteName: "ryft.preview.profile") ?? .standard
+        let settings = Settings(defaults: defaults)
+        let api = MockPlatformAPI(activities: .demoSource())
+        let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
+                                 auth: .preview(signedIn: kind != .signedOutDemo, provider: "email"),
+                                 persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
+                                 flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
+                                 defaults: defaults, demoOverride: demo)
+        env.uploader.gate = { _ in nil }
+        let state = AppState(env: env)
+        state.history = MockData.history
+        state.user = user(kind)
+        var today = MockData.todayDetail
+        if kind == .noStrain { today.score.strain = nil }
+        state.today = today
+        let sync = SyncService(env: env)
+        let screens = ScreenModels(state: state, sync: sync,
+                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
+                                   store: TrainPreview.store, library: TrainPreview.library)
+        return ProfileView()
+            .environment(\.appEnvironment, env)
+            .environment(screens)
+            .environment(settings)
+            .environment(env.auth)
+            .environment(sync)
+            .environment(state)
+            .environment(TrainPreview.library)
+            .environment(TrainPreview.sync)
+            .environment(TrainPreview.coordinator)
+            .environment(env.connectivityMonitor)
+            .toggleStyle(.ryft)
+            .preferredColorScheme(.dark)
+            .tint(Theme.textPrimary)
+            .environment(\.dynamicTypeSize, ax3 ? .accessibility3 : .large)
+    }
+
+    private static func user(_ kind: Case) -> User {
+        let u = MockData.user
+        switch kind {
+        case .noName:
+            return User(id: u.id, name: "", email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
+                        sleepBaseMin: u.sleepBaseMin, consent: u.consent, birthYear: u.birthYear)
+        case .consentOutdated:
+            return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
+                        sleepBaseMin: u.sleepBaseMin, birthYear: u.birthYear)
+        default:
+            return u
+        }
+    }
+}
+
+/// The buttons row on its own: exporting (the Export pill busy) beside Log out.
+private struct ProfileButtonsPreview: View {
+    var body: some View {
+        HStack(spacing: ProfileLayout.buttonsGap) {
+            PillButton(Text(verbatim: "Export data"), systemImage: PillButton.Icon.download, busy: true) {}
+            PillButton(Text(verbatim: "Log out"), style: .secondary) {}.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+}
+
+#Preview("Profile · signed in") { ProfilePreview.page(.signedIn) }
+#Preview("Profile · signed in · AX3") { ProfilePreview.page(.signedIn, ax3: true) }
+#Preview("Profile · no name (email)") { ProfilePreview.page(.noName) }
+#Preview("Profile · no name (email) · AX3") { ProfilePreview.page(.noName, ax3: true) }
+#Preview("Profile · no strain today") { ProfilePreview.page(.noStrain) }
+#Preview("Profile · no strain today · AX3") { ProfilePreview.page(.noStrain, ax3: true) }
+#Preview("Profile · signed out / demo") { ProfilePreview.page(.signedOutDemo) }
+#Preview("Profile · signed out / demo · AX3") { ProfilePreview.page(.signedOutDemo, ax3: true) }
+#Preview("Profile · offline") { ProfilePreview.page(.offline) }
+#Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
+#Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
+#Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
+#Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }
+#Preview("Profile · exporting · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { ProfileButtonsPreview() }.environment(\.dynamicTypeSize, .accessibility3)
+}
+#endif
