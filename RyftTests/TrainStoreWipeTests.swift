@@ -239,13 +239,12 @@ enum WipeValues {
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
     static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
-    /// A deleted, saved row's relationships: iOS 17.0 and 27 answer them. 18 and 26 trap, even when they were read before
-    /// the delete: 18.0 on the relationship ("Context is missing"), 18.6 and 26.0 on a row it yields that nothing held
+    /// A deleted, saved row's relationships: iOS 27 answers them. 18 and 26 trap, even when they were read before the
+    /// delete: 18.0 on the relationship ("Context is missing"), 18.6 and 26.0 on a row it yields that nothing held
     /// ("Never access a full future backing data"; on 26.0 in one run of two).
     static var deletedRowsAnswerRelationships: Bool {
         if #available(iOS 27, *) { return true }
-        if #available(iOS 18, *) { return false }
-        return true
+        return false
     }
 }
 

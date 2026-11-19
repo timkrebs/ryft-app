@@ -611,7 +611,7 @@ struct OwedWipeLaunchTests {
     }
 
     /// What the store holds as the launch's pass starts on it, through a fresh context: what's left for the object wipe.
-    /// Every OS shows it, unlike `didSave`, whose deleted identifiers iOS 17 leaves out.
+    /// It doesn't depend on what `didSave` reports.
     private func rowsAtThePass(during launch: () -> Void, in rig: WipingAuth) -> [StoreOnDisk.Rows] {
         var rows: [StoreOnDisk.Rows] = []
         rig.atThePass = { [unowned rig] in
@@ -632,7 +632,6 @@ struct OwedWipeLaunchTests {
         }, in: rig)
         #expect(rig.wipes.count == 1, "the wipe still ran")
         #expect(atThePass == [.none], "the replace left the pass nothing to delete")
-        // iOS 17 counts 0 here whatever the pass deletes: the line above is what checks it there.
         #expect(deleted == 0)
     }
 
@@ -648,12 +647,7 @@ struct OwedWipeLaunchTests {
             atThePass = rowsAtThePass(during: { rig.relaunchWithTheStoreFirst(signedInAs: nil) }, in: rig)
         }, in: rig)
         #expect(atThePass == [.init(sessions: 1, exercises: 2, sets: 6)])
-        withKnownIssue("iOS 17: ModelContext.didSave carries no deleted identifiers, so this can't see the deletes") {
-            #expect(deleted == 9)
-        } when: {
-            if #unavailable(iOS 18) { return true }
-            return false
-        }
+        #expect(deleted == 9)
         #expect(try inode(rig) == file)
         #expect(rig.ledgerOnDisk == nil)
         try rig.disk.expectNothingLeft()
