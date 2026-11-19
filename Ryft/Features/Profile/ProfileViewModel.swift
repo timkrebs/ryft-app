@@ -781,6 +781,8 @@ final class BodySettingsEditor {
     private(set) var rescoreStatus: String?
     /// Status and request ID of a failed rescore.
     private(set) var rescoreDetails: String?
+    /// The last rescore failed: `rescoreStatus` says why (offline it has no `rescoreDetails`).
+    private(set) var rescoreFailed = false
 
     /// One thing at a time: a save during a rescore would be reported as rescored.
     var isBusy: Bool { saving || rescoring }
@@ -800,6 +802,10 @@ final class BodySettingsEditor {
     private var env: AppEnvironment { state.env }
     private var user: User? { state.user }
     var canSave: Bool { state.hasDataSource }
+    /// The account is here (cached or fetched): the values are the saved ones, not the defaults.
+    var isLoaded: Bool { user != nil }
+    /// What the editors say offline (a change can't be sent).
+    var isOnline: Bool { env.connectivity.isOnline }
 
     /// A form opens: a fresh start, no earlier refusal or note.
     func begin() {
@@ -808,6 +814,7 @@ final class BodySettingsEditor {
         savedChange = false
         rescoreStatus = nil
         rescoreDetails = nil
+        rescoreFailed = false
     }
 
     // MARK: baseline sleep need
@@ -835,8 +842,12 @@ final class BodySettingsEditor {
     /// Set by hand: offer going back (to the learned estimate, or the default without one).
     var canUseLearnedBase: Bool { sleepBaseSource == .manual }
     var usesLearnedTitle: String {
-        user?.sleepBaseLearnedMin == nil ? String(localized: "Use the default") : String(localized: "Use the learned value")
+        sleepBaseLearned == nil ? String(localized: "Use the default")
+            : String(localized: "Use RYFT's estimate",
+                     comment: "Baseline sleep need editor: the row that goes back from your own baseline to the one RYFT learned from your nights.")
     }
+    /// What RYFT learned from the nights, minutes; the "Use RYFT's estimate" row shows it.
+    var sleepBaseLearned: Int? { user?.sleepBaseLearnedMin }
 
     /// `PATCH /v1/me {sleep_base_min}`: the baseline becomes yours (`manual`), learning stops.
     @discardableResult
@@ -932,6 +943,7 @@ final class BodySettingsEditor {
         guard !isBusy else { return }
         rescoring = true
         rescoreDetails = nil
+        rescoreFailed = false
         defer { rescoring = false }
         let now = env.clock.now()
         do {
@@ -944,13 +956,15 @@ final class BodySettingsEditor {
         } catch where error.isCancellation {
             return
         } catch {
-            rescoreStatus = error.localizedDescription
-            rescoreDetails = error.diagnosticDetails
+            let failure = BodySettingsFailure(rescore: error, online: isOnline)
+            rescoreStatus = failure.message
+            rescoreDetails = failure.details
+            rescoreFailed = true
         }
     }
 
     /// One `PATCH`: `true` when the platform took it. A refusal (`422`) says `refused` in the
-    /// form; anything else says what went wrong. Details keep the request ID.
+    /// form; anything else says in words what happened (`BodySettingsFailure`). Details keep the request ID.
     private func save(_ patch: UserPatch, refused: String) async -> Bool {
         guard !isBusy else { return false }
         saving = true
@@ -968,8 +982,9 @@ final class BodySettingsEditor {
         } catch where error.isCancellation {
             return false
         } catch {
-            self.error = error.localizedDescription
-            errorDetails = error.diagnosticDetails
+            let failure = BodySettingsFailure(save: error, online: isOnline)
+            self.error = failure.message
+            errorDetails = failure.details
         }
         return false
     }

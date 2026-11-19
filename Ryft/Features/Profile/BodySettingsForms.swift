@@ -9,10 +9,10 @@ enum BodySetting: String, Identifiable {
 }
 
 extension View {
-    /// The editor for `item` as a sheet.
+    /// The editor for `item` as a sheet: its own page with Close (Nocturne, PR 6 C §4.11).
     func bodySettingSheet(_ item: Binding<BodySetting?>, editor: BodySettingsEditor) -> some View {
         sheet(item: item) { setting in
-            NavigationStack {
+            Group {
                 switch setting {
                 case .sleepBase: BaselineSleepNeedForm(editor: editor, showsClose: true)
                 case .maxHR: MaxHeartRateForm(editor: editor, showsClose: true)
@@ -23,261 +23,491 @@ extension View {
     }
 }
 
-/// A big value between − and +; VoiceOver adjusts it by swiping up and down.
-struct SettingStepper: View {
-    @Binding var value: Int
-    let range: ClosedRange<Int>
-    let step: Int
-    let label: LocalizedStringKey
-    let text: (Int) -> String
-    /// The − and + grow with the text.
-    @ScaledMetric(relativeTo: .title) private var buttonSize: CGFloat = 48
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+/// The editors' numbers (Nocturne, PR 6 C §4.11; plain values, so tests assert numbers, not pixels).
+enum BodySettingsLayout {
+    /// The numeral (and its unit) → the source line, and the source line → the ruler.
+    nonisolated static let numeralToSource: CGFloat = 8, sourceToRuler: CGFloat = 14
+    /// The ruler's 36 pt box → the first block under it (a notice, or the paragraph).
+    nonisolated static let rulerToContent: CGFloat = 24
+    /// Between the blocks under the ruler: notices, groups, the paragraph (`GroupedListSpec.groupSpacing`).
+    nonisolated static let blockSpacing: CGFloat = 18
+    /// A group → the notice about it (`GroupedListSpec.footerGap`).
+    nonisolated static let noticeGap: CGFloat = 8
+    /// The baseline's numeral is at least 130 wide, so the circles stay put from "4:00" to "9:45".
+    nonisolated static let baselineNumeralMinWidth: CGFloat = 130
+    /// "bpm" under the heart rate's numeral.
+    nonisolated static let unitGap: CGFloat = 2
+    /// One tick per step, so the needle lands on a tick: 4–12 h in 15 minutes is 33; 100–230 bpm in 5 is 27.
+    nonisolated static let baselineTicks = 33, maxHRTicks = 27
+    /// The "Use …" row's glyph.
+    nonisolated static let estimateGlyph = "arrow.uturn.backward"
+}
 
-    private func change(by delta: Int) {
-        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
-            value = min(range.upperBound, max(range.lowerBound, value + delta))
+extension BodySetting {
+    var title: Text {
+        switch self {
+        case .sleepBase: return Text("Baseline sleep need")
+        case .maxHR: return Text("Maximum heart rate")
         }
     }
 
-    var body: some View {
-        HStack(spacing: 20) {
-            button("minus", enabled: value > range.lowerBound) { change(by: -step) }
-            Text(text(value))
-                .font(.ryft(.numberLarge))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-                .contentTransition(.numericText(value: Double(value)))
-                .frame(minWidth: 150)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            button("plus", enabled: value < range.upperBound) { change(by: step) }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(label))
-        .accessibilityValue(Text(text(value)))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: change(by: step)
-            case .decrement: change(by: -step)
-            @unknown default: break
-            }
+    var range: ClosedRange<Int> {
+        switch self {
+        case .sleepBase: return BodySettingsEditor.sleepBaseRange
+        case .maxHR: return BodySettingsEditor.maxHRRange
         }
     }
 
-    private func button(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(.title3, weight: .semibold))
-                .frame(width: buttonSize, height: buttonSize)
-                .background(Theme.surfaceRaised, in: Circle())
-                .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary)
+    var step: Int {
+        switch self {
+        case .sleepBase: return BodySettingsEditor.sleepBaseStep
+        case .maxHR: return 1
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
+    }
+
+    var tickCount: Int {
+        switch self {
+        case .sleepBase: return BodySettingsLayout.baselineTicks
+        case .maxHR: return BodySettingsLayout.maxHRTicks
+        }
+    }
+
+    /// The numeral's unlit template while nothing is drawn.
+    var placeholder: String {
+        switch self {
+        case .sleepBase: return "0:00"
+        case .maxHR: return "000"
+        }
+    }
+
+    /// Save's identifier for UI tests (`sleepBase.save` as before the restyle).
+    var saveIdentifier: String { "\(rawValue).save" }
+
+    /// The numeral: "7:45", "190".
+    func numeral(_ value: Int) -> String {
+        switch self {
+        case .sleepBase: return Fmt.clock(minutes: value)
+        case .maxHR: return "\(value)"
+        }
+    }
+
+    /// The value with its unit, as text beside other words: "7:30", "190 bpm".
+    func text(_ value: Int) -> String {
+        switch self {
+        case .sleepBase: return Fmt.clock(minutes: value)
+        case .maxHR: return String(localized: "\(value) bpm")
+        }
+    }
+
+    /// As VoiceOver says it: "7 hours 45 minutes", "185 beats per minute".
+    func spoken(_ value: Int) -> String {
+        switch self {
+        case .sleepBase: return Fmt.spokenDuration(minutes: value)
+        case .maxHR:
+            return String(localized: "\(value) beats per minute",
+                          comment: "VoiceOver: the Maximum heart rate editor's value, e.g. \"185 beats per minute\".")
+        }
+    }
+
+    /// The ruler's labels: the ends and the middle of the range.
+    var rulerLabels: [String] {
+        switch self {
+        case .sleepBase:
+            return [String(localized: "4 h", comment: "Baseline sleep need editor: the ruler's start, four hours."),
+                    String(localized: "8 h", comment: "Baseline sleep need editor: the ruler's middle, eight hours."),
+                    String(localized: "12 h", comment: "Baseline sleep need editor: the ruler's end, twelve hours.")]
+        case .maxHR:
+            let r = BodySettingsEditor.maxHRRange
+            return [String(localized: "\(r.lowerBound) bpm"), "\((r.lowerBound + r.upperBound) / 2)",
+                    String(localized: "\(r.upperBound) bpm")]
+        }
+    }
+
+    /// Under the ruler: what the setting does (today's sentences).
+    var explanation: Text {
+        switch self {
+        case .sleepBase:
+            return Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it.")
+        case .maxHR:
+            return Text("Strain and heart-rate zones are measured against it. If you know yours from a test, set it here.")
+        }
     }
 }
 
-/// Baseline sleep need: 15-minute steps, 4–12 h. In a sheet (`showsClose`) or pushed from
-/// Sleep's need breakdown.
+/// What an editor shows for its draft value (Nocturne, PR 6 C §4.11): pure, so tests read the decisions without a view.
+struct BodySettingContent: Equatable {
+    /// The "Use …" row that goes back to RYFT's value: its title and, where RYFT has one to show, the value.
+    struct Estimate: Equatable {
+        let title: String
+        let value: String?
+        let spokenValue: String?
+    }
+
+    let numeral: String
+    let spoken: String
+    /// The saved value (the account's, or the default while it isn't here).
+    let saved: Int
+    /// Where the saved value comes from, and the saved value while the numeral shows an unsaved one: "Set by you · saved 7:30".
+    /// `nil` while the account isn't here.
+    let source: String?
+    /// The numeral differs from what is saved.
+    let isChanged: Bool
+    /// Save can go: changed, the account here (its values are the saved ones, not the defaults), signed in, nothing in flight.
+    let canSave: Bool
+    let estimate: Estimate?
+    /// Offline with no account cached: the numeral is the default, and a notice says so.
+    let isOfflineWithoutAccount: Bool
+
+    @MainActor
+    init(_ setting: BodySetting, editor: BodySettingsEditor, draft: Int) {
+        numeral = setting.numeral(draft)
+        spoken = setting.spoken(draft)
+        let saved: Int
+        let source: String?
+        switch setting {
+        case .sleepBase:
+            saved = editor.sleepBase
+            // Set by you: the learned value is on the "Use RYFT's estimate" row under it, not repeated here.
+            source = editor.sleepBaseSource == .manual ? String(localized: "Set by you") : editor.sleepBaseSourceText
+            estimate = editor.canUseLearnedBase
+                ? Estimate(title: editor.usesLearnedTitle, value: editor.sleepBaseLearned.map { setting.text($0) },
+                           spokenValue: editor.sleepBaseLearned.map { setting.spoken($0) })
+                : nil
+        case .maxHR:
+            saved = editor.maxHR
+            source = editor.maxHRSourceText
+            // The platform's estimate isn't sent, so the row has no value (the phone computes none).
+            estimate = editor.canUseMaxHREstimate ? Estimate(title: String(localized: "Use the estimate"), value: nil, spokenValue: nil)
+                : nil
+        }
+        self.saved = saved
+        isChanged = draft != saved
+        let loaded = editor.isLoaded
+        if loaded, let source {
+            self.source = isChanged
+                ? [source, String(localized: "saved \(setting.text(saved))",
+                                  comment: "Body setting editors, after the source line while the numeral shows an unsaved value: the saved one, e.g. \"saved 7:30\".")]
+                    .joined(separator: " · ")
+                : source
+        } else {
+            self.source = loaded ? source : nil
+        }
+        canSave = isChanged && loaded && editor.canSave && !editor.isBusy
+        isOfflineWithoutAccount = !loaded && !editor.isOnline
+    }
+}
+
+/// Baseline sleep need: 15-minute steps, 4–12 h. A sheet from Profile and onboarding (`showsClose`), or pushed inside Sleep's
+/// need sheet (Back).
 struct BaselineSleepNeedForm: View {
     let editor: BodySettingsEditor
     var showsClose = false
-    @Environment(\.dismiss) private var dismiss
-    @State private var draft = BodySettingsEditor.defaultSleepBase
-    /// Edited by hand: no longer follows the saved value.
-    @State private var touched = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SettingStepper(value: drafted, range: BodySettingsEditor.sleepBaseRange, step: BodySettingsEditor.sleepBaseStep,
-                             label: "Baseline sleep need") { Fmt.duration(minutes: $0) }
-                    .padding(.vertical, 8)
-                if let source = editor.sleepBaseSourceText {
-                    Label(source, systemImage: "info.circle")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if editor.canUseLearnedBase {
-                    Button(editor.usesLearnedTitle) {
-                        Task {
-                            await editor.useLearnedSleepBase()
-                            reset()
-                        }
-                    }
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
-                    .frame(minHeight: 44)
-                    .disabled(editor.isBusy)
-                }
-                SettingSaveFooter(editor: editor)
-            }
-            .padding(Theme.Metrics.screenPadding)
-        }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text("Baseline sleep need"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) { SheetTitle(text: "Baseline sleep need") }
-            if showsClose {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    Task {
-                        await editor.setSleepBase(draft)
-                        reset()
-                    }
-                }
-                .disabled(draft == editor.sleepBase || editor.isBusy || !editor.canSave)
-                    .accessibilityIdentifier("sleepBase.save")
-            }
-        }
-        .onAppear {
-            editor.begin()
-            reset()
-        }
-        // The account arrived (or changed) while the form was open: follow it until edited.
-        .onChange(of: editor.sleepBase) { if !touched { draft = editor.sleepBase } }
-    }
-
-    /// Back to what's saved: after a save (taken or refused) or going back to learned.
-    private func reset() {
-        draft = editor.sleepBase
-        touched = false
-    }
-
-    private var drafted: Binding<Int> {
-        Binding(get: { draft }, set: { draft = $0; touched = true })
+        BodySettingPage(setting: .sleepBase, editor: editor, showsClose: showsClose)
     }
 }
 
-/// Maximum heart rate: 100–230 bpm.
+/// Maximum heart rate: 100–230 bpm, one at a time. A sheet from Profile and onboarding.
 struct MaxHeartRateForm: View {
     let editor: BodySettingsEditor
     var showsClose = false
-    @Environment(\.dismiss) private var dismiss
-    @State private var draft = BodySettingsEditor.defaultMaxHR
-    @State private var touched = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SettingStepper(value: drafted, range: BodySettingsEditor.maxHRRange, step: 1,
-                             label: "Maximum heart rate") { "\($0) bpm" }
-                    .padding(.vertical, 8)
-                if let source = editor.maxHRSourceText {
-                    Label(source, systemImage: "info.circle")
+        BodySettingPage(setting: .maxHR, editor: editor, showsClose: showsClose)
+    }
+}
+
+/// One editor in Nocturne (PR 6 C §4.11, D6C-11, D6C-14): the header with Close (or Back) · 22 · the numeral between Less and
+/// More, one adjustable element · 8 · where the value comes from · 14 · the ruler with the Volt needle at the draft (hidden
+/// from VoiceOver: it repeats the value) · 24 · the notices about the value (offline without the account, a refusal, Saved and
+/// the rescore under it) · the paragraph · the "Use …" row · Save pinned under the page.
+///
+/// A save sends `PATCH /v1/me` (`BodySettingsEditor`): the value shows at once; a refusal, no answer or no network says so in
+/// words under the ruler and the numeral goes back to the saved value, so nothing reads as saved that wasn't. Save is off
+/// while nothing changed, while the account isn't here, and while anything is in flight.
+private struct BodySettingPage: View {
+    let setting: BodySetting
+    let editor: BodySettingsEditor
+    let showsClose: Bool
+
+    @State private var draft: Int
+    /// Edited by hand: no longer follows the saved value.
+    @State private var touched = false
+    /// Which of the page's writes is in flight: Save's pill or the "Use …" row shows it.
+    @State private var running: Running?
+
+    private enum Running { case save, estimate }
+
+    init(setting: BodySetting, editor: BodySettingsEditor, showsClose: Bool) {
+        self.setting = setting
+        self.editor = editor
+        self.showsClose = showsClose
+        _draft = State(initialValue: setting == .sleepBase ? editor.sleepBase : editor.maxHR)
+    }
+
+    private var content: BodySettingContent { BodySettingContent(setting, editor: editor, draft: draft) }
+    private var savedValue: Int { setting == .sleepBase ? editor.sleepBase : editor.maxHR }
+
+    var body: some View {
+        let content = content
+        SubpageScaffold(setting.title, navigation: showsClose ? .close() : .back(), isSheet: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                stepper(content)
+                if let source = content.source {
+                    Text(verbatim: source)
+                        .font(.ryft(.label))
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, BodySettingsLayout.numeralToSource)
+                        .accessibilityIdentifier("bodySettings.source")
+                }
+                RulerScale(range: Double(setting.range.lowerBound)...Double(setting.range.upperBound), value: Double(draft),
+                           tickCount: setting.tickCount, labels: setting.rulerLabels,
+                           accessibilityLabel: setting.title, accessibilityValue: Text(verbatim: content.spoken),
+                           followingGap: BodySettingsLayout.rulerToContent)
+                    .accessibilityHidden(true)
+                    .accessibilityIdentifier("bodySettings.ruler")
+                    .padding(.top, content.source == nil ? BodySettingsLayout.numeralToSource : BodySettingsLayout.sourceToRuler)
+                VStack(alignment: .leading, spacing: BodySettingsLayout.blockSpacing) {
+                    notices(content)
+                    setting.explanation
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
-                }
-                Text("Strain and heart-rate zones are measured against it. If you know yours from a test, set it here.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if editor.canUseMaxHREstimate {
-                    Button("Use the estimate") {
-                        Task {
-                            await editor.useMaxHREstimate()
-                            reset()
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let estimate = content.estimate {
+                        GroupedCard {
+                            EstimateRow(estimate: estimate, busy: running == .estimate) {
+                                Task { await useEstimate() }
+                            }
+                            .disabled(editor.isBusy || !editor.canSave || !editor.isLoaded)
                         }
                     }
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
-                    .frame(minHeight: 44)
-                    .disabled(editor.isBusy)
                 }
-                SettingSaveFooter(editor: editor)
+                .padding(.top, BodySettingsLayout.rulerToContent)
             }
-            .padding(Theme.Metrics.screenPadding)
         }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text("Maximum heart rate"))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) { SheetTitle(text: "Maximum heart rate") }
-            if showsClose {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+        .pinnedBar {
+            PillButton(running == .save ? Text("Saving…", comment: "Body setting editors: Save while the change is on its way.")
+                                        : Text("Save"),
+                       systemImage: PillButton.Icon.confirm, busy: running == .save) {
+                await save()
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    Task {
-                        await editor.setMaxHR(draft)
-                        reset()
-                    }
-                }
-                .disabled(draft == editor.maxHR || editor.isBusy || !editor.canSave)
-            }
+            .disabled(!content.canSave && running != .save)
+            .accessibilityIdentifier(setting.saveIdentifier)
         }
         .onAppear {
             editor.begin()
             reset()
         }
-        .onChange(of: editor.maxHR) { if !touched { draft = editor.maxHR } }
+        // The account arrived (or changed) while the page was open: follow it until edited.
+        .onChange(of: savedValue) { if !touched { draft = savedValue } }
     }
 
-    private func reset() {
-        draft = editor.maxHR
-        touched = false
+    /// The numeral between Less and More: one adjustable element ("Baseline sleep need, 7 hours 45 minutes"), off while a
+    /// write is in flight.
+    private func stepper(_ content: BodySettingContent) -> some View {
+        let value = RyftStepperValue(drafted, in: setting.range, step: setting.step, format: setting.numeral,
+                                     spoken: setting.spoken)
+        return HeroStepper(setting.title, value: value) {
+            VStack(spacing: BodySettingsLayout.unitGap) {
+                DotNumeral(content.numeral, glyphGap: DotNumeral.glyphGapDetail, placeholder: setting.placeholder,
+                           accessibilityLabel: setting.title)
+                    .frame(minWidth: setting == .sleepBase ? BodySettingsLayout.baselineNumeralMinWidth : nil)
+                if setting == .maxHR {
+                    Text("bpm", comment: "Under the Maximum heart rate editor's numeral: its unit, beats per minute.")
+                        .font(.ryft(.label))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .disabled(editor.isBusy)
+        .accessibilityIdentifier("bodySettings.stepper")
     }
 
-    private var drafted: Binding<Int> {
-        Binding(get: { draft }, set: { draft = $0; touched = true })
-    }
-}
-
-/// Under an editor: a refusal, or after a save that past days keep their scores, with the
-/// offer to rescore them.
-private struct SettingSaveFooter: View {
-    let editor: BodySettingsEditor
-
-    var body: some View {
-        if editor.saving {
-            ProgressView().tint(Theme.accent)
+    /// Under the ruler, about the value: offline without the account; the last refusal; Saved, the rescore and how it went.
+    @ViewBuilder private func notices(_ content: BodySettingContent) -> some View {
+        if content.isOfflineWithoutAccount {
+            InlineMessage(message: String(localized: "You're offline and RYFT hasn't loaded your settings yet, so this shows the default. You can change it once you're back online.",
+                                          comment: "Body setting editors, offline with no account on this iPhone yet: the numeral is the default and Save is off."),
+                          systemImage: "wifi.slash", announces: false, readsAsOne: true)
+                .accessibilityIdentifier("bodySettings.offline")
         }
         if let error = editor.error {
-            InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
+            InlineMessage(message: error, systemImage: "exclamationmark.circle", caption: editor.errorDetails)
+                .textSelection(.enabled)
                 .accessibilityIdentifier("bodySettings.error")
         }
         if editor.savedChange || editor.rescoreStatus != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                if editor.savedChange {
-                    Label("Saved. Past days keep their scores until you rescore them.", systemImage: "checkmark.circle")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            if editor.savedChange {
+                InlineMessage(message: String(localized: "Saved. Past days keep their scores until you rescore them."),
+                              systemImage: "checkmark", readsAsOne: true)
+                    .accessibilityIdentifier("bodySettings.saved")
+            }
+            VStack(alignment: .leading, spacing: BodySettingsLayout.noticeGap) {
+                GroupedCard {
+                    GroupedRow.action(editor.rescoring ? Text("Rescoring…", comment: "Body setting editors: the rescore row while it runs.")
+                                                       : Text("Rescore the last 90 days"),
+                                      systemImage: "arrow.clockwise", busy: editor.rescoring, identifier: "bodySettings.rescore") {
+                        Task { await editor.rescore() }
+                    }
+                    .disabled(editor.saving || !editor.canSave)
                 }
-                PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
-                    await editor.rescore()
+                if let status = editor.rescoreStatus {
+                    InlineMessage(message: status, systemImage: rescoreGlyph, caption: editor.rescoreDetails,
+                                  readsAsOne: editor.rescoreDetails == nil)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("bodySettings.rescoreStatus")
                 }
-                .disabled(editor.saving)
-                RescoreStatus(editor: editor)
             }
         }
     }
+
+    private var rescoreGlyph: String {
+        if editor.rescoreFailed { return "exclamationmark.circle" }
+        return editor.rescoring ? "clock" : "checkmark"
+    }
+
+    // MARK: writes
+
+    /// Back to what's saved: after a save (taken or not) or going back to RYFT's value.
+    private func reset() {
+        draft = savedValue
+        touched = false
+    }
+
+    /// The numeral's binding: still while a write is in flight.
+    private var drafted: Binding<Int> {
+        Binding(get: { draft }, set: { value in
+            guard !editor.isBusy else { return }
+            draft = value
+            touched = true
+        })
+    }
+
+    private func save() async {
+        guard running == nil else { return }
+        running = .save
+        switch setting {
+        case .sleepBase: await editor.setSleepBase(draft)
+        case .maxHR: await editor.setMaxHR(draft)
+        }
+        running = nil
+        reset()
+    }
+
+    private func useEstimate() async {
+        guard running == nil else { return }
+        running = .estimate
+        switch setting {
+        case .sleepBase: await editor.useLearnedSleepBase()
+        case .maxHR: await editor.useMaxHREstimate()
+        }
+        running = nil
+        reset()
+    }
 }
 
-#Preview("Baseline sleep need · dark") {
-    let state = AppState.preview()
-    NavigationStack { BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+/// "Use RYFT's estimate 7:52 ↺": an action row with a value (`GroupedRow.action` has no value slot), a button VoiceOver reads
+/// as the title and the spoken value; busy, a spinner in the glyph's place and "In progress".
+private struct EstimateRow: View {
+    let estimate: BodySettingContent.Estimate
+    let busy: Bool
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button {
+            if !busy { action() }
+        } label: {
+            GroupedRowLabel(Text(verbatim: estimate.title), value: estimate.value.map { Text(verbatim: $0) },
+                            accessory: busy ? .spinner : .glyph(BodySettingsLayout.estimateGlyph))
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : GroupedListSpec.disabledOpacity)
+        .groupedRowHairline()
+        .accessibilityLabel(Text(verbatim: estimate.title))
+        .accessibilityValue(busy ? GroupedRow.busyValue : Text(verbatim: estimate.spokenValue ?? ""))
+        .accessibilityIdentifier("bodySettings.useEstimate")
+    }
+}
+
+/// What the editors say when a change didn't go through, in words, with the status and request ID as the caption when RYFT
+/// answered, never the raw error text (as Journal settings and Notifications do). The value goes back to the saved one:
+/// - offline: nothing was sent, so nothing changed;
+/// - no answer (a timeout, a dropped connection, a `5xx`): it may have saved, so the user checks rather than assumes;
+/// - anything else (`409`, `403`, `429`): nothing changed; try again.
+/// A `422` keeps the editor's own sentence naming the range (`BodySettingsEditor`).
+struct BodySettingsFailure: Equatable {
+    let message: String
+    let details: String?
+
+    /// A save (`PATCH /v1/me`).
+    init(save error: Error, online: Bool) {
+        switch Self.kind(error, online: online) {
+        case .offline:
+            message = String(localized: "You're offline, so this wasn't saved. Try again when you're back online.")
+        case .noAnswer:
+            message = String(localized: "RYFT didn't answer, so this may not have saved. Try again in a moment.")
+        case .refused:
+            message = String(localized: "RYFT couldn't save this change, so it's back as it was.")
+        }
+        details = error.diagnosticDetails
+    }
+
+    /// "Rescore the last 90 days" (`POST /v1/recompute`).
+    init(rescore error: Error, online: Bool) {
+        switch Self.kind(error, online: online) {
+        case .offline:
+            message = String(localized: "You're offline, so nothing was rescored. Try again when you're back online.",
+                             comment: "Body setting editors and Profile: Rescore the last 90 days, offline.")
+        case .noAnswer:
+            message = String(localized: "RYFT didn't answer, so the rescore may not have started. Try again in a moment.",
+                             comment: "Body setting editors and Profile: Rescore the last 90 days, no answer (a timeout, a dropped connection).")
+        case .refused:
+            message = String(localized: "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.",
+                             comment: "Body setting editors and Profile: Rescore the last 90 days, refused (429, 403 …).")
+        }
+        details = error.diagnosticDetails
+    }
+
+    private enum Kind { case offline, noAnswer, refused }
+
+    private static func kind(_ error: Error, online: Bool) -> Kind {
+        var transport = error as? URLError
+        if case .transport(let inner)? = error as? APIError { transport = inner as? URLError }
+        if !online || transport?.code == .notConnectedToInternet { return .offline }
+        if FailureKind.of(error) == .transient, (error as? APIError)?.status != 429 { return .noAnswer }
+        return .refused
+    }
+}
+
+// MARK: - previews (dark only)
+
+#Preview("Baseline sleep need") {
+    let state = MockSleepNeedStates.state()
+    BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true)
         .previewEnvironment(state)
 }
 
-#Preview("Baseline sleep need · de") {
-    let state = AppState.preview()
-    NavigationStack { BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+#Preview("Baseline sleep need · AX3") {
+    let state = MockSleepNeedStates.state()
+    BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true)
         .previewEnvironment(state)
-        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Maximum heart rate · dark") {
-    let state = AppState.preview()
-    NavigationStack { MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+#Preview("Baseline sleep need · offline, no account") {
+    let state = MockSleepNeedStates.state(account: false, online: false)
+    BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true)
+        .previewEnvironment(state)
+}
+
+#Preview("Maximum heart rate") {
+    let state = MockSleepNeedStates.state()
+    MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true)
         .previewEnvironment(state)
 }

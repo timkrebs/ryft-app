@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Why a night's need is what it is, as numbers (`DayDetail.sleep.need`):
-/// `base + strain + debt − nap credit = total`. Computed once, so the bar,
-/// the sentence and VoiceOver say the same thing.
+/// Why a night's need is what it is, as numbers (`DayDetail.sleep.need`): `base + strain + debt − nap credit = total`.
+/// Computed once, so the tile, the card's footer, the sentence and VoiceOver say the same thing. Durations are clocks
+/// ("7:30", "+0:20", "−0:25"), as Nocturne's numerals and totals are (design.md §P4-4); VoiceOver hears them in words.
 struct SleepNeedBreakdown: Equatable {
     struct Term: Identifiable, Equatable {
         enum Kind: String { case base, strain, debt, nap }
@@ -14,17 +14,32 @@ struct SleepNeedBreakdown: Equatable {
             switch kind {
             case .base: return String(localized: "Baseline")
             case .strain: return String(localized: "Strain")
-            case .debt: return String(localized: "Debt")
+            case .debt: return String(localized: "Sleep debt")
             case .nap: return String(localized: "Nap credit")
             }
         }
 
-        /// "7h 40m", "+37m", "−25m".
+        /// "7:30", "+0:20", "−0:25" (a real minus).
         var signed: String {
             switch kind {
-            case .base: return Fmt.duration(minutes: minutes)
-            case .strain, .debt: return "+" + Fmt.duration(minutes: minutes)
-            case .nap: return Fmt.duration(minutes: -minutes)
+            case .base: return Fmt.clock(minutes: minutes)
+            case .strain, .debt: return "+" + Fmt.clock(minutes: minutes)
+            case .nap: return Fmt.clock(minutes: -minutes)
+            }
+        }
+
+        /// The term as VoiceOver reads it, one element: "Baseline, 7 hours 30 minutes", "Strain, plus 20 minutes",
+        /// "Nap credit, minus 25 minutes".
+        var spoken: String {
+            let amount = Fmt.spokenDuration(minutes: minutes)
+            switch kind {
+            case .base: return "\(title), \(amount)"
+            case .strain, .debt:
+                return String(localized: "\(title), plus \(amount)",
+                              comment: "VoiceOver: a top-up of the night's sleep need, e.g. \"Strain, plus 20 minutes\". 1: the term, 2: the time.")
+            case .nap:
+                return String(localized: "\(title), minus \(amount)",
+                              comment: "VoiceOver: the nap credit taken off the night's sleep need, \"Nap credit, minus 25 minutes\". 1: the term, 2: the time.")
             }
         }
     }
@@ -42,123 +57,88 @@ struct SleepNeedBreakdown: Equatable {
 
     func minutes(_ kind: Term.Kind) -> Int { terms.first { $0.kind == kind }?.minutes ?? 0 }
 
-    /// "You needed 8h 58m: 7h 40m baseline, +37m for yesterday's strain, +41m of debt."
-    var sentence: String {
-        var parts = [String(localized: "\(Fmt.duration(minutes: minutes(.base))) baseline")]
+    /// "You needed 8:18: 7:30 baseline, +0:20 for yesterday's strain, +0:28 of debt."
+    var sentence: String { sentence(Fmt.clock(minutes:)) }
+
+    /// The sentence as VoiceOver reads it: "You needed 8 hours 18 minutes: 7 hours 30 minutes baseline, +20 minutes for
+    /// yesterday's strain, …" (a clock would be read as a time of day).
+    var spokenSentence: String { sentence { Fmt.spokenDuration(minutes: $0 ?? 0) } }
+
+    private func sentence(_ duration: (Int?) -> String) -> String {
+        var parts = [String(localized: "\(duration(minutes(.base))) baseline")]
         if minutes(.strain) > 0 {
-            parts.append(String(localized: "+\(Fmt.duration(minutes: minutes(.strain))) for yesterday's strain"))
+            parts.append(String(localized: "+\(duration(minutes(.strain))) for yesterday's strain"))
         }
-        if minutes(.debt) > 0 { parts.append(String(localized: "+\(Fmt.duration(minutes: minutes(.debt))) of debt")) }
-        if minutes(.nap) > 0 { parts.append(String(localized: "−\(Fmt.duration(minutes: minutes(.nap))) for your nap")) }
+        if minutes(.debt) > 0 { parts.append(String(localized: "+\(duration(minutes(.debt))) of debt")) }
+        if minutes(.nap) > 0 { parts.append(String(localized: "−\(duration(minutes(.nap))) for your nap")) }
         let list = parts.formatted(.list(type: .and, width: .narrow))
-        return String(localized: "You needed \(Fmt.duration(minutes: total)): \(list).")
+        return String(localized: "You needed \(duration(total)): \(list).")
     }
 }
 
-/// The need as one segmented bar: baseline, strain and debt top-ups side by side, the nap credit as an outlined segment taken
-/// off the end; the four numbers labelled underneath, the sentence below them. Nocturne (docs/work/2026-11-16-nocturne/design.md
-/// §P5-7.4): the baseline is the sleep violet, the strain top-up the violet at 62 %, the debt `textSecondary`, the nap a 1 pt ink
-/// outline (shape, not hue); the legend is text, in the bar's order, so no part is told by its colour alone.
+/// The sleep need sheet's tile (Nocturne, PR 6 C §4.12, D6C-13): one sleep glow tile (`hypnogram` kind: 168 high at least,
+/// radius 28), "How it adds up" and the total on its head row, 14 below it one tick row per term, 9 apart, all on one scale
+/// (the total lights 30 ticks), in ink: one tile, one colour, the legend in words. The rows keep one tick column, or all
+/// stack (PR 5's one-column rule, `ZoneBlock`). VoiceOver: the tile is a container; the head row is one element, and each
+/// term's ticks are one value ("Strain, plus 20 minutes").
 struct SleepNeedBar: View {
     let need: SleepNeed
-    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Previews and tests; `nil` follows the system.
+    var reduceTransparency: Bool?
 
-    /// The strain top-up's share of the violet; the nap's outline.
-    nonisolated static let strainOpacity = 0.62, napLineWidth: CGFloat = 1
+    /// The head row → the first tick row.
+    nonisolated static let headGap: CGFloat = 14
 
     private var breakdown: SleepNeedBreakdown { SleepNeedBreakdown(need) }
 
-    /// A filled segment's colour (the nap is an outline, `nil`).
-    static func fill(_ kind: SleepNeedBreakdown.Term.Kind) -> Color? {
-        switch kind {
-        case .base: return Theme.metricSleep
-        case .strain: return Theme.metricSleep.opacity(strainOpacity)
-        case .debt: return Theme.textSecondary
-        case .nap: return nil
-        }
-    }
-
     var body: some View {
         let b = breakdown
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Sleep need").ryftLabelStyle()
-                Spacer()
-                Text(Fmt.duration(minutes: b.total))
-                    .font(.ryft(.headline))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textPrimary)
+        GlowTile(Theme.metricSleep, kind: .hypnogram, reduceTransparency: reduceTransparency) {
+            VStack(alignment: .leading, spacing: Self.headGap) {
+                head(b)
+                ZoneBlock(zones: b.terms.map { term in
+                              ZoneBlock.Zone(label: Text(verbatim: term.title), minutes: Double(term.minutes),
+                                             value: Text(verbatim: term.signed), accessibilityLabel: Text(verbatim: term.spoken))
+                          },
+                          scaleMax: Double(max(b.total, 1)),
+                          accessibilityLabel: Self.title)
             }
-            bar(b)
-            legend(b)
-            Text(b.sentence)
+        }
+        .accessibilityIdentifier("sleepNeed.tile")
+    }
+
+    private func head(_ b: SleepNeedBreakdown) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Metrics.itemSpacing) {
+            Self.title.ryftGlowLabelStyle()
+            Spacer(minLength: 0)
+            Text(verbatim: Fmt.clock(minutes: b.total))
                 .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Sleep need"))
-        .accessibilityValue(Text(b.sentence))
+        .accessibilityLabel(Self.title)
+        .accessibilityValue(Text(verbatim: Fmt.spokenDuration(minutes: b.total)))
+        .accessibilityAddTraits(.isHeader)
     }
 
-    /// Widths are minutes over the gross need (before the credit), so the
-    /// dashed nap segment sits inside the bar where it's taken off.
-    private func bar(_ b: SleepNeedBreakdown) -> some View {
-        let gross = Double(max(1, b.minutes(.base) + b.minutes(.strain) + b.minutes(.debt)))
-        return GeometryReader { geo in
-            let w = geo.size.width
-            ZStack(alignment: .leading) {
-                HStack(spacing: 2) {
-                    ForEach(b.terms.filter { $0.kind != .nap }) { t in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Self.fill(t.kind) ?? .clear)
-                            .frame(width: max(2, w * Double(t.minutes) / gross - 2))
-                    }
-                }
-                if b.minutes(.nap) > 0 {
-                    // Taken off the end: the card's own ground with an ink outline over the segments it covers.
-                    let napWidth = w * Double(b.minutes(.nap)) / gross
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Theme.surface)
-                        .overlay(RoundedRectangle(cornerRadius: 2)
-                            .strokeBorder(Theme.textPrimary, lineWidth: Self.napLineWidth))
-                        .frame(width: napWidth)
-                        .offset(x: w - napWidth)
-                }
-            }
-        }
-        .frame(height: 12)
-    }
-
-    private func legend(_ b: SleepNeedBreakdown) -> some View {
-        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
-            : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-        return layout {
-            ForEach(b.terms) { t in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
-                    Text(t.signed)
-                        .font(.ryft(.callout))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
-                }
-            }
-        }
-    }
+    static var title: Text { Text("How it adds up", comment: "Sleep need sheet: the head of the tile that lists the need's terms.") }
 }
 
-#Preview("Sleep need", traits: .sizeThatFitsLayout) {
+// MARK: - previews (dark only)
+
+#Preview("Sleep need tile", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(spacing: 24) {
-            SleepNeedBar(need: SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 0, total: 538))
-            SleepNeedBar(need: SleepNeed(base: 460, strain: 24, debt: 12, napCredit: 35, total: 461))
+            SleepNeedBar(need: MockSleepNeedStates.need)
+            SleepNeedBar(need: MockSleepNeedStates.needWithNap)
         }
     }
 }
 
-#Preview("Sleep need · AX3", traits: .sizeThatFitsLayout) {
+#Preview("Sleep need tile · AX3", traits: .sizeThatFitsLayout) {
     DarkPreview {
-        SleepNeedBar(need: SleepNeed(base: 460, strain: 24, debt: 12, napCredit: 35, total: 461))
+        SleepNeedBar(need: MockSleepNeedStates.needWithNap)
     }
     .environment(\.dynamicTypeSize, .accessibility3)
 }
