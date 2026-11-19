@@ -184,7 +184,7 @@ extension GroupedCard where Footer == GroupFooter {
 /// |---|---|---|
 /// | `value` | the value, 15 pt `textTertiary` | one element: the title, the value (and the detail) as its value |
 /// | `push` | an optional value, a chevron | a button; the caller's hint |
-/// | `linkOut` | ↗ | a link, hint "Opens outside the app" unless the caller says where |
+/// | `linkOut` | ↗ | a link, hint "Opens in the browser" for a web address, "Opens outside the app" for any other unless the caller says where |
 /// | `action` | an optional glyph at 55 %, a spinner while busy | a button; "In progress" while busy, and taps do nothing |
 /// | `select` | a checkmark on the chosen row | a button, `isSelected` on the chosen row |
 /// | `toggle` | the `Toggle` (`.ryft` from the root) | the switch: label, on / off |
@@ -261,7 +261,8 @@ struct GroupedRow: View {
     }
 
     /// link-out: opens `url` through the environment's `openURL` (so an in-app Safari handler still catches it). `hint` says
-    /// where it opens ("Opens Health"); without one, "Opens outside the app".
+    /// where it opens ("Opens Health", "Opens the page in RYFT"); without one, "Opens in the browser" for a web address and
+    /// "Opens outside the app" for any other.
     static func linkOut(_ title: Text, detail: Text? = nil, icon: String? = nil, hint: Text? = nil, identifier: String? = nil,
                         url: URL) -> GroupedRow {
         GroupedRow(kind: .linkOut, title: title, detail: detail, value: nil, icon: icon, accessory: .linkOut, hint: hint,
@@ -319,8 +320,14 @@ struct GroupedRow: View {
                    identifier: identifier, behaviour: .custom(AnyView(trailing())))
     }
 
-    /// "Opens outside the app": a link-out row's hint when the caller gives none.
-    static let linkOutHint = Text("Opens outside the app", comment: "VoiceOver hint of a row that opens a web page or another app.")
+    /// "Opens in the browser": a link-out row to a web address, when the caller gives no hint.
+    static let webLinkHint = Text("Opens in the browser", comment: "VoiceOver hint of a row that opens a web page in the browser.")
+    /// "Opens outside the app": a link-out row to another app, when the caller gives no hint.
+    static let outsideLinkHint = Text("Opens outside the app", comment: "VoiceOver hint of a row that opens another app, such as Health or Settings.")
+    /// The default hint of a link-out row by its address.
+    static func linkHint(for url: URL) -> Text {
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "") ? webLinkHint : outsideLinkHint
+    }
     /// A busy row's VoiceOver value (the pill's).
     static let busyValue = Text("In progress")
 
@@ -366,7 +373,7 @@ struct GroupedRow: View {
             .buttonStyle(GroupedRowButtonStyle())
             .accessibilityLabel(title)
             .accessibilityValue(spokenValue)
-            .accessibilityHint(hint ?? Self.linkOutHint)
+            .accessibilityHint(hint ?? Self.linkHint(for: url))
             .accessibilityRemoveTraits(.isButton)
             .accessibilityAddTraits(.isLink)
             .rowIdentifier(identifier)

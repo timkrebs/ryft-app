@@ -340,7 +340,7 @@ struct ProfileView: View {
     }
 
     /// The link-outs' hints: a web page outside RYFT, a page in RYFT's own sheet, the Health app.
-    static let browserHint = Text("Opens in the browser", comment: "VoiceOver hint of a Profile row that opens a web page.")
+    static let browserHint = GroupedRow.webLinkHint
     static let inAppHint = Text("Opens the page in RYFT",
                                 comment: "VoiceOver hint of Profile's Privacy Policy and Terms of Use: they open in RYFT's own browser sheet.")
     static let healthAppHint = Text("Opens the Health app", comment: "VoiceOver hint of Profile's Open Health row.")

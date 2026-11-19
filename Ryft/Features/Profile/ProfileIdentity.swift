@@ -65,8 +65,8 @@ struct ProfileIdentity: Equatable, Sendable {
     /// The strain ring's sentence for VoiceOver.
     var spokenStrain: String {
         guard let strain else {
-            return String(localized: "Strain not scored yet today.",
-                          comment: "VoiceOver, Profile's identity row: today's strain has no score yet (the ring shows its track only).")
+            return String(localized: "No strain yet today.",
+                          comment: "VoiceOver, Profile's identity row: today's strain has no value yet (the ring shows its track only). The same words as the Strain tab's caption.")
         }
         return String(localized: "Strain today \(Fmt.strain(strain)) of 21.",
                       comment: "VoiceOver, Profile's identity row: today's strain on its 0–21 scale, e.g. 12.4.")
@@ -210,7 +210,7 @@ struct ProfileStatus: Equatable {
         case .syncDetails: return Text("Opens sync details")
         case .gate: return Text("Opens what's needed")
         case .retry: return Text("Tries to load your data again")
-        case .signIn: return Text("Goes back to sign in", comment: "VoiceOver hint of Profile's status row when signed out.")
+        case .signIn: return Text("Opens sign in", comment: "VoiceOver hint of Profile's status row when signed out: a tap opens sign in.")
         case .none: return nil
         }
     }

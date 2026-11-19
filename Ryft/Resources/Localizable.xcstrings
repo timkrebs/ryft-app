@@ -14,9 +14,6 @@
       "comment" : "Training import: two counts, e.g. 1 plan and 12 workouts."
     },
     "%@ asleep, %@ to %@, %@" : {},
-    "%@ average sleep" : {
-      "comment" : "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\"."
-    },
     "%@ doesn't share %@ with Apple Health." : {
       "comment" : "Under Today's gauge: the app doesn't write it to Apple Health. Args: app (Garmin Connect), one signal (HRV)."
     },
@@ -751,9 +748,6 @@
     "%lld percent of your need" : {
       "comment" : "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\")."
     },
-    "%lld percent or more" : {
-      "comment" : "VoiceOver: the heart-rate-reserve range of zone 5, the top zone. %lld: the lower bound in percent, e.g. 90."
-    },
     "%lld percent, %@" : {
       "comment" : "VoiceOver, two places. Training import: the progress value. Today's Recovery tile: the score, then its band or the day (\"82 percent, High\", \"75 percent, Yesterday, not today's score\")."
     },
@@ -875,7 +869,7 @@
         }
       }
     },
-    "%lld to %lld percent" : {
+    "%lld to %lld percent" : {
       "comment" : "VoiceOver: a heart-rate zone's range as a percentage of heart-rate reserve. First %lld: the lower bound, second %lld: the upper bound, e.g. \"50 to 60 percent\"."
     },
     "%lld to check" : {
@@ -1142,6 +1136,9 @@
     "%lld, on a scale from 0 to 100" : {
       "comment" : "VoiceOver value of Today's readiness ruler when the number is not placed in a band (calibrating)."
     },
+    "%lld percent or more" : {
+      "comment" : "VoiceOver: the heart-rate-reserve range of zone 5, the top zone. %lld: the lower bound in percent, e.g. 90."
+    },
     "(next day)" : {
       "comment" : "Add activity: the end is on the day after the start."
     },
@@ -1166,13 +1163,13 @@
     "1 warm-up set" : {
       "comment" : "The warm-up pill on an exercise's page, one set."
     },
-    "30 D" : {
+    "30 D" : {
       "comment" : "Insights' range control: 30 days. A short label; D stands for day."
     },
-    "7 D" : {
+    "7 D" : {
       "comment" : "Insights' range control: 7 days. A short label; D stands for day."
     },
-    "90 D" : {
+    "90 D" : {
       "comment" : "Insights' range control: 90 days. A short label; D stands for day."
     },
     "A 24-hour time with am or pm: RYFT used the 24-hour time" : {
@@ -1435,7 +1432,7 @@
     "Assisted weight isn't imported, reps are" : {
       "comment" : "Import note, after \"Line N\": a negative load such as -20."
     },
-    "at %lld percent efficiency" : {
+    "at %lld percent efficiency" : {
       "comment" : "VoiceOver on Sleep → Bedtime's Time in bed tile, after the time: the assumed efficiency. %lld: the percentage, e.g. 90 (\"at 90 percent efficiency\")."
     },
     "Average" : {
@@ -1477,8 +1474,11 @@
     "Average heart rate" : {
       "comment" : "A workout's tile: the label of the mean heart rate."
     },
-    "average heart rate %lld bpm" : {
+    "average heart rate %lld bpm" : {
       "comment" : "VoiceOver in an activity row: the workout's average heart rate. %lld: beats per minute, e.g. 128."
+    },
+    "Average sleep, %@" : {
+      "comment" : "VoiceOver on Sleep → Week or Month's numeral and stage card: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\"."
     },
     "Average · %lld nights" : {
       "comment" : "Sleep → Week or Month under the numeral: fewer nights than days were recorded. %lld: the number of nights, e.g. \"Average · 4 nights\". Plural: \"Average · 1 night\".",
@@ -1539,12 +1539,6 @@
       "comment" : "VoiceOver label of the circle button that goes back to the page before."
     },
     "Backlog" : {},
-    "Band needs 7 days of data" : {
-      "comment" : "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed."
-    },
-    "Band: your usual range" : {
-      "comment" : "The Readiness trend card's note: the band behind the line is the usual range."
-    },
     "Baseline sleep need" : {},
     "Baselines" : {},
     "Baselines need heart-rate variability and resting heart rate from nights with your watch." : {
@@ -2016,9 +2010,6 @@
     "Go to bed at %@" : {
       "comment" : "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for the user's goal. %@: the time, e.g. \"10:06 PM\"."
     },
-    "Goes back to sign in" : {
-      "comment" : "VoiceOver hint of Profile's status row while signed out: a tap returns to the sign-in screen."
-    },
     "Good afternoon" : {
       "comment" : "Today's greeting from 12:00 to 18:00 when no first name is known."
     },
@@ -2185,7 +2176,7 @@
     "In bed by" : {},
     "In bed by %@ for %lld %% of your need: %@." : {},
     "In bed by %@ for your full %@." : {},
-    "In bed by · %lld %% of your need" : {
+    "In bed by · %lld %% of your need" : {
       "comment" : "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's sleep need. %lld: the percentage, e.g. 100. The % sign is literal."
     },
     "in progress" : {
@@ -2258,9 +2249,6 @@
     "More trends" : {
       "comment" : "Insights: the heading above the other trend cards, after the four main ones."
     },
-    "Need" : {
-      "comment" : "Sleep → Bedtime's tile: the label of tonight's sleep need, e.g. \"8:01 h\"."
-    },
     "need %@" : {
       "comment" : "Sleep's duration ruler, the middle label: the night's sleep need as hours:minutes (\"need 8:18\")."
     },
@@ -2301,7 +2289,7 @@
       "comment" : "Strain's caption under the unlit numeral: the past day loaded without a strain."
     },
     "No strain yet today." : {
-      "comment" : "Strain's caption under the unlit numeral today: nothing has added strain so far (the day isn't over)."
+      "comment" : "Strain's caption under the unlit numeral today, and Profile's identity row (VoiceOver): nothing has added strain so far (the day isn't over)."
     },
     "No time asleep yet, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need."
@@ -2361,13 +2349,16 @@
       "comment" : "VoiceOver hint on the last-time card of an exercise's page."
     },
     "Opens in the browser" : {
-      "comment" : "VoiceOver hint of a Profile row that opens a web page."
+      "comment" : "VoiceOver hint of a link-out row to a web page, opened in the browser: Profile's rows, and any link without a hint of its own."
     },
     "Opens My Day" : {
       "comment" : "VoiceOver hint of Today's Calendar button."
     },
     "Opens outside the app" : {
-      "comment" : "VoiceOver hint of a row that opens a web page or another app, when the row doesn't say where."
+      "comment" : "VoiceOver hint of a row that opens another app, such as Health or Settings, when the row gives no hint of its own."
+    },
+    "Opens sign in" : {
+      "comment" : "VoiceOver hint of Profile's status row when signed out: a tap opens sign in."
     },
     "Opens the add-activity sheet" : {
       "comment" : "VoiceOver hint on Strain's header button: it opens Add activity for the day shown."
@@ -2459,6 +2450,9 @@
     "Settings" : {
       "comment" : "Profile: the group heading for notifications, the journal, hero numbers and bedtime."
     },
+    "Shaded: your usual range" : {
+      "comment" : "The readiness trend card's note: the shaded area behind the line is the usual range."
+    },
     "Shows or hides the warm-up sets" : {
       "comment" : "VoiceOver hint on the warm-up pill."
     },
@@ -2524,9 +2518,6 @@
     },
     "Starts the workout" : {
       "comment" : "VoiceOver hint on a start-sheet option: it starts the workout."
-    },
-    "Strain not scored yet today." : {
-      "comment" : "VoiceOver, Profile's identity row: today's strain has no score yet (the ring shows only its track)."
     },
     "Strain scale" : {
       "comment" : "VoiceOver label of a strain ruler (0 to 21)."
@@ -4117,6 +4108,9 @@
     "Use the other account" : {},
     "Use “%@”" : {
       "comment" : "Training import, step 4: accept the suggestion."
+    },
+    "Usual range needs 7 days of data" : {
+      "comment" : "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed."
     },
     "Usually ready within %lld min." : {},
     "Usually ready within %lld s." : {},
@@ -6935,8 +6929,7 @@
       "isCommentAutoGenerated" : true
     },
     "Sleep need" : {
-      "comment" : "Label for the sleep need duration.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Label for the sleep need duration. Also the Bedtime tile's title, above tonight's need (\"8:01 h\")."
     },
     "sleep performance" : {
       "comment" : "Unit of measurement for sleep performance.",

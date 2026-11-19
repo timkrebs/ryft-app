@@ -10,8 +10,9 @@ and `LocalizedStringKey`), then:
 - removes keys no source uses any more, unless marked `extractionState: manual`
   (Info.plist and push loc-keys are).
 
-Then `make lint` checks the result. A new key's English is the key itself, unless the code gives a `defaultValue`
-(then the key needs no English block) or the key is a manual one (push loc-keys, Info.plist), which needs its `en`. Usage (after a build into the same
+Then `make lint` checks the result. A new key's English is the key itself, unless the code gives a `defaultValue`:
+then the English is that default, as the stringsdata records it, and is written as the key's `en` (the key itself
+would otherwise be shown). A manual key (push loc-keys, Info.plist) needs its `en` written by hand. Usage (after a build into the same
 DerivedData, as `make build` does):
 
     python3 scripts/sync-strings.py [--derived-data build/DerivedData]
@@ -21,6 +22,8 @@ Only that configuration and platform are read, so an older Release or device bui
 the same DerivedData can't stand in for the current one. `--check` changes nothing and
 exits 1 if the catalog is out of date.
 """
+from __future__ import annotations
+
 import argparse
 import glob
 import json
@@ -59,25 +62,33 @@ def skipped_lines(source: str) -> set[int]:
     return lines
 
 
-def extracted_keys(derived: str, configuration: str, platform: str, target: str) -> set[str]:
+def extracted_keys(derived: str, configuration: str, platform: str, target: str) -> dict[str, str | None]:
     objects = os.path.join(derived, "Build/Intermediates.noindex/Ryft.build",
                            f"{configuration}-{platform}", f"{target}.build/Objects-normal")
     archs = sorted(d for d in glob.glob(os.path.join(objects, "*")) if glob.glob(os.path.join(d, "*.stringsdata")))
     if not archs:
         sys.exit(f"No .stringsdata for {target} in {objects}: build first (make build).")
     # Every architecture of one build extracts the same keys; take the first.
-    keys: set[str] = set()
+    keys: dict[str, str | None] = {}  # key -> the defaultValue's English, when the code gives one
     for path in glob.glob(os.path.join(archs[0], "*.stringsdata")):
         with open(path) as f:
             data = json.load(f)
         skipped = skipped_lines(data.get("source", ""))
         for entry in data.get("tables", {}).get("Localizable", []):
             if entry.get("location", {}).get("startingLine") not in skipped:
-                keys.add(entry["key"])
+                if entry["key"] not in keys or keys[entry["key"]] is None:
+                    keys[entry["key"]] = entry.get("value")
     return keys
 
 
-def merged(strings: dict, added: list[str], removed: set[str]) -> dict:
+def english_entry(key: str, default: str | None) -> dict:
+    """The entry for a new key: empty when its English is the key; the code's defaultValue as `en` otherwise."""
+    if not default or default == key:
+        return {}
+    return {"localizations": {"en": {"stringUnit": {"state": "translated", "value": default}}}}
+
+
+def merged(strings: dict, added: list[str], removed: set[str], fresh: dict) -> dict:
     """Existing keys keep their place; a new key goes before the first one that sorts
     after it, case-insensitively (close to Xcode's order, which it restores on its
     next sync), so the diff shows only what changed."""
@@ -85,11 +96,12 @@ def merged(strings: dict, added: list[str], removed: set[str]) -> dict:
     pending = sorted(added, key=str.lower)
     for key, value in strings.items():
         while pending and pending[0].lower() < key.lower():
-            out[pending.pop(0)] = {}
+            new_key = pending.pop(0)
+            out[new_key] = fresh.get(new_key, {})
         if key not in removed:
             out[key] = value
     for key in pending:
-        out[key] = {}
+        out[key] = fresh.get(key, {})
     return out
 
 
@@ -109,6 +121,7 @@ def main() -> int:
         added = sorted(k for k in keys if k not in strings)
         removed = sorted(k for k, v in strings.items()
                          if k not in keys and v.get("extractionState") != "manual")
+        fresh = {k: english_entry(k, keys[k]) for k in added}
         for k in added:
             print(f"{path}: + {k!r}")
         for k in removed:
@@ -116,7 +129,7 @@ def main() -> int:
         if added or removed:
             stale = True
             if not args.check:
-                catalog["strings"] = merged(strings, added, set(removed))
+                catalog["strings"] = merged(strings, added, set(removed), fresh)
                 with open(path, "w") as f:
                     json.dump(catalog, f, ensure_ascii=False, indent=2, separators=(",", " : "))
                     f.write("\n")
