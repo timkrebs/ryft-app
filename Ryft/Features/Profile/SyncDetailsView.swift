@@ -249,6 +249,8 @@ private struct LoadedDataRow: View {
     }
 }
 
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
 #Preview("Sync details") {
     let g = MockDevicesStates.graph(demo: false)
     NavigationStack { SyncDetailsView(model: g.details) }
@@ -285,3 +287,4 @@ private struct LoadedDataRow: View {
         .previewEnvironment(g.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
+#endif

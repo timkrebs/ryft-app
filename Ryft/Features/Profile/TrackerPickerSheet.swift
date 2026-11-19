@@ -33,6 +33,8 @@ struct TrackerPickerSheet: View {
     }
 }
 
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
 #Preview("Tracker picker") {
     let g = MockDevicesStates.graph(trackers: ["garmin", "oura"])
     TrackerPickerSheet(model: g.devices)
@@ -45,3 +47,4 @@ struct TrackerPickerSheet: View {
         .previewEnvironment(g.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
+#endif

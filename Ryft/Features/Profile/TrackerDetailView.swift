@@ -31,6 +31,8 @@ struct TrackerDetailView: View {
     }
 }
 
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
 #Preview("Tracker detail · Garmin") {
     let g = MockDevicesStates.graph(trackers: ["garmin", "oura"])
     NavigationStack { TrackerDetailView(tracker: MockData.tracker("garmin"), model: g.devices) {} }
@@ -49,3 +51,4 @@ struct TrackerDetailView: View {
         .previewEnvironment(g.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
+#endif

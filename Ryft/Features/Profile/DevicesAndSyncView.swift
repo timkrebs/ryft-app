@@ -294,6 +294,8 @@ private struct SourceRowView: View {
     }
 }
 
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
 #Preview("Devices & sync · two trackers") {
     let g = MockDevicesStates.graph(later: ["oura"])
     NavigationStack { DevicesAndSyncView(model: g.devices) }
@@ -324,3 +326,4 @@ private struct SourceRowView: View {
         .previewEnvironment(g.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
+#endif

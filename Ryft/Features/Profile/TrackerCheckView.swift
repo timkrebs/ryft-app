@@ -452,6 +452,8 @@ private struct CheckSteps: View {
     }
 }
 
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
 /// A check on mock data in one state, without reading (`MockDevicesStates.staged`).
 @MainActor
 private func checkPreview(_ scenario: SyncCheckScenario, _ phase: TrackerCheckModel.Phase = .done, online: Bool = true,
@@ -475,3 +477,4 @@ private func checkPreview(_ scenario: SyncCheckScenario, _ phase: TrackerCheckMo
 #Preview("Check sync · offline") { checkPreview(.garmin, online: false) }
 #Preview("Check sync · not asked") { checkPreview(.garmin, .notAsked) }
 #Preview("Check sync · locked") { checkPreview(.garmin, .locked) }
+#endif
