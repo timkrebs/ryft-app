@@ -75,7 +75,8 @@ struct AppAttestWriterTests {
         // Sent, a new token fetched, sent again: then kept, not dropped.
         #expect(t.rig.server.appTokens(t.put(a.id)) == ["tok-1", "tok-2"])
         #expect(t.rig.server.count(AttestServer.token) == 2)
-        #expect(t.service.lastError == APIError.http(403, "", code: .appAttestRequired).localizedDescription)
+        // A hold, not a refusal (ADR 0022 §1): nothing is recorded on the session for Retry.
+        #expect(a.lastAttempt == nil)
 
         // The platform accepts it later (App Attest served and the token fine): the same op goes.
         t.echo(a.id)
