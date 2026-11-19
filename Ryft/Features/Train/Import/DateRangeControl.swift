@@ -26,6 +26,8 @@ struct DateRangeControl: View {
                 Text("Range", comment: "Training import, step 3: the history range picker.")
             }
         }
+        // What the row says: the preset and the result's words; the empty range's glyph is drawn, not read.
+        .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: result)
         if preset == .custom {
             dateRow(Text("From"), day: $from)
@@ -33,7 +35,8 @@ struct DateRangeControl: View {
         }
     }
 
-    /// The result, after the attention glyph when the range holds no workout (the words say it too).
+    /// The result, after the attention glyph when the range holds no workout (the words say it too, so VoiceOver gets the
+    /// words alone: see the row's value).
     private var resultText: Text {
         guard isEmpty else { return Text(verbatim: result) }
         return Text(Image(systemName: "exclamationmark.circle")).foregroundStyle(Theme.warning) + Text(verbatim: " \(result)")

@@ -246,6 +246,16 @@ struct ImportNocturneTests {
         }
     }
 
+    @Test("Step 3, a range without workouts: VoiceOver reads the words, not the glyph")
+    func emptyRangeSpeech() async throws {
+        try await host("3-choose-range-empty") { w in
+            let range = try #require(w.nodes().first { $0.identifier == "import.range" })
+            let spoken = range.value ?? ""
+            let detail = spoken.components(separatedBy: ", ").last?.trimmingCharacters(in: .whitespaces)
+            #expect(detail == "0 workouts in this range", "\(spoken)")
+        }
+    }
+
     // MARK: step 4
 
     @Test("Step 4: each row says its status in words and keeps its actions; the count line is one sentence")
