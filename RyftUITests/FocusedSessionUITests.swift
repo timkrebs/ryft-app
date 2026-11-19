@@ -289,9 +289,10 @@ final class FocusedSessionUITests: XCTestCase {
         let app = openFocused()
         requireExists(tile(app, 1), "a tile")
         tile(app, 1).press(forDuration: 1.0)
-        let sheet = app.navigationBars["Reorder"]
+        // Nocturne (PR 6 B §4.8): the sheet has its own header, no navigation bar; its Done is `reorder.done`.
+        let sheet = element(app, "reorder.done")
         requireExists(sheet, "the reorder sheet")
-        app.buttons["Done"].tap()
+        sheet.tap()
         waitForAbsence(sheet, "the sheet closes")
         XCTAssertTrue(tile(app, 0).isSelected, "reordering from the strip leaves the page")
     }
@@ -322,17 +323,19 @@ final class FocusedSessionUITests: XCTestCase {
         XCTAssertFalse(onScreen(tile(app, 8), in: app), "the strip is long enough to scroll: the last tile is off screen")
 
         tile(app, 0).press(forDuration: 1.0)
-        requireExists(app.navigationBars["Reorder"], "the reorder sheet")
-        // The sheet opens at medium height and shows five rows: pull it up so the last handle is in reach.
-        let bar = app.navigationBars["Reorder"]
-        let grip = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        requireExists(element(app, "reorder.done"), "the reorder sheet")
+        // The sheet opens at medium height and shows five rows: pull it up by its header (its title) so the last handle is
+        // in reach.
+        let title = app.staticTexts["Reorder"]
+        requireExists(title, "the sheet's title")
+        let grip = title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -400)))
         let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reorder'"))
         wait(handles.element(boundBy: 8), until: "isHittable == true", "a reorder handle per exercise, all in reach")
         let from = handles.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let to = handles.element(boundBy: 8).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         from.press(forDuration: 1.0, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
-        app.buttons["Done"].tap()
+        element(app, "reorder.done").tap()
 
         // The moved exercise is now the last one, and still the page.
         wait(tile(app, 8), until: "label BEGINSWITH %@".replacingOccurrences(of: "%@", with: "'\(first)'"),
