@@ -120,14 +120,15 @@ final class JournalStore {
     }
     #endif
 
-    /// Whose a read or write is: the account and side then, and no forgetting since.
-    private struct Owner: Equatable {
-        let binding: AccountBinding
-        let generation: Int
+    /// Whose a read or write is (or the journal sheet, from when it opened): the account and side then, and no forgetting
+    /// since.
+    struct Owner: Equatable {
+        fileprivate let binding: AccountBinding
+        fileprivate let generation: Int
     }
 
-    private var owner: Owner { Owner(binding: AccountBinding(env), generation: generation) }
-    private func owns(_ owner: Owner) -> Bool { owner == self.owner }
+    var owner: Owner { Owner(binding: AccountBinding(env), generation: generation) }
+    func owns(_ owner: Owner) -> Bool { owner == self.owner }
 
     var isLive: Bool { availability == .live }
     /// Whether a write can go and a day is asked for: demo data answers on the phone, with no network to lose (as

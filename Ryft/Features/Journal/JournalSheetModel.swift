@@ -48,6 +48,8 @@ final class JournalSheetModel {
     }
 
     private let store: JournalStore
+    /// Whose rows these are: the account and side the sheet opened on, before anything was forgotten since.
+    private let opened: JournalStore.Owner
     /// Up to 14 days back (`editable`); the sheet opens on yesterday.
     private(set) var day: String
     private(set) var groups: [Group] = []
@@ -55,12 +57,16 @@ final class JournalSheetModel {
     private(set) var isSaving = false
     private(set) var error: String?
     private(set) var saved = false
+    /// Save found the sheet on another account or side than it opened on (a sign-out, another account, the Demo data
+    /// switch): nothing was sent, and the sheet closes without a word, as a save whose account went ends.
+    private(set) var leftItsSide = false
 
     static let defaultTime = "18:00"
     static let daysBack = 14
 
     init(store: JournalStore, day: String? = nil) {
         self.store = store
+        opened = store.owner
         self.day = day ?? store.yesterday
         rebuild()
     }
@@ -144,6 +150,11 @@ final class JournalSheetModel {
 
     func save() async {
         guard editable else { return }
+        // The rows are another account's (or side's) answers: never sent as this one's.
+        guard store.owns(opened) else {
+            leftItsSide = true
+            return
+        }
         isSaving = true
         error = nil
         defer { isSaving = false }

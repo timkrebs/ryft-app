@@ -214,6 +214,47 @@ struct JournalDemoSideTests {
         #expect(relaunched.behaviors == accountList && relaunched.impacts == nil, "nor in the store, at the next launch")
         #expect(relaunched.cachedDay(relaunched.yesterday) == nil)
     }
+
+    @Test("5: the journal sheet opened on the account, demo data on before Save: nothing is sent, to either side, and the sheet closes quietly",
+          .timeLimit(.minutes(1)))
+    func theSheetStaysWithItsSide() async throws {
+        let h = onTheAccount()
+        let live = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let demo = try #require(h.env.demoAPI as? MockPlatformAPI)
+        let store = JournalStore(state: h.state)
+        await store.load()
+        let sheet = JournalSheetModel(store: store)
+        await sheet.load()
+        let row = try #require(sheet.groups.first?.rows.first)
+        sheet.set(row.id, on: !row.on)
+
+        switchDemo(h, on: true)
+        let puts = (live.count("putJournal"), demo.count("putJournal"))
+        await sheet.save()
+        #expect(sheet.leftItsSide && !sheet.saved && sheet.error == nil, "closes without a word")
+        #expect(live.count("putJournal") == puts.0 && demo.count("putJournal") == puts.1, "nothing sent, to either side")
+    }
+
+    @Test("5: the journal sheet open while the account's journal is forgotten (a wipe): Save sends nothing")
+    func theSheetStaysWithItsJournal() async throws {
+        let h = onTheAccount()
+        let live = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let store = JournalStore(state: h.state)
+        await store.load()
+        let sheet = JournalSheetModel(store: store)
+        await sheet.load()
+        store.accountChanged()
+        let puts = live.count("putJournal")
+        await sheet.save()
+        #expect(sheet.leftItsSide && !sheet.saved && live.count("putJournal") == puts)
+
+        // A sheet opened now is the journal's again, and saves.
+        await store.load()
+        let again = JournalSheetModel(store: store)
+        await again.load()
+        await again.save()
+        #expect(again.saved && !again.leftItsSide && live.count("putJournal") == puts + 1)
+    }
 }
 
 // MARK: - one wait for every settings write (S3)

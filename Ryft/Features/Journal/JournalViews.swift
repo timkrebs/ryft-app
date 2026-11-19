@@ -95,7 +95,7 @@ struct JournalSheet: View {
                     Button(model.saved ? "Saved" : "Save") {
                         Task {
                             await model.save()
-                            if model.saved { dismiss() }
+                            if model.saved || model.leftItsSide { dismiss() }
                         }
                     }
                     .disabled(!model.editable || model.isSaving || model.groups.isEmpty)
