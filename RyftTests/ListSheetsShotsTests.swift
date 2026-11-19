@@ -23,6 +23,8 @@ struct ListSheetsShotsTests {
         /// Replace mode: Similar first, the split note, the plan toggle.
         case replace
         case customExercise = "custom-exercise"
+        /// The form before a name is typed: the field's label once, an empty field.
+        case customExerciseEmpty = "custom-exercise-empty"
         case editTargets = "edit-targets"
         case notes
         case reorder
@@ -63,23 +65,10 @@ struct ListSheetsShotsTests {
         screen != .list && screen != .listStates
     }
 
-    /// `b-02`'s session: the plan's Upper A, Bench press's set 1 at 80 × 5, last time 4 × 80 × 5.
+    /// `b-02`'s session (the previews' own): the plan's Upper A, Bench press's set 1 at 80 × 5, last time 4 × 80 × 5; for the
+    /// states, Bench press folded and the rest over.
     static func controller(_ screen: Screen) -> SessionController {
-        let c = FocusedPreview.controller(.draftList)
-        c.exercises.first?.lastTime = (0..<4).map { SessionSet(setIndex: $0, reps: 5, weightKg: 80) }
-        if c.exercises.count > 1 {
-            c.exercises[1].lastTime = (0..<4).map { SessionSet(setIndex: $0, reps: 8, weightKg: 60) }
-        }
-        guard screen == .listStates, let bench = c.exercises.first else { return c }
-        for set in bench.orderedSets where !set.isCompleted {
-            let ghost = bench.ghost(forSetAt: set.setIndex)
-            set.reps = set.reps ?? ghost.reps ?? 5
-            set.weightKg = set.weightKg ?? ghost.kg
-            set.completedAt = .now
-        }
-        c.collapsed.insert(bench.id)
-        c.adjustRest(by: -RestTimer.maxRest)
-        return c
+        screen == .listStates ? SessionSheetsPreview.listFolded() : SessionSheetsPreview.listDraft()
     }
 
     @ViewBuilder
@@ -91,12 +80,11 @@ struct ListSheetsShotsTests {
         case .addExercise:
             AddExerciseSheet { _ in }
         case .replace:
-            AddExerciseSheet(replacing: ReplaceContext(name: bench.name, exerciseID: bench.exerciseId,
-                                                       kind: .split(done: 1, remaining: 3),
-                                                       plan: PlanChangeOption(dayName: "Upper A", isAvailable: true),
-                                                       offline: false)) { _, _ in }
+            AddExerciseSheet(replacing: SessionSheetsPreview.replaceContext()) { _, _ in }
         case .customExercise:
             CustomExerciseForm(name: "Landmine press") { _ in }
+        case .customExerciseEmpty:
+            CustomExerciseForm(name: "") { _ in }
         case .editTargets:
             EditTargetsSheet(controller: c, exercise: bench)
         case .notes:

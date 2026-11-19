@@ -188,8 +188,13 @@ struct FocusedSessionView: View {
     private var emptyPage: some View {
         VStack {
             InlineMessage(message: String(localized: "An empty session. Add your first exercise."), systemImage: "dumbbell")
-                // Over the message's own `surface` fill: `placeholderOutline()` draws behind it, where the fill hides it.
-                .overlay { PlaceholderOutline(RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous)) }
+                // The outline only, over the message's own `surface` fill: `PlaceholderOutline` fills `surface` too, and as an
+                // overlay that fill hid the words (List's empty state draws it the same way).
+                .overlay {
+                    RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous)
+                        .strokeBorder(Theme.separator, lineWidth: PlaceholderRowSpec.lineWidth)
+                        .accessibilityHidden(true)
+                }
             Spacer()
         }
         .padding(.horizontal, columns.padding)

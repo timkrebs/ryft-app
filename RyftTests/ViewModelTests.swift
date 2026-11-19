@@ -2060,6 +2060,21 @@ struct TrainViewModelTests {
         #expect(draft.exercise.bodyweightFactor == 1)
         #expect(!CustomExerciseDraft(name: "   ").canSave)
     }
+
+    /// The platform counts a name's Unicode scalars (runes) and refuses more than 80: a family emoji is one Character but 7
+    /// scalars, so 11 of them and "Rows" are 15 Characters and 81 scalars.
+    @Test func aCustomExercisesNameIsCappedAt80Scalars() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        #expect(family.count == 1 && family.unicodeScalars.count == 7)
+        let over = CustomExerciseDraft(name: String(repeating: family, count: 11) + "Rows")
+        #expect(over.trimmedName.count == 15 && over.trimmedName.unicodeScalars.count == 81)
+        #expect(over.nameIsTooLong)
+        #expect(!over.canSave, "81 scalars can't be saved, though only 15 Characters")
+        let atLimit = CustomExerciseDraft(name: "  " + String(repeating: family, count: 11) + "Row ")
+        #expect(atLimit.trimmedName.unicodeScalars.count == 80)
+        #expect(!atLimit.nameIsTooLong && atLimit.canSave, "80, the spaces around it not counted")
+        #expect(CustomExerciseDraft.maxNameLength == 80)
+    }
 }
 
 // MARK: - Onboarding (invite, consent, about you)

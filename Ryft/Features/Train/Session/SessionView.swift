@@ -138,7 +138,8 @@ struct SessionView: View {
         .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: controller.restsEnded)
         .sheet(isPresented: $showsAdd) {
             AddExerciseSheet { picked in
-                let row = controller.add(picked)
+                // Nil once the workout is over (a slow custom save that came back after Finish).
+                guard let row = controller.add(picked) else { return }
                 // Focused: the new exercise's page. The list stays where it is.
                 if controller.layout == .focused {
                     withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }
@@ -156,12 +157,8 @@ struct SessionView: View {
                                  onUse: request.fromKeypad ? { controller.setWeight($0) } : nil)
         }
         .sheet(item: $historyFor) { ref in
-            NavigationStack {
-                ExerciseDetailView(exerciseID: ref.id, name: ref.name)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Close") { historyFor = nil } }
-                    }
-            }
+            // The page's own sheet header: its close circle (the page hides the navigation bar, so a toolbar Close wouldn't show).
+            ExerciseDetailView(exerciseID: ref.id, name: ref.name, onClose: { historyFor = nil })
         }
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }

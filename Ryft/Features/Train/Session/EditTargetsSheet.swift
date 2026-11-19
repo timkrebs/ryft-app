@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Nocturne: `SheetHeader("Edit targets")` with a compact "Done", then one grouped card titled with the exercise: a
 /// `RyftStepperRow` each for Sets, Reps from, Reps to, the target weight (with "Clear target weight" under it while there is
-/// one) and Rest, and the footer that says the changes stay in this workout.
+/// one) and Rest, and the footer that says the changes stay in this workout. From XL it opens at full height (§12).
 struct EditTargetsSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -27,7 +27,7 @@ struct EditTargetsSheet: View {
     private var showsWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
-        SessionSheetFrame(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."),
+        SheetFrame(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."),
                           closeLabel: Text("Cancel")) {
             PillButton(Text("Done"), size: .compact) {
                 if targets != controller.targets(of: exercise) { controller.setTargets(targets, for: exercise) }
@@ -44,7 +44,7 @@ struct EditTargetsSheet: View {
                 restRow
             }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDetents(SheetFrameSpec.detents(for: typeSize))
     }
 
     // MARK: rows

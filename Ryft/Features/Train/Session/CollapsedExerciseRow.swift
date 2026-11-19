@@ -48,6 +48,8 @@ struct CollapsedExerciseRow: View {
         .accessibilityLabel(Text(summary.spoken))
         .accessibilityHint(Text("Expands the sets", comment: "VoiceOver hint on a collapsed exercise in a workout."))
         .accessibilityAddTraits(.isButton)
+        // `children: .ignore` drops the Button's own action: VoiceOver's double tap and a test's activate run this one.
+        .accessibilityAction { onExpand() }
         .accessibilityIdentifier("collapsed.\(exercise.position)")
     }
 
@@ -96,7 +98,9 @@ struct CollapsedExerciseRow: View {
             .max(by: { ($0.weightKg ?? 0, $0.reps ?? 0) < ($1.weightKg ?? 0, $1.reps ?? 0) }),
             let kg = top.weightKg, loadType == .weight || loadType == .bodyweight {
             guard let reps = top.reps else { return (Fmt.kg(kg), String(localized: "\(Fmt.kgNumber(kg)) kilograms")) }
-            return ("\(Fmt.kgNumber(kg)) × \(reps)", String(localized: "\(reps) reps at \(Fmt.kgNumber(kg)) kilograms"))
+            // No-break spaces, as the card's "Last time": "80 × 5" never splits over two lines.
+            return ("\(Fmt.kgNumber(kg))\u{00A0}×\u{00A0}\(reps)",
+                    String(localized: "\(reps) reps at \(Fmt.kgNumber(kg)) kilograms"))
         }
         switch loadType {
         case .time:
@@ -128,8 +132,8 @@ struct CurrentSetHighlight: ViewModifier {
 
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
-    /// List's set row: 56 high at every size (its numerals are fixed), so the bar is 40.
-    static let rowHeight: CGFloat = 56
+    /// List's set row (`SetRow`'s height): 56 at every size, so the bar is 40.
+    static let rowHeight = LiveSessionSpec.listRowHeight
     /// From the row's leading edge to the bar's: 10, as Focused's on its 16 pt page sides.
     static let barOutset = LiveSessionSpec.activeBarOutset(padding: LiveSessionSpec.sidePadding)
 

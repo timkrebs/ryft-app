@@ -38,7 +38,7 @@ struct RestSheet: View {
     static let skipGlyph = "forward.end"
 
     var body: some View {
-        RestSheetFrame(title: Text("Rest"), detents: detents) {
+        SheetFrame(Text("Rest"), closeLabel: Text("Done")) {
             VStack(spacing: 16) {
                 value
                 HStack(spacing: 12) {
@@ -56,6 +56,8 @@ struct RestSheet: View {
             .padding(Theme.Metrics.screenPadding)
             .frame(maxWidth: .infinity)
         }
+        .restSheet()
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : detents)
     }
 
     @ViewBuilder
@@ -179,9 +181,11 @@ struct RestChoicesSheet: View {
     let exercise: LocalSessionExercise
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        RestSheetFrame(title: Text("Rest for this exercise", comment: "Title of the sheet behind the rest chip in a workout.")) {
+        SheetFrame(Text("Rest for this exercise", comment: "Title of the sheet behind the rest chip in a workout."),
+                   closeLabel: Text("Done")) {
             VStack(spacing: 0) {
                 ForEach(RestChoices.presets, id: \.self) { seconds in
                     row(seconds)
@@ -192,6 +196,8 @@ struct RestChoicesSheet: View {
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
         }
+        .restSheet()
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium])
     }
 
     private func row(_ seconds: Int) -> some View {
@@ -222,44 +228,15 @@ struct RestChoicesSheet: View {
     }
 }
 
-/// Both sheets' frame: the sheet header (the close circle, labelled "Done": closing keeps whatever was set; the title centred),
-/// `detents`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off; the header stays.
-///
-/// `SheetHeader`'s layout with a close of its own: `SheetHeader` names its close `sheet.close`, and the UI tests and this
-/// sheet's history know it as `restSheet.done`.
-private struct RestSheetFrame<Content: View>: View {
-    let title: Text
-    var detents: Set<PresentationDetent> = [.medium]
-    @ViewBuilder var content: Content
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(spacing: 0) {
-            SheetHeaderLayout(minHeight: SheetHeaderSpec.height, minGap: SheetHeaderSpec.minGap) {
-                CircleButton(systemImage: "xmark", accessibilityLabel: Text("Done")) { dismiss() }
-                    .headerEdgeButton()
-                    .accessibilityIdentifier("restSheet.done")
-                    .accessibilitySortPriority(1)
-                title
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilitySortPriority(2)
-                // The empty trailing slot: the title stays centred on the leading circle's width.
-                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
-            }
-            .accessibilityElement(children: .contain)
-            .padding(.horizontal, SheetHeaderSpec.sidePadding)
-            .padding(.top, SheetHeaderSpec.topInset)
-            ScrollView { content }
-                .scrollBounceBehavior(.basedOnSize)
-        }
-        .background(Theme.background.ignoresSafeArea())
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : detents)
+/// Both sheets' frame: `SheetFrame` with the close circle labelled "Done" (closing keeps whatever was set) and known as
+/// `restSheet.done` to the UI tests and this sheet's history (`SheetHeader` names its close `sheet.close`), a body that pads
+/// itself, and the grabber left to the detents (the caller's: large at accessibility sizes). It scrolls, so a short phone cuts
+/// nothing off; the header stays.
+private extension SheetFrame {
+    func restSheet() -> SheetFrame {
+        closeIdentifier("restSheet.done")
+            .bodyInsets(EdgeInsets())
+            .grabber(.automatic)
     }
 }
 

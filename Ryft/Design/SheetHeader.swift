@@ -27,11 +27,19 @@ enum SheetHeaderSpec {
 /// then the close circle, then the trailing slot. A compact pill in the slot keeps its one line: cap the slot's type at
 /// `.xxLarge` where it would crowd the title, as `PillButton.compact` says. A `CircleButton` in the slot takes
 /// `.headerEdgeButton()`, so its circle's edge, not its tap box's, is on the inset.
+///
+/// The close circle, when the sheet needs it otherwise (each a modifier on the header; the default is unchanged):
+/// `.closeHidden()` for a sheet whose commit is its only way out (Reorder: every move is made at once, so a close beside
+/// "Done" would say the same twice); `.closeDisabled(saving)` while a save is in flight (dimmed and untappable, as a
+/// disabled `CircleButton`); `.closeIdentifier(_:)` where tests and history know it by another name than `sheet.close`.
 struct SheetHeader<Trailing: View>: View {
     private let title: Text
     private let closeLabel: Text
     private let onClose: (() -> Void)?
     private let trailing: Trailing
+    private var closeIsHidden = false
+    private var closeIsDisabled = false
+    private var closeID = "sheet.close"
 
     @Environment(\.dismiss) private var dismiss
 
@@ -44,12 +52,18 @@ struct SheetHeader<Trailing: View>: View {
 
     var body: some View {
         SheetHeaderLayout(minHeight: SheetHeaderSpec.height, minGap: SheetHeaderSpec.minGap) {
-            CircleButton(systemImage: "xmark", accessibilityLabel: closeLabel) {
-                if let onClose { onClose() } else { dismiss() }
+            if closeIsHidden {
+                // The empty leading slot: the title stays centred on the trailing slot's width.
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+            } else {
+                CircleButton(systemImage: "xmark", accessibilityLabel: closeLabel) {
+                    if let onClose { onClose() } else { dismiss() }
+                }
+                .headerEdgeButton()
+                .disabled(closeIsDisabled)
+                .accessibilityIdentifier(closeID)
+                .accessibilitySortPriority(1)
             }
-            .headerEdgeButton()
-            .accessibilityIdentifier("sheet.close")
-            .accessibilitySortPriority(1)
             title
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
@@ -61,6 +75,29 @@ struct SheetHeader<Trailing: View>: View {
             HStack(spacing: SubpageSpec.trailingSpacing) { trailing }
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+extension SheetHeader {
+    /// No close circle: the trailing slot is the way out (a sheet must still have one, or the drag down).
+    func closeHidden(_ hidden: Bool = true) -> SheetHeader {
+        var copy = self
+        copy.closeIsHidden = hidden
+        return copy
+    }
+
+    /// The close circle dimmed and untappable, e.g. while a save is in flight.
+    func closeDisabled(_ disabled: Bool) -> SheetHeader {
+        var copy = self
+        copy.closeIsDisabled = disabled
+        return copy
+    }
+
+    /// The close circle's accessibility identifier, `sheet.close` unless given.
+    func closeIdentifier(_ identifier: String) -> SheetHeader {
+        var copy = self
+        copy.closeID = identifier
+        return copy
     }
 }
 
@@ -162,6 +199,16 @@ private struct SheetHeaderPreviewBoard: View {
             SheetHeader(Text(verbatim: "Mon, Nov 16")) {
                 PillButton(Text(verbatim: "Saving…"), size: .compact, busy: true) {}
             }
+            // Saving: the close circle off while the save runs.
+            SheetHeader(Text(verbatim: "New plan"), closeLabel: Text(verbatim: "Cancel")) {
+                PillButton(Text(verbatim: "Save"), size: .compact, busy: true) {}
+            }
+            .closeDisabled(true)
+            // The commit is the only way out.
+            SheetHeader(Text(verbatim: "Reorder")) {
+                PillButton(Text(verbatim: "Done"), size: .compact) {}
+            }
+            .closeHidden()
         }
     }
 }

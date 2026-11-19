@@ -76,7 +76,7 @@ struct AddExerciseSheet: View {
     private var pinsPlanControl: Bool { !typeSize.isAccessibilitySize }
 
     var body: some View {
-        SessionSheetFrame(navigationTitle) {
+        SheetFrame(navigationTitle) {
             EmptyView()
         } pinned: {
             SearchField(text: $query, prompt: Text("Search exercises"), identifier: "exercise.search")
@@ -265,7 +265,14 @@ private struct PlanBar<Control: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         if let plan {
-            content.pinnedBar { control(plan) }
+            // `pinnedBar`'s bar, with VoiceOver meeting it after the header and the search and before the list it decides
+            // about (it sits under it). The priority goes on the bar itself: it is a group of its own.
+            content
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    PinnedActionBar { control(plan) }
+                        .accessibilitySortPriority(SheetFrameSpec.outsidePinnedPriority)
+                }
+                .accessibilityElement(children: .contain)
         } else {
             content
         }
@@ -317,10 +324,18 @@ struct CustomExerciseForm: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: CustomExerciseDraft
     @State private var saving = false
+    /// Set once the form is cancelled or goes away. A save still under way then hands nothing back: the workout (or plan) it
+    /// was for may be over. A reference, so `save()` sees the write made after its await began.
+    @State private var closing = FormClosing()
     @FocusState private var nameFocused: Bool
 
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
     private static let loadTypes: [LoadType] = [.weight, .bodyweight, .time, .distance]
+    /// Under the name while it is longer than the platform takes: "Up to 80 characters."
+    static var tooLong: Text {
+        Text("Up to \(CustomExerciseDraft.maxNameLength) characters.",
+             comment: "Under a custom exercise's name while it is too long; Add stays off. 1: the limit, 80.")
+    }
 
     init(name: String, onSave: @escaping (Exercise) -> Void) {
         _draft = State(initialValue: CustomExerciseDraft(name: name))
@@ -335,15 +350,20 @@ struct CustomExerciseForm: View {
     }
 
     var body: some View {
-        SessionSheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel")) {
+        SheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel"), onClose: {
+            closing.closed = true
+            dismiss()
+        }) {
             PillButton(Text("Add"), size: .compact, busy: saving) { await save() }
                 .disabled(!draft.canSave)
                 .accessibilityIdentifier("customExercise.add")
         } content: {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
-                GroupedCard {
+                // Over the platform's 80 scalars, Add stays off and the reason sits under the field.
+                GroupedCard(footer: draft.nameIsTooLong ? Self.tooLong : nil) {
+                    // The field's label says "Name" once: an empty prompt, not the label again.
                     FormField(Text("Name"), isFocused: nameFocused) {
-                        TextField(text: $draft.name) { Text("Name") }
+                        TextField(text: $draft.name, prompt: Text(verbatim: "").fieldPrompt()) { Text("Name") }
                             .textInputAutocapitalization(.words)
                             .focused($nameFocused)
                             .accessibilityIdentifier("customExercise.name")
@@ -377,6 +397,7 @@ struct CustomExerciseForm: View {
                 .toggleStyle(.ryft)
             }
         }
+        .onDisappear { closing.closed = true }
     }
 
     private func save() async {
@@ -390,9 +411,16 @@ struct CustomExerciseForm: View {
         let e = draft.exercise
         let saved = await library.createExercise(e) ?? e
         saving = false
+        // Cancelled or gone while it saved: the library keeps the exercise; the session or plan doesn't get it.
+        guard !closing.closed else { return }
         onSave(saved)
         dismiss()
     }
+}
+
+/// `CustomExerciseForm`'s "closed" mark.
+@MainActor private final class FormClosing {
+    var closed = false
 }
 
 extension AddExerciseSheet {
@@ -421,6 +449,13 @@ extension AddExerciseSheet {
 
 #Preview("Custom exercise") {
     CustomExerciseForm(name: "Landmine press") { _ in }
+        .environment(TrainPreview.library)
+        .preferredColorScheme(.dark)
+}
+
+/// Over the platform's 80 scalars (11 family emoji and "Rows"): Add off, the reason under the field.
+#Preview("Custom exercise · name too long") {
+    CustomExerciseForm(name: String(repeating: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", count: 11) + "Rows") { _ in }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }

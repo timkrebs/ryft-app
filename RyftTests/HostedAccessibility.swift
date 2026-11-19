@@ -152,6 +152,16 @@ final class HostedWindow {
 
     /// Every named element on screen, in tree order.
     func nodes() -> [Node] {
+        nodes(under: host.view)
+    }
+
+    /// Every named element of the sheet presented over the host, in tree order; nil when nothing is presented. A presented
+    /// sheet's views live beside the host's, so `nodes()` doesn't see them.
+    func presentedNodes() -> [Node]? {
+        host.presentedViewController.flatMap { $0.view }.map { nodes(under: $0) }
+    }
+
+    private func nodes(under root: UIView) -> [Node] {
         var found: [Node] = []
         var seen = Set<ObjectIdentifier>()
         func walk(_ object: NSObject, depth: Int) {
@@ -170,7 +180,7 @@ final class HostedWindow {
             }
             if let view = object as? UIView { for sub in view.subviews { walk(sub, depth: depth + 1) } }
         }
-        walk(host.view, depth: 0)
+        walk(root, depth: 0)
         return found
     }
 

@@ -6,9 +6,9 @@ import SwiftUI
 ///
 /// Nocturne: a `surface` card, radius 22, with a 1 pt edge of ink at 20 % (the running rest pill's). The ring is 36 pt, 4 pt of
 /// Volt progress on an ink track at 16 % (the running rest is one of Volt's marks, D6B-1); the time is 28 pt Light ink; the
-/// three buttons are compact outline pills under it, −15 s and +15 s leading and Skip trailing, one per line at AX3. "Rest over"
-/// is the same card with the bell, the words and a compact "Dismiss". Nothing is filled: the active set's ✓ is the screen's one
-/// filled mark.
+/// three buttons are compact outline pills under it, −15 s and +15 s leading and Skip trailing, one per line at AX3 or wherever
+/// the line can't hold them. "Rest over" is the same card with the bell, the words and a compact "Dismiss" (under the words at AX
+/// sizes). Nothing is filled: the active set's ✓ is the screen's one filled mark.
 ///
 /// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
 /// for ±15 s and Skip, and on the pill one more to show the full bar); −15, +15 and Skip are buttons of their own,
@@ -129,23 +129,31 @@ struct RestBar: View {
                comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
     }
 
-    /// AX3 and up: one button per line, leading. Otherwise −15 s and +15 s leading and Skip at the end of the line.
+    /// AX3 and up: one button per line, leading. Otherwise −15 s and +15 s leading and Skip at the end of the line, while the
+    /// three fit on it; where they don't (AX1 and AX2, or XXL at 320 pt) they go one per line as at AX3.
     private var stacksButtons: Bool { typeSize >= .accessibility3 }
 
     @ViewBuilder private var buttons: some View {
         if stacksButtons {
-            VStack(alignment: .leading, spacing: 8) {
-                adjustButton(by: -RestTimer.step)
-                adjustButton(by: RestTimer.step)
-                skipButton
-            }
+            stackedButtons
         } else {
-            HStack(spacing: 8) {
-                adjustButton(by: -RestTimer.step)
-                adjustButton(by: RestTimer.step)
-                Spacer(minLength: 0)
-                skipButton
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    adjustButton(by: -RestTimer.step)
+                    adjustButton(by: RestTimer.step)
+                    Spacer(minLength: 0)
+                    skipButton
+                }
+                stackedButtons
             }
+        }
+    }
+
+    private var stackedButtons: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            adjustButton(by: -RestTimer.step)
+            adjustButton(by: RestTimer.step)
+            skipButton
         }
     }
 
@@ -169,30 +177,25 @@ struct RestBar: View {
 
     // MARK: finished
 
-    /// "Rest over", the next set, and a compact "Dismiss". The whole card still dismisses on a tap, as the banner did.
+    /// "Rest over", the next set, and a compact "Dismiss". The whole card still dismisses on a tap, as the banner did. At AX sizes
+    /// the words take the card's width and Dismiss goes under them, leading, so the next set isn't cut beside the pill.
     private var finished: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "bell")
-                .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Rest over")
-                    .font(.ryft(.headline))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(Self.nextLine(controller.nextLabel()))
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(isAX ? 3 : 1)
-                    .fixedSize(horizontal: false, vertical: isAX)
+        Group {
+            if isAX {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        bell
+                        finishedWords
+                    }
+                    dismissButton
+                }
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    bell
+                    finishedWords
+                    dismissButton
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Rest over. \(Self.nextLine(controller.nextLabel()))"))
-            PillButton(Text("Dismiss"), style: .secondary, size: .compact) {
-                controller.dismissRestBanner()
-            }
-            .accessibilityHint(Text("Dismisses the banner"))
         }
         .padding(.vertical, Self.verticalPadding)
         .padding(.leading, Self.horizontalPadding)
@@ -201,6 +204,38 @@ struct RestBar: View {
         .modifier(RestBarCard(shape: RoundedRectangle(cornerRadius: Self.radius, style: .continuous)))
         .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
         .onTapGesture { controller.dismissRestBanner() }
+    }
+
+    private var bell: some View {
+        Image(systemName: "bell")
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(Theme.textSecondary)
+            .accessibilityHidden(true)
+    }
+
+    /// "Rest over" and the next set, one element. At AX sizes the next set takes the lines it needs (up to 3).
+    private var finishedWords: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Rest over")
+                .font(.ryft(.headline))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: isAX)
+            Text(Self.nextLine(controller.nextLabel()))
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(isAX ? 3 : 1)
+                .fixedSize(horizontal: false, vertical: isAX)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Rest over. \(Self.nextLine(controller.nextLabel()))"))
+    }
+
+    private var dismissButton: some View {
+        PillButton(Text("Dismiss"), style: .secondary, size: .compact) {
+            controller.dismissRestBanner()
+        }
+        .accessibilityHint(Text("Dismisses the banner"))
     }
 }
 
@@ -314,4 +349,22 @@ private struct RestTimeElement: ViewModifier {
         .frame(width: 390)
         .background(Theme.background)
         .previewEnvironment()
+}
+
+#Preview("Rest bar · rest over, AX3", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listFolded())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Rest bar · AX2 at 320", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listDraft())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 320)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility2)
 }

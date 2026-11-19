@@ -136,8 +136,8 @@ struct SetRow: View {
             .accessibilityIdentifier("\(isFocusedWarmup ? "warmup" : "set").\(exercise.position).\(number)")
     }
 
-    /// Focused's row height, with the field and the check filling it as at the default size. List's is 56.
-    private var rowHeight: CGFloat { columns?.rowHeight ?? 56 }
+    /// Focused's row height, with the field and the check filling it as at the default size. List's is 56 (`listRowHeight`).
+    private var rowHeight: CGFloat { columns?.rowHeight ?? LiveSessionSpec.listRowHeight }
 
     private func row(_ look: FocusedRowState) -> some View {
         VStack(spacing: rpeLineIsQuiet(look) ? 0 : 4) {
@@ -156,7 +156,7 @@ struct SetRow: View {
                     .foregroundStyle(FocusedRowInk.number(look))
                     .frame(width: columns?.number ?? 40, height: rowHeight)
                     .background { if look == .active { activePill } }
-                    .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: 56)))
+                    .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: LiveSessionSpec.listRowHeight)))
             }
             .buttonStyle(.plain)
             .accessibilityHidden(true)

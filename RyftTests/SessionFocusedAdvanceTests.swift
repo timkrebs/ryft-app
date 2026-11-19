@@ -247,9 +247,9 @@ struct SessionFocusedAdvanceTests {
         #expect(c.nextRow(after: working[2], in: r.row) == nil, "never upward to the warm-up that has the highest index")
     }
 
-    @Test func nextRowSkipsAFoldedWarmUpAndAReadOnlyRow() {
+    @Test func nextRowSkipsAFoldedWarmUpAndAReadOnlyRow() throws {
         let r = rig()
-        let plank = r.controller.add(MockTrain.plank)
+        let plank = try #require(r.controller.add(MockTrain.plank))
         plank.orderedSets[1].durationSec = 40
         let c = r.controller
         #expect(c.nextRow(after: plank.orderedSets[0], in: plank)?.id == plank.orderedSets[2].id, "a stored time has no reps to go to")
@@ -314,9 +314,9 @@ struct SessionFocusedAdvanceTests {
         #expect(r.controller.nextLabel().contains("set 3 of 3"), "\(r.controller.nextLabel())")
     }
 
-    @Test func nextNamesAStoredTimeRowByItsValueInFocusedOnly() {
+    @Test func nextNamesAStoredTimeRowByItsValueInFocusedOnly() throws {
         let r = rig()
-        let plank = r.controller.add(MockTrain.plank)
+        let plank = try #require(r.controller.add(MockTrain.plank))
         plank.orderedSets[0].durationSec = 45
         r.complete(3, of: r.row)
         for ex in [r.x, r.lateral, r.curl] { r.complete(ex.sets.count, of: ex) }
@@ -324,7 +324,7 @@ struct SessionFocusedAdvanceTests {
         #expect(r.controller.nextLabel().contains("0:45"), "\(r.controller.nextLabel())")
 
         let l = rig(.list)
-        let lplank = l.controller.add(MockTrain.plank)
+        let lplank = try #require(l.controller.add(MockTrain.plank))
         lplank.orderedSets[0].durationSec = 45
         for ex in [l.row, l.x, l.lateral, l.curl] { l.complete(ex.sets.count, of: ex) }
         #expect(!l.controller.nextLabel().contains("0:45"), "List never showed it")
