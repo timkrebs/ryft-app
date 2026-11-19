@@ -30,7 +30,7 @@ struct ProfileSubpagesShotsTests {
 
     nonisolated static let names = [
         "report-empty", "report-filled", "report-included", "report-limited", "report-sending", "report-sent", "report-queued",
-        "notifications-allowed", "notifications-rollout", "notifications-denied", "notifications-not-asked",
+        "notifications-allowed", "notifications-quiet-on", "notifications-rollout", "notifications-denied", "notifications-not-asked",
         "journal", "add-habit", "sign-in-email", "sign-in-both", "licences",
     ]
 }
@@ -54,6 +54,7 @@ enum SubpageShotScreen {
         case "report-sent": return report { $0.stage(result: .sent) }
         case "report-queued": return report { $0.stage(result: .queued, waiting: 1) }
         case "notifications-allowed": return notifications(.authorized)
+        case "notifications-quiet-on": return notifications(.authorized, quietHours: true)
         case "notifications-rollout": return notifications(.authorized, rolledOut: false)
         case "notifications-denied": return notifications(.denied)
         case "notifications-not-asked": return notifications(.notDetermined)
@@ -75,10 +76,15 @@ enum SubpageShotScreen {
         return pushed(state) { ReportProblemView(model: model, context: context, showsIncluded: showsIncluded) }
     }
 
-    static func notifications(_ status: UNAuthorizationStatus, rolledOut: Bool = true) -> AnyView {
+    /// `quietHours`: the account has them on, 22:30 to 07:00 (From and Until show).
+    static func notifications(_ status: UNAuthorizationStatus, rolledOut: Bool = true, quietHours: Bool = false) -> AnyView {
         let notifier = MockNotifier()
         notifier.status = status
         let state = AppState.preview(flags: rolledOut ? [.pushEnabled: true] : [:], notifier: notifier)
+        if quietHours, let user = state.user {
+            state.user?.notifications = NotificationPrefs(categories: user.notifications.categories,
+                                                          quietHours: NotificationSettingsViewModel.defaultQuietHours)
+        }
         return pushed(state) { NotificationSettingsView() }
     }
 
