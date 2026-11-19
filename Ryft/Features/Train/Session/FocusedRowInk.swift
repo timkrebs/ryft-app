@@ -15,11 +15,12 @@ enum FocusedRowInk {
         Theme.surfaceRaised
     }
 
-    /// A kg or reps value. On a raised field (the active row's, and List's upcoming ones) an empty field is grey too:
-    /// `textTertiary` is 3.94:1 on the raised fill, under 4.5:1 (a raised fill carries `textPrimary` or `textSecondary` text).
+    /// A kg or reps value. On a raised field (the active row's, List's upcoming ones, and the field the keypad types into on a
+    /// done row) an empty field is grey too: `textTertiary` is 3.94:1 on the raised fill, under 4.5:1 (a raised fill carries
+    /// `textPrimary` or `textSecondary` text).
     static func value(_ state: FocusedRowState, hasValue: Bool, hasGhost: Bool, onRaisedField: Bool = false) -> Color {
         switch state {
-        case .done: hasValue ? Theme.textSecondary : Theme.textTertiary
+        case .done: hasValue || onRaisedField ? Theme.textSecondary : Theme.textTertiary
         case .active: hasValue ? Theme.textPrimary : Theme.textSecondary
         case .upcoming: hasValue ? Theme.textPrimary : hasGhost || onRaisedField ? Theme.textSecondary : Theme.textTertiary
         }

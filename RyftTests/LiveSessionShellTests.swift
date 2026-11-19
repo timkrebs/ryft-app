@@ -107,6 +107,11 @@ struct LiveSessionShellTests {
         #expect(ink == Theme.textSecondary)
         #expect(contrast(ink, on: parts(Theme.surfaceRaised)) >= 4.5)
         #expect(FocusedRowInk.value(.upcoming, hasValue: false, hasGhost: false) == Theme.textTertiary)
+        // A done row's field the keypad types into is raised too.
+        let done = FocusedRowInk.value(.done, hasValue: false, hasGhost: false, onRaisedField: true)
+        #expect(done == Theme.textSecondary)
+        #expect(contrast(done, on: parts(Theme.surfaceRaised)) >= 4.5)
+        #expect(FocusedRowInk.value(.done, hasValue: false, hasGhost: false) == Theme.textTertiary)
     }
 }
 
