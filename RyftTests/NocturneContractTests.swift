@@ -45,14 +45,16 @@ struct NocturneStringsTests {
         // The neutral tiles' sentences, from their parts.
         "%lld of the last 7 nights were regular", "%lld percent of the target", "%@ of deep and REM sleep",
         "down %@ from the night before", "up %@ from the night before",
-        // Profile → Display
-        "Display", "Hero numbers", "Dots", "Thin", "Large numbers on Today, Sleep and Strain.",
+        // Profile → Hero numbers (PR 5's list has no "Display" heading, T5.4)
+        "Hero numbers", "Dots", "Thin", "Large numbers on Today, Sleep and Strain.",
     ]
 
     /// The keys the spec removes, with no other caller after the change.
     static let removed: [String] = [
         "Total sleep", "Performance", "asleep in bed", "of your need", "last 7 nights", "deep + REM",
         "Good morning,", "Good afternoon,", "Good evening,", "in bed %@ to %@",
+        // PR 5 (T5.4): Profile's list drops the Display heading.
+        "Display",
     ]
 
     /// Kept on purpose (§P4-9, last paragraph).
