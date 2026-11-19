@@ -173,34 +173,56 @@ struct WidgetNocturneTests {
         #expect(evening == .slot(.bedtime(Self.bedtime)))
     }
 
-    /// The resting card on the lock screen, its label's first baseline on the 40 pt clock's: padding, the top row, the
-    /// rest's bar, the next set beside the 32 pt "Open"; condensed, no session title and one line of the next set.
-    private static func card(_ size: DynamicTypeSize, condensed: Bool) -> CGFloat {
+    /// The resting card on the lock screen, its label's first baseline on the 40 pt clock's: padding, the top row (the
+    /// label, and the session title under it unless `condensed`), the rest's bar, `lines` of the next set beside the 32 pt
+    /// "Open". By default the card's own rules at `size`.
+    private static func card(_ size: DynamicTypeSize, condensed: Bool? = nil, lines: Int? = nil) -> CGFloat {
         typealias Look = WorkoutActivityLook
+        let condensed = condensed ?? Look.condenses(size), lines = lines ?? Look.nextLineLimit(size)
         let clock = UIFont.systemFont(ofSize: 40, weight: .light), label = font(.caption2, size)
         let labels = label.lineHeight + (condensed ? 0 : Look.labelGap + font(.caption1, size).lineHeight)
         let top = max(clock.lineHeight, clock.ascender - label.ascender + labels)
-        let next = max(CGFloat(condensed ? 1 : Look.nextLines) * font(.subheadline, size).lineHeight, Look.openPill)
+        let next = max(CGFloat(lines) * font(.subheadline, size).lineHeight, Look.openPill)
         return 2 * Look.padding + top + Look.rowGap + 4 + Look.rowGap + next
     }
 
-    @Test("Dynamic Type, rest timer: the full card at the default size, condensed above it, up to its cap under 160 pt")
+    @Test("Dynamic Type, rest timer: two lines of the next set at the default size, one above it, no title from AX1; under 160 pt to the cap")
     func lockCardType() throws {
         typealias Look = WorkoutActivityLook
-        #expect(!Look.condenses(.large))
-        #expect(Look.condenses(.xLarge))
+        // The title stays through xxxLarge and goes from AX1 (6c9 S3); the next set keeps one line above the default size.
+        #expect(!Look.condenses(.large) && !Look.condenses(.xLarge) && !Look.condenses(.xxxLarge))
+        #expect(Look.condenses(.accessibility1) && Look.condenses(.accessibility3))
         #expect(Look.nextLineLimit(.large) == 2)
-        #expect(Look.nextLineLimit(.xLarge) == 1)
-        // iOS gives a Live Activity 160 pt on the lock screen: the full card fits at the default size, not one up.
-        #expect(Self.card(.large, condensed: false) <= 160)
-        #expect(Self.card(.xLarge, condensed: false) > 160)
-        // Condensed, it fits at the cap, and the cap is the largest size that does.
-        #expect(Self.card(Look.largestType, condensed: true) <= 160)
+        #expect(Look.nextLineLimit(.xLarge) == 1 && Look.nextLineLimit(.accessibility3) == 1)
+        // iOS gives a Live Activity 160 pt on the lock screen: the full card fits at the default size; one up, the second
+        // line of the next set would pass it, so it keeps one.
+        #expect(Self.card(.large) <= 160)
+        #expect(Self.card(.xLarge, condensed: false, lines: 2) > 160)
+        // Every size from the default to the cap fits as the card draws it.
+        let sizes: [DynamicTypeSize] = [.large, .xLarge, .xxLarge, .xxxLarge, .accessibility1, .accessibility2,
+                                         .accessibility3, .accessibility4]
+        for size in sizes where size <= Look.largestType {
+            #expect(Self.card(size) <= 160, "\(size): \(Self.card(size))")
+        }
+        // The cap is the largest size that does.
         if Look.largestType < .accessibility5 {
             let pastCap = try Self.larger(Look.largestType)
-            #expect(Self.card(pastCap, condensed: true) > 160)
+            #expect(Self.card(pastCap) > 160)
         }
         #expect(Look.glanceLargestType == .large)
+    }
+
+    @Test("Rest timer, VoiceOver: the session title is heard where the card doesn't draw it, unless a redaction hides values")
+    func lockCardSpokenTitle() {
+        typealias Look = WorkoutActivityLook
+        #expect(Look.spokenTitle("Upper A", size: .large, concealment: .none) == nil, "drawn: the title is read from the text")
+        #expect(Look.spokenTitle("Upper A", size: .xxxLarge, concealment: .none) == nil, "drawn through xxxLarge")
+        #expect(Look.spokenTitle("Upper A", size: .accessibility1, concealment: .none) == "Upper A")
+        #expect(Look.spokenTitle("Upper A", size: .accessibility3, concealment: .none) == "Upper A")
+        // A locked screen hides the drawn title (privacySensitive): the spoken one goes too, and so in the placeholder.
+        #expect(Look.spokenTitle("Upper A", size: .accessibility3, concealment: .locked) == nil)
+        #expect(Look.spokenTitle("Upper A", size: .accessibility3, concealment: .placeholder) == nil)
+        #expect(Look.spokenTitle("", size: .accessibility3, concealment: .none) == nil)
     }
 
     // MARK: the ink per state

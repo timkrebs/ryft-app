@@ -90,12 +90,13 @@ struct WorkoutShown {
 }
 
 /// The lock screen (b-16 with F24's pill): the label with the rest's Volt dot and the session title, the clock 40 Light;
-/// the rest's bar; the next set (two lines) and "Open". Above the default size it condenses to stay within the lock
-/// screen's 160 pt: no session title, the next set on one line cut in the middle (`WorkoutActivityLook.condenses`). One
-/// element for VoiceOver.
+/// the rest's bar; the next set (two lines) and "Open". To stay within the lock screen's 160 pt the next set keeps one line
+/// above the default size, and from the accessibility sizes the session title goes (`WorkoutActivityLook.condenses`); the
+/// next set is cut at its end, so the exercise's name stays. One element for VoiceOver, which still hears the title.
 struct WorkoutLockScreen: View {
     let workout: WorkoutShown
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.redactionReasons) private var redaction
 
     var body: some View {
         let inks = workout.inks
@@ -107,6 +108,7 @@ struct WorkoutLockScreen: View {
                         if inks.restMarks { RestTimerDot() }
                         Text(workout.label)
                             .font(.caption2.weight(.medium))
+                            .accessibilityLabel(spokenLabel)
                     }
                     if !condensed {
                         Text(workout.title)
@@ -129,7 +131,7 @@ struct WorkoutLockScreen: View {
                     .font(.subheadline)
                     .foregroundStyle(inks.clock.colour)
                     .lineLimit(WorkoutActivityLook.nextLineLimit(typeSize))
-                    .truncationMode(condensed ? .middle : .tail)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 OpenPill()
             }
@@ -139,6 +141,13 @@ struct WorkoutLockScreen: View {
         // Also painted here: the tint alone isn't applied in every presentation.
         .background(Brand.graphite)
         .accessibilityElement(children: .combine)
+    }
+
+    /// "Rest" or "Workout", and the session title after it where the card doesn't draw it (not while a redaction hides
+    /// the values, as it hides the drawn title).
+    private var spokenLabel: Text {
+        let title = WorkoutActivityLook.spokenTitle(workout.title, size: typeSize, concealment: WidgetConcealment(redaction))
+        return title.map { Text(workout.label) + Text(verbatim: ", \($0)") } ?? Text(workout.label)
     }
 }
 

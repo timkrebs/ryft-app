@@ -287,15 +287,22 @@ enum WorkoutActivityLook {
     /// The island's keyline: ink at half strength, never Volt or teal (C §4.15).
     static let keylineOpacity = 0.5
 
-    /// Above the default size the lock screen card condenses, so it stays within the 160 pt iOS gives a Live Activity
-    /// there: the session title goes, and the next set keeps one line, cut in the middle so the set and the load stay.
-    static func condenses(_ size: DynamicTypeSize) -> Bool { size > .large }
+    /// The lock screen card stays within the 160 pt iOS gives a Live Activity there in two steps: above the default size
+    /// the next set keeps one line (`nextLineLimit`), and only from the accessibility sizes the session title goes too.
+    static func condenses(_ size: DynamicTypeSize) -> Bool { size.isAccessibilitySize }
 
-    /// The lines the lock screen's next set may take at `size`.
-    static func nextLineLimit(_ size: DynamicTypeSize) -> Int { condenses(size) ? 1 : nextLines }
+    /// The lines the lock screen's next set may take at `size`: two at the default size and below, else one. Either way it
+    /// is cut at its end, so the exercise's name at its start stays ("Next: Bench press · set 3 of 4 · 5 × 8…").
+    static func nextLineLimit(_ size: DynamicTypeSize) -> Int { size > .large ? 1 : nextLines }
 
-    /// The lock screen card and the expanded island grow to AX4: condensed, the resting card measures 158 pt there (140 at
-    /// xLarge, 151 at AX3) and 167 at AX5, past the lock screen's 160.
+    /// What VoiceOver hears of the session title where the card doesn't draw it (condensed): the title, unless a
+    /// redaction hides values (a locked screen, the placeholder), as it hides the drawn title (`privacySensitive`).
+    static func spokenTitle(_ title: String, size: DynamicTypeSize, concealment: WidgetConcealment) -> String? {
+        condenses(size) && !concealment.hidesValues && !title.isEmpty ? title : nil
+    }
+
+    /// The lock screen card and the expanded island grow to AX4: condensed, the resting card measures 158 pt there (151
+    /// at AX3) and 167 at AX5, past the lock screen's 160.
     static let largestType: DynamicTypeSize = .accessibility4
     /// The island's compact and minimal regions are fixed (37 pt high): their glyph keeps the default size.
     static let glanceLargestType: DynamicTypeSize = .large
