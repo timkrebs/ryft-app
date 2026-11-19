@@ -4,8 +4,9 @@ import SwiftUI
 
 /// Report a problem's numbers (Nocturne, PR 6 C §4.3; plain values, so tests assert numbers).
 enum ReportProblemLayout {
-    /// The message's text area: at least this high, so the field card is about 132 with its label (C §2.5).
-    nonisolated static let messageTextMinHeight: CGFloat = 96
+    /// The message's text area: room for 4 lines at every size, so the field card is about 132 with its label at the
+    /// default size (C §2.5) and the prompt is never cut off; it grows with what's typed.
+    nonisolated static let messageLines = 4
     /// The counter inside the card, under the text: 12 above the card's bottom edge.
     nonisolated static let counterBottom: CGFloat = 12
     /// "What's included": 6 between its lines, 4 more above the health sentence, 14 under the last line.
@@ -94,9 +95,13 @@ struct ReportProblemView: View {
     }
 
     /// Send, pinned: busy while it goes (the pill keeps its size and says "Sending…"), disabled without a message, over the
-    /// limit and after today's tenth report.
+    /// limit and after today's tenth report (the caption then says why).
     private var sendBar: some View {
-        PinnedActionBar(footnote: Text("Reports are limited to 10 a day.")) {
+        PinnedActionBar(caption: model.result == .rateLimited
+                            ? Text("You can send again tomorrow.",
+                                   comment: "Report a problem: the pinned bar's caption while today's 10 reports are used up.")
+                            : nil,
+                        footnote: Text("Reports are limited to 10 a day.")) {
             PillButton(model.sending ? Text("Sending…") : Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
                 editing = false
                 await model.send()
@@ -127,36 +132,40 @@ struct ReportProblemView: View {
         }
     }
 
-    /// A refusal: the sentence, the status and request ID as its caption, and "Copy message".
+    /// A refusal: the sentence, the status and request ID as its caption (selectable, for support), and "Copy message".
     private func refusal(_ sentence: String, systemImage: String, caption: String? = nil) -> some View {
         InlineMessage(message: sentence, systemImage: systemImage, caption: caption, identifier: "report.notice",
                       action: (String(localized: "Copy message"), { model.copyMessage() }))
+            .textSelection(.enabled)
             .accessibilityElement(children: .contain)
     }
 
     /// The message: a field card (its label "Message" inside, the focus bar at its edge), the counter under the text once it
-    /// nears the limit, and the privacy hint as the footer.
+    /// nears the limit, and the privacy hint as the footer; over the limit the footer says so first, in words. The field
+    /// keeps 4 lines' room at every size, so its prompt shows whole and a tap anywhere in it edits.
     private var message: some View {
-        GroupedCard(footer: Text("Please don't type health values you'd rather keep private.")) {
+        GroupedCard(footer: messageFooter) {
             FormField(Text("Message"), isFocused: editing) {
                 TextField(text: Bindable(model).message,
                           prompt: Text("What happened? What did you expect?").fieldPrompt(),
                           axis: .vertical) {
                     Text("Message")
                 }
+                // A vertical field with a range keeps its lower bound's room (`reservesSpace` takes only a fixed limit).
+                .lineLimit(ReportProblemLayout.messageLines...)
                 .focused($editing)
-                .frame(maxWidth: .infinity, minHeight: ReportProblemLayout.messageTextMinHeight, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
                 .accessibilityIdentifier("report.message")
-            }
-            // The whole card opens the keyboard, not only the text's lines: a tap the field doesn't take lands here.
-            .background {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { editing = true }
-                    .accessibilityHidden(true)
             }
             if model.showsCount { counter }
         }
+    }
+
+    private var messageFooter: Text {
+        model.isTooLong
+            ? Text("Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private.",
+                   comment: "Report a problem: the message card's footer while the message is over 4,000 characters.")
+            : Text("Please don't type health values you'd rather keep private.")
     }
 
     /// "3812 / 4000" at the card's bottom right; over the limit in `warning`, and VoiceOver adds "Over the limit".
