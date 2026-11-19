@@ -634,7 +634,7 @@ private struct ScheduleNoticeRow: View {
                 }
                 .ryftLink()
                 .fixedSize()
-                .accessibilityHint(GroupedRow.linkOutHint)
+                .accessibilityHint(GroupedRow.outsideLinkHint)
                 .accessibilityIdentifier("\(identifier).openSettings")
             }
         }

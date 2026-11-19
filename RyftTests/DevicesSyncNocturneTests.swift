@@ -522,7 +522,8 @@ struct DevicesSyncNocturneTests {
         let g = MockDevicesStates.graph(demo: false)
         defer { g.tearDown() }
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: g.state, sync: g.sync), clock: g.env.clock)
-        let train = TrainCoordinator(sync: g.train, library: TrainLibrary.preview(store: g.store), liveActivities: false)
+        let train = TrainCoordinator(sync: g.train, library: TrainLibrary.preview(store: g.store, outbox: g.train),
+                                     liveActivities: false)
         let profile = ProfileViewModel(state: g.state, sync: g.sync, coordinator: coordinator, apiStatus: APIStatus(),
                                        train: train)
         #expect(profile.syncDetails.trainOutbox === g.train)
