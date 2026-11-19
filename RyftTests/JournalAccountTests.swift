@@ -267,9 +267,33 @@ struct JournalWaitTests {
     }
 }
 
+/// Answers every request with a `429` (`Retry-After: 1`) and counts them. Its own state: no other suite uses it.
+private final class TooManyRequests: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var seen: [String] = []
+
+    static func reset() { lock.withLock { seen = [] } }
+    static var requests: [String] { lock.withLock { seen } }
+
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.seen.append("\(request.httpMethod ?? "") \(request.url?.path ?? "")") }
+        let response = HTTPURLResponse(url: request.url ?? URL(fileURLWithPath: "/"), statusCode: 429, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Retry-After": "1"])
+        if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @MainActor
+@Suite(.serialized)
 struct SettingsWriteOneAttemptTests {
-    @Test("Every page's write is one attempt (the editors', Notifications', Journal's): a 429 comes back at once as busy")
+    @Test("Every page's write runs as one attempt (the editors', Notifications', Journal's)")
     func oneAttempt() async throws {
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, clock: TestClock(now: .now), flags: [.pushEnabled: true])
@@ -288,17 +312,46 @@ struct SettingsWriteOneAttemptTests {
         #expect(await editor.setSleepBase(465))
         #expect(seen.values == [true, true, true], "\(seen.values)")
         #expect(!APIClient.singleAttempt, "only the write's own task")
+    }
 
-        api.failNext = APIError.http(429, "", retryAfter: 30)
-        await model.set(.pr, on: true)
+    @Test("A 429 through the real client: one request for each page's write, and it's said at once as busy",
+          .timeLimit(.minutes(1)))
+    func aBusyAnswerIsOneRequest() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TooManyRequests.self]
+        let base = URL(string: "https://api.test") ?? URL(fileURLWithPath: "/")
+        // A retry would wait `Retry-After` here: none waits, so a second attempt would show only in the count.
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: base, status: APIStatus())
+        let clock = TestClock(now: .now)
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let env = AppEnvironment(settings: Settings(defaults: defaults), health: MockHealthStore(), liveAPI: client,
+                                 demoAPI: MockPlatformAPI(), auth: .preview(), persistence: TrainStore(inMemory: true),
+                                 clock: clock, notifier: MockNotifier(), flags: StaticFlags([.pushEnabled: true]),
+                                 connectivity: .preview(online: true), defaults: defaults, demoOverride: false)
+        let state = AppState(env: env)
+        state.user = MockData.user
+
+        TooManyRequests.reset()
+        let model = NotificationSettingsViewModel(state: state, push: PushRegistrar(env: env))
+        await model.set(.pr, on: false)
+        #expect(TooManyRequests.requests.count == 1, "Notifications: \(TooManyRequests.requests)")
         #expect(model.failure?.kind == .busy && model.failure?.message == busyWords)
-        api.failNext = APIError.http(429, "", retryAfter: 30)
+
+        TooManyRequests.reset()
+        let store = JournalStore(env: env)
         do {
             try await store.setEnabled(MockJournal.magnesium, false)
             Issue.record("a 429 is a failure")
         } catch {
             #expect(JournalSettingsFailure(error).message == busyWords)
         }
+        #expect(TooManyRequests.requests.count == 1, "Journal: \(TooManyRequests.requests)")
         #expect(store.rereading == nil, "busy: nothing changed, nothing to ask")
+
+        TooManyRequests.reset()
+        let editor = BodySettingsEditor(state: state)
+        #expect(await editor.setSleepBase(465) == false)
+        #expect(TooManyRequests.requests.count == 1, "the editors: \(TooManyRequests.requests)")
     }
 }

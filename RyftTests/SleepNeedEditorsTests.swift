@@ -1612,7 +1612,7 @@ struct SleepNeedHostedTests {
             #expect(row.hint == "Shows how your sleep need adds up, and your baseline to change" && row.traits.contains(.button))
             #expect(w.node(SleepNeedBreakdown(MockSleepNeedStates.need).spokenSentence, exactly: true) != nil)
             row.activate()
-            #expect(await eventually(timeout: .seconds(5)) { opened })
+            #expect(await eventually { opened })
         }
     }
 }
