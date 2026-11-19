@@ -56,9 +56,11 @@ final class TrainWriterRig {
 @Suite("App Attest: refused writes stay queued (AC7)")
 @MainActor
 struct AppAttestWriterTests {
-    @Test func isRetryableKeepsA403WithTheAttestCode() {
-        // Pinned here because `fix/train-refusals-kept` rewrites TrainSyncService: this stays a kept refusal.
-        #expect(TrainSyncService.isRetryable(.http(403, "x", requestID: "r", code: .appAttestRequired)))
+    @Test(arguments: [PendingTrainOp.Kind.put, .complete, .delete, .exercise])
+    func aTrainOpRefusedWithTheAttestCodeHolds(_ kind: PendingTrainOp.Kind) {
+        // Pinned against ADR 0022 §1 (any `403` holds): App Attest's never becomes a refusal, whatever moves there.
+        let error = APIError.http(403, "x", requestID: "r", code: .appAttestRequired)
+        #expect(TrainSyncService.disposition(of: kind, error, at: .now) == .hold)
     }
 
     @Test func aTrainPutRefusedAgainAfterTheRetryStaysInTheOutboxAndGoesLater() async throws {

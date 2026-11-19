@@ -292,6 +292,22 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
+  - **A custom exercise is an op** (`exercise`, `POST /v1/exercises`), queued ahead of every other op, because a
+    queued `PUT` sends the session as it is when it goes. No consent gate or undo window holds it, but it's bound to
+    its account. A session's ops don't go while an exercise it uses is queued or refused, and a plan save waits for
+    the exercises it names, at most 10 s (`TrainLibrary.savePlan`).
+  - **A refusal is state, never a drop** ([ADR 0022](adr/0022-train-outbox-refusals.md)). A `400`, `409` after the
+    merge rounds, `413`, `422`, any other `4xx` but the holds, a `404` on `complete`, or a body the app can't encode
+    keeps the op and records an `UploadAttempt` (status, code, request ID, time) on the session, or on the op for an
+    exercise. That session's ops wait until Retry or an edit; other sessions' go. Every `403`, a `404` on `PUT` or
+    `POST`, `408`, `426`, `429` and `5xx` hold the queue (an exercise answered that way is passed over, so unrelated
+    sessions still go); a `2xx` the app can't read was delivered. `UploadAttempt.isRefusal` is the one definition,
+    the activities uploader's too, and `TrainSyncService.state(of:)` derives the session's `UploadState` from the rows
+    each time it's asked. While a session's `PUT` is refused or queued, a completion's answer brings only what the
+    platform owns (status, workout, PRs, scores, body weight), never the logged sets (`applyPlatformFields`).
+  - **The exceptions:** a refused `DELETE` is dropped and logged (its session is gone here); a `complete` answered
+    `409` means the platform discarded the session, so the op goes; a `complete` answered `404` before the session's
+    `PUT` arrived queues that `PUT` ahead of it.
 - **Ending the demo** (ADR 0019, `docs/work/2026-11-18-ios17-demo-exit/design.md`). Profile's switch is the only way out
   in production. Train has no demo store of its own, so the workouts started in the demo are named by a list:
   `TrainCoordinator.newSessionID()` adds a new session's id (`train.demoSessions` in defaults, ids only) when the

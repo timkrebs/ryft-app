@@ -5,10 +5,12 @@
 //                                                      2xx ──▶ confirmedRevision = the revision sent
 //                                                      edited meanwhile ──▶ one more PUT
 //   delete ──▶ never sent: gone at once · else tombstone ──▶ DELETE (2xx or 404 ──▶ gone)
-//   transport · 5xx · 408 · 429 · 401 ──▶ that item backs off 30 s · 2 min · 10 min · 1 h (jitter, Retry-After)
+//   transport · 5xx · 408 · 429 · 401 · 403 without a gate code · 426 ──▶ that item backs off 30 s · 2 min · 10 min ·
+//   1 h (jitter, Retry-After)
 //   403 + code, or the gate ──▶ gated (a DELETE passes the consent gate) · 404 on PUT, or no contract yet ──▶ not
 //   available yet
-//   other 4xx ──▶ failed, kept
+//   any other 4xx, or a body this build can't encode ──▶ failed, kept (`UploadAttempt.isRefusal`, ADR 0022 §1)
+//   a 2xx whose answer this build can't read ──▶ delivered: confirmed
 import Foundation
 import Observation
 import UIKit
@@ -396,7 +398,7 @@ final class ActivityUploader {
     private func next(excluding passedOver: Set<Item>) -> Item? {
         let now = env?.clock.now() ?? Date()
         func ready(_ item: Item, _ attempt: UploadAttempt?) -> Bool {
-            !passedOver.contains(item) && !Self.isRefused(attempt) && (backoffs[item]?.due ?? .distantPast) <= now
+            !passedOver.contains(item) && attempt?.isRefusal != true && (backoffs[item]?.due ?? .distantPast) <= now
         }
         if let row = store.unconfirmed().first(where: { ready(.activity($0.id), $0.lastAttempt) }) {
             return .activity(row.id)
@@ -421,7 +423,15 @@ final class ActivityUploader {
         inFlight = item
         defer { if generation == self.generation { inFlight = nil } }
         do {
-            let answer = try await api.putActivity(row.activity)
+            let answer: SportActivity
+            do {
+                answer = try await api.putActivity(row.activity)
+            } catch let error as APIError where error.wasDelivered {
+                // A `2xx` this build couldn't read: the platform took this revision (ADR 0022 §1). The document sent
+                // stands in for its copy until the next read brings the platform's.
+                ActivityStore.log.notice("Activity put delivered; its answer couldn't be read")
+                answer = row.activity
+            }
             guard generation == self.generation else { return .stop }
             store.confirm(row.id, revision: sent)
             // Deleted while the PUT was out: the DELETE follows on the next round; nothing to show meanwhile.
@@ -445,8 +455,8 @@ final class ActivityUploader {
         defer { if generation == self.generation { inFlight = nil } }
         do {
             try await api.deleteActivity(id: row.id)
-        } catch let error as APIError where error.status == 404 {
-            // Gone already.
+        } catch let error as APIError where error.status == 404 || error.wasDelivered {
+            // Gone already, or deleted with an answer this build couldn't read.
         } catch {
             guard generation == self.generation else { return .stop }
             return failed(item, error, request: .delete, current: true, nothingStored: {})
@@ -470,14 +480,18 @@ final class ActivityUploader {
             if night.isTombstone {
                 do {
                     try await api.deleteManualSleep(day: night.day)
-                } catch let error as APIError where error.status == 404 {
-                    // Gone already.
+                } catch let error as APIError where error.status == 404 || error.wasDelivered {
+                    // Gone already, or deleted with an answer this build couldn't read.
                 }
                 guard generation == self.generation else { return .stop }
                 // Added again while the DELETE was out: that night stays, and goes up on the next round.
                 store.removeSleep(day: night.day, onlyIfDeleted: true)
             } else {
-                try await api.putManualSleep(day: night.day, ManualSleepPut(bed: night.bed, wake: night.wake))
+                do {
+                    try await api.putManualSleep(day: night.day, ManualSleepPut(bed: night.bed, wake: night.wake))
+                } catch let error as APIError where error.wasDelivered {
+                    // Stored, with an answer this build couldn't read (ADR 0022 §1).
+                }
                 guard generation == self.generation else { return .stop }
                 store.confirmSleep(day: night.day, revision: sent)
             }
@@ -491,10 +505,11 @@ final class ActivityUploader {
         }
     }
 
-    /// What a failure means for the row and the queue (API.md → Errors, design.md §4.1). `nothingStored` undoes the
-    /// request's sent marker: called for answers that say this request left nothing on the platform (no contract,
-    /// signed out or not configured before anything went out, a gate, a refusal), never for a cut-off, a timeout or
-    /// a server error, and never for an answer with a 2xx status this build couldn't read.
+    /// What a failure means for the row and the queue (API.md → Errors, design.md §4.1, ADR 0022 §1). `nothingStored`
+    /// undoes the request's sent marker: called for answers that say this request left nothing on the platform (no
+    /// contract, signed out or not configured before anything went out, a gate, a refusal or another answered hold),
+    /// never for a cut-off, a timeout or a server error. A `2xx` this build couldn't read never comes here: it was
+    /// delivered (`put`, `delete`, `send`).
     private func failed(_ item: Item, _ error: Error, request: UploadAttempt.Request, current: Bool,
                         nothingStored: () -> Void) -> Outcome {
         let api = error as? APIError
@@ -515,10 +530,7 @@ final class ActivityUploader {
         // `403 app_attest_required` is refused before routing (nothing stored) and kept: tried again like an outage.
         let attestRefused = api?.status == 403 && api?.code == .appAttestRequired
         let kind = attestRefused ? FailureKind.transient : FailureKind.of(error)
-        let answered = api?.status.map { (200..<300).contains($0) } ?? false
-        if !answered, attestRefused || kind == .gate || kind == .signedOut || kind == .other || kind == .appTooOld {
-            nothingStored()
-        }
+        if attestRefused || kind == .gate || kind == .signedOut || kind == .other || kind == .appTooOld { nothingStored() }
         let attempt = UploadAttempt(at: env?.clock.now() ?? Date(), request: request, status: api?.status,
                                     code: api?.code?.rawValue, requestID: api?.requestID, kind: kind)
         switch kind {
@@ -529,17 +541,18 @@ final class ActivityUploader {
             gated = true
             record(item, attempt)
             return .stop
-        case .transient, .signedOut:
+        case .other where !attempt.isRefusal, .appTooOld, .transient, .signedOut:
+            // Held with a backoff, never refused (ADR 0022 §1): also a 403 without a gate code, a 426, a 501.
             record(item, attempt)
             let failures = (backoffs[item]?.failures ?? 0) + 1
             backoffs[item] = Backoff(failures: failures, due: due(after: failures, retryAfter: api?.retryAfter))
-            lostConnection = api?.status == nil
+            lostConnection = kind == .transient && api?.status == nil
             scheduleRetry()
             // Probably the platform or the network as a whole: stop. One item failing again and again is passed over.
             return failures >= Self.failedAfter ? .passOver : .stop
-        case .other, .appTooOld:
-            // The platform refused this revision: failed, kept, until Retry or an edit. A newer revision saved while
-            // the request was out is still to be sent, so the refusal isn't recorded on it.
+        case .other:
+            // Refused (any other 4xx, or a document this build couldn't encode): failed, kept, until Retry or an edit.
+            // A newer revision saved while the request was out is still to be sent, so the refusal isn't recorded on it.
             if current { record(item, attempt) }
             return .refused
         }
@@ -612,7 +625,7 @@ final class ActivityUploader {
 
     private func pending(_ item: Item, write: UploadWrite, lastAttempt: UploadAttempt?) -> UploadState {
         if inFlight == item { return .pending(.inFlight) }
-        if let lastAttempt, Self.isRefused(lastAttempt) { return .failed(lastAttempt) }
+        if let lastAttempt, lastAttempt.isRefusal { return .failed(lastAttempt) }
         let backoff = backoffs[item]
         if let lastAttempt, let backoff, backoff.failures >= Self.failedAfter { return .failed(lastAttempt) }
         guard let env, env.api.publishesActivities, !notAvailable else { return .pending(.notAvailableYet) }
@@ -627,12 +640,6 @@ final class ActivityUploader {
         if !online { return .pending(.offline) }
         if let backoff, backoff.due > env.clock.now() { return .pending(.retrying(at: backoff.due)) }
         return .pending(.queued)
-    }
-
-    /// The platform refused the request (`400`, `413`, `422`, …): only Retry or an edit sends it again.
-    private static func isRefused(_ attempt: UploadAttempt?) -> Bool {
-        guard let attempt else { return false }
-        return attempt.kind == .other || attempt.kind == .appTooOld
     }
 
     /// Whether the platform may hold the item: confirmed once, being sent, or sent without an answer that says

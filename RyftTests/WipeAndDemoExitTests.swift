@@ -82,7 +82,7 @@ struct WipeAndDemoExitTests {
         let clock = TestClock()
         let rig = DemoTrainRig()
         rig.demo = interruption == .demoExit
-        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store, outbox: rig.sync),
                                            liveActivities: false, clock: clock, liveActivity: rig.activity)
         coordinator.sessionLayout = { .list }
         coordinator.jumpToNext = { false }

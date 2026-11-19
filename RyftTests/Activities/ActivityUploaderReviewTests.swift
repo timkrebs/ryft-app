@@ -173,7 +173,10 @@ struct ActivityUploaderMarkerTests {
         ErrorCase(APIError.signedOut, "no session: nothing went out"),
         ErrorCase(APIError.notConfigured, "no server: nothing went out"),
         ErrorCase(APIError.http(403, "consent", code: .consentRequired), "a gate refused it"),
+        ErrorCase(APIError.http(403, "forbidden"), "a 403 without a code: held, and nothing stored"),
+        ErrorCase(APIError.http(426, "upgrade"), "426: held, and nothing stored"),
         ErrorCase(APIError.http(422, "invalid"), "refused"),
+        ErrorCase(APIError.http(405, "method not allowed"), "a 4xx the contract doesn't list: refused"),
     ])
     func anAnswerThatStoredNothingClearsTheMarker(_ c: ErrorCase) async throws {
         let h = UploadHarness()
@@ -190,7 +193,7 @@ struct ActivityUploaderMarkerTests {
     @Test(arguments: [
         ErrorCase(APIError.http(503, "busy"), "a server error"),
         ErrorCase(APIError.transport(URLError(.timedOut)), "a timeout"),
-        ErrorCase(APIError.http(200, "unreadable"), "a 2xx this build couldn't read"),
+        // A 2xx this build couldn't read was delivered (ADR 0022 §1): `UploadRefusalTests`.
     ])
     func anAnswerThatMayHaveStoredItKeepsTheMarker(_ c: ErrorCase) async throws {
         let h = UploadHarness()

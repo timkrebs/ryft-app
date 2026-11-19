@@ -318,7 +318,8 @@ struct ProfileDemoExitTests {
         #expect(cached != nil && !shows(cached))
         // The rest of it stays.
         #expect(cached?.sessions.count == others)
-        let relaunched = TrainLibrary(store: store, remote: { RecordingTrainSource() }, restore: false)
+        let outbox = TrainSyncService.preview(store: store)
+        let relaunched = TrainLibrary(store: store, remote: { RecordingTrainSource() }, outbox: { outbox }, restore: false)
         let offline = ExerciseDetailViewModel(exerciseID: bench, library: relaunched, clock: graph.env.clock)
         await offline.load() // the platform can't be reached: the store's copy
         #expect(offline.history != nil && !shows(offline.history))

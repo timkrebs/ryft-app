@@ -13,7 +13,10 @@ struct ImportCoordinatorTests {
     }
 
     let opened = Opened()
-    let library = TrainLibrary.preview(store: TrainStore(inMemory: true), enrolled: false)
+    let library: TrainLibrary = {
+        let store = TrainStore(inMemory: true)
+        return TrainLibrary.preview(store: store, outbox: .preview(store: store), enrolled: false)
+    }()
 
     func coordinator(_ env: AppEnvironment) -> ImportCoordinator {
         ImportCoordinator(env: env, library: library, uploader: TrainImportUploader(env: env),

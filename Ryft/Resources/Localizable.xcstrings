@@ -1808,6 +1808,9 @@
     "Getting ready" : {
       "comment" : "Training import I1."
     },
+    "Give the exercise a name of up to 80 characters." : {
+      "comment" : "Custom exercise: the name is empty or longer than the platform takes, so nothing was saved."
+    },
     "Given" : {},
     "Good afternoon" : {
       "comment" : "Today's greeting from 12:00 to 18:00 when no first name is known."
