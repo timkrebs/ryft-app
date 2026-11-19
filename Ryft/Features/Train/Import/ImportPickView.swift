@@ -2,15 +2,15 @@ import SwiftUI
 
 /// Step 1 (ui.md §4): choose the plans file, the workouts file or both. Nothing is parsed before the files are read,
 /// and the files themselves are never uploaded or stored; only the confirmed import is kept on this iPhone, for at most
-/// 30 days, until it is uploaded.
+/// 30 days, until it is uploaded. Look: PR 6 C §4.14, draft c-23.
 struct ImportPickView: View {
     let model: ImportFlowModel
 
     var body: some View {
         ImportStepScaffold(model: model, step: .pick) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
                 Text("Import a plan and your workout history", comment: "Training import, step 1: the headline.")
-                    .font(.ryft(.title))
+                    .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
@@ -26,7 +26,7 @@ struct ImportPickView: View {
             messages
         } bottom: {
             ImportPrimaryButton(title: String(localized: "Choose files", comment: "Training import, step 1: opens the file picker."),
-                                identifier: "import.choose") {
+                                identifier: "import.choose", systemImage: "plus") {
                 model.chooseFiles()
             }
             ImportBarCaption(text: String(localized: "Save the files from the other app to Files, then choose them here.",
@@ -38,7 +38,7 @@ struct ImportPickView: View {
     /// Two hint slots (either opens the same picker; the content decides what a file is), or a row per file being read.
     @ViewBuilder
     private var slots: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: ImportLayout.slotSpacing) {
             if model.isReading {
                 ForEach(model.files) { file in
                     ImportFileSlot(state: .reading(name: file.name, progress: nil))
@@ -84,18 +84,12 @@ struct ImportPickView: View {
     }
 }
 
-#Preview("Step 1 · empty · dark") {
+#Preview("Step 1 · empty") {
     NavigationStack { ImportPickView(model: ImportMockData.flow(.pick)) }
         .previewEnvironment()
 }
 
-#Preview("Step 1 · empty · light · AX3") {
-    NavigationStack { ImportPickView(model: ImportMockData.flow(.pick)) }
-        .previewEnvironment(scheme: .light)
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Step 1 · reading 2 files · dark") {
+#Preview("Step 1 · reading 2 files") {
     NavigationStack {
         ImportPickView(model: ImportMockData.flow(.pick, files: [
             ImportPickedFile(id: 0, name: "Upper-Lower_Plans.csv", status: .reading),
@@ -105,7 +99,12 @@ struct ImportPickView: View {
     .previewEnvironment()
 }
 
-#Preview("Step 1 · P3 to P6 · light") {
+#Preview("Step 1 · too many files") {
+    NavigationStack { ImportPickView(model: ImportMockData.flow(.pick) { $0.tooManyFiles = true }) }
+        .previewEnvironment()
+}
+
+#Preview("Step 1 · P3 to P6") {
     NavigationStack {
         ImportPickView(model: ImportMockData.flow(.pick, files: [
             ImportPickedFile(id: 0, name: "photo.heic", status: .failed(.notCSV)),
@@ -114,10 +113,11 @@ struct ImportPickView: View {
             ImportPickedFile(id: 3, name: "blank.csv", status: .failed(.empty)),
         ]))
     }
-    .previewEnvironment(scheme: .light)
+    .previewEnvironment()
 }
 
-#Preview("Step 1 · too many files · dark") {
-    NavigationStack { ImportPickView(model: ImportMockData.flow(.pick) { $0.tooManyFiles = true }) }
+#Preview("Step 1 · empty · AX3") {
+    NavigationStack { ImportPickView(model: ImportMockData.flow(.pick)) }
         .previewEnvironment()
+        .environment(\.dynamicTypeSize, .accessibility3)
 }

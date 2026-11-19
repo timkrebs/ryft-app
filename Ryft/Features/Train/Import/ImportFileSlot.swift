@@ -1,122 +1,166 @@
 import SwiftUI
 
-/// A file in the import's first two steps (ui.md §4, §5, §9): an outline slot to choose into, a file being read (a bare
-/// hairline track, never a spinner), a file read (what it holds), or one that failed (its reason). At accessibility
-/// sizes the text stacks under the glyph and the remove button moves under the name, still 44 × 44.
+/// A file in the import's first two steps (ui.md §4, §5, §9; PR 6 C §4.14, c-23): step 1's outline slot to choose into
+/// ("Plans file · Optional"), or a file being read (a bare 2 pt track under its name, never a spinner). A 1 pt outline at the
+/// card's radius, 64 high; the glyph at 55 % ink. At accessibility sizes the text stacks under the glyph. Step 2's read files
+/// are `ImportFileRow`s in the Files group.
 struct ImportFileSlot: View {
     enum State: Equatable {
         /// Step 1's hint: "Plans file · Optional".
         case empty(title: String, systemImage: String)
         case reading(name: String, progress: String?)
-        case read(name: String, caption: String)
-        case failed(name: String, reason: String)
     }
 
     let state: State
-    /// The trailing ✕ (D6); nil: none.
-    var onRemove: (() -> Void)?
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ImportLayout.lineGap))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
         layout {
             Image(systemName: glyph)
-                .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(glyphColor)
-                .frame(width: 28)
+                .font(.system(size: ImportLayout.slotGlyph, weight: .light))
+                .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.actionGlyphOpacity))
+                .frame(width: IconDisc.regularDiameter)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                 Text(verbatim: title)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 if case .reading = state {
-                    Capsule().fill(Theme.separator).frame(height: 2).padding(.vertical, 2)
+                    Capsule()
+                        .fill(Theme.textPrimary.opacity(ImportProgressBarSpec.trackOpacity))
+                        .frame(height: 2)
+                        .padding(.vertical, 4)
                 }
-                if let caption {
-                    Text(verbatim: caption)
-                        .font(.ryft(.caption))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(verbatim: caption)
+                    .font(.ryft(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let onRemove {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Remove file", comment: "Training import, step 2: remove a file from the import."))
-            }
         }
-        .padding(.leading, 14)
-        .padding(.trailing, onRemove == nil ? 14 : 4)
-        .padding(.vertical, onRemove == nil ? 14 : 4)
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .frame(maxWidth: .infinity, minHeight: ImportLayout.slotHeight, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: GroupedListSpec.cardRadius, style: .continuous)
             .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
-        .accessibilityElement(children: onRemove == nil ? .ignore : .contain)
-        .accessibilityLabel(Text(verbatim: [title, caption].compactMap { $0 }.joined(separator: ", ")))
+        .contentShape(RoundedRectangle(cornerRadius: GroupedListSpec.cardRadius, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(title), \(caption)"))
     }
 
     private var glyph: String {
         switch state {
         case let .empty(_, systemImage): systemImage
         case .reading: "doc.text"
-        case .read: "checkmark.circle"
-        case .failed: "exclamationmark.circle"
         }
-    }
-
-    private var glyphColor: Color {
-        if case .failed = state { return Theme.warning }
-        return Theme.textSecondary
     }
 
     private var title: String {
         switch state {
         case let .empty(title, _): title
-        case let .reading(name, _), let .read(name, _), let .failed(name, _): name
+        case let .reading(name, _): name
         }
     }
 
-    private var caption: String? {
+    private var caption: String {
         switch state {
         case .empty: String(localized: "Optional")
         case let .reading(_, progress):
             progress ?? String(localized: "Reading…", comment: "Training import: a file is being read.")
-        case let .read(_, caption): caption
-        case let .failed(_, reason): reason
+        }
+    }
+}
+
+/// A file in step 2's Files group (D6; c-23b): the document in an icon disc, the name, what it holds or why it failed on the
+/// detail line, and a 44 × 44 ✕ that removes it. A failed file's disc shows the attention glyph in `warning`, with the
+/// reason in words. At accessibility sizes the disc goes above the text and the ✕ under it.
+struct ImportFileRow: View {
+    let file: ImportPickedFile
+    let onRemove: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ImportLayout.lineGap))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
+        layout {
+            disc
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
+                Text(verbatim: file.name)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: file.rowDetail)
+                    .font(.ryft(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "\(file.name), \(file.rowDetail)"))
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: GroupedListSpec.checkmarkSize, weight: .regular))
+                    .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.actionGlyphOpacity))
+                    .frame(width: Theme.Metrics.minHitTarget, height: Theme.Metrics.minHitTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, typeSize.isAccessibilitySize ? 0 : -GroupedListSpec.textPadding)
+            .padding(.leading, typeSize.isAccessibilitySize ? -GroupedListSpec.textPadding : 0)
+            .accessibilityLabel(Text("Remove file", comment: "Training import, step 2: remove a file from the import."))
+            .accessibilityValue(Text(verbatim: file.name))
+        }
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+        .groupedRowHairline()
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var disc: some View {
+        if file.problem != nil {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: IconDisc.glyphSize, weight: .light))
+                .foregroundStyle(Theme.warning)
+                .frame(width: IconDisc.regularDiameter, height: IconDisc.regularDiameter)
+                .overlay { Circle().strokeBorder(Theme.textPrimary.opacity(IconDisc.ringOpacity), lineWidth: IconDisc.ringWidth) }
+                .accessibilityHidden(true)
+        } else {
+            IconDisc(systemImage: "doc.text")
         }
     }
 }
 
 extension ImportPickedFile {
-    /// The slot this file shows as in step 2's list.
-    var slotState: ImportFileSlot.State {
+    /// A file row's detail (D6): what the file holds, in the summary's words ("1 plan · 2 days · 6 exercises", "4 workouts"),
+    /// or why it failed.
+    var rowDetail: String {
         switch status {
-        case .reading: .reading(name: name, progress: nil)
-        case .read: .read(name: name, caption: contentCaption)
-        case let .failed(problem): .failed(name: name, reason: problem.shortReason)
+        case .reading: String(localized: "Reading…", comment: "Training import: a file is being read.")
+        case let .read(bundle, _): Self.holds(ImportSummary(bundle))
+        case let .failed(problem): problem.shortReason
         }
     }
 
-    private var contentCaption: String {
-        switch content {
-        case .plans: String(localized: "Plans")
-        case .workouts: String(localized: "Workout history", comment: "Training import, step 3: the history toggle.")
-        case .plansAndWorkouts:
-            String(localized: "Plans and workouts", comment: "Training import, step 2: what a file holds.")
-        case .nothing, nil:
-            String(localized: "No plan and no workouts", comment: "Training import, step 2: a recognised file that holds nothing.")
+    private static func holds(_ summary: ImportSummary) -> String {
+        var parts: [String] = []
+        if let plans = ImportSummaryText.plans(summary) { parts.append(plans) }
+        if summary.workouts > 0 {
+            parts.append(String(localized: "\(summary.workouts) workouts", comment: "Training import: a count of workouts."))
         }
+        return parts.isEmpty
+            ? String(localized: "No plan and no workouts", comment: "Training import, step 2: a recognised file that holds nothing.")
+            : parts.joined(separator: " · ")
     }
 }
 
@@ -163,22 +207,27 @@ extension ImportFileProblem {
     }
 }
 
-#Preview("File slots", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 10) {
+#Preview("File slots and rows", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(spacing: ImportLayout.slotSpacing) {
             ImportFileSlot(state: .empty(title: "Plans file", systemImage: "list.bullet.rectangle"))
             ImportFileSlot(state: .reading(name: "Upper-Lower_Workouts.csv", progress: nil))
-            ImportFileSlot(state: .read(name: "Upper-Lower_Plans.csv", caption: "Plans"), onRemove: {})
-            ImportFileSlot(state: .failed(name: "notes.txt", reason: "Not a supported format"), onRemove: {})
+            GroupedCard(Text(verbatim: "Files")) {
+                ForEach(ImportMockData.bothFiles + [ImportPickedFile(id: 2, name: "notes.txt", status: .failed(.notSupported))]) {
+                    ImportFileRow(file: $0) {}
+                }
+            }
         }
     }
 }
 
-#Preview("File slots · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 10) {
+#Preview("File slots and rows · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(spacing: ImportLayout.slotSpacing) {
             ImportFileSlot(state: .empty(title: "Workouts file", systemImage: "clock.arrow.circlepath"))
-            ImportFileSlot(state: .read(name: "Upper-Lower_Plans.csv", caption: "Plans"), onRemove: {})
+            GroupedCard(Text(verbatim: "Files")) {
+                ForEach(ImportMockData.bothFiles) { ImportFileRow(file: $0) {} }
+            }
         }
     }
     .environment(\.dynamicTypeSize, .accessibility3)

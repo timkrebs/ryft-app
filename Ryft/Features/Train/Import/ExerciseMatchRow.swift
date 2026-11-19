@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// One distinct imported exercise in step 4 (ui.md 7.2): the file's name and equipment, the RYFT exercise it maps to,
-/// and a trailing status (glyph and word). The row opens its actions; VoiceOver gets them as custom actions too. A
-/// new exercise without its muscle group offers the muscle inline; a `+N` exercise asks the bodyweight question inline.
+/// One distinct imported exercise in step 4 (ui.md 7.2; PR 6 C §4.14, c-23c), a row of its section's grouped card: the
+/// file's name and equipment, "→ the RYFT exercise" under it, and a trailing status: "Likely" or "Check" in `warning` (a
+/// suggestion to confirm), "New" in `textSecondary`, a checkmark when matched, "Skipped" in `textTertiary`. The row opens its
+/// actions; VoiceOver gets them as custom actions too, and hears the status in words. A new exercise without its muscle
+/// group offers the muscle inline; a `+N` exercise asks the bodyweight question inline, as select rows under it.
 struct ExerciseMatchRow: View {
     /// Everything the row shows, from `ImportMappingState`.
     struct Content: Equatable {
@@ -41,8 +43,16 @@ struct ExerciseMatchRow: View {
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: actions.open) { main }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
+                // The row's top padding is inside the button (and its bottom one when nothing follows), so the row's
+                // height opens it.
+                Button(action: actions.open) {
+                    main
+                        .padding(.top, GroupedListSpec.textPadding + 2)
+                        .padding(.bottom, hasExtras ? 0 : GroupedListSpec.textPadding + 2)
+                        .contentShape(Rectangle())
+                }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
@@ -62,26 +72,29 @@ struct ExerciseMatchRow: View {
                     actions.skip()
                 }
                 .accessibilityIdentifier("import.row.\(index)")
-            if let shared = alsoUsedForText {
-                ImportNoteLine(systemImage: "arrow.triangle.merge", text: shared)
-                    .accessibilityIdentifier("import.shared.\(index)")
+                if let shared = alsoUsedForText {
+                    ImportNoteLine(systemImage: "arrow.triangle.merge", text: shared)
+                        .accessibilityIdentifier("import.shared.\(index)")
+                }
+                if !content.questionOpen, let answer = content.bodyweight, let loadType = content.loadType,
+                   let plus = row.source.plusLoads {
+                    answerTag(BodyweightText.title(answer, loadType: loadType, plus: plus))
+                }
+                if case .new(ready: false) = content.status { musclePicker }
+                if row.source.hasAssistedSets {
+                    ImportNoteLine(systemImage: "info.circle",
+                                   text: String(localized: "Assisted sets: RYFT imports the reps and leaves out the assistance weight.",
+                                                comment: "Training import, step 4: a -N exercise."))
+                }
+                if content.dropsPlusLoad {
+                    ImportNoteLine(systemImage: "info.circle",
+                                   text: String(localized: "The weight is left out for this exercise.",
+                                                comment: "Training import, step 4: a +N exercise matched to a time or distance exercise."),
+                                   tertiary: true)
+                }
             }
-            if !content.questionOpen, let answer = content.bodyweight, let loadType = content.loadType,
-               let plus = row.source.plusLoads {
-                answerTag(BodyweightText.title(answer, loadType: loadType, plus: plus))
-            }
-            if case .new(ready: false) = content.status { musclePicker }
-            if row.source.hasAssistedSets {
-                ImportNoteLine(systemImage: "info.circle",
-                               text: String(localized: "Assisted sets: RYFT imports the reps and leaves out the assistance weight.",
-                                            comment: "Training import, step 4: a -N exercise."))
-            }
-            if content.dropsPlusLoad {
-                ImportNoteLine(systemImage: "info.circle",
-                               text: String(localized: "The weight is left out for this exercise.",
-                                            comment: "Training import, step 4: a +N exercise matched to a time or distance exercise."),
-                               tertiary: true)
-            }
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .padding(.bottom, hasExtras ? GroupedListSpec.textPadding + 2 : 0)
             if let plus = row.source.plusLoads, let loadType = content.loadType, !content.bodyweightOptions.isEmpty,
                content.questionOpen || editingAnswer {
                 BodyweightQuestion(exerciseName: row.source.name, plus: plus, loadType: loadType,
@@ -92,77 +105,65 @@ struct ExerciseMatchRow: View {
                 .transition(.opacity)
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+        .groupedRowHairline()
+    }
+
+    /// Lines under the row's button: a shared match, the bodyweight answer, the muscle group, the notes.
+    private var hasExtras: Bool {
+        if alsoUsedForText != nil || row.source.hasAssistedSets || content.dropsPlusLoad { return true }
+        if case .new(ready: false) = content.status { return true }
+        return !content.questionOpen && content.bodyweight != nil && content.loadType != nil && row.source.plusLoads != nil
     }
 
     // MARK: Parts
 
     private var main: some View {
         let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: GroupedListSpec.detailGap * 2))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
         return layout {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                 (Text(verbatim: row.source.name).foregroundStyle(Theme.textPrimary)
                     + Text(verbatim: row.source.equipmentSuffix).foregroundStyle(Theme.textSecondary))
-                    .font(.ryft(.body))
+                    .font(.ryft(.callout))
                     .fixedSize(horizontal: false, vertical: true)
                 if let name = content.matchName {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "arrow.turn.down.right")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textTertiary)
-                        Text(verbatim: name)
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                if let detail = content.status.detail {
-                    Text(verbatim: detail)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                if let only = onlyIn {
-                    Text(verbatim: only)
+                    Text(verbatim: "→ \(name)")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let detail = quietDetail {
+                    Text(verbatim: detail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 6) {
-                statusLabel(content.status.symbol, content.status.word, strong: isCheck)
-                if content.questionOpen {
-                    statusLabel("scalemass", String(localized: "Question", comment: "Training import, step 4: the bodyweight question is open."),
-                                strong: true)
-                }
-            }
+            ExerciseMatchStatus(status: content.status, questionOpen: content.questionOpen)
         }
+        .frame(minHeight: GroupedListSpec.rowMinHeight - 2 * (GroupedListSpec.textPadding + 2))
         .contentShape(Rectangle())
     }
 
-    private var isCheck: Bool {
-        if case .check = content.status { return true }
-        return false
-    }
-
-    private func statusLabel(_ symbol: String, _ word: String, strong: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbol)
-            Text(verbatim: word)
+    /// Under the match, what the trailing word doesn't say: a remembered match, a new exercise that is ready, and where the
+    /// exercise appears in the file when only in one part.
+    private var quietDetail: String? {
+        let parts: [String] = switch content.status {
+        case .matched(remembered: true), .new(ready: true): [content.status.detail, onlyIn].compactMap { $0 }
+        default: [onlyIn].compactMap { $0 }
         }
-        .font(.ryft(.caption))
-        .foregroundStyle(strong ? Theme.textPrimary : Theme.textSecondary)
-        .fixedSize()
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The answered question as a tag beside the match name: tapping it asks again.
+    /// The answered question as a tag under the match name: tapping it asks again.
     private func answerTag(_ title: String) -> some View {
         Button {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { editingAnswer.toggle() }
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 4) {
                 Image(systemName: "scalemass").imageScale(.small)
                 Text(verbatim: title)
             }
@@ -170,9 +171,8 @@ struct ExerciseMatchRow: View {
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(Theme.surfaceRaised, in: Capsule())
-            .frame(minHeight: 44)
-            .padding(.leading, 20)
+            .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+            .frame(minHeight: Theme.Metrics.minHitTarget)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -180,25 +180,29 @@ struct ExerciseMatchRow: View {
         .accessibilityHint(Text("Change the answer", comment: "Training import, step 4, VoiceOver: the bodyweight answer tag."))
     }
 
-    /// "Create as custom exercise": choosing the muscle group is enough (name and equipment come from the file).
+    /// "Create as custom exercise": choosing the muscle group is enough (name and equipment come from the file). An ink
+    /// text menu, 44 pt tall.
     private var musclePicker: some View {
         Menu {
             ForEach(Self.muscles) { muscle in
                 Button(muscle.title) { actions.setMuscle(muscle) }
             }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus.circle")
-                Text("Create as custom exercise", comment: "Training import, step 4: a new row's inline action.")
-                Text(verbatim: "·").foregroundStyle(Theme.textTertiary)
-                Text("Muscle group", comment: "Training import, step 4: choose the new exercise's muscle group.")
-                Image(systemName: "chevron.up.chevron.down").imageScale(.small)
-            }
-            .font(.ryft(.callout))
-            .foregroundStyle(Theme.accent)
-            .frame(minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
+            // One paragraph, so it wraps as a sentence at large sizes instead of as two columns.
+            (Text("Create as custom exercise", comment: "Training import, step 4: a new row's inline action.")
+                + Text(verbatim: " · ")
+                + Text("Muscle group", comment: "Training import, step 4: choose the new exercise's muscle group.")
+                + Text(verbatim: " ")
+                + Text(Image(systemName: "chevron.up.chevron.down")).font(.ryft(.caption)))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .menuStyle(.button)
+        .ryftLink()
+        // The chevron glyph isn't read: the words only.
+        .accessibilityLabel(Text("Create as custom exercise", comment: "Training import, step 4: a new row's inline action.")
+            + Text(verbatim: ", ")
+            + Text("Muscle group", comment: "Training import, step 4: choose the new exercise's muscle group."))
         .accessibilityIdentifier("import.muscle.\(index)")
     }
 
@@ -238,6 +242,58 @@ struct ExerciseMatchRow: View {
     }
 }
 
+/// A match row's trailing status (c-23c): a word, or the checkmark for a match. "Likely", "Check" and "Question" (the
+/// bodyweight question is open) are in `warning`: the user has something to answer; "New" in `textSecondary`; "Skipped" in
+/// `textTertiary`. The word is always there, so the colour never carries the state alone; VoiceOver reads it with the row.
+struct ExerciseMatchStatus: View {
+    let status: ImportRowStatus
+    var questionOpen = false
+
+    /// What the trailing slot shows: a word in its ink, or the checkmark.
+    enum Mark: Equatable {
+        case word(String, Ink)
+        case checkmark
+    }
+
+    enum Ink: Equatable { case attention, secondary, tertiary }
+
+    static func mark(_ status: ImportRowStatus, questionOpen: Bool = false) -> Mark {
+        if questionOpen {
+            return .word(String(localized: "Question", comment: "Training import, step 4: the bodyweight question is open."), .attention)
+        }
+        return switch status {
+        case .check(likely: true):
+            .word(String(localized: "Likely", comment: "Training import, step 4: a row's status, a likely suggestion to confirm."), .attention)
+        case .check(likely: false): .word(status.word, .attention)
+        case .new: .word(status.word, .secondary)
+        case .skipped: .word(status.word, .tertiary)
+        case .matched, .yourChoice: .checkmark
+        }
+    }
+
+    var body: some View {
+        switch Self.mark(status, questionOpen: questionOpen) {
+        case let .word(word, ink):
+            Text(verbatim: word)
+                .font(.ryft(.callout))
+                .foregroundStyle(color(ink))
+                .fixedSize()
+        case .checkmark:
+            Image(systemName: "checkmark")
+                .font(.system(size: GroupedListSpec.checkmarkSize, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private func color(_ ink: Ink) -> Color {
+        switch ink {
+        case .attention: Theme.warning
+        case .secondary: Theme.textSecondary
+        case .tertiary: Theme.textTertiary
+        }
+    }
+}
+
 extension ImportMappingState {
     /// A row's content for `ExerciseMatchRow`.
     func content(_ row: ImportMappingRow) -> ExerciseMatchRow.Content {
@@ -257,8 +313,8 @@ extension ImportMappingState {
 #Preview("Match rows", traits: .sizeThatFitsLayout) {
     let flow = ImportMockData.flow(.map)
     let mapping = flow.mapping
-    return SchemePair {
-        VStack(spacing: 10) {
+    return DarkPreview {
+        GroupedCard {
             ForEach(Array((mapping?.rows ?? []).prefix(7).enumerated()), id: \.offset) { index, row in
                 if let mapping {
                     ExerciseMatchRow(content: mapping.content(row), index: index, actions: .preview)
@@ -271,8 +327,8 @@ extension ImportMappingState {
 #Preview("Match rows · AX3", traits: .sizeThatFitsLayout) {
     let flow = ImportMockData.flow(.map)
     let mapping = flow.mapping
-    return SchemePair {
-        VStack(spacing: 10) {
+    return DarkPreview {
+        GroupedCard {
             ForEach(Array((mapping?.attention ?? []).prefix(3).enumerated()), id: \.offset) { index, row in
                 if let mapping {
                     ExerciseMatchRow(content: mapping.content(row), index: index, actions: .preview)
@@ -293,8 +349,8 @@ extension ImportMappingState {
         }
     }
     let mapping = flow.mapping
-    return SchemePair {
-        VStack(spacing: 10) {
+    return DarkPreview {
+        GroupedCard {
             ForEach(Array((mapping?.rows ?? []).prefix(2).enumerated()), id: \.offset) { index, row in
                 if let mapping {
                     ExerciseMatchRow(content: mapping.content(row), index: index, actions: .preview)

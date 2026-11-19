@@ -1,19 +1,21 @@
 import SwiftUI
 
 /// Step 2's counts (ui.md §5): the source, then "1 plan · 2 days · 12 exercises", then "10 workouts · 2 Mar to 27 Apr
-/// 2026". Each figure drops out at 0. One VoiceOver element with the whole sentence.
+/// 2026". Each figure drops out at 0. One VoiceOver element with the whole sentence. Look (PR 6 C §4.14, c-23b): the
+/// surface tile, the source 13 pt `textTertiary` with a check, the counts at `.metric`, the workouts 15 pt `textSecondary`.
 struct ImportSummaryCard: View {
     let summary: ImportSummary
     let zone: TimeZone
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
+            VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Alpha Progression export", comment: "Training import, step 2: the source, named factually.")
-                        .ryftLabelStyle()
+                        .ryftLabelStyle(Theme.textTertiary)
                     Spacer()
-                    Image(systemName: "checkmark.circle")
+                    Image(systemName: "checkmark")
+                        .font(.system(size: GroupedListSpec.checkmarkSize, weight: .regular))
                         .foregroundStyle(Theme.textSecondary)
                         .accessibilityHidden(true)
                 }
@@ -71,7 +73,7 @@ enum ImportSummaryText {
 }
 
 #Preview("Summary card", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             ImportSummaryCard(summary: ImportSummary(ImportMockData.bundle(ImportMockData.plans)
                 .merging(ImportMockData.bundle(ImportMockData.workouts, file: 1))), zone: ImportMockData.zone)
@@ -82,7 +84,7 @@ enum ImportSummaryText {
 }
 
 #Preview("Summary card · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         ImportSummaryCard(summary: ImportSummary(ImportMockData.bundle(ImportMockData.plans)
             .merging(ImportMockData.bundle(ImportMockData.workouts, file: 1))), zone: ImportMockData.zone)
     }

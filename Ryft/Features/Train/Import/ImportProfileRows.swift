@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Profile → Data's import rows (ui.md §3.2): "Import training data" (behind `train.import`; it opens step 1, or step 6
-/// while a job exists) and "Clear remembered matches" (only while this account has some). Between Devices and Export:
-/// data moving in and out.
+/// Profile → Data's import rows (ui.md §3.2; PR 6 C §4.14, c-16): "Import training data" (behind `train.import`; it opens
+/// step 1, or step 6 while a job exists) and "Clear remembered matches" (only while this account has some). Between Devices
+/// and Export: data moving in and out. Drawn as the grouped list's rows (`GroupedRowLabel`'s type and accessories): Profile
+/// gives each one its side inset, its height and its hairline, so a row here has none of its own.
 struct ImportProfileRows: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(\.appEnvironment) private var env
@@ -17,9 +18,8 @@ struct ImportProfileRows: View {
                 Button {
                     if importer.showsResumeRow { importer.resume() } else { importer.start() }
                 } label: {
-                    row(systemImage: "square.and.arrow.down",
-                        title: String(localized: "Import training data", comment: "Training import: the flow's title, and Profile → Data's row."),
-                        detail: ImportResumeText.profileDetail(importer.uploader.status))
+                    row(title: String(localized: "Import training data", comment: "Training import: the flow's title, and Profile → Data's row."),
+                        detail: ImportResumeText.profileDetail(importer.uploader.status), accessory: "chevron.right")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("profile.importTraining")
@@ -32,11 +32,10 @@ struct ImportProfileRows: View {
                 Button {
                     confirmsClear = true
                 } label: {
-                    row(systemImage: "eraser",
-                        title: String(localized: "Clear remembered matches", comment: "Profile → Data: forget the import's exercise matches."),
+                    row(title: String(localized: "Clear remembered matches", comment: "Profile → Data: forget the import's exercise matches."),
                         detail: String(localized: "RYFT forgets how it matched imported exercises.",
                                        comment: "Profile → Data: under Clear remembered matches."),
-                        chevron: false)
+                        accessory: "eraser")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("profile.clearMatches")
@@ -63,44 +62,45 @@ struct ImportProfileRows: View {
         }
     }
 
-    private func row(systemImage: String, title: String, detail: String, chevron: Bool = true) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+    /// A push row (the chevron at 35 % ink) or an action row (its glyph at 55 %): the title 15 pt, the detail 12 pt
+    /// `textTertiary` under it, 10 above and below.
+    private func row(title: String, detail: String, accessory: String) -> some View {
+        let isChevron = accessory == "chevron.right"
+        return HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                 Text(verbatim: title)
-                    .font(.ryft(.body))
+                    .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(verbatim: detail)
                     .font(.ryft(.caption))
                     .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
-            if chevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
-                    .accessibilityHidden(true)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: accessory)
+                .font(.system(size: isChevron ? GroupedListSpec.chevronSize : GroupedListSpec.glyphSize,
+                              weight: isChevron ? .semibold : .regular))
+                .foregroundStyle(Theme.textPrimary.opacity(isChevron ? GroupedListSpec.accessoryOpacity : GroupedListSpec.actionGlyphOpacity))
+                .accessibilityHidden(true)
         }
-        .frame(minHeight: 44)
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .frame(minHeight: GroupedListSpec.rowMinHeight)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
 
-#Preview("Profile import rows · dark", traits: .sizeThatFitsLayout) {
-    Card { VStack(alignment: .leading, spacing: 14) { ImportProfileRows() } }
-        .padding()
-        .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
-}
-
-#Preview("Profile import rows · light", traits: .sizeThatFitsLayout) {
-    Card { VStack(alignment: .leading, spacing: 14) { ImportProfileRows() } }
-        .padding()
-        .previewEnvironment(AppState.preview(flags: [.trainImport: true]), scheme: .light)
+#Preview("Profile import rows", traits: .sizeThatFitsLayout) {
+    // As Profile lays them out: each row 16 in, at least 46 high, with the card's hairline.
+    DarkPreview {
+        GroupedCard(Text(verbatim: "Data")) {
+            ImportProfileRows()
+                .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
+        }
+    }
+    .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
 }
