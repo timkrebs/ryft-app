@@ -8,10 +8,14 @@
 //   gate       ──▶ PUT and complete wait for consent to the policy in force; DELETE goes without it (ADR 0008)
 //   binding    ──▶ every op is its account's or demo's, and goes only through that binding's client
 //   hold       ──▶ a session's PUT and complete wait while a replace can be undone (`hold`/`release`)
+//   exercise   ──▶ outbox `exercise`, ahead of every op ──▶ POST /v1/exercises (by id: a resend updates it); no gate (O1)
+//   refusal    ──▶ a 4xx (422, 413, 409 after the merges, 404 …) keeps the op, with the attempt on its session (on the
+//                  op for an exercise): that session's ops wait until Retry or an edit; other sessions' go (O2)
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 @MainActor
@@ -22,7 +26,8 @@ final class TrainSyncService {
     private(set) var isOnline = true
     private(set) var pendingCount = 0
     private(set) var isFlushing = false
-    private(set) var lastError: String?
+    /// Moves whenever an op or a refusal changes, so a view that asks `state(of:)` draws again. Not state: that's derived.
+    private var outboxRevision = 0
     /// The latest completion the server answered, for the summary sheet.
     private(set) var lastCompletion: TrainSession?
     /// The last replay's `PUT`s and completions waited at this gate (consent, invite, the policy not known); they
@@ -74,8 +79,13 @@ final class TrainSyncService {
     private let monitorsNetwork: Bool
     private let connectivity: ConnectivityMonitor
 
-    /// Conflict rounds per upload before the op is set aside.
+    /// Conflict rounds per upload before the session is refused (O2).
     static let maxConflictRounds = 3
+
+    /// What a `409` after the last merge round means (Details shows the request ID with it).
+    static var conflictMessage: String {
+        String(localized: "This workout changed on another device. Open it again to sync.")
+    }
 
     /// The sessions started while the binding was demo's (`sessionStarting`), by id: what ending the demo discards
     /// (ADR 0019). Ids only, never a title, a time or a health value; pruned against the store. Kept in `defaults`;
@@ -124,10 +134,10 @@ final class TrainSyncService {
 
     func isHeld(_ sessionID: UUID) -> Bool { holds.contains(sessionID) }
 
-    /// After every set change: persist now, upload after a quiet 2 s.
+    /// After every set change: persist now, upload after a quiet 2 s. An edit clears a refusal (O2).
     func sessionChanged(_ s: LocalSession) {
         s.updatedAt = .now
-        enqueuePut(for: s.id)
+        enqueuePut(for: s)
         scheduleFlush()
     }
 
@@ -142,7 +152,7 @@ final class TrainSyncService {
         s.volumeKg = s.liveVolumeKg
         s.pendingCompletion = true
         s.restEndsAt = nil
-        enqueuePut(for: s.id)
+        enqueuePut(for: s)
         let owner = owner()
         if queues(s.id, for: owner) {
             store.enqueue(.complete, sessionID: s.id, bodyweightKg: bodyweightKg, account: owner)
@@ -165,7 +175,7 @@ final class TrainSyncService {
         stopReplay()
         holds = []
         lastCompletion = nil
-        lastError = nil
+        outboxRevision += 1
         // As in `init`: a launch wipe calls this while `AppEnvironment.live` is being built, and the default owner reads it.
         Task { [weak self] in self?.refreshCount() }
     }
@@ -269,7 +279,6 @@ final class TrainSyncService {
         }
         holds.subtract(gone)
         if let id = lastCompletion?.id, listed.contains(id) { lastCompletion = nil }
-        lastError = nil
         store.save()
         if store.lostItsFile {
             setDemoSessionIDs(ids.filter { !gone.contains($0) })
@@ -302,7 +311,69 @@ final class TrainSyncService {
         refreshCount()
     }
 
-    private func enqueuePut(for id: UUID) {
+    // MARK: custom exercises (O1)
+
+    /// A custom exercise made here (`TrainLibrary.createExercise`): cached, so it can be logged at once, offline too,
+    /// and its `POST /v1/exercises` queued ahead of every op; then the queue goes. A session's `PUT` that uses it is
+    /// refused (`422`) until the platform has it. The op sends the cached row as it is when it goes, and the answer
+    /// replaces the row; a resend updates the same id (API.md). It's no data write (ADR 0008 §1), so no gate holds it,
+    /// but it's bound to its account like every op. One op per exercise and binding: creating it again clears a
+    /// refusal. Returns the replay to wait for (nil offline).
+    @discardableResult
+    func queueExercise(_ exercise: Exercise) -> Task<Void, Never>? {
+        let owner = owner(), id = exercise.id
+        store.cache(exercises: [exercise])
+        let queued = store.pendingOps().first { $0.kind == .exercise && $0.sessionId == id && Self.belongs($0, to: owner) }
+        if let queued {
+            queued.lastAttemptData = nil
+            store.save()
+        } else {
+            store.enqueueAhead(.exercise, subject: id, account: owner)
+        }
+        refreshCount()
+        return startReplay()
+    }
+
+    // MARK: refusals (O2)
+
+    /// Retry, from "Couldn't sync": the session's refusal goes, and so does that of every custom exercise it uses (a
+    /// `PUT` is refused while the platform lacks one), and its ops go again, in their order.
+    func retry(sessionID: UUID) async {
+        guard let s = store.session(id: sessionID) else { return }
+        s.lastAttemptData = nil
+        let used = Set(s.exercises.map(\.exerciseId))
+        for op in store.pendingOps() where op.kind == .exercise && used.contains(op.sessionId) {
+            op.lastAttemptData = nil
+        }
+        store.save()
+        outboxRevision += 1
+        await flush()
+    }
+
+    /// Where session `id` is on its way to the platform, for Train's summary and history: derived from the outbox and
+    /// the session each time it's asked, never stored. `failed`: the platform refused it (Retry, Details with the
+    /// request ID). `confirmed`: nothing of it waits, or the store doesn't have it (a session only the platform has).
+    /// A session finished here whose ops a build before O2 dropped has none left: it reads `queued`, as "Will sync" did.
+    func state(of id: UUID) -> UploadState {
+        _ = outboxRevision // drawn again when an op or a refusal changes
+        guard let s = store.session(id: id) else { return .confirmed }
+        if let attempt = s.lastAttempt, attempt.isRefusal { return .failed(attempt) }
+        let ops = store.pendingOps().filter { $0.sessionId == id }
+        guard !ops.isEmpty || s.pendingCompletion else { return .confirmed }
+        if let inFlightSeq, ops.contains(where: { $0.seq == inFlightSeq }) { return .pending(.inFlight) }
+        if !isOnline { return .pending(.offline) }
+        // Only the policy version is missing, and asking for it is the replay's first step: not a gate the user passes.
+        if let hold = gate(.data), hold != .policyUnknown { return .pending(.gated) }
+        return .pending(.queued)
+    }
+
+    private func enqueuePut(for s: LocalSession) {
+        // A fresh document: what was refused was an earlier one (O2), so this one goes. Saved with the op below.
+        if s.lastAttemptData != nil {
+            s.lastAttemptData = nil
+            outboxRevision += 1
+        }
+        let id = s.id
         // One queued PUT per session and binding is enough: it sends the document as it is then.
         let owner = owner()
         guard queues(id, for: owner) else {
@@ -346,10 +417,11 @@ final class TrainSyncService {
     /// Starts the replay, or has the running one go round once more; nil offline, or while the gate holds every op.
     private func startReplay() -> Task<Void, Never>? {
         guard !monitorsNetwork || connectivity.isOnline else { return nil }
-        // Consent first: while both kinds wait, nothing starts and the ops stay queued. A policy not known right now
-        // is asked for before the first `PUT`; a `delete` goes without a current consent.
+        // Consent first: while both kinds wait, nothing starts and the ops stay queued, unless a custom exercise is
+        // queued (no data write, ADR 0008 §1). A policy not known right now is asked for before the first `PUT`; a
+        // `delete` goes without a current consent.
         let data = gate(.data)
-        if let data, data != .policyUnknown, gate(.erasure) != nil {
+        if let data, data != .policyUnknown, gate(.erasure) != nil, !hasUngatedOp {
             heldAt = data
             return nil
         }
@@ -397,34 +469,41 @@ final class TrainSyncService {
     }
 
     /// Sends the queued ops in order. Passed over for this pass, and kept: another binding's ops (never sent through
-    /// this client), and the ops the gate holds. Once a `PUT` or completion waits, every later one does too (their
-    /// order stays); a `delete` may still go.
+    /// this client), the ops the gate holds, and refused ones with their session's (O2). Once a `PUT` or completion
+    /// waits at the gate, every later one does too (their order stays); a `delete` or a custom exercise may still go.
     private func drain(_ generation: Generation, revalidated: inout Bool) async {
         var passedOver = Set<Int>()
         var held: UploadGate?
         defer { if generation == self.generation { heldAt = held } }
         while generation == self.generation, let op = store.pendingOps().first(where: { !passedOver.contains($0.seq) }) {
-            let write: UploadWrite = op.kind == .delete ? .erasure : .data
-            // Its undo window is open: this session's ops wait; the ones after them (other sessions') may go.
-            if write == .data, holds.contains(op.sessionId) {
+            // Refused: kept, and passed over until Retry or an edit; so are the session's ops after it.
+            if isRefused(op) {
                 passedOver.insert(op.seq)
                 continue
             }
-            if write == .data, held != nil {
-                passedOver.insert(op.seq)
-                continue
-            }
-            // Asked before every op: consent withdrawn mid-queue holds the next `PUT`, which stays queued.
-            let hold = gate(write)
-            if hold == .policyUnknown, write == .data, !revalidated {
-                revalidated = true
-                try? await revalidatePolicy?()
-                continue // asked again: the account, the binding and the policy may have moved meanwhile
-            }
-            if let hold {
-                if write == .data { held = hold }
-                passedOver.insert(op.seq)
-                continue
+            // A custom exercise is no data write (ADR 0008 §1): neither the gate nor an undo window holds it.
+            if let write = Self.write(of: op) {
+                // Its undo window is open: this session's ops wait; the ones after them (other sessions') may go.
+                if write == .data, holds.contains(op.sessionId) {
+                    passedOver.insert(op.seq)
+                    continue
+                }
+                if write == .data, held != nil {
+                    passedOver.insert(op.seq)
+                    continue
+                }
+                // Asked before every op: consent withdrawn mid-queue holds the next `PUT`, which stays queued.
+                let hold = gate(write)
+                if hold == .policyUnknown, write == .data, !revalidated {
+                    revalidated = true
+                    try? await revalidatePolicy?()
+                    continue // asked again: the account, the binding and the policy may have moved meanwhile
+                }
+                if let hold {
+                    if write == .data { held = hold }
+                    passedOver.insert(op.seq)
+                    continue
+                }
             }
             // The binding is checked and the client read in the same step: an op goes only through its own. One for a
             // session on the demo's list goes only through the demo's, whatever it's bound to (an op queued before ops
@@ -435,14 +514,18 @@ final class TrainSyncService {
                 continue
             }
             let client = remote
+            // What a `PUT` sends is the session as it is when it goes: an edit while it's out makes a refusal stale.
+            let sentRevision = op.kind == .put ? store.session(id: op.sessionId)?.updatedAt : nil
             inFlightSeq = op.seq
             defer { inFlightSeq = nil }
+            let signpost = Self.signposter.beginInterval("train-op", id: Self.signposter.makeSignpostID(),
+                                                         "\(op.kindRaw, privacy: .public)")
+            defer { Self.signposter.endInterval("train-op", signpost) }
             do {
                 try await perform(op, generation, client, as: owner)
                 // Another account meanwhile: its queue and sessions aren't this replay's.
                 guard generation == self.generation else { return }
                 store.dequeue(op)
-                lastError = nil
                 isOnline = true
             } catch is CancellationError {
                 // A cancelled request is never a refusal: the op stays queued for the next replay.
@@ -453,17 +536,86 @@ final class TrainSyncService {
             } catch let error as APIError where Self.isRetryable(error) {
                 // Offline, signed out or the platform is busy: keep the queue as is.
                 if case .transport = error { isOnline = false }
-                lastError = error.localizedDescription
                 refreshCount()
                 return
             } catch {
-                // The platform refused this op (4xx): set it aside, keep the local copy.
-                TrainStore.log.error("Train \(op.kindRaw, privacy: .public) dropped: \(error.localizedDescription, privacy: .public)")
-                lastError = error.localizedDescription
-                store.dequeue(op)
+                let attempt = Self.attempt(for: op, error)
+                // Not the platform's refusal (a transient failure this service doesn't know as one): kept for the next
+                // replay, unchanged.
+                guard attempt.isRefusal else {
+                    refreshCount()
+                    return
+                }
+                isOnline = true
+                if op.kind == .put, store.session(id: op.sessionId)?.updatedAt != sentRevision {
+                    // Edited while the request was out: the refusal was for the older document. The same op goes again
+                    // now, with the newer one, still ahead of the session's later ops.
+                    continue
+                }
+                refuse(op, attempt)
+                passedOver.insert(op.seq)
             }
             refreshCount()
         }
+    }
+
+    /// `nil`: no gate asks for it (a custom exercise).
+    private static func write(of op: PendingTrainOp) -> UploadWrite? {
+        switch op.kind {
+        case .put, .complete: return .data
+        case .delete: return .erasure
+        case .exercise: return nil
+        }
+    }
+
+    /// A custom exercise is queued that no refusal holds: the replay starts for it even while the gate holds the rest.
+    private var hasUngatedOp: Bool {
+        store.pendingOps().contains { $0.kind == .exercise && $0.lastAttempt?.isRefusal != true }
+    }
+
+    /// Refused and not cleared since (O2): an exercise's op by its own attempt, a session's `PUT` and completion by the
+    /// session's. A `delete` is never kept refused (`refuse`).
+    private func isRefused(_ op: PendingTrainOp) -> Bool {
+        switch op.kind {
+        case .exercise: return op.lastAttempt?.isRefusal == true
+        case .put, .complete: return store.session(id: op.sessionId)?.lastAttempt?.isRefusal == true
+        case .delete: return false
+        }
+    }
+
+    /// What Details shows of the failure: status, code, request ID and time, never a body.
+    private static func attempt(for op: PendingTrainOp, _ error: Error) -> UploadAttempt {
+        let api = error as? APIError
+        let request: UploadAttempt.Request = switch op.kind {
+        case .put: .put
+        case .complete: .complete
+        case .delete: .delete
+        case .exercise: .create
+        }
+        return UploadAttempt(at: .now, request: request, status: api?.status, code: api?.code?.rawValue,
+                             requestID: api?.requestID, kind: FailureKind.of(error))
+    }
+
+    /// The platform refused `op` (API.md → Errors: sent again unchanged, it fails the same way). It stays queued, never
+    /// dropped: the attempt goes on its session, or on the op for a custom exercise, which has none. A `DELETE` is the
+    /// exception, as before O2: its session is gone, so nothing could show it or send it again (a `404` is success).
+    /// Status and request ID are logged, never the message: the platform's can quote a value.
+    private func refuse(_ op: PendingTrainOp, _ attempt: UploadAttempt) {
+        let status = attempt.status ?? 0, requestID = attempt.requestID ?? "-"
+        TrainStore.log.error("Train \(op.kindRaw, privacy: .public) refused: \(status, privacy: .public) \(requestID, privacy: .public)")
+        switch op.kind {
+        case .delete:
+            store.dequeue(op)
+        case .exercise:
+            op.lastAttempt = attempt
+            store.save()
+        case .put, .complete:
+            // Read again: a discard while the request was out took the session, and its ops with it.
+            guard let s = store.session(id: op.sessionId) else { return }
+            s.lastAttempt = attempt
+            store.save()
+        }
+        outboxRevision += 1
     }
 
     /// Whether `op` goes through the client whose binding is `owner` (an account's ID, `demoOwner`, nil signed out).
@@ -496,6 +648,8 @@ final class TrainSyncService {
                                                                                 endedAt: s.endedAt))
             // Another account meanwhile: the session may be wiped, and the answer isn't theirs.
             guard generation == self.generation else { throw CancellationError() }
+            // Discarded meanwhile (its ops went with it): nothing to write, and its rows mustn't be read.
+            guard store.session(id: op.sessionId) != nil else { return }
             s.pendingCompletion = false
             s.apply(done, names: store.exercise(id:), in: store.context)
             s.prs = done.prs
@@ -508,22 +662,33 @@ final class TrainSyncService {
             } catch let e as APIError where e.status == 404 {
                 return // already gone
             }
+        case .exercise:
+            // Not cached any more (nothing removes a custom exercise but a wipe, which takes the op too): nothing to send.
+            guard let exercise = store.exercise(id: op.sessionId) else { return }
+            let saved = try await remote.createExercise(exercise)
+            guard generation == self.generation else { throw CancellationError() }
+            // The answer replaces the cached row (the library reads it again when the replay ends).
+            store.cache(exercises: [saved])
         }
     }
 
     private func put(_ s: LocalSession, _ generation: Generation, _ remote: TrainDataSource,
                      as owner: String?) async throws {
         var doc = s.wire
+        var conflictID: String?
         for _ in 0..<Self.maxConflictRounds {
             let result = try await remote.putSession(doc)
             guard generation == self.generation else { throw CancellationError() }
+            // Discarded meanwhile (its ops went with it): nothing to write, and its rows mustn't be read.
+            guard store.session(id: s.id) != nil else { return }
             switch result {
             case .saved:
                 s.uploaded = true
                 s.uploadedTo = owner
                 store.save()
                 return
-            case .conflict(let server):
+            case .conflict(let server, let requestID):
+                conflictID = requestID
                 s.uploaded = true
                 s.uploadedTo = owner
                 let merged = SessionMerge.merge(local: s.wire, server: server, deletedSetIDs: Set(s.deletedSetIDs),
@@ -535,7 +700,8 @@ final class TrainSyncService {
                 doc = s.wire
             }
         }
-        throw APIError.http(409, String(localized: "This workout changed on another device. Open it again to sync."))
+        // Still newer there after every round: refused, with the last answer's request ID (O2).
+        throw APIError.http(409, Self.conflictMessage, requestID: conflictID)
     }
 
     /// The ops the client in use can send: another binding's (demo's after demo data is switched off, the
@@ -544,6 +710,9 @@ final class TrainSyncService {
         let owner = owner()
         pendingCount = store.pendingOps().filter { Self.belongs($0, to: owner) && queues($0.sessionId, for: owner) }.count
     }
+
+    /// One interval per op (`train-op`, its kind as the message): Instruments, or `log show --signpost`.
+    private static let signposter = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "uploads")
 
     // MARK: network
 

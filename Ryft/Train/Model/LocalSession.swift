@@ -41,6 +41,11 @@ final class LocalSession {
     /// alone (`SessionController.showPage`), so a page change reaches neither `updatedAt` nor the outbox. Nil from
     /// builds before it and from the List layout: `SessionPage.resolve` picks the page, and the screen pins that.
     var currentExerciseID: UUID?
+    /// `UploadAttempt`: the platform refused this session's `PUT` or `…/complete` (O2). Its ops stay queued and wait
+    /// until Retry or an edit clears it (`TrainSyncService.retry(sessionID:)`, `sessionChanged`); other sessions' go.
+    /// Status, code, request ID and time only, never a body. Added in O2: optional, so older stores open with nil
+    /// (`TrainOutboxSchemaUpgradeTests`).
+    var lastAttemptData: Data?
     var updatedAt: Date
 
     init(id: UUID = UUID(), title: String, startedAt: Date = .now, planDayId: UUID? = nil) {
@@ -63,6 +68,11 @@ final class LocalSession {
     var prs: [PersonalRecord] {
         get { prsData.flatMap { try? APIClient.jsonDecoder.decode([PersonalRecord].self, from: $0) } ?? [] }
         set { prsData = try? APIClient.jsonEncoder.encode(newValue) }
+    }
+
+    var lastAttempt: UploadAttempt? {
+        get { WireCoding.decode(UploadAttempt.self, lastAttemptData) }
+        set { lastAttemptData = newValue.flatMap { WireCoding.encode($0) } }
     }
 
     var allSets: [LocalSet] { exercises.flatMap(\.sets) }

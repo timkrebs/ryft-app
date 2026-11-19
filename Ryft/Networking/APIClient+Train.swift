@@ -4,8 +4,9 @@ import Foundation
 /// Result of `PUT /v1/sessions/{id}`.
 enum SessionPutResult: Equatable {
     case saved(TrainSession)
-    /// `409`: the server holds a newer set; the body is its copy.
-    case conflict(TrainSession)
+    /// `409`: the server holds a newer set; the body is its copy. `requestID`: its `X-Request-ID`, for Details when the
+    /// merge rounds run out (O2).
+    case conflict(TrainSession, requestID: String? = nil)
 }
 
 protocol TrainDataSource {
@@ -95,7 +96,7 @@ extension APIClient: TrainDataSource {
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
         let r = try await exchange("PUT", path: "/v1/sessions/\(Self.idPath(s.id))", body: s, accepting: [409])
         let copy = try Self.decode(TrainSession.self, from: r)
-        return r.status == 409 ? .conflict(copy) : .saved(copy)
+        return r.status == 409 ? .conflict(copy, requestID: r.requestID) : .saved(copy)
     }
 
     func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {

@@ -16,10 +16,11 @@ enum UploadState: Equatable, Sendable {
     case confirmed
 }
 
-/// The last failed request for a row (`LocalActivity.lastAttemptData`): what Details shows. Statuses, codes,
-/// request IDs and times only, never a body.
+/// The last failed request for a row (`LocalActivity.lastAttemptData`, and Train's `LocalSession.lastAttemptData` and
+/// `PendingTrainOp.lastAttemptData`): what Details shows. Statuses, codes, request IDs and times only, never a body.
 struct UploadAttempt: Codable, Equatable, Sendable {
-    enum Request: String, Codable, Sendable { case put, delete }
+    /// `complete`: `POST /v1/sessions/{id}/complete`; `create`: `POST /v1/exercises` (Train, O2).
+    enum Request: String, Codable, Sendable { case put, delete, complete, create }
 
     let at: Date
     let request: Request
@@ -35,4 +36,10 @@ struct UploadAttempt: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case at, request, status, code, requestID = "requestId", kind
     }
+}
+
+extension UploadAttempt {
+    /// The platform refused the request (`400`, `404`, `409`, `413`, `422`, …): sent again unchanged it fails the same way
+    /// (API.md → Errors), so only Retry or an edit sends it again. Never a transient failure, a gate or a sign-out.
+    var isRefusal: Bool { kind == .other || kind == .appTooOld }
 }

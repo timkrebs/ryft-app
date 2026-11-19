@@ -20,11 +20,15 @@ final class TrainLibrary {
     /// and per-resource record. Without one (tests) each read goes straight to the source.
     @ObservationIgnored var reads: ReadScheduler?
     private let remoteProvider: () -> TrainDataSource
+    /// Train's outbox, where a custom exercise's `POST` is queued (O1). By default the app's.
+    private let outbox: @MainActor () -> TrainSyncService
     private var histories: [UUID: ExerciseHistory] = [:]
 
-    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, restore: Bool = true) {
+    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil,
+         outbox: (@MainActor () -> TrainSyncService)? = nil, restore: Bool = true) {
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
+        self.outbox = outbox ?? { .shared }
         if restore {
             exercises = self.store.exercises()
             catalog = self.store.document(PlansOverview.self, key: Self.catalogKey)
@@ -233,24 +237,28 @@ final class TrainLibrary {
         return await session(id: latest.id)
     }
 
-    // MARK: actions (online; the screen shows the error)
+    // MARK: a custom exercise (queued)
 
+    /// Cached first, so it can be logged at once, offline too. Train's outbox sends it, ahead of every workout that uses
+    /// it, and the answer replaces the cached row (O1); a refusal is kept there, never shown here. Returns the cached
+    /// copy at once (the sheet adds it to the workout); never nil.
     func createExercise(_ e: Exercise) async -> Exercise? {
-        // Saved locally first so it can be logged right away, even offline.
         store.cache(exercises: [e])
         exercises = store.exercises()
-        do {
-            let saved = try await remote.createExercise(e)
-            store.cache(exercises: [saved])
-            exercises = store.exercises()
-            return saved
-        } catch where error.isCancellation {
-            return e
-        } catch {
-            self.error = error.localizedDescription
-            return e
+        // The outbox caches it too (the row its `POST` sends): the same store in the app and the previews.
+        let replay = outbox().queueExercise(e)
+        if let replay {
+            // The platform's copy once the replay ends, however it ended.
+            Task { [weak self] in
+                await replay.value
+                guard let self else { return }
+                exercises = store.exercises()
+            }
         }
+        return e
     }
+
+    // MARK: actions (online; the screen shows the error)
 
     @discardableResult
     func savePlan(_ p: Plan) async -> Bool {
@@ -366,7 +374,11 @@ final class TrainLibrary {
 extension TrainLibrary {
     /// Filled from `MockTrain`, in an in-memory store.
     static func preview(store: TrainStore, enrolled: Bool = true) -> TrainLibrary {
-        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, restore: false)
+        // Its own outbox on the same store, bound to demo, so a preview never queues into the app's.
+        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
+                                    monitorsNetwork: false)
+        sync.gate = { _ in nil }
+        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { sync }, restore: false)
         store.cache(exercises: MockTrain.exercises)
         store.cache(plans: MockTrain.plans)
         lib.exercises = store.exercises()
