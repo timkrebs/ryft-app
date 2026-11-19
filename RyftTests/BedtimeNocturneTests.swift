@@ -1004,7 +1004,7 @@ struct BedtimeHostedTests {
         try await host(screen.view) { w in
             try await w.wait("the page") { has(w, id: "schedule.goal.100") }
             let peak = try node(w, id: "schedule.goal.100")
-            #expect(peak.label == "Peak" && plain(peak.value) == "100 % of your need" && peak.isSelected)
+            #expect(peak.label == "Peak" && plain(peak.value) == "100\u{00A0}% of your need" && peak.isSelected)
             #expect(try !node(w, id: "schedule.goal.85").isSelected)
             for id in ["schedule.reminder", "schedule.alarm", "schedule.turnOff"] { #expect(has(w, id: id), "\(id)") }
             #expect(w.node("Changes save as you make them.") != nil)

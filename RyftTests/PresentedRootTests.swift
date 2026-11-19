@@ -84,6 +84,21 @@ struct PresentedRootTests {
             .toggleStyle(.ryft)
     }
 
+    /// A page in the Nocturne frame (`SubpageScaffold`, PR 6 C): its own header (`header`, the close circle or Back) and no
+    /// system bar, so there is no bar button to read the tint from; no stock switch in the window, and whatever UIKit draws
+    /// tinted under `sheet` (a field) in the ink. That the content gets `presentedRoot()` is the scan's job
+    /// (`everyPresentationHasIt`).
+    private static func expectNocturneFrame(_ w: HostedWindow, _ sheet: UIView, _ screen: String, header: String) async throws {
+        try await w.wait("\(screen): its header") { w.nodes(in: sheet).contains { $0.identifier == header } }
+        let stock = switches(in: w.window)
+        #expect(stock.isEmpty, "\(screen): \(stock.count) stock switch(es)")
+        let bars = views(under: sheet).filter { $0 is UINavigationBar && !$0.isHidden && $0.alpha > 0.01 }
+        #expect(bars.isEmpty, "\(screen): a system bar shows")
+        let inkHex = try ink(for: sheet)
+        let off = tinted(under: sheet).filter { hex($0.tintColor, for: $0) != inkHex }
+        #expect(off.isEmpty, "\(screen): tinted \(off.map { "\(type(of: $0)) \(hex($0.tintColor, for: $0))" }), not the ink \(inkHex)")
+    }
+
     /// Dismisses what's presented, so the next window starts without it.
     private static func dismiss(_ w: HostedWindow) async throws {
         w.host.dismiss(animated: false)
@@ -188,7 +203,7 @@ struct PresentedRootTests {
         }
     }
 
-    @Test("Sleep's need sheet and the baseline form it pushes: the Nocturne look, the ink tint")
+    @Test("Sleep's need sheet and the baseline form it pushes: the Nocturne frame (no system bar), no stock switch")
     func sleepNeedAndItsForm() async throws {
         try await HostedWindow.run(width: 390, height: 2000, bottomInset: 0, Self.appRoot(SleepPreviewPage(.latest))) { w in
             try await w.wait("Sleep's need card") { w.nodes().contains { $0.identifier == "sleep.need" } }
@@ -196,12 +211,12 @@ struct PresentedRootTests {
             let sheet = try await Self.presented(w, "the need sheet") {
                 $0.contains { $0.identifier == "sleepNeed.changeBaseline" }
             }
-            try await Self.expectNocturne(w, sheet, "Sleep need")
+            try await Self.expectNocturneFrame(w, sheet, "Sleep need", header: "subpage.close")
             try #require(w.nodes(in: sheet).first { $0.identifier == "sleepNeed.changeBaseline" }).activate()
             try await w.wait("the baseline form, pushed") {
                 w.nodes(in: sheet).contains { $0.label.hasPrefix("Each night's sleep need starts from this baseline") }
             }
-            try await Self.expectNocturne(w, sheet, "Baseline sleep need")
+            try await Self.expectNocturneFrame(w, sheet, "Baseline sleep need", header: "subpage.back")
             try await Self.dismiss(w)
         }
     }
