@@ -220,6 +220,8 @@ private final class PlanGate: @unchecked Sendable {
     private var isOpen = false
 
     var held: Int { lock.withLock { waiting.count } }
+    /// Requests cancelled while held (or before they were).
+    var cancellations: Int { lock.withLock { cancelled.count } }
 
     func wait() async {
         let id = UUID()
@@ -331,8 +333,9 @@ struct BedtimeScheduleEditorTests {
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: BedtimeScheduleEditor.saveDelay)
         #expect(await eventually { planner.schedule?.wake[0] == "07:15" } && stored(state)?.wake[0] == "07:15")
-        #expect(await eventually { api.planWakes == ["06:45", "07:15"] }, "asked again before the first answered: \(api.planWakes)")
-        #expect(gate.held == 1, "the first request was cancelled")
+        #expect(await eventually { gate.cancellations == 1 }, "the first request was cancelled")
+        #expect(await eventually { gate.held == 1 }, "the second one on its way, before the first answered")
+        #expect(api.planWakes == ["06:45", "07:15"], "\(api.planWakes)")
 
         gate.release()
         await editor.settle()
@@ -411,6 +414,7 @@ struct BedtimeScheduleEditorTests {
         #expect(await eventually { planner.schedule?.alarmOn == false }, "iOS refused: the planner turned it off")
         editor.alarmWentOff()   // the page's onChange
         #expect(!editor.draft.alarmOn && editor.draft.goal == .perform && editor.edited)
+        #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: BedtimeScheduleEditor.saveDelay)
         await editor.settle()
         #expect(planner.schedule?.goal == .perform && planner.schedule?.alarmOn == false && alarms.current == nil)
@@ -489,7 +493,7 @@ struct BedtimeScheduleEditorTests {
         #expect(planner.schedule == nil, "leaving after Turn off doesn't set it up again")
     }
 
-    @Test("Turn off doesn't wait for a plan on its way: the request is cancelled")
+    @Test("Turn off doesn't wait for a plan on its way: the request is cancelled", .timeLimit(.minutes(1)))
     func turnOffDoesNotWaitForTheNetwork() async throws {
         let api = MockPlatformAPI()
         let gate = PlanGate()
@@ -620,13 +624,14 @@ struct BedtimePassTests {
         await planner.update(schedule)
         let last = try #require(planner.plan)
         let before = reminders(state).compactMap(fireDate)
-        #expect(!before.isEmpty)
+        #expect(!before.isEmpty && state.repository.tonightBedtime != nil)
 
         state.env.connectivityMonitor.update(false)
         schedule.setWeekdays("07:30")
         schedule.setWeekend("09:00")
         await planner.update(schedule)
         #expect(planner.plan == nil && planner.problem == .offline, "no plan for 07:30 offline")
+        #expect(state.repository.tonightBedtime == nil, "the widget shows no bedtime RYFT didn't plan")
         let wake = schedule.nextWake(after: clock.now())
         let fire = wake.addingTimeInterval(-Double(last.inBedMin) * 60 - Double(schedule.windDownMin) * 60)
         let tonight = try #require(reminders(state).first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
@@ -635,6 +640,43 @@ struct BedtimePassTests {
         let after = reminders(state).compactMap(fireDate)
         #expect(Set(after).isDisjoint(with: Set(before)), "none at the old bedtimes")
         #expect(!planner.remindersWaiting)
+    }
+
+    @Test("A wake change drops the plan: Planning tonight…, not the failure before; another time zone's answer, no bedtime")
+    func aDroppedPlan() async throws {
+        let api = MockPlatformAPI()
+        let gate = PlanGate()
+        let (state, clock) = makeState(api: api)
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        await planner.update(.default)
+        #expect(planner.plan != nil && state.repository.tonightBedtime != nil)
+
+        // The answer for 07:30 is for another time zone's 07:30 (3 hours off): not tonight's plan.
+        api.planFor = { hhmm in
+            let p = MockJournal.sleepPlan(wake: hhmm, now: clock.now()), off: TimeInterval = 3 * 3_600
+            return SleepPlan(wake: p.wake + off, needMin: p.needMin, inBedMin: p.inBedMin, efficiency: p.efficiency,
+                             bedtime100: p.bedtime100 + off, bedtime85: p.bedtime85 + off, bedtime70: p.bedtime70 + off,
+                             basis: p.basis)
+        }
+        var later = SleepSchedule.default
+        later.setWeekdays("07:30")
+        later.setWeekend("07:30")
+        await planner.update(later)
+        #expect(planner.plan == nil && planner.problem == .otherTimeZone)
+        #expect(state.repository.tonightBedtime == nil, "no bedtime the widget could show")
+
+        // Another change, its plan on its way: the failure before isn't shown, Tonight plans.
+        api.planFor = nil
+        api.beforePlan = { _ in await gate.wait() }
+        var earlier = later
+        earlier.setWeekdays("06:00")
+        earlier.setWeekend("06:00")
+        planner.commit(earlier, for: planner.owner)
+        #expect(planner.problem == nil && planner.tonight(locale: enUS).look == .planning)
+        #expect(await eventually { gate.held == 1 })
+        gate.release()
+        await planner.settle()
+        #expect(planner.plan != nil && state.repository.tonightBedtime != nil)
     }
 
     @Test("Offline with no plan ever: no reminder at an old bedtime, the page says they resume; online, they're set")
@@ -998,8 +1040,15 @@ struct BedtimeHostedTests {
 
     @Test("Turn off asks first: the system dialog names what goes, Turn off destructive, Cancel; the tap alone turns nothing off")
     func turnOffAsksFirst() async throws {
-        let screen = await BedtimeShotScreen.screen("bedtime-wake")
-        try await host(screen.view) { w in
+        let (state, _) = BedtimeShotScreen.state()
+        let alarms = MockWakeAlarms()
+        let planner = BedtimePlanner(state: state, alarms: alarms)
+        var schedule = SleepSchedule.default
+        schedule.reminderOn = true
+        schedule.alarmOn = true
+        await planner.update(schedule)
+        #expect(alarms.scheduled != nil && !reminders(state).isEmpty)
+        try await host(SubpageShotScreen.pushed(state) { SleepScheduleView(planner: planner) }) { w in
             try await w.wait("the page") { has(w, id: "schedule.turnOff") }
             try await w.settle()
             #expect(try node(w, id: "schedule.turnOff").activate())
@@ -1014,8 +1063,24 @@ struct BedtimeHostedTests {
             #expect(dialog.actions.contains { $0.title == "Turn off" && $0.style == .destructive })
             #expect(dialog.actions.contains { $0.style == .cancel })
             #expect(has(w, id: "schedule.sameOnWeekdays"), "still set up while it asks")
-            dialog.dismiss(animated: false)
+            #expect(planner.schedule != nil, "the tap alone turns nothing off")
+
+            // Turn off: it turns off, and the page goes (dismiss).
+            try Self.choose("Turn off", in: dialog)
+            try await w.wait("turned off") { planner.schedule == nil && !planner.editor.isTurningOff }
+            try await w.wait("the page gone") { !has(w, id: "schedule.sameOnWeekdays") }
+            #expect(planner.schedule == nil && stored(state) == nil && !planner.editor.isTurningOff)
+            #expect(alarms.scheduled == nil && reminders(state).isEmpty && state.repository.tonightBedtime == nil)
         }
+    }
+
+    /// The dialog's button `title`, as a tap runs it: the dialog goes, then its handler runs (UIKit keeps it private).
+    private static func choose(_ title: String, in alert: UIAlertController) throws {
+        typealias Handler = @convention(block) (UIAlertAction) -> Void
+        let action = try #require(alert.actions.first { $0.title == title }, "\(alert.actions.map(\.title))")
+        let handler = try #require(action.value(forKey: "handler") as AnyObject?, "a handler")
+        let run = { unsafeBitCast(handler, to: Handler.self)(action) }
+        if alert.presentingViewController != nil { alert.dismiss(animated: false, completion: run) } else { run() }
     }
 
     @Test("While Turn off runs: the row says Turning off… and is busy, the rest of the page takes no taps")
@@ -1090,6 +1155,36 @@ struct BedtimeHostedTests {
         }
     }
 
+    @Test("Opened from Set up: the first leave sets it up, once; after a Turn off elsewhere, leaving again sets nothing up")
+    func setUpOnce() async throws {
+        let (state, _) = BedtimeShotScreen.state()
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        let path = PagePath()
+        let view = AnyView(PagePath.Stack(path: path, planner: planner)
+            .previewEnvironment(state)
+            .toggleStyle(.ryft)
+            .environment(\.locale, enUS))
+        try await host(view) { w in
+            path.pages = [.schedule]
+            try await w.wait("the page") { has(w, id: "schedule.sameOnWeekdays") }
+            try await w.settle()
+            #expect(planner.schedule == nil)
+            path.pages = [.schedule, .other]   // a page over it: it is left
+            try await w.wait("covered") { has(w, id: "other.page") }
+            try await w.wait("set up as it showed") { planner.schedule == .default }
+
+            await planner.editor.turnOff()   // elsewhere (Profile's page)
+            #expect(planner.schedule == nil)
+            path.pages = [.schedule]
+            try await w.wait("the page again") { has(w, id: "schedule.sameOnWeekdays") }
+            path.pages = []
+            try await w.wait("gone") { !has(w, id: "schedule.sameOnWeekdays") }
+            try await w.settle()
+            await planner.editor.settle()
+            #expect(planner.schedule == nil && stored(state) == nil, "not set up again")
+        }
+    }
+
     @Test("Today: Bedtime & wake pushed from Tonight stays open when the evening ends and Tonight leaves Today")
     func todayKeepsThePage() async throws {
         let (state, clock) = BedtimeShotScreen.state()
@@ -1127,20 +1222,58 @@ struct BedtimeHostedTests {
             #expect(try node(w, id: "tonight.schedule").activate())
             try await w.wait("the page") { has(w, id: "schedule.sameOnWeekdays") }
             try await w.settle()
+            // Today under the page, as it is: Tonight in it (what the check below sees once Tonight has gone).
+            try await w.wait("Today under the page, with Tonight") { Self.covered(w).contains("tonight.schedule") }
             // 9:00 the next day, after its wake: the planner plans the next night, and Today no longer shows Tonight.
             let next = Calendar.current.date(byAdding: .day, value: 1, to: clock.now()) ?? clock.now()
             clock.set(Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: next) ?? next)
             await screens.bedtime.refresh()
             #expect(!screens.bedtime.isEvening())
-            // Today redraws under the page (its text size changes), now without Tonight: the card and its destination go.
+            // Today redraws under the page (its text size changes), now without Tonight: the card goes.
             poke.size = .xLarge
-            for _ in 0..<30 { try await Task.sleep(for: .milliseconds(50)) }   // a pop would have happened by now
+            try await w.wait("Tonight gone from Today under the page") {
+                let under = Self.covered(w)
+                return !under.contains("tonight.schedule") && under.contains { $0.hasPrefix("today.") }
+            }
             try await w.settle()
-            #expect(has(w, id: "schedule.sameOnWeekdays"), "the page stayed")
+            #expect(has(w, id: "schedule.sameOnWeekdays") && Self.stackDepth(w) == 2, "the page still on top")
             #expect(try node(w, id: "subpage.back").activate())
             try await w.wait("back on Today") { !has(w, id: "schedule.sameOnWeekdays") }
             #expect(!has(w, id: "tonight.schedule"), "Today without Tonight")
         }
+    }
+
+    /// The navigation stack in the window.
+    private static func navigation(_ controller: UIViewController) -> UINavigationController? {
+        if let navigation = controller as? UINavigationController { return navigation }
+        for child in controller.children { if let found = navigation(child) { return found } }
+        return nil
+    }
+
+    private static func stackDepth(_ w: HostedWindow) -> Int { navigation(w.host)?.viewControllers.count ?? 0 }
+
+    /// The identifiers in the stack's root while a page covers it: UIKit takes the root's view out of the window, so
+    /// `nodes()` can't reach it. Empty when nothing covers the root.
+    private static func covered(_ w: HostedWindow) -> [String] {
+        guard let stack = navigation(w.host), stack.viewControllers.count > 1,
+              let root = stack.viewControllers.first?.view else { return [] }
+        var found: [String] = []
+        var seen = Set<ObjectIdentifier>()
+        func walk(_ object: NSObject, depth: Int) {
+            guard depth < 40, seen.insert(ObjectIdentifier(object)).inserted else { return }
+            if let id = object.value(forKey: "accessibilityIdentifier") as? String, !id.isEmpty { found.append(id) }
+            if let elements = object.accessibilityElements {
+                for case let child as NSObject in elements { walk(child, depth: depth + 1) }
+            } else {
+                let count = object.accessibilityElementCount()
+                if count != NSNotFound, count > 0 {
+                    for i in 0..<count { if let child = object.accessibilityElement(at: i) as? NSObject { walk(child, depth: depth + 1) } }
+                }
+            }
+            if let view = object as? UIView { for sub in view.subviews { walk(sub, depth: depth + 1) } }
+        }
+        walk(root, depth: 0)
+        return found
     }
 
     private static func presentedAlert(_ controller: UIViewController) -> UIAlertController? {
@@ -1203,6 +1336,33 @@ private final class TodayPoke {
 
         var body: some View {
             TodayView().environment(\.dynamicTypeSize, poke.size)
+        }
+    }
+}
+
+/// A stack the test pushes on: Bedtime & wake opened from Set up, and a page over it (`setUpOnce`).
+@MainActor
+@Observable
+private final class PagePath {
+    enum Page: Hashable {
+        case schedule, other
+    }
+
+    var pages: [Page] = []
+
+    struct Stack: View {
+        @Bindable var path: PagePath
+        let planner: BedtimePlanner
+
+        var body: some View {
+            NavigationStack(path: $path.pages) {
+                Color.clear.navigationDestination(for: Page.self) { page in
+                    switch page {
+                    case .schedule: SleepScheduleView(planner: planner, opening: .setUp)
+                    case .other: Text(verbatim: "Over it").accessibilityIdentifier("other.page")
+                    }
+                }
+            }
         }
     }
 }
