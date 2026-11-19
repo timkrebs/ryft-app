@@ -15,6 +15,11 @@ struct ReplaceContext {
 /// Search the library with muscle and kind filters, or create a custom exercise.
 /// Works offline from the cached library. In replace mode (`replacing`) "Similar" comes first, a note says what
 /// happens to done sets, and a plan session can change its plan too.
+///
+/// Nocturne (PR 6 B §4.8, `b-24`): `SheetHeader` with the title and the close circle, the search field pinned under it, the
+/// filter chips (the chosen one filled with ink), then the exercises as rows of grouped cards under "Similar" and "All
+/// exercises", each with a quiet `+`, and "Custom exercise" as a text row at the end. "Also change the plan" is a toggle row,
+/// pinned under the list at the default sizes and scrolling with it at the accessibility sizes.
 struct AddExerciseSheet: View {
     var title: LocalizedStringKey = "Add exercise"
     /// The search field's text when the sheet opens (the import's "Choose another exercise…": the file's name).
@@ -38,6 +43,9 @@ struct AddExerciseSheet: View {
     @State private var seeded = false
     /// Off every time the sheet opens (never remembered).
     @State private var alsoChangePlan = false
+
+    /// An exercise row's trailing glyph.
+    static let pickGlyph = "plus"
 
     private var muscles: [Muscle] {
         Array(Set(library.exercises.flatMap(\.primaryMuscles))).sorted { $0.title < $1.title }
@@ -64,83 +72,62 @@ struct AddExerciseSheet: View {
         return ExerciseSimilarity.rank(for: old, in: library.exercises)
     }
 
+    /// At accessibility sizes a pinned bar would leave room for about one row: the plan toggle scrolls instead.
+    private var pinsPlanControl: Bool { !typeSize.isAccessibilitySize }
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // At accessibility sizes a pinned bar would leave room for about one row: it scrolls instead.
-                    if typeSize.isAccessibilitySize, let plan = replacing?.plan {
-                        planControl(plan)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius,
-                                                                            style: .continuous))
-                    }
-                    if let replacing {
-                        replaceHeader(replacing)
-                    }
-                    let similar = similar
-                    if !similar.isEmpty {
-                        Text("Similar", comment: "Section of exercises like the one being replaced.")
-                            .ryftLabelStyle()
-                            .accessibilityAddTraits(.isHeader)
-                        LazyVStack(spacing: 8) {
-                            ForEach(similar) { row($0) }
-                        }
-                        Divider().overlay(Theme.separator)
-                        Text("All exercises", comment: "Section with the whole exercise library, below Similar.")
-                            .ryftLabelStyle()
-                            .accessibilityAddTraits(.isHeader)
-                    }
-                    filters
-                    if results.isEmpty {
-                        InlineMessage(message: library.exercises.isEmpty
-                                      ? String(localized: "The exercise library hasn't loaded yet. Create a custom exercise to log it now.")
-                                      : String(localized: "No exercise matches. Create it as a custom exercise."),
-                                      systemImage: "magnifyingglass")
-                    }
-                    LazyVStack(spacing: 8) {
-                        ForEach(results) { row($0) }
-                    }
-                    Button {
-                        showsCustom = true
-                    } label: {
-                        Label("Custom exercise", systemImage: "plus.circle")
-                    }
-                    .buttonStyle(TealButtonStyle(prominent: false))
-                    .padding(.top, 4)
+        SessionSheetFrame(navigationTitle) {
+            EmptyView()
+        } pinned: {
+            SearchField(text: $query, prompt: Text("Search exercises"), identifier: "exercise.search")
+        } content: {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+                if let replacing {
+                    replaceHeader(replacing)
                 }
-                .padding(Theme.Metrics.screenPadding)
-            }
-            .background(Theme.background.ignoresSafeArea())
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: Text("Search exercises"))
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !typeSize.isAccessibilitySize, let plan = replacing?.plan { planBar(plan) }
-            }
-            .sheet(isPresented: $showsCustom) {
-                if let importDraft, let onImportDraft {
-                    CustomExerciseForm(draft: importDraft) { draft in
-                        onImportDraft(draft)
-                        dismiss()
+                if !pinsPlanControl, let plan = replacing?.plan {
+                    planControl(plan)
+                }
+                let similar = similar
+                if !similar.isEmpty {
+                    GroupedCard(Text("Similar", comment: "Section of exercises like the one being replaced.")) {
+                        ForEach(similar) { row($0) }
                     }
+                }
+                filters
+                if results.isEmpty {
+                    InlineMessage(message: library.exercises.isEmpty
+                                  ? String(localized: "The exercise library hasn't loaded yet. Create a custom exercise to log it now.")
+                                  : String(localized: "No exercise matches. Create it as a custom exercise."),
+                                  systemImage: "magnifyingglass")
                 } else {
-                    CustomExerciseForm(name: query) { e in
-                        pick(e)
+                    GroupedCard(Text("All exercises", comment: "Section with the whole exercise library, below Similar.")) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(results) { row($0) }
+                        }
                     }
                 }
+                customRow
             }
-            .onAppear {
-                guard !seeded else { return }
-                seeded = true
-                query = initialQuery
-                alsoChangePlan = false
+        }
+        .modifier(PlanBar(plan: pinsPlanControl ? replacing?.plan : nil) { planControl($0) })
+        .sheet(isPresented: $showsCustom) {
+            if let importDraft, let onImportDraft {
+                CustomExerciseForm(draft: importDraft) { draft in
+                    onImportDraft(draft)
+                    dismiss()
+                }
+            } else {
+                CustomExerciseForm(name: query) { e in
+                    pick(e)
+                }
             }
+        }
+        .onAppear {
+            guard !seeded else { return }
+            seeded = true
+            query = initialQuery
+            alsoChangePlan = false
         }
     }
 
@@ -150,14 +137,36 @@ struct AddExerciseSheet: View {
                     comment: "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.")
     }
 
+    /// The exercise as a grouped row: the name, "Barbell · Chest" under it, a `+` at the end. VoiceOver: a button named by the
+    /// exercise, the detail as its value.
     private func row(_ e: Exercise) -> some View {
-        Button {
+        GroupedRow.action(Text(verbatim: e.name), detail: Text(verbatim: Self.detail(of: e)), systemImage: Self.pickGlyph) {
             pick(e)
-        } label: {
-            ExerciseRow(exercise: e, wrapsSubtitle: replacing != nil && typeSize.isAccessibilitySize)
         }
-        .buttonStyle(PressableButtonStyle())
         .accessibilityIdentifier("exercise.pick.\(e.slug.isEmpty ? e.id.uuidString : e.slug)")
+    }
+
+    /// "Barbell · Chest", "Barbell · Quads, glutes" (`b-24`: the muscles as a list after the first), "Custom · Dumbbell · Shoulders".
+    static func detail(of e: Exercise) -> String {
+        let custom = e.isCustom ? [String(localized: "Custom")] : []
+        let muscles = e.primaryMuscles.enumerated().map { $0.offset == 0 ? $0.element.title : $0.element.title.localizedLowercase }
+        let parts = custom + [e.kind.title] + (muscles.isEmpty ? [] : [muscles.joined(separator: ", ")])
+        return parts.joined(separator: " · ")
+    }
+
+    /// A text row at the end: `+` and "Custom exercise" in ink, 46 high.
+    private var customRow: some View {
+        Button {
+            showsCustom = true
+        } label: {
+            Label("Custom exercise", systemImage: "plus")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: Theme.Metrics.listRowHeight, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("exercise.custom")
     }
 
     private func pick(_ e: Exercise) {
@@ -182,22 +191,12 @@ struct AddExerciseSheet: View {
             }
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         if case .split(let done, let remaining) = r.kind, done > 0 {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Self.doneLine(done: done, name: r.name))
-                Text(Self.remainingLine(remaining))
-            }
-            .font(.ryft(.callout))
-            .foregroundStyle(Theme.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-            .overlay(alignment: .leading) {
-                Rectangle().fill(Theme.accent).frame(width: 2).padding(.vertical, 10)
-            }
-            .accessibilityElement(children: .combine)
+            InlineMessage(message: Self.doneLine(done: done, name: r.name), systemImage: "arrow.triangle.2.circlepath",
+                          caption: Self.remainingLine(remaining), identifier: "replace.split", announces: false,
+                          readsAsOne: true)
         }
     }
 
@@ -217,45 +216,27 @@ struct AddExerciseSheet: View {
                      comment: "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets.")
     }
 
-    /// Pinned under the list at the default sizes.
-    private func planBar(_ plan: PlanChangeOption) -> some View {
-        planControl(plan)
-            .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface.ignoresSafeArea(edges: .bottom))
-            .overlay(alignment: .top) { Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline) }
-    }
-
-    /// "Also change the plan" and its caption.
+    /// "Also change the plan" as a toggle row, its caption the row's detail (VoiceOver reads both as the switch's label).
     private func planControl(_ plan: PlanChangeOption) -> some View {
         let caption = plan.isAvailable
             ? String(localized: "Applies from the next \(plan.dayName) day.",
                      comment: "Under the Also change the plan toggle. 1: plan day name, e.g. Upper.")
             : String(localized: "Applies from the next \(plan.dayName) day. You're offline: the plan can only be changed online.",
                      comment: "Under the disabled Also change the plan toggle without a connection. 1: plan day name.")
-        return VStack(alignment: .leading, spacing: 4) {
-            Toggle(isOn: $alsoChangePlan) {
-                Text("Also change the plan", comment: "Toggle in the replace sheet: change the plan day too.")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-            }
-            .tint(Theme.accent)
-            .disabled(!plan.isAvailable)
-            .accessibilityHint(Text(caption))
-            .accessibilityIdentifier("replace.alsoChangePlan")
-            Text(caption)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
+        return GroupedCard {
+            GroupedRow.toggle(Text("Also change the plan", comment: "Toggle in the replace sheet: change the plan day too."),
+                              detail: Text(verbatim: caption), isOn: $alsoChangePlan)
+                .disabled(!plan.isAvailable)
+                .accessibilityIdentifier("replace.alsoChangePlan")
         }
+        .toggleStyle(.ryft)
     }
 
+    /// Two rows of chips, muscles then kinds, each scrolling sideways; "All muscles" and "All kinds" first.
     private var filters: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
+                HStack(spacing: FilterChip.spacing) {
                     FilterChip(title: String(localized: "All muscles"), selected: muscle == nil) { muscle = nil }
                     ForEach(muscles) { m in
                         FilterChip(title: m.title, selected: muscle == m) { muscle = muscle == m ? nil : m }
@@ -263,7 +244,7 @@ struct AddExerciseSheet: View {
                 }
             }
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
+                HStack(spacing: FilterChip.spacing) {
                     FilterChip(title: String(localized: "All kinds"), selected: kind == nil) { kind = nil }
                     ForEach(kinds) { k in
                         FilterChip(title: k.title, selected: kind == k) { kind = kind == k ? nil : k }
@@ -272,79 +253,61 @@ struct AddExerciseSheet: View {
             }
         }
         .scrollIndicators(.hidden)
+        // The chips' 44 pt boxes reach 5 above and below their 34 pt capsules: the row keeps the group spacing to the capsule.
+        .padding(.vertical, -FilterChip.hitOverhang)
     }
 }
 
-struct ExerciseRow: View {
-    let exercise: Exercise
-    /// The subtitle may take two lines (replace mode at accessibility sizes).
-    var wrapsSubtitle = false
+/// Pins "Also change the plan" under the list (`pinnedBar`) when there is a plan to change and the sizes allow it.
+private struct PlanBar<Control: View>: ViewModifier {
+    let plan: PlanChangeOption?
+    @ViewBuilder let control: (PlanChangeOption) -> Control
 
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: Self.icon(for: exercise.kind))
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 40, height: 40)
-                .background(Theme.accent.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(exercise.name)
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    if exercise.isCustom {
-                        Text("Custom")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.accentSecondary)
-                    }
-                }
-                Text(([exercise.kind.title] + exercise.primaryMuscles.map(\.title)).joined(separator: " · "))
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(wrapsSubtitle ? 2 : 1)
-            }
-            Spacer()
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary)
-        }
-        .padding(12)
-        .frame(minHeight: 56)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
-
-    static func icon(for kind: ExerciseKind) -> String {
-        switch kind {
-        case .barbell, .dumbbell, .kettlebell: return "dumbbell.fill"
-        case .bodyweight: return "figure.strengthtraining.functional"
-        case .machine, .cable: return "figure.strengthtraining.traditional"
-        case .cardio: return "figure.rower"
+    func body(content: Content) -> some View {
+        if let plan {
+            content.pinnedBar { control(plan) }
+        } else {
+            content
         }
     }
 }
 
+/// A filter chip (PR 6 B §4.8): a 34 pt capsule in a 44 pt tap box, `callout`. The chosen one is filled with ink and its title
+/// in the screen's colour; the others are a 1 pt outline of ink at 16 % with an ink title. Selected for VoiceOver too.
 struct FilterChip: View {
     let title: String
     let selected: Bool
     let action: () -> Void
 
+    /// The capsule: 34 high, 12 at the sides, chips 8 apart; its tap box 44, so 5 above and below.
+    static let height: CGFloat = 34, horizontalPadding: CGFloat = 12, spacing: CGFloat = 8
+    static let hitOverhang = (Theme.Metrics.minHitTarget - height) / 2
+    /// An unchosen chip's outline: ink at 16 %.
+    static let edge = 0.16
+
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.ryft(.callout))
-                .foregroundStyle(selected ? Theme.onAccent : Theme.textSecondary)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
-                .background(selected ? Theme.accent : Theme.surface, in: Capsule())
+                .foregroundStyle(selected ? Theme.background : Theme.textPrimary)
+                .lineLimit(1)
+                .padding(.horizontal, Self.horizontalPadding)
+                .frame(minHeight: Self.height)
+                .background { Capsule().fill(selected ? Theme.textPrimary : .clear) }
+                .overlay {
+                    Capsule().strokeBorder(Theme.textPrimary.opacity(selected ? 0 : Self.edge), lineWidth: Theme.Metrics.hairline)
+                }
+                .padding(.vertical, Self.hitOverhang)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableButtonStyle())
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// A user's own exercise; saved locally first, so it can be logged offline.
+/// A user's own exercise; saved locally first, so it can be logged offline (PR 6 B §4.8): `SheetHeader("Custom exercise")`
+/// with a compact "Add", the name as a form field, and Kind, Main muscle and Logged as as menu rows with the value in grey,
+/// then "One side at a time".
 struct CustomExerciseForm: View {
     let onSave: (Exercise) -> Void
     /// The import's mode: the draft goes back and nothing is saved now (it's created when Import is tapped, ui.md 7.3).
@@ -354,15 +317,17 @@ struct CustomExerciseForm: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: CustomExerciseDraft
     @State private var saving = false
+    @FocusState private var nameFocused: Bool
 
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
+    private static let loadTypes: [LoadType] = [.weight, .bodyweight, .time, .distance]
 
     init(name: String, onSave: @escaping (Exercise) -> Void) {
         _draft = State(initialValue: CustomExerciseDraft(name: name))
         self.onSave = onSave
     }
 
-    /// Prefilled (the import: name and kind from the file, the muscle left to choose); Save hands the draft back.
+    /// Prefilled (the import: name and kind from the file, the muscle left to choose); Add hands the draft back.
     init(draft: CustomExerciseDraft, onDraft: @escaping (CustomExerciseDraft) -> Void) {
         _draft = State(initialValue: draft)
         onSave = { _ in }
@@ -370,45 +335,52 @@ struct CustomExerciseForm: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $draft.name)
-                        .font(.ryft(.body))
-                        .textInputAutocapitalization(.words)
-                }
-                Section("Kind") {
-                    Picker("Kind", selection: $draft.kind) {
-                        ForEach(ExerciseKind.allCases) { Text($0.title).tag($0) }
+        SessionSheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel")) {
+            PillButton(Text("Add"), size: .compact, busy: saving) { await save() }
+                .disabled(!draft.canSave)
+                .accessibilityIdentifier("customExercise.add")
+        } content: {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+                GroupedCard {
+                    FormField(Text("Name"), isFocused: nameFocused) {
+                        TextField(text: $draft.name) { Text("Name") }
+                            .textInputAutocapitalization(.words)
+                            .focused($nameFocused)
+                            .accessibilityIdentifier("customExercise.name")
                     }
-                    Picker("Main muscle", selection: $draft.muscle) {
-                        if draft.muscle == nil {
-                            Text("Choose").tag(Muscle?.none)
-                        }
-                        ForEach(Self.muscles) { Text($0.title).tag(Optional($0)) }
+                }
+                GroupedCard {
+                    GroupedRow.menu(Text("Kind"), value: Text(verbatim: draft.kind.title)) {
+                        Picker(selection: $draft.kind) {
+                            ForEach(ExerciseKind.allCases) { Text(verbatim: $0.title).tag($0) }
+                        } label: { Text("Kind") }
+                            .pickerStyle(.inline)
+                    }
+                    GroupedRow.menu(Text("Main muscle"), value: draft.muscle.map { Text(verbatim: $0.title) } ?? Text("Choose")) {
+                        Picker(selection: $draft.muscle) {
+                            if draft.muscle == nil {
+                                Text("Choose").tag(Muscle?.none)
+                            }
+                            ForEach(Self.muscles) { Text(verbatim: $0.title).tag(Optional($0)) }
+                        } label: { Text("Main muscle") }
+                            .pickerStyle(.inline)
                     }
                     .accessibilityIdentifier("customExercise.muscle")
-                    Picker("Logged as", selection: $draft.loadType) {
-                        ForEach([LoadType.weight, .bodyweight, .time, .distance], id: \.self) { Text($0.title).tag($0) }
+                    GroupedRow.menu(Text("Logged as"), value: Text(verbatim: draft.loadType.title)) {
+                        Picker(selection: $draft.loadType) {
+                            ForEach(Self.loadTypes, id: \.self) { Text(verbatim: $0.title).tag($0) }
+                        } label: { Text("Logged as") }
+                            .pickerStyle(.inline)
                     }
-                    Toggle("One side at a time", isOn: $draft.unilateral)
+                    GroupedRow.toggle(Text("One side at a time"), isOn: $draft.unilateral)
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("Custom exercise")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { Task { await save() } }
-                        .disabled(!draft.canSave || saving)
-                }
+                .toggleStyle(.ryft)
             }
         }
     }
 
     private func save() async {
+        guard !saving else { return }
         if let onDraft {
             onDraft(draft)
             dismiss()
@@ -423,16 +395,28 @@ struct CustomExerciseForm: View {
     }
 }
 
-#Preview("Add exercise · dark") {
-    AddExerciseSheet { _ in }
+extension AddExerciseSheet {
+    /// Replace mode: "Replace <name>", Similar first, the split note and the plan toggle.
+    init(replacing context: ReplaceContext, onReplace: @escaping (Exercise, _ alsoChangePlan: Bool) -> Void) {
+        self.init(replacing: context, onReplace: onReplace, onPick: { _ in })
+    }
+}
+
+// MARK: - previews (dark only)
+
+/// `b-24`.
+#Preview("Add exercise") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) { AddExerciseSheet { _ in } }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }
 
-#Preview("Add exercise · light") {
+#Preview("Add exercise · AX3") {
     AddExerciseSheet { _ in }
         .environment(TrainPreview.library)
-        .preferredColorScheme(.light)
+        .dynamicTypeSize(.accessibility3)
+        .preferredColorScheme(.dark)
 }
 
 #Preview("Custom exercise") {
@@ -441,61 +425,34 @@ struct CustomExerciseForm: View {
         .preferredColorScheme(.dark)
 }
 
-extension AddExerciseSheet {
-    /// Replace mode: "Replace <name>", Similar first, the split note and the plan toggle.
-    init(replacing context: ReplaceContext, onReplace: @escaping (Exercise, _ alsoChangePlan: Bool) -> Void) {
-        self.init(replacing: context, onReplace: onReplace, onPick: { _ in })
-    }
-}
-
-private extension ReplaceContext {
-    static func preview(split: Bool, plan: PlanChangeOption?, offline: Bool = false) -> ReplaceContext {
-        ReplaceContext(name: MockTrain.bench.name, exerciseID: MockTrain.bench.id,
-                       kind: split ? .split(done: 2, remaining: 2) : .inPlace, plan: plan, offline: offline)
-    }
-}
-
-#Preview("Replace · free session · dark") {
-    AddExerciseSheet(replacing: .preview(split: false, plan: nil)) { _, _ in }
-        .environment(TrainPreview.library)
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Replace · free session · light") {
-    AddExerciseSheet(replacing: .preview(split: false, plan: nil)) { _, _ in }
-        .environment(TrainPreview.library)
-        .preferredColorScheme(.light)
-}
-
-#Preview("Replace · plan, split · dark") {
-    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
-        .environment(TrainPreview.library)
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Replace · plan · AX3 (toggle scrolls) · dark") {
-    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
+#Preview("Custom exercise · AX3") {
+    CustomExerciseForm(name: "Landmine press") { _ in }
         .environment(TrainPreview.library)
         .dynamicTypeSize(.accessibility3)
         .preferredColorScheme(.dark)
 }
 
-#Preview("Replace · plan · AX3 (toggle scrolls) · light") {
-    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
+#Preview("Replace · free session") {
+    AddExerciseSheet(replacing: SessionSheetsPreview.replaceContext(split: false, plan: false)) { _, _ in }
+        .environment(TrainPreview.library)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Replace · plan, split") {
+    AddExerciseSheet(replacing: SessionSheetsPreview.replaceContext()) { _, _ in }
+        .environment(TrainPreview.library)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Replace · plan · AX3 (toggle scrolls)") {
+    AddExerciseSheet(replacing: SessionSheetsPreview.replaceContext()) { _, _ in }
         .environment(TrainPreview.library)
         .dynamicTypeSize(.accessibility3)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark)
 }
 
-#Preview("Replace · plan, split · light") {
-    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
-        .environment(TrainPreview.library)
-        .preferredColorScheme(.light)
-}
-
-#Preview("Replace · plan, offline · dark") {
-    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: false),
-                                         offline: true)) { _, _ in }
+#Preview("Replace · plan, offline") {
+    AddExerciseSheet(replacing: SessionSheetsPreview.replaceContext(offline: true)) { _, _ in }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }

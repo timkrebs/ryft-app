@@ -1,7 +1,11 @@
 import SwiftUI
 
-/// Edit targets (ui.md §3): this workout's sets, rep range, target weight and rest for one exercise. Session only;
-/// Done writes once, Cancel (or a drag down) discards. Sets go from the end, and only empty, unchecked ones.
+/// Edit targets (ui.md §3; PR 6 B §4.8): this workout's sets, rep range, target weight and rest for one exercise. Session only;
+/// Done writes once, the close circle ("Cancel") or a drag down discards. Sets go from the end, and only empty, unchecked ones.
+///
+/// Nocturne: `SheetHeader("Edit targets")` with a compact "Done", then one grouped card titled with the exercise: a
+/// `RyftStepperRow` each for Sets, Reps from, Reps to, the target weight (with "Clear target weight" under it while there is
+/// one) and Rest, and the footer that says the changes stay in this workout.
 struct EditTargetsSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -20,70 +24,46 @@ struct EditTargetsSheet: View {
     }
 
     private var minSets: Int { controller.minSets(for: exercise) }
-    private static let title = Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout.")
     private var showsWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(exercise.name)
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.textPrimary)
-                    setsSection
-                    repsSection
-                    if showsWeight { weightSection }
-                    restSection
-                    Text("Changes apply to this workout only. To change your plan, use Replace exercise or the plan editor.",
-                         comment: "Footer of the Edit targets sheet in a workout.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Theme.Metrics.screenPadding)
+        SessionSheetFrame(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."),
+                          closeLabel: Text("Cancel")) {
+            PillButton(Text("Done"), size: .compact) {
+                if targets != controller.targets(of: exercise) { controller.setTargets(targets, for: exercise) }
+                dismiss()
             }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Self.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // Between Cancel and Done at AX3 ("Ziele bearbeiten") the title shrinks rather than truncates.
-                ToolbarItem(placement: .principal) {
-                    Self.title
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                        .accessibilityAddTraits(.isHeader)
-                }
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        if targets != controller.targets(of: exercise) { controller.setTargets(targets, for: exercise) }
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("editTargets.done")
-                }
+            .accessibilityIdentifier("editTargets.done")
+        } content: {
+            GroupedCard(Text(verbatim: exercise.name),
+                        footer: Text("Changes apply to this workout only. To change your plan, use Replace exercise or the plan editor.",
+                                     comment: "Footer of the Edit targets sheet in a workout.")) {
+                setsRow
+                repsRows
+                if showsWeight { weightRows }
+                restRow
             }
         }
         .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
     }
 
-    // MARK: sections
+    // MARK: rows
 
-    private var setsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TargetStepper(label: Text("Sets", comment: "Edit targets: number of sets."),
-                          value: "\(targets.sets)",
-                          canDecrement: targets.sets > minSets, canIncrement: targets.sets < Self.maxSets,
-                          floorNote: setsNote) { targets.sets += $0 }
-            if let setsNote {
-                Text(setsNote)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityHidden(true)
-            }
-        }
+    private var setsRow: some View {
+        let value = RyftStepperValue(text: "\(targets.sets)", canDecrement: targets.sets > minSets,
+                                     canIncrement: targets.sets < Self.maxSets) { targets.sets += $0 }
+        return RyftStepperRow(Text("Sets", comment: "Edit targets: number of sets."), detail: setsNote.map { Text(verbatim: $0) },
+                              value: value)
+            // The row reads its title and value; at the floor the reason is said with it ("2, minimum. 2 sets are done and
+            // stay."), as `TargetStepper` did: `RyftStepperRow` doesn't read its detail line.
+            .accessibilityValue(Text(verbatim: Self.spokenValue(value, floorNote: setsNote)))
+    }
+
+    /// The stepper's VoiceOver value, with the reason at the floor when there is one.
+    static func spokenValue(_ value: RyftStepperValue, floorNote: String?) -> String {
+        guard !value.canDecrement, let floorNote else { return value.accessibilityValue }
+        return String(localized: "\(value.text), minimum. \(floorNote)",
+                      comment: "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.")
     }
 
     /// Why "−" stops: done sets (always said), or a set with values (said at the floor).
@@ -102,160 +82,65 @@ struct EditTargetsSheet: View {
         }
     }
 
-    private var repsSection: some View {
-        // The same gap as between the other steppers.
-        VStack(alignment: .leading, spacing: 20) {
-            TargetStepper(label: Text("Reps from", comment: "Edit targets: the lower end of the rep range."),
-                          value: targets.repsMin.map(String.init) ?? Fmt.placeholder,
-                          canDecrement: (targets.repsMin ?? 2) > SessionTargets.reps.lowerBound,
-                          canIncrement: (targets.repsMin ?? 0) < SessionTargets.reps.upperBound) {
-                targets.stepRepsMin($0)
+    @ViewBuilder private var repsRows: some View {
+        RyftStepperRow(Text("Reps from", comment: "Edit targets: the lower end of the rep range."),
+                       value: RyftStepperValue(text: targets.repsMin.map(String.init) ?? Fmt.placeholder,
+                                               canDecrement: (targets.repsMin ?? 2) > SessionTargets.reps.lowerBound,
+                                               canIncrement: (targets.repsMin ?? 0) < SessionTargets.reps.upperBound) {
+                           targets.stepRepsMin($0)
+                       })
+        RyftStepperRow(Text("Reps to", comment: "Edit targets: the upper end of the rep range."),
+                       value: RyftStepperValue(text: targets.repsMax.map(String.init) ?? Fmt.placeholder,
+                                               canDecrement: (targets.repsMax ?? 2) > SessionTargets.reps.lowerBound,
+                                               canIncrement: (targets.repsMax ?? 0) < SessionTargets.reps.upperBound) {
+                           targets.stepRepsMax($0)
+                       })
+    }
+
+    /// The weight moves 2.5 kg a step; from nothing it starts at the suggestion (last time, or the plan's target).
+    @ViewBuilder private var weightRows: some View {
+        RyftStepperRow(exercise.loadType == .bodyweight
+                           ? Text("Added weight (kg)", comment: "Edit targets: extra load on a bodyweight exercise.")
+                           : Text("Target weight (kg)", comment: "Edit targets: the weight to lift."),
+                       value: RyftStepperValue(text: targets.kg.map(Fmt.kgNumber) ?? Fmt.placeholder,
+                                               canDecrement: (targets.kg ?? 1) > SessionTargets.kgRange.lowerBound,
+                                               canIncrement: (targets.kg ?? 0) < SessionTargets.kgRange.upperBound) {
+                           targets.stepKg(Double($0), from: controller.suggestedKg(for: exercise))
+                       })
+        if targets.kg != nil {
+            // `RyftStepperRow` has no trailing slot for "Clear": it is the next row, a quiet action.
+            GroupedRow.action(Text("Clear target weight", comment: "VoiceOver: removes the target weight."),
+                              systemImage: "xmark.circle") {
+                targets.kg = nil
             }
-            TargetStepper(label: Text("Reps to", comment: "Edit targets: the upper end of the rep range."),
-                          value: targets.repsMax.map(String.init) ?? Fmt.placeholder,
-                          canDecrement: (targets.repsMax ?? 2) > SessionTargets.reps.lowerBound,
-                          canIncrement: (targets.repsMax ?? 0) < SessionTargets.reps.upperBound) {
-                targets.stepRepsMax($0)
-            }
+            .accessibilityIdentifier("editTargets.clearWeight")
         }
     }
 
-    private var weightSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TargetStepper(label: exercise.loadType == .bodyweight
-                              ? Text("Added weight (kg)", comment: "Edit targets: extra load on a bodyweight exercise.")
-                              : Text("Target weight (kg)", comment: "Edit targets: the weight to lift."),
-                          value: targets.kg.map(Fmt.kgNumber) ?? Fmt.placeholder,
-                          canDecrement: (targets.kg ?? 1) > SessionTargets.kgRange.lowerBound,
-                          canIncrement: (targets.kg ?? 0) < SessionTargets.kgRange.upperBound,
-                          step: SessionTargets.kgStep) {
-                targets.stepKg(Double($0), from: controller.suggestedKg(for: exercise))
-            }
-            if targets.kg != nil {
-                Button {
-                    targets.kg = nil
-                } label: {
-                    Text("Clear", comment: "Edit targets: remove the target weight.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
-                        .frame(minHeight: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Clear target weight", comment: "VoiceOver: removes the target weight."))
-            }
-        }
-    }
-
-    private var restSection: some View {
-        TargetStepper(label: Text("Rest", comment: "Edit targets: rest between sets."),
-                      value: Fmt.clock(TimeInterval(targets.restSec)),
-                      canDecrement: targets.restSec > SessionTargets.rest.lowerBound,
-                      canIncrement: targets.restSec < SessionTargets.rest.upperBound,
-                      step: Double(SessionTargets.restStep)) {
-            targets.stepRest($0)
-        }
+    private var restRow: some View {
+        RyftStepperRow(Text("Rest", comment: "Edit targets: rest between sets."),
+                       value: RyftStepperValue(text: Fmt.clock(TimeInterval(targets.restSec)),
+                                               spoken: RestSpeech.duration(targets.restSec),
+                                               canDecrement: targets.restSec > SessionTargets.rest.lowerBound,
+                                               canIncrement: targets.restSec < SessionTargets.rest.upperBound) {
+                           targets.stepRest($0)
+                       })
     }
 }
 
-/// Label, then "−" value "+" as 56 pt keys. VoiceOver: one adjustable element (swipe up or down).
-private struct TargetStepper: View {
-    let label: Text
-    let value: String
-    let canDecrement: Bool
-    let canIncrement: Bool
-    /// Shown on the keys when it isn't 1 ("−2.5").
-    var step: Double = 1
-    /// Read after the value at the floor ("2, minimum. 2 sets are done and stay.").
-    var floorNote: String?
-    let onStep: (Int) -> Void
+// MARK: - previews (dark only)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            label
-                .ryftLabelStyle()
-            HStack(spacing: 12) {
-                key(-1, enabled: canDecrement)
-                Text(value)
-                    .font(.ryftNumber(size: 34))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity)
-                key(1, enabled: canIncrement)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
-        .accessibilityValue(Text(accessibilityValue))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment where canIncrement: onStep(1)
-            case .decrement where canDecrement: onStep(-1)
-            default: break
-            }
-        }
-    }
-
-    /// At the floor or the ceiling VoiceOver says so ("900 s, maximum"), with the floor's reason when there is one.
-    private var accessibilityValue: String {
-        if !canDecrement, let floorNote {
-            return String(localized: "\(value), minimum. \(floorNote)",
-                          comment: "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.")
-        }
-        if !canDecrement {
-            return String(localized: "\(value), minimum",
-                          comment: "VoiceOver value of an Edit targets stepper at its lowest. 1: value.")
-        }
-        if !canIncrement {
-            return String(localized: "\(value), maximum",
-                          comment: "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value.")
-        }
-        return value
-    }
-
-    private func key(_ direction: Int, enabled: Bool) -> some View {
-        Button {
-            onStep(direction)
-        } label: {
-            Group {
-                if step == 1 {
-                    Image(systemName: direction < 0 ? "minus" : "plus")
-                        .font(.system(size: 20, weight: .semibold))
-                } else {
-                    Text(verbatim: (direction < 0 ? "\u{2212}" : "+") + Fmt.kgNumber(step))
-                        .font(.ryftNumber(size: 17))
-                        .monospacedDigit()
-                }
-            }
-            .foregroundStyle(enabled ? Theme.accent : Theme.textTertiary)
-            .frame(width: 56, height: 56)
-            .background(Theme.accent.opacity(enabled ? 0.14 : 0.05),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(PressableButtonStyle())
-        .buttonRepeatBehavior(.enabled)
-        .disabled(!enabled)
-    }
-}
-
-#Preview("Edit targets · dark") {
-    let c = TrainPreview.liveController()
+/// Bench press of the List draft: one set done, so the sets stepper says why it stops at 1… and a target weight to clear.
+#Preview("Edit targets") {
+    let c = SessionSheetsPreview.listDraft()
     return Color.clear
         .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]) }
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Edit targets · light") {
-    let c = TrainPreview.liveController()
-    return Color.clear
-        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]) }
-        .preferredColorScheme(.light)
+        .previewEnvironment()
 }
 
 #Preview("Edit targets · AX3") {
-    let c = TrainPreview.liveController()
+    let c = SessionSheetsPreview.listDraft()
     return EditTargetsSheet(controller: c, exercise: c.exercises[0])
+        .previewEnvironment()
         .dynamicTypeSize(.accessibility3)
-        .preferredColorScheme(.dark)
 }

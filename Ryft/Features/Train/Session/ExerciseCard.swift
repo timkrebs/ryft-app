@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// An exercise in the live session: name, target, last time, set rows, add set.
+/// An exercise in the live session's List layout (PR 6 B §4.7, `b-02`): the name, the target in grey, last time, the notes, the
+/// `…` menu, the column titles, the set rows in Focused's three looks (the controller's current set is the active one, marked by
+/// `CurrentSetHighlight`), and "Add set" as a quiet link. `Card` at radius 22 with 14 inside.
 struct ExerciseCard: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -17,7 +19,7 @@ struct ExerciseCard: View {
     private var usesWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
-        Card(padding: 14) {
+        Card(padding: Self.padding) {
             VStack(alignment: .leading, spacing: 10) {
                 header
                 columnTitles
@@ -33,7 +35,7 @@ struct ExerciseCard: View {
                 } label: {
                     Label("Add set", systemImage: "plus")
                         .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.textPrimary.opacity(ExercisePage.quietLink))
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .contentShape(Rectangle())
                 }
@@ -60,6 +62,9 @@ struct ExerciseCard: View {
         }
     }
 
+    /// Inside the card: 14 (the rows keep their 330 pt at 390; the active row's bar sits in this padding).
+    static let padding: CGFloat = 14
+
     private var menuItems: some View {
         ExerciseMenuItems(controller: controller, exercise: exercise,
                           onReplace: { showsReplace = true }, onTargets: { showsTargets = true }, onNotes: { showsNotes = true },
@@ -85,7 +90,7 @@ struct ExerciseCard: View {
                     Text(target)
                         .font(.ryft(.callout))
                         .monospacedDigit()
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.textSecondary)
                         .accessibilityLabel(Text("Target \(target)"))
                 }
                 if let last = lastTimeText {
@@ -175,18 +180,23 @@ struct ExerciseCard: View {
     }
 }
 
-/// Exercises sharing a superset group, held together by a teal bracket.
+/// Exercises sharing a superset group, held together by a bracket (PR 6 B §4.7): a 3 pt stroke of ink at 55 % (the strip's
+/// superset bar), and "Superset" with `link` over it, 13 pt `textSecondary`. Grey, not a colour: the bracket and the word say it.
 struct SupersetBracket<Content: View>: View {
     @ViewBuilder var content: () -> Content
+
+    /// The bracket's stroke.
+    static var lineWidth: CGFloat { 3 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Superset", systemImage: "link")
-                .ryftLabelStyle(Theme.accent)
+                .ryftLabelStyle(Theme.textSecondary)
                 .padding(.leading, 18)
             HStack(spacing: 8) {
                 BracketShape()
-                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .stroke(ExerciseStrip.supersetInk,
+                            style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
                     .frame(width: 10)
                     .padding(.vertical, 18)
                     .accessibilityHidden(true)
@@ -210,29 +220,39 @@ private struct BracketShape: Shape {
     }
 }
 
-#Preview("Exercise card", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    return VStack(spacing: 12) {
-        ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
-        SupersetBracket {
-            ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
-                ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
-            }
-        }
-    }
-    .padding(20)
-    .frame(width: 390)
-    .background(Theme.background)
-    .preferredColorScheme(.dark)
-}
+// MARK: - previews (dark only)
 
-/// The column titles stay on one line, in the rows' columns.
-#Preview("Exercise card · AX3", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
+/// `b-02`'s card: Bench press, set 1 done, set 2 the current set (the Volt bar and dot, the filled ✓), sets 3 and 4 upcoming.
+#Preview("Exercise card", traits: .sizeThatFitsLayout) {
+    let c = SessionSheetsPreview.listDraft()
     return ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
-        .padding(20)
+        .padding(LiveSessionSpec.sidePadding)
         .frame(width: 390)
         .background(Theme.background)
-        .preferredColorScheme(.dark)
+        .previewEnvironment()
+}
+
+/// The superset's two cards in their bracket.
+#Preview("Exercise card · superset", traits: .sizeThatFitsLayout) {
+    let c = TrainPreview.liveController()
+    return SupersetBracket {
+        ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
+            ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
+        }
+    }
+    .padding(LiveSessionSpec.sidePadding)
+    .frame(width: 390)
+    .background(Theme.background)
+    .previewEnvironment()
+}
+
+/// `b-03`: the column titles stay on one line, in the rows' columns.
+#Preview("Exercise card · AX3", traits: .sizeThatFitsLayout) {
+    let c = SessionSheetsPreview.listDraft()
+    return ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
         .dynamicTypeSize(.accessibility3)
 }
