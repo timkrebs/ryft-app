@@ -156,12 +156,8 @@ struct SessionView: View {
                                  onUse: request.fromKeypad ? { controller.setWeight($0) } : nil)
         }
         .sheet(item: $historyFor) { ref in
-            NavigationStack {
-                ExerciseDetailView(exerciseID: ref.id, name: ref.name)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Close") { historyFor = nil } }
-                    }
-            }
+            // The page's own sheet header: its close circle (the page hides the navigation bar, so a toolbar Close wouldn't show).
+            ExerciseDetailView(exerciseID: ref.id, name: ref.name, onClose: { historyFor = nil })
         }
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }
