@@ -711,7 +711,10 @@ enum TonightPreview {
 @MainActor
 private func schedulePreview(_ schedule: SleepSchedule?, alarmsAllowed: Bool = true, online: Bool = true,
                              turningOff: Bool = false, size: DynamicTypeSize = .large) -> some View {
-    let state = AppState.preview(online: online, flags: [.sleepPlanner: true])
+    // Offline is an account's: demo data plans on the phone, with no network to lose.
+    let state = online ? AppState.preview(flags: [.sleepPlanner: true])
+        : AppState(env: .test(clock: TestClock(now: .now), flags: [.sleepPlanner: true], online: false))
+    if !online { state.user = MockData.user }
     let planner: BedtimePlanner
     let stuck = turningOff ? StuckWakeAlarms() : nil
     if let stuck {

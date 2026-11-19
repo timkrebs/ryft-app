@@ -381,8 +381,9 @@ final class BedtimePlanner {
     /// Who is signed in now, and the store's epoch (`Owner`).
     var owner: Owner { Owner(account: AccountBinding(env), epoch: env.persistence.epoch.current) }
     var isEnabled: Bool { env.flags.isOn(.sleepPlanner) }
-    /// What the planner asks when it plans (`fetchPlan`): Tonight says offline from it, and plans again once it's back.
-    var isOnline: Bool { env.connectivity.isOnline }
+    /// What the planner asks when it plans (`fetchPlan`): Tonight says offline from it, and plans again once it's back. Demo
+    /// data plans on the phone, with no network to lose.
+    var isOnline: Bool { state.isDemo || env.connectivity.isOnline }
     /// The app's clock: Bedtime & wake's page waits its 400 ms on it (`BedtimeScheduleEditor`).
     var clock: AppClock { env.clock }
     /// The schedule to edit: the saved one, or a starting point.
@@ -595,7 +596,7 @@ final class BedtimePlanner {
         func current() -> Bool { gen == generation && owner == self.owner }
         let wake = schedule.nextWake(after: now)
         adoptCached(for: wake)
-        if env.connectivity.isOnline {
+        if isOnline {
             let api = env.api, hhmm = SleepPlannerViewModel.hhmm(wake)
             let request = Task { try await api.sleepPlan(wake: hhmm) }
             asking = request
