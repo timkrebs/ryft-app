@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The import job on My Plans (ui.md §3.1, §8.2): uploading with its count and a 2 pt bar, paused, needing attention,
-/// saved on this iPhone, or finished and not seen yet (with Dismiss). A row in the list, never a banner over content.
+/// The import job on My Plans (ui.md §3.1, §8.2; PR 6 C §4.14): uploading with its count and a 2 pt bar, paused, needing
+/// attention, saved on this iPhone, or finished and not seen yet (with Dismiss). A row in the list, never a banner over
+/// content: Plans' row look (`ActivityListRowSpec`: `surface`, radius 20, the icon disc), the words in ink, no teal.
 /// Tapping it opens step 6.
 struct ImportResumeRow: View {
     let status: ImportJobStatus
@@ -9,18 +10,13 @@ struct ImportResumeRow: View {
     var dismiss: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: ActivityListRowSpec.spacing) {
             Button(action: open) {
-                HStack(spacing: 14) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 40, height: 40)
-                        .background(Theme.accent.opacity(0.12), in: Circle())
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: ActivityListRowSpec.spacing) {
+                    IconDisc(systemImage: "square.and.arrow.down")
+                    VStack(alignment: .leading, spacing: ImportLayout.lineGap - 2) {
                         Text(verbatim: ImportResumeText.row(status))
-                            .font(.ryft(.body))
+                            .font(.ryft(.callout))
                             .monospacedDigit()
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -28,10 +24,10 @@ struct ImportResumeRow: View {
                             ImportProgressBar(fraction: status.progress, height: 2)
                         }
                     }
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     if dismiss == nil {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: ActivityListRowSpec.chevronSize, weight: .semibold))
                             .foregroundStyle(Theme.textTertiary)
                             .accessibilityHidden(true)
                     }
@@ -44,21 +40,19 @@ struct ImportResumeRow: View {
             if let dismiss {
                 Button(action: dismiss) {
                     Text("Dismiss", comment: "Training import: hide a finished import's row.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
-                        .frame(minWidth: 44, minHeight: 44)
                 }
-                .buttonStyle(.plain)
+                .ryftLink()
             }
         }
-        .padding(14)
-        .frame(minHeight: 56)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .padding(.horizontal, ActivityListRowSpec.sidePadding)
+        .padding(.vertical, ActivityListRowSpec.verticalPadding)
+        .frame(minHeight: ActivityListRowSpec.minHeight)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: ActivityListRowSpec.radius, style: .continuous))
     }
 }
 
 /// A file that arrived while it couldn't be opened (ui.md E7, E9): a quiet row with "Open now" (enabled once it can)
-/// or "View progress".
+/// or "View progress", as ink links. On Plans an outline row (radius 20); in Profile's grouped card a plain row of the card.
 struct ImportWaitingFileRow: View {
     let name: String
     let reason: ImportCoordinator.Waiting
@@ -66,28 +60,39 @@ struct ImportWaitingFileRow: View {
     let open: () -> Void
     let viewProgress: () -> Void
 
+    @Environment(\.isInGroupedCard) private var isInGroupedCard
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        if isInGroupedCard {
+            content.padding(.vertical, GroupedListSpec.textPadding - 4)
+        } else {
+            content
+                .padding(.horizontal, ActivityListRowSpec.sidePadding)
+                .padding(.vertical, ActivityListRowSpec.verticalPadding - 4)
+                .overlay(RoundedRectangle(cornerRadius: ActivityListRowSpec.radius, style: .continuous)
+                    .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
             ImportNoteLine(systemImage: "doc.text", text: text)
-            HStack(spacing: 18) {
+                .padding(.top, 10)
+            HStack(spacing: InlineMessageSpec.buttonSpacing) {
                 Button(action: open) {
                     Text("Open now", comment: "Training import: open a waiting file (E7).")
                 }
+                .ryftLink()
                 .disabled(!canOpen)
                 if reason == .upload {
                     Button(action: viewProgress) {
                         Text("View progress", comment: "Training import: open step 6 of the running import (E9).")
                     }
+                    .ryftLink()
                 }
             }
-            .font(.ryft(.callout))
-            .foregroundStyle(Theme.accent)
-            .frame(minHeight: 44)
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-            .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
     }
 
     private var text: String {
@@ -151,8 +156,8 @@ enum ImportResumeText {
 
 #if DEBUG
 #Preview("Resume rows", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 10) {
+    DarkPreview {
+        VStack(spacing: ImportLayout.lineGap) {
             ImportResumeRow(status: MockTrainImport.uploading, open: {})
             ImportResumeRow(status: MockTrainImport.offline, open: {})
             ImportResumeRow(status: MockTrainImport.partlyDone, open: {})
@@ -165,8 +170,8 @@ enum ImportResumeText {
 }
 
 #Preview("Resume rows · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 10) {
+    DarkPreview {
+        VStack(spacing: ImportLayout.lineGap) {
             ImportResumeRow(status: MockTrainImport.uploading, open: {})
             ImportResumeRow(status: MockTrainImport.done, open: {}, dismiss: {})
         }

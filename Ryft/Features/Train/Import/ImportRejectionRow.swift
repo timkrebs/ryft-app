@@ -70,20 +70,22 @@ enum ImportRejectionText {
     }
 }
 
-/// A refused item: date and title, the reason in plain words, and a Details toggle with the request ID.
+/// A refused item (I4) as a row of the "Not imported" group: the day and title, the reason in words, and "Details" (15 pt
+/// `textSecondary`, as `InlineMessage`'s) that shows the request ID, code and message, selectable. Never the server's raw
+/// text as the reason.
 struct ImportRejectionRow: View {
     let item: ImportItemSummary
     @State private var showsDetails = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
             Text(verbatim: [item.date.map(Fmt.date), item.title].compactMap { $0 }.joined(separator: " · "))
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(verbatim: ImportRejectionText.reason(item))
                 .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             if let details = ImportRejectionText.details(item) {
                 Button {
@@ -91,8 +93,8 @@ struct ImportRejectionRow: View {
                 } label: {
                     Text("Details", comment: "Training import: show the request ID of a refused item.")
                         .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
-                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(minWidth: Theme.Metrics.minHitTarget, minHeight: Theme.Metrics.minHitTarget, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -103,29 +105,33 @@ struct ImportRejectionRow: View {
                         .foregroundStyle(Theme.textSecondary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, GroupedListSpec.textPadding)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.top, GroupedListSpec.textPadding)
+        .padding(.bottom, ImportRejectionText.details(item) == nil ? GroupedListSpec.textPadding : 0)
+        .groupedRowHairline()
         .accessibilityElement(children: .contain)
     }
 }
 
 #if DEBUG
 #Preview("Rejected items", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 14) {
+    DarkPreview {
+        GroupedCard {
             ForEach(MockTrainImport.rejectionSamples) { ImportRejectionRow(item: $0) }
         }
-        .padding()
     }
 }
 
 #Preview("Rejected items · AX5", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 14) {
+    DarkPreview {
+        GroupedCard {
             ForEach(MockTrainImport.rejectionSamples.prefix(2)) { ImportRejectionRow(item: $0) }
         }
-        .padding()
     }
     .environment(\.dynamicTypeSize, .accessibility5)
 }

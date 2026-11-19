@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Step 2's warnings (ui.md §5, D4): a disclosure row "3 lines couldn't be read" (notes on a second line), expanding to
 /// "Line 41 · This line isn't recognised" rows. A warning is a line and a kind, never file text. At most 20 rows, then
-/// "and N more". With several files, each file's name heads its lines.
+/// "and N more". With several files, each file's name heads its lines. Look (PR 6 C §4.14): a surface card at the grouped
+/// list's radius; the attention glyph in `warning` beside the words, never the colour alone.
 struct ImportWarningsList: View {
     let detection: ImportDetection
     @Binding var isExpanded: Bool
@@ -16,31 +17,32 @@ struct ImportWarningsList: View {
             Button {
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: GroupedListSpec.rowSpacing) {
                     Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: GroupedListSpec.glyphSize, weight: .regular))
                         .foregroundStyle(Theme.warning)
                         .padding(.top, 1)
                         .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                         Text(verbatim: title)
                             .font(.ryft(.callout))
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(verbatim: subtitle)
                             .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
+                            .foregroundStyle(Theme.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
+                        .font(.system(size: GroupedListSpec.chevronSize, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.accessoryOpacity))
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                         .accessibilityHidden(true)
                 }
-                .padding(14)
-                .frame(minHeight: 44)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .padding(.vertical, GroupedListSpec.textPadding + 2)
+                .frame(minHeight: GroupedListSpec.rowMinHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -68,14 +70,18 @@ struct ImportWarningsList: View {
                             .foregroundStyle(Theme.textSecondary)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 14)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .padding(.vertical, GroupedListSpec.rowInset - 4)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
+                        .padding(.horizontal, GroupedListSpec.rowInset)
+                        .accessibilityHidden(true)
+                }
                 .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-            .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: GroupedListSpec.cardRadius, style: .continuous))
     }
 
     private func row(_ warning: ImportWarning) -> some View {
@@ -143,5 +149,5 @@ struct ImportWarningsList: View {
             }
         }
     }
-    return SchemePair { Demo() }
+    return DarkPreview { Demo() }
 }

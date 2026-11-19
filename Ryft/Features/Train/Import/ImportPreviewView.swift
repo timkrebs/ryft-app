@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// Step 5 (ui.md §8.1): exactly what will be created, what is skipped and why, what looks like a duplicate, and the
-/// one side effect (past strain is recalculated once). The last stop before anything leaves the iPhone.
+/// one side effect (past strain is recalculated once). The last stop before anything leaves the iPhone. Look (PR 6 C §4.14):
+/// the counts, the plan's name in a field card and a grouped card per day, the history as a grouped card per month whose
+/// rows open the workout's sets; notes as footers; the pinned Import pill (busy while it starts).
 struct ImportPreviewView: View {
     @Bindable var model: ImportFlowModel
+    @FocusState private var editingName: Bool
 
     @State private var detail: ImportSessionPreview?
     /// "Review": only the workouts that look like ones already logged.
@@ -31,16 +34,10 @@ struct ImportPreviewView: View {
 
     // MARK: States
 
-    /// Outline rows while the build runs: no spinner.
+    /// Outline rows while the build runs: no spinner. Offline it doesn't wait for the duplicate check (that says so once
+    /// the preview is ready).
     private var building: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(0..<4, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-                    .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline)
-                    .frame(height: 56)
-            }
-        }
-        .accessibilityHidden(true)
+        ImportLoadingRows(count: 4, label: Text("Loading…"))
     }
 
     @ViewBuilder
@@ -129,7 +126,6 @@ struct ImportPreviewView: View {
                 Text(verbatim: title(model.previewSegment))
             }
             .pickerStyle(.menu)
-            .tint(Theme.accent)
         } else {
             SegmentedPicker(selection: $model.previewSegment, options: [.plan, .history], title: title)
         }
@@ -137,80 +133,67 @@ struct ImportPreviewView: View {
 
     // MARK: Plan
 
+    /// The plan: its name in a field card (what it says under it, or that it needs one), then a grouped card per day.
+    /// Exercises left out in step 4 and where "last time" comes from are the last day's footer.
     private func planSection(_ preview: ImportPlanPreview, build: ImportBuild) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                TextField(text: Binding(get: { model.planName(preview) }, set: { model.setPlanName($0, for: preview) })) {
-                    Text("Plan name")
+        let days = preview.plan?.days ?? []
+        return VStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
+            GroupedCard(nil) {
+                FormField(Text("Plan name"), isFocused: editingName, valueSize: .large) {
+                    TextField(text: Binding(get: { model.planName(preview) }, set: { model.setPlanName($0, for: preview) })) {
+                        Text("Plan name")
+                    }
+                    .textInputAutocapitalization(.words)
+                    .focused($editingName)
+                    .accessibilityIdentifier("import.planName")
                 }
-                .font(.ryft(.headline))
-                .foregroundStyle(Theme.textPrimary)
-                .textInputAutocapitalization(.words)
-                .padding(12)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .accessibilityLabel(Text("Plan name"))
-                .accessibilityIdentifier("import.planName")
-                if preview.willBeSent, model.planName(preview).trimmingCharacters(in: .whitespaces).isEmpty {
-                    ImportNoteLine(systemImage: "exclamationmark.circle",
-                                   text: String(localized: "Give the plan a name."))
-                }
-                if let plan = preview.plan {
-                    Text(verbatim: ImportPreviewSummary.planSummary(plan))
-                        .font(.ryft(.callout))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
+            } footer: {
+                VStack(alignment: .leading, spacing: ImportLayout.lineGap / 2) {
+                    if preview.willBeSent, model.planName(preview).trimmingCharacters(in: .whitespaces).isEmpty {
+                        ImportNoteLine(systemImage: "exclamationmark.circle", text: String(localized: "Give the plan a name."),
+                                       attention: true)
+                    }
+                    if preview.state == .cannotImport(.noExercises) {
+                        ImportNoteLine(systemImage: "exclamationmark.circle",
+                                       text: String(localized: "The plan has no exercises left.", comment: "Training import, step 5."),
+                                       attention: true)
+                    }
+                    if let plan = preview.plan {
+                        GroupFooter(Text(verbatim: ImportPreviewSummary.planSummary(plan)))
+                    }
                 }
             }
-            if preview.state == .cannotImport(.noExercises) {
-                ImportNoteLine(systemImage: "exclamationmark.circle",
-                               text: String(localized: "The plan has no exercises left.", comment: "Training import, step 5."))
-            }
-            ForEach(preview.plan?.days ?? []) { day in
-                dayCard(day, preview: preview, zone: build.zone)
-            }
-            if !preview.skippedExerciseNames.isEmpty {
-                let names = preview.skippedExerciseNames
-                Text(verbatim: String(localized: "Not imported (\(names.count)): \(names.joined(separator: ", "))",
-                                      comment: "Training import, step 5: plan exercises left out in step 4; their count and names."))
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !preview.lastTime.isEmpty {
-                Text("Last time comes from your imported workouts.", comment: "Training import, step 5: the help under the plan.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+            ForEach(days) { day in
+                dayCard(day, preview: preview, zone: build.zone, footer: day.id == days.last?.id ? planNotes(preview) : nil)
             }
         }
     }
 
-    private func dayCard(_ day: PlanDay, preview: ImportPlanPreview, zone: TimeZone) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(verbatim: day.name)
-                    .font(.ryft(.headline))
-                    .foregroundStyle(Theme.textPrimary)
-                ForEach(day.exercises.sorted { $0.position < $1.position }) { exercise in
-                    let last = preview.lastTime[exercise.id]
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: exercise.exercise.name)
-                            .font(.ryft(.body))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(verbatim: last == nil ? exercise.targetText : Fmt.prescription(sets: exercise.sets, repsMin: exercise.repsMin,
-                                                                                            repsMax: exercise.repsMax))
-                            .font(.ryft(.caption))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                        if let last {
-                            Text(verbatim: ImportPreviewSummary.lastTime(last, zone: zone))
-                                .font(.ryft(.caption))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
+    /// "Not imported (2): …" and where the first targets come from.
+    private func planNotes(_ preview: ImportPlanPreview) -> Text? {
+        var lines: [Text] = []
+        if !preview.skippedExerciseNames.isEmpty {
+            let names = preview.skippedExerciseNames
+            lines.append(Text(verbatim: String(localized: "Not imported (\(names.count)): \(names.joined(separator: ", "))",
+                                               comment: "Training import, step 5: plan exercises left out in step 4; their count and names.")))
+        }
+        if !preview.lastTime.isEmpty {
+            lines.append(Text("Last time comes from your imported workouts.", comment: "Training import, step 5: the help under the plan."))
+        }
+        guard let first = lines.first else { return nil }
+        return lines.dropFirst().reduce(first) { $0 + Text(verbatim: "\n") + $1 }
+    }
+
+    /// A day: its exercises as value rows, the target (or the first weight from the history) at the right, "last time"
+    /// under the name.
+    private func dayCard(_ day: PlanDay, preview: ImportPlanPreview, zone: TimeZone, footer: Text?) -> some View {
+        GroupedCard(Text(verbatim: day.name), footer: footer) {
+            ForEach(day.exercises.sorted { $0.position < $1.position }) { exercise in
+                let last = preview.lastTime[exercise.id]
+                GroupedRow.value(Text(verbatim: exercise.exercise.name),
+                                 value: Text(verbatim: last == nil ? exercise.targetText
+                                             : Fmt.prescription(sets: exercise.sets, repsMin: exercise.repsMin, repsMax: exercise.repsMax)),
+                                 detail: last.map { Text(verbatim: ImportPreviewSummary.lastTime($0, zone: zone)) })
             }
         }
     }
@@ -225,68 +208,67 @@ struct ImportPreviewView: View {
         }
     }
 
+    /// The history: the duplicate check's notice first (offline it says the check waits), a grouped card per month, then
+    /// the notes as footer lines.
     @ViewBuilder
     private func history(_ build: ImportBuild, _ totals: ImportTotals) -> some View {
         let duplicates = build.sessions.filter { if case .duplicate = $0.verdict { true } else { false } }.count
         if !build.duplicatesChecked {
             InlineMessage(message: String(localized: "You're offline, so RYFT couldn't check for duplicates yet.",
                                           comment: "Training import, step 5: the duplicate check needs the network."),
-                          systemImage: "wifi.exclamationmark",
+                          systemImage: "wifi.slash",
                           caption: String(localized: "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway.",
-                                          comment: "Training import, step 5: the offline duplicate check."))
+                                          comment: "Training import, step 5: the offline duplicate check."),
+                          identifier: "import.duplicatesOffline", announces: false)
         } else if duplicates > 0 {
             InlineMessage(message: String(localized: "\(duplicates) workouts look like ones you already logged. They're skipped unless you turn them on.",
                                           comment: "Training import V2: the duplicates banner."),
                           systemImage: "rectangle.on.rectangle",
+                          identifier: "import.duplicates",
                           action: (onlyDuplicates ? String(localized: "Show all", comment: "Training import, step 5: leave the duplicates filter.")
-                                                  : String(localized: "Review"), { onlyDuplicates.toggle() }))
-        }
-        VStack(alignment: .leading, spacing: 6) {
-            ImportNoteLine(systemImage: "clock", text: String(
-                localized: "Times are kept as written in the file and shown in \(build.zone.identifier).",
-                comment: "Training import, step 5: the zone; its identifier, e.g. Europe/Berlin."))
-            if totals.clockChanges > 0 {
-                ImportNoteLine(systemImage: "clock.badge.exclamationmark", text: String(
-                    localized: "\(totals.clockChanges) workouts fall on a clock change. RYFT used the next valid time for a time that didn't exist and the first for one that occurred twice.",
-                    comment: "Training import, step 5: workouts whose start a DST change moved."))
-            }
-            if totals.inFuture > 0 {
-                ImportNoteLine(systemImage: "calendar", text: String(localized: "\(totals.inFuture) workouts in the future left out",
-                                                                     comment: "Training import, step 5."))
-            }
-            if totals.outsideRange > 0 {
-                ImportNoteLine(systemImage: "calendar", text: String(localized: "\(totals.outsideRange) workouts are outside your chosen range",
-                                                                     comment: "Training import, step 5."))
-            }
+                                                  : String(localized: "Review"), { onlyDuplicates.toggle() }),
+                          announces: false)
         }
         let rows = build.sessions.filter(listed).filter { preview in
             guard onlyDuplicates else { return true }
             if case .duplicate = preview.verdict { return true }
             return false
         }
-        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+        LazyVStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
             ForEach(months(rows), id: \.title) { month in
-                Section {
+                GroupedCard(Text(verbatim: month.title)) {
                     ForEach(month.rows) { preview in
                         ImportSessionRow(preview: preview, isIncluded: model.included.contains(preview.id), index: preview.index,
                                          zone: build.zone, onToggle: { model.setIncluded(preview.id, $0) },
                                          onOpen: { detail = preview })
-                        Divider().overlay(Theme.separator)
                     }
-                } header: {
-                    TrainSectionTitle(title: LocalizedStringKey(month.title))
-                        .padding(.vertical, 6)
-                        .background(Theme.background)
                 }
             }
         }
-        if rows.contains(where: { $0.skippedSetCount > 0 }) {
-            Text("Skipped sets have no weight or no reps. They are counted, not imported as zero.",
-                 comment: "Training import, step 5: the history footer.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: ImportLayout.lineGap / 2) {
+            ImportNoteLine(systemImage: "clock", text: String(
+                localized: "Times are kept as written in the file and shown in \(build.zone.identifier).",
+                comment: "Training import, step 5: the zone; its identifier, e.g. Europe/Berlin."), tertiary: true)
+            if totals.clockChanges > 0 {
+                ImportNoteLine(systemImage: "clock.badge.exclamationmark", text: String(
+                    localized: "\(totals.clockChanges) workouts fall on a clock change. RYFT used the next valid time for a time that didn't exist and the first for one that occurred twice.",
+                    comment: "Training import, step 5: workouts whose start a DST change moved."), tertiary: true)
+            }
+            if totals.inFuture > 0 {
+                ImportNoteLine(systemImage: "calendar", text: String(localized: "\(totals.inFuture) workouts in the future left out",
+                                                                     comment: "Training import, step 5."), tertiary: true)
+            }
+            if totals.outsideRange > 0 {
+                ImportNoteLine(systemImage: "calendar", text: String(localized: "\(totals.outsideRange) workouts are outside your chosen range",
+                                                                     comment: "Training import, step 5."), tertiary: true)
+            }
+            if rows.contains(where: { $0.skippedSetCount > 0 }) {
+                ImportNoteLine(systemImage: "minus.circle",
+                               text: String(localized: "Skipped sets have no weight or no reps. They are counted, not imported as zero.",
+                                            comment: "Training import, step 5: the history footer."), tertiary: true)
+            }
         }
+        .padding(.top, -ImportLayout.blockSpacing + GroupedListSpec.footerGap)
     }
 
     /// Newest first, grouped by month in the flow's zone.
@@ -314,7 +296,9 @@ struct ImportPreviewView: View {
     @ViewBuilder
     private var bottomBar: some View {
         if model.isAlreadyImported {
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.finish(.close) }
+            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) {
+                model.finish(.close)
+            }
         } else if showsUploadsUnavailable {
             if !typeSize.isAccessibilitySize { uploadsUnavailable }
             if model.startRefused {
@@ -322,7 +306,8 @@ struct ImportPreviewView: View {
                                               comment: "Training import: one import at a time."))
             }
             ImportPrimaryButton(title: String(localized: "Keep on this iPhone", comment: "Training import V5: store the import to upload later."),
-                                identifier: "import.keep", isEnabled: model.canImport) {
+                                identifier: "import.keep", isEnabled: model.canImport || model.isStarting,
+                                systemImage: PillButton.Icon.download, busy: model.isStarting) {
                 Task { await model.startImport() }
             }
         } else {
@@ -332,7 +317,8 @@ struct ImportPreviewView: View {
             }
             ImportPrimaryButton(title: model.totals.map(ImportPreviewSummary.importTitle)
                                     ?? String(localized: "Import", comment: "Training import: step 6's title, and step 5's button without counts."),
-                                identifier: "import.import", isEnabled: model.canImport) {
+                                identifier: "import.import", isEnabled: model.canImport || model.isStarting,
+                                systemImage: PillButton.Icon.send, busy: model.isStarting) {
                 Task { await model.startImport() }
             }
         }
@@ -398,20 +384,20 @@ enum ImportPreviewSummary {
     }
 }
 
-#Preview("Step 5 · plan with last time · dark") {
+#Preview("Step 5 · plan with last time") {
     NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow()) }
         .previewEnvironment()
 }
 
-#Preview("Step 5 · plan · light · AX3") {
+#Preview("Step 5 · plan · AX3") {
     NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow()) }
-        .previewEnvironment(scheme: .light)
+        .previewEnvironment()
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Step 5 · history with a duplicate · light") {
+#Preview("Step 5 · history with a duplicate") {
     NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow { $0.previewSegment = .history }) }
-        .previewEnvironment(scheme: .light)
+        .previewEnvironment()
 }
 
 #Preview("Step 5 · history · dark · AX3") {
@@ -420,7 +406,7 @@ enum ImportPreviewSummary {
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Step 5 · offline duplicate check · dark") {
+#Preview("Step 5 · offline duplicate check") {
     NavigationStack {
         ImportPreviewView(model: ImportMockData.previewFlow(ImportMockData.build(duplicatesChecked: false)) {
             $0.previewSegment = .history
@@ -429,27 +415,27 @@ enum ImportPreviewSummary {
     .previewEnvironment()
 }
 
-#Preview("Step 5 · nothing to import · light") {
+#Preview("Step 5 · nothing to import") {
     NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow(ImportMockData.build(sendsPlan: false)) { $0.included = [] }) }
-        .previewEnvironment(scheme: .light)
+        .previewEnvironment()
 }
 
-#Preview("Step 5 · already in RYFT · dark") {
+#Preview("Step 5 · already in RYFT") {
     NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow(ImportMockData.build(alreadyImportedAll: true))) }
         .previewEnvironment()
 }
 
-#Preview("Step 5 · uploads not available · light") {
+#Preview("Step 5 · uploads not available") {
     NavigationStack {
         ImportPreviewView(model: ImportMockData.previewFlow(uploader: ImportMockData.uploader(nil, available: false)))
     }
-    .previewEnvironment(scheme: .light)
+    .previewEnvironment()
 }
 
-#Preview("Step 5 · uploads not available · light · AX5") {
+#Preview("Step 5 · uploads not available · AX5") {
     NavigationStack {
         ImportPreviewView(model: ImportMockData.previewFlow(uploader: ImportMockData.uploader(nil, available: false)))
     }
-    .previewEnvironment(scheme: .light)
+    .previewEnvironment()
     .environment(\.dynamicTypeSize, .accessibility5)
 }
