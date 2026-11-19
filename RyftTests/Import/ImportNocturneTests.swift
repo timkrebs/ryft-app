@@ -154,7 +154,12 @@ struct ImportNocturneTests {
         PillCase(screen: "6-rejections", pills: ["import.retryRejected": "Retry 4", "import.done": "Done"],
                  absent: ["import.openHistory"]),
         PillCase(screen: "6-saved", pills: ["import.done": "Done", "import.discardJob": "Discard import"]),
-        PillCase(screen: "6-offline", pills: ["import.discardJob": "Discard import"], absent: ["import.done", "import.openHistory"]),
+        PillCase(screen: "6-offline", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
+        PillCase(screen: "6-retrying", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
+        PillCase(screen: "6-attention", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
         PillCase(screen: "6-account", pills: ["import.done": "Done"], absent: ["import.discardJob"]),
     ]
 
@@ -176,6 +181,34 @@ struct ImportNocturneTests {
                 let pill = try #require(nodes.first { $0.identifier == c.pills.keys.first })
                 #expect(line.frame.maxY <= pill.frame.minY + 0.5, "the caption above the pill: \(line.frame) \(pill.frame)")
             }
+        }
+    }
+
+    @Test("Paused (offline, a retry, a hold, refused): Done is the pill; Discard a quieter text action under it")
+    func pausedBar() async throws {
+        for screen in ["6-offline", "6-retrying", "6-attention"] {
+            try await host(screen) { w in
+                let nodes = w.nodes()
+                let done = try #require(nodes.first { $0.identifier == "import.done" }, "\(screen)")
+                let discard = try #require(nodes.first { $0.identifier == "import.discardJob" }, "\(screen)")
+                #expect(discard.frame.minY >= done.frame.maxY - 0.5, "\(screen): under the pill \(discard.frame) \(done.frame)")
+                #expect(discard.frame.height >= 43.5, "\(screen): \(discard.frame)")
+                #expect(discard.frame.width < done.frame.width / 2, "\(screen): a text action, not a pill: \(discard.frame)")
+            }
+        }
+    }
+
+    @Test("Discard import (paused): the tap asks first; the job stays until Discard is confirmed")
+    func discardAsks() async throws {
+        let h = ImportUploadHarness(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: ImportUploadHarness.sessions(2))))
+        #expect(h.uploader.status?.phase == .paused(.offline))
+        let model = ImportMockData.flow(.result, uploader: h.uploader)
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            let discard = try #require(w.nodes().first { $0.identifier == "import.discardJob" })
+            #expect(discard.activate())
+            try await w.wait("the question") { model.confirmsDiscardJob }
+            #expect(model.job != nil && h.jobs().count == 1, "nothing discarded yet")
         }
     }
 
@@ -326,7 +359,9 @@ struct ImportNocturneTests {
             let progress = try #require(nodes.first { $0.identifier == "import.progress" })
             let notice = try #require(nodes.first { $0.label.hasPrefix("You're offline.") })
             #expect(notice.frame.minY >= progress.frame.maxY, "under the progress: \(notice.frame) \(progress.frame)")
-            #expect(!nodes.contains { $0.label.hasPrefix("Imported") || $0.label == "Done" || $0.label == "Importing…" })
+            // The Done pill closes; nothing *says* done: no Done lead, no Imported, no Importing….
+            #expect(!nodes.contains { $0.label.hasPrefix("Imported") || $0.label == "Importing…" })
+            #expect(!nodes.contains { $0.label == "Done" && $0.traits.contains(.header) })
         }
     }
 
@@ -473,7 +508,7 @@ struct ImportNocturneTests {
 
     nonisolated static let targetScreens = ["1-pick", "1-pick-problem", "2-detected", "3-choose", "3-choose-existing", "4-map",
                                             "5-preview-plan", "5-preview-history", "6-done-plan", "6-rejections", "6-offline",
-                                            "6-saved", "rows-profile", "rows-resume"]
+                                            "6-retrying", "6-attention", "6-saved", "rows-profile", "rows-resume"]
 
     @Test("44 pt: every button on the page", arguments: Self.targetScreens)
     func targets(_ screen: String) async throws {

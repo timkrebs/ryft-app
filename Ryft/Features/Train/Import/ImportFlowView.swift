@@ -245,6 +245,48 @@ struct ImportTextButton: View {
     }
 }
 
+/// A destructive action that isn't the page's next step (step 6's "Discard import" while the upload waits): a text control
+/// on its own line, under the pill, as `ryftLink()` but in `alert` (6.09:1 on `background`), underlined at 50 % of it, at
+/// least 44 pt and all of it tappable. The caller confirms (S2).
+struct ImportDestructiveTextButton: View {
+    let title: String
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(verbatim: title)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(Style())
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private struct Style: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            Look(label: configuration.label, isPressed: configuration.isPressed)
+        }
+    }
+
+    private struct Look<Content: View>: View {
+        let label: Content
+        let isPressed: Bool
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            label
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.alert)
+                .underline(true, pattern: .solid, color: Theme.alert.opacity(InlineLink.underlineOpacity))
+                .frame(minWidth: InlineLink.minTarget, minHeight: InlineLink.minTarget)
+                .contentShape(Rectangle())
+                .opacity(isEnabled ? (isPressed ? InlineLink.pressedOpacity : 1) : InlineLink.disabledOpacity)
+        }
+    }
+}
+
 /// A footer line with a glyph (the time-zone line, a plan's notes): a 12 pt glyph and the caption, `textSecondary`, or
 /// `textTertiary` for the quiet ones; `attention` draws the glyph in `warning` (the words say what to fix).
 struct ImportNoteLine: View {

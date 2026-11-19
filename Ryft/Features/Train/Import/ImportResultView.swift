@@ -337,7 +337,7 @@ struct ImportResultView: View {
     }
 
     /// One primary and at most one secondary (c-23d): I3 Open history, then Open plan; I4 Retry, then Done; saved on this
-    /// iPhone Done, then Discard; a gate Continue in RYFT, then Discard; paused, Discard alone.
+    /// iPhone Done, then Discard; a gate Continue in RYFT, then Discard; paused, Done, then Discard as a text action.
     @ViewBuilder
     private var buttons: some View {
         if let name = model.waitingFileName(), job?.isFinished == true {
@@ -377,7 +377,10 @@ struct ImportResultView: View {
             }
             discardJob
         case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
-            discardJob
+            // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
+            // there, quieter, and still asks first.
+            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportDestructiveTextButton(title: Self.discardTitle, identifier: "import.discardJob") { model.confirmsDiscardJob = true }
         case .paused(.waitingForAccount)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
         default:
@@ -387,10 +390,13 @@ struct ImportResultView: View {
 
     /// S2: a saved or paused job can always be discarded, after a confirmation.
     private var discardJob: some View {
-        ImportSecondaryButton(title: String(localized: "Discard import", comment: "Training import S2: remove the saved import from this iPhone."),
-                              identifier: "import.discardJob", style: .destructive) {
+        ImportSecondaryButton(title: Self.discardTitle, identifier: "import.discardJob", style: .destructive) {
             model.confirmsDiscardJob = true
         }
+    }
+
+    private static var discardTitle: String {
+        String(localized: "Discard import", comment: "Training import S2: remove the saved import from this iPhone.")
     }
 }
 
