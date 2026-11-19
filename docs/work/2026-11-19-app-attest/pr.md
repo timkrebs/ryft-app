@@ -44,10 +44,14 @@ page commits no anchor. The wipe deletes the key ID and the token.
 **Docs:** ADR 0023; `docs/work/2026-11-19-app-attest/` (plan, design, review); `docs/API_REQUESTS.md` → App Attest
 (AA1–AA4).
 
-**Verified:** simulator only.
+**Verified:** simulator only (iPhone 18 Pro, iOS 27.2), with `main` merged in (#126, the Train outbox).
 - `make build` with 0 warnings in our code; `make lint`.
-- 13 App Attest suites, three runs green.
-- The existing networking, Train, activity, import and wipe suites.
+- The App Attest suites, three runs green.
+- The full Unit plan: 5,634 test cases passed, 3 failed. All three fail on `origin/main` too, on this simulator:
+  `FocusedPolishHostedTests/theRPELineTakesItsRoom` and one case each of `TodayTwoUpTileTests/noCaptionIsSqueezedBelow80Percent`
+  and `thePairsCaptionsSitAlike`.
+- Two reviews (code and security-privacy), fixed in round 2: `docs/work/2026-11-19-app-attest/review.md`. Open as a
+  follow-up: S2, refusing redirects off the two hosts (bearer and app token alike).
 
 **Not verified:** a real attestation (needs a device, the entitlement and a server that serves the routes).
 

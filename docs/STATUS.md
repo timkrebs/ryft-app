@@ -87,9 +87,14 @@ and ingest request carries `X-RYFT-App-Token` once the app holds one, and a `403
 and one resend. A refused Train write, activity or import stays queued, and a refused sync page commits no HealthKit anchor.
 The key ID is in the Keychain (this device only), the token in memory, and the wipe drops both. While the server
 doesn't serve the routes (today: `404`), the app sends no header and probes again at most every 6 h.
-- **Verified on the simulator:** build with 0 warnings in our code; the 13 App Attest suites three times; the existing
-  networking, Train, activity, import and wipe suites. The simulator has no App Attest, so `isSupported` is false and
-  UI smoke is unaffected.
+- **Verified on the simulator** (iPhone 18 Pro, 27.2, with `main` and #126 merged in):
+  - `make build` with 0 warnings in our code; `make lint`.
+  - The App Attest suites three times.
+  - The full Unit plan: 5,634 test cases passed, 3 failed. The failures also fail on `origin/main` (cf31743) on this
+    simulator: `FocusedPolishHostedTests/theRPELineTakesItsRoom` (known), and one case each of
+    `TodayTwoUpTileTests/noCaptionIsSqueezedBelow80Percent` and `thePairsCaptionsSitAlike` (not on the known list
+    before; checked on main).
+  - The simulator has no App Attest (`isSupported` false), so UI smoke is unaffected; it wasn't run here.
 - **Not verified on a device:** any attestation. The entitlement isn't in `Ryft.entitlements` yet (a hook allows it
   only through Xcode's + Capability: the user's step).
 - **Not pushed:** `gitleaks` was refused in the run, and the brief says no push without it. PR title and body:
