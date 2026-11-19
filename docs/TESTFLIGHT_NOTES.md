@@ -1,7 +1,8 @@
 # TestFlight — What to test
 
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
-Test (English and German).
+Test. RYFT is English only: new entries have an English section only (older entries still carry a
+German one, kept as history).
 
 ## When `train.focused_session` is on — the focused workout screen (en + de)
 

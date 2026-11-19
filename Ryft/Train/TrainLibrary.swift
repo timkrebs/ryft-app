@@ -184,6 +184,34 @@ final class TrainLibrary {
                     remote: store.document([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
+    /// The demo's discard (ADR 0019, `TrainCoordinator.discardDemoWorkouts`): these sessions leave what Train shows
+    /// offline, the cached list (history, "Last: …") and every exercise history (its sessions and records), in the store
+    /// and in memory. Only these ids; the rest of each document, and when it was fetched, stay.
+    func forgetSessions(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        if let list = store.document([SessionSummary].self, key: Self.sessionsKey) {
+            let kept = list.filter { !ids.contains($0.id) }
+            if kept.count != list.count { resave(kept, key: Self.sessionsKey) }
+        }
+        for key in store.documentKeys(prefix: Self.historyPrefix) {
+            guard var history = store.document(ExerciseHistory.self, key: key) else { continue }
+            let before = (history.sessions.count, history.prs.count, history.e1rm.count)
+            // A chart point has only its day: a day one of them was on goes (another workout that day comes back with
+            // the next fetch), so the chart and "current" never show their numbers.
+            let days = Set(history.sessions.filter { ids.contains($0.sessionId) }.map(\.date))
+            history.sessions.removeAll { ids.contains($0.sessionId) }
+            history.prs.removeAll { $0.sessionId.map(ids.contains) == true }
+            history.e1rm.removeAll { days.contains($0.day) }
+            if (history.sessions.count, history.prs.count, history.e1rm.count) != before { resave(history, key: key) }
+        }
+        // The in-memory copies are read again, from the documents just filtered or the platform.
+        invalidateHistories()
+    }
+
+    private func resave<T: Encodable>(_ value: T, key: String) {
+        store.saveDocument(value, key: key, at: store.documentFetchedAt(key: key) ?? .now)
+    }
+
     /// Pure (My Day's assembler calls it off the main actor).
     nonisolated static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
         let localIDs = Set(local.map(\.id))
@@ -326,7 +354,8 @@ final class TrainLibrary {
     }
 
     private static let sessionsKey = "train.sessions"
-    private static func historyKey(_ id: UUID) -> String { "train.history.\(id.uuidString)" }
+    private static let historyPrefix = "train.history."
+    private static func historyKey(_ id: UUID) -> String { historyPrefix + id.uuidString }
     private static let pausedKey = "train.pausedPlanID"
     private static let catalogKey = "train.plans"
     private static let todayKey = "train.today"

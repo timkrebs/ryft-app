@@ -13,6 +13,9 @@ final class ProfileViewModel {
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
     private let onboarding: OnboardingCoordinator?
+    /// The live workout's coordinator: what ending the demo would discard, and the discard (ADR 0019). Nil in previews
+    /// and tests that don't need it.
+    private let train: TrainCoordinator?
     /// Data → Sync details.
     let syncDetails: SyncDetailsModel
     /// About → Report a problem, and "Send to RYFT" from an error's Details.
@@ -21,11 +24,12 @@ final class ProfileViewModel {
     let devices: DevicesViewModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil) {
+         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil, train: TrainCoordinator? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.onboarding = onboarding
+        self.train = train
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
         let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
@@ -261,10 +265,79 @@ final class ProfileViewModel {
     /// Through the environment, so tests (which pin demo off) never see the simulator's setting.
     var demoMode: Bool { env.isDemo }
 
+    /// The switch. Off is `endDemo()`: whoever turns it off has confirmed already, or has nothing to confirm.
     func setDemoMode(_ on: Bool) async {
-        settings.demoMode = on
-        demoModeChanged(on)
+        guard on else {
+            await endDemo()
+            return
+        }
+        demoExitError = nil
+        settings.demoMode = true
+        demoModeChanged(true)
         state.reset()
+        await state.refresh()
+    }
+
+    /// Why the switch is still on after it was turned off (review R11): the store couldn't say which workouts the demo
+    /// logged, so nothing was discarded and Demo data stayed on. Shown under the switch; the next toggle that works
+    /// clears it.
+    private(set) var demoExitError: String?
+
+    static var demoExitFailed: String {
+        String(localized: "Demo data couldn't be turned off. Try again.",
+               comment: "Profile → Demo data, under the switch: shown when the workouts logged with Demo data couldn't be read. Demo data stays on.")
+    }
+
+    /// What turning the switch off does first (`ProfileView`'s setter).
+    enum DemoOff: Equatable {
+        /// Ask: these demo workouts would be discarded.
+        case confirm(DemoWorkouts)
+        /// Nothing to discard: the exit runs at once.
+        case exit
+        /// The list names workouts but the store couldn't be read: no dialog, no exit, and `demoExitError` says so
+        /// (review R12).
+        case refused
+    }
+
+    /// Worked out from the list and the store each time, never stored; asking changes nothing unless it's refused.
+    func switchingDemoOff() -> DemoOff {
+        guard let train else { return .exit }
+        do {
+            return try train.demoWorkouts().map(DemoOff.confirm) ?? .exit
+        } catch {
+            demoExitError = Self.demoExitFailed
+            return .refused
+        }
+    }
+
+    /// The switch's VoiceOver hint ("Turning it off discards …"): in the demo, while its list names a workout. It
+    /// follows the list as workouts start and go, Profile open or not, with no fetch per render.
+    var showsDemoExitHint: Bool { demoMode && train?.hasDemoWorkouts == true }
+
+    /// The demo ends (design.md §6.1, ADR 0019). Everything up to the refresh is one main-actor step with no `await`:
+    /// 1. the demo's workouts go, worked out again now (one a quick action started meanwhile goes too), and Train reads
+    ///    its open workout again: the account's, if one was in progress before the demo, or none. If the store can't be
+    ///    read, nothing changes, Demo data stays on and `demoExitError` says so: no half exit;
+    /// 2. the switch goes off;
+    /// 3. what the demo showed goes (`reset()`), with the demo's sync status and tonight's bedtime, as a wipe drops them;
+    /// 4. the flags, the scoring words and the import's demo leftovers, then the widget, from the account's store with
+    ///    none of the demo's scoring state (review R7, R16);
+    /// 5. the account's first read after the demo, the refresh.
+    func endDemo() async {
+        if let train, !train.discardDemoWorkouts() {
+            demoExitError = Self.demoExitFailed
+            return
+        }
+        demoExitError = nil
+        settings.demoMode = false
+        state.reset()
+        // What the widget takes from the demo besides the store (`AppState.forgetActivityState`): bedtime first, so
+        // every publish in between carries less, not more.
+        state.repository.tonightBedtime = nil
+        state.syncStatus = nil
+        demoModeChanged(false)
+        // After the scoring words went: the widget reads them too.
+        state.repository.publishWidget()
         await state.refresh()
     }
 
