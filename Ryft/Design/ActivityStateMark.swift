@@ -1,8 +1,30 @@
+// A row's state in its value slot (ui.md §2.4; Nocturne, docs/work/2026-11-16-nocturne/design-pr6-b-train.md §9.1 "Row state
+// marks", S6): scored is the number, the other states are a word (and, uploading, a small glyph), never a colour alone.
 import SwiftUI
 
-/// A row's state at its trailing edge (ui.md §2.4): pending is an outline, scored is a number, failed is a word.
-/// Every state has its own glyph and its own word; the word shows in the detail and from the largest text sizes
-/// on, and VoiceOver always speaks it.
+/// The mark's numbers (B §9.1).
+enum ActivityStateMarkSpec {
+    /// The uploading glyph (`arrow.up.circle`): 12 pt, 4 before its word.
+    nonisolated static let glyphSize: CGFloat = 12, glyphGap: CGFloat = 4
+    /// The number → the word under it.
+    nonisolated static let wordGap: CGFloat = 2
+    /// The word and the glyph: ink at 55 % (the board's row value text, about 5.6:1 on `surface`, B §1.6).
+    nonisolated static let wordOpacity = 0.55
+}
+
+/// What a row shows at its trailing edge, in its value's place (B §9.1). Every state has its own shape and its own word:
+///
+/// | State | Drawn |
+/// |---|---|
+/// | scored | the strain, 20 Light in ink (`StrainPill`) |
+/// | uploading | `arrow.up.circle` 12 and "Uploading" in `caption` at 55 % (no spinner); the platform's last strain above it while an edit uploads |
+/// | strain pending | "–" in `textTertiary` over "Strain pending" |
+/// | not uploaded | "Not uploaded", and a 44 pt-high text button "Retry" when the uploader offers one; the last strain above it |
+/// | no heart rate | "No heart rate" |
+/// | none (sleep, a recording) | nothing |
+///
+/// Trailing-aligned beside the row's text; leading-aligned under it from AX1 (`alignment`). The row speaks the state
+/// (`State.spoken`); the views here are for sighted users.
 struct ActivityStateMark: View {
     enum State: Equatable {
         /// R1: on this iPhone, not at RYFT yet. `lastStrain`: an edit of a scored activity keeps the platform's
@@ -76,7 +98,25 @@ struct ActivityStateMark: View {
             return false
         }
 
-        /// Which glyph, for the cross-fade between them (not their values).
+        /// The number drawn: the strain, the last strain beside an upload, or the pending state's dash; nil draws none.
+        var number: Number? {
+            switch self {
+            case .scored(let value): return .strain(value)
+            case .uploading(let last), .failed(let last): return last.map(Number.strain)
+            case .strainPending: return .dash
+            case .noHeartRate, .none: return nil
+            }
+        }
+
+        /// The word drawn under the number: every state but scored and none.
+        var shownWord: String? {
+            switch self {
+            case .scored, .none: return nil
+            default: return word
+            }
+        }
+
+        /// Which state, for the cross-fade between them (not their values).
         fileprivate var kind: Int {
             switch self {
             case .uploading: return 0
@@ -89,126 +129,86 @@ struct ActivityStateMark: View {
         }
     }
 
+    /// The number a state draws.
+    enum Number: Equatable {
+        case strain(Double)
+        /// "–" in `textTertiary`: at RYFT, not scored yet.
+        case dash
+    }
+
     let state: State
-    /// The word under the glyph (the detail screen); otherwise it shows from `xxxLarge` on.
-    var showsWord = false
     /// R4's Retry (the uploader's, A2); nil shows no button.
     var retry: (() -> Void)?
+    /// Trailing beside the row's text; leading under it (AX1+).
+    var alignment: HorizontalAlignment = .trailing
+    /// The number of the state; off where the row draws its own value above the mark (a night that uploads).
+    var showsNumber = true
 
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var wordVisible: Bool { showsWord || typeSize >= .xxxLarge }
-
     var body: some View {
-        VStack(alignment: wordVisible ? .leading : .trailing, spacing: 4) {
-            HStack(spacing: 8) {
-                glyph
-                if let last = state.lastStrain { StrainPill(strain: last) }
+        VStack(alignment: alignment, spacing: ActivityStateMarkSpec.wordGap) {
+            if showsNumber, let number = state.number {
+                switch number {
+                case .strain(let value): StrainPill(strain: value)
+                case .dash: StrainPill(strain: nil)
+                }
             }
-            .transition(.opacity)
-            .id(state.kind)
-            if wordVisible, let word = state.word, !state.isFailed, !isScored {
-                Text(word)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let word = state.shownWord {
+                HStack(alignment: .firstTextBaseline, spacing: ActivityStateMarkSpec.glyphGap) {
+                    if case .uploading = state {
+                        Image(systemName: "arrow.up.circle")
+                            .font(.system(size: ActivityStateMarkSpec.glyphSize, weight: .regular))
+                            .accessibilityHidden(true)
+                    }
+                    Text(verbatim: word)
+                        .font(.ryft(.caption))
+                        .multilineTextAlignment(alignment == .leading ? .leading : .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Theme.textPrimary.opacity(ActivityStateMarkSpec.wordOpacity))
             }
-            if state.isFailed {
-                failedLine
+            if state.isFailed, let retry {
+                Button(action: retry) {
+                    Text("Retry", comment: "My Day: send a failed upload again.")
+                }
+                .ryftLink()
             }
         }
-        // Pending to scored: a 250 ms cross-fade, instant under Reduce Motion.
+        .transition(.opacity)
+        .id(state.kind)
+        // One state to another (pending to scored): a 250 ms cross-fade, instant under Reduce Motion.
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: state)
-    }
-
-    private var isScored: Bool {
-        if case .scored = state { return true }
-        return false
-    }
-
-    @ViewBuilder
-    private var glyph: some View {
-        switch state {
-        case .uploading:
-            Image(systemName: "icloud.and.arrow.up")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityLabel(Text(state.spoken ?? ""))
-        case .strainPending:
-            Circle()
-                .strokeBorder(Theme.textTertiary, lineWidth: 1.5)
-                .frame(width: 12, height: 12)
-                .frame(minHeight: 16)
-                .accessibilityElement()
-                .accessibilityLabel(Text(state.word ?? ""))
-        case .scored(let value):
-            StrainPill(strain: value)
-        case .failed:
-            Image(systemName: "exclamationmark.circle")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.warning)
-                .accessibilityHidden(true)
-        case .noHeartRate:
-            Image(systemName: "minus.circle")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityLabel(Text(state.word ?? ""))
-        case .none:
-            EmptyView()
-        }
-    }
-
-    /// "Not uploaded" (from the large sizes on, and in the detail) and Retry, 44 × 44 pt.
-    @ViewBuilder
-    private var failedLine: some View {
-        if wordVisible, let word = state.word {
-            Text(word)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        if let retry {
-            Button(action: retry) {
-                Text("Retry", comment: "My Day: send a failed upload again.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(minWidth: 44, minHeight: 44)
-            }
-            .buttonStyle(.plain)
-        }
     }
 }
 
-#Preview("State marks", traits: .sizeThatFitsLayout) {
-    let states: [ActivityStateMark.State] = [.uploading(lastStrain: nil), .uploading(lastStrain: 10.6), .strainPending,
-                                             .scored(8.4), .failed(lastStrain: nil), .failed(lastStrain: 7.2), .noHeartRate]
-    SchemePair {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(states.enumerated()), id: \.offset) { _, state in
-                HStack {
-                    Text(state.spoken ?? "").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+// MARK: - previews (dark only; verbatim words beside them: the states own the strings)
+
+private struct ActivityStateMarkPreviewList: View {
+    static let states: [ActivityStateMark.State] = [.scored(10.6), .uploading(lastStrain: nil), .uploading(lastStrain: 10.6),
+                                                    .strainPending, .failed(lastStrain: nil), .failed(lastStrain: 7.2),
+                                                    .noHeartRate]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(Self.states.enumerated()), id: \.offset) { _, state in
+                HStack(alignment: .top) {
+                    Text(verbatim: state.spoken ?? "").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
                     Spacer()
                     ActivityStateMark(state: state, retry: state.isFailed ? {} : nil)
                 }
             }
-            Divider()
-            ForEach(Array(states.enumerated()), id: \.offset) { _, state in
-                ActivityStateMark(state: state, showsWord: true, retry: state.isFailed ? {} : nil)
-            }
         }
+        .padding(16)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: ActivityListRowSpec.radius, style: .continuous))
     }
 }
 
+#Preview("State marks", traits: .sizeThatFitsLayout) {
+    DarkPreview { ActivityStateMarkPreviewList() }
+}
+
 #Preview("State marks · AX3", traits: .sizeThatFitsLayout) {
-    let states: [ActivityStateMark.State] = [.uploading(lastStrain: 10.6), .strainPending, .scored(8.4),
-                                             .failed(lastStrain: nil), .noHeartRate]
-    SchemePair {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(states.enumerated()), id: \.offset) { _, state in
-                ActivityStateMark(state: state, retry: state.isFailed ? {} : nil)
-            }
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
+    DarkPreview { ActivityStateMarkPreviewList() }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }

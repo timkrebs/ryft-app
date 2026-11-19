@@ -63,21 +63,29 @@ enum ActivityItem: Identifiable {
     }
 }
 
-/// A strain in a capsule. Strain's own rows show the number bare (`ActivityListRow`); My Day's state mark, its screen and
-/// Train's previews still use this until PR 6 B restyles them (then it goes).
+/// A strain as a row's value (PR 6 B §9.1, T6B.6): the bare numeral, 20 Light in ink, as `ActivityListRow`'s value, growing
+/// with Dynamic Type like it (`.title3`); without one "–" in `textTertiary`. No capsule and no tint: numbers stay ink (L27). My
+/// Day's state marks (a scored activity, the last strain beside an upload) and its screen's day strain use it.
 struct StrainPill: View {
     let strain: Double?
 
+    @ScaledMetric(relativeTo: .title3) private var size: CGFloat = ActivityListRowSpec.valueSize
+
+    init(strain: Double?) {
+        self.strain = strain
+    }
+
     var body: some View {
         Text(Fmt.strain(strain))
-            .font(.ryft(.callout))
-            .monospacedDigit()
-            .foregroundStyle(strain == nil ? Theme.textSecondary : Theme.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background((strain == nil ? Theme.surfaceRaised : Theme.accent.opacity(0.14)), in: Capsule())
+            .font(.ryftNumber(size: size, weight: .light))
+            .foregroundStyle(Self.ink(strain))
+            .lineLimit(1)
+            .fixedSize()
             .accessibilityLabel(Text("Strain \(Fmt.strain(strain))"))
     }
+
+    /// Ink for a strain, `textTertiary` for the dash.
+    static func ink(_ strain: Double?) -> Color { strain == nil ? Theme.textTertiary : Theme.textPrimary }
 }
 
 // MARK: - the hero
