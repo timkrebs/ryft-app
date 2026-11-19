@@ -47,18 +47,30 @@ struct ImportNocturneTests {
         }
     }
 
-    @Test("L27: the import's views and its progress bar name no teal or accent")
+    /// `ProfileSubpagesTests.noTeal`'s tokens (less its page-specific `ProfileSection`), and the tint and system teals.
+    nonisolated static let tealTokens = [
+        "Theme.accent", "Theme.onAccent", "Theme.teal", "Theme.recovery", "Theme.signal", "Color.accentColor", "accentColor",
+        "TealButtonStyle", ".tint(", ".teal", ".mint", ".cyan", "Color(\"Accent", "Color(\"Teal", "Color(\"Recovery",
+        "Locale(identifier: \"de\")", "preferredColorScheme(.light)",
+    ]
+
+    @Test("L27: the import's views and its progress bar name no teal, accent or tint, in code (comments may)")
     func noTeal() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let teal = try Regex(#"Theme\.(teal|accent\w*|onAccent|recovery)|Color\("(Accent|Teal|Recovery)|TealButtonStyle|\bPrimaryButton\("#)
         let folder = root.appendingPathComponent("Ryft/Features/Train/Import")
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "swift" } + [root.appendingPathComponent("Ryft/Design/ImportProgressBar.swift")]
         #expect(files.count >= 20, "the folder was found: \(files.count)")
         for file in files {
             let source = try String(contentsOf: file, encoding: .utf8)
-            let found = source.matches(of: teal).map { String(source[$0.range]) }
-            #expect(found.isEmpty, "\(file.lastPathComponent): \(found)")
+            // The code only, as ProfileSubpagesTests: a comment may name a token to say why it isn't used. `//` after a
+            // colon is a URL's.
+            let code = source.replacing(#/(^|[^:])//.*/#) { String($0.output.1) }
+            for token in Self.tealTokens {
+                #expect(!code.contains(token), "\(file.lastPathComponent) names \(token)")
+            }
+            // The old teal pill, as a word: `ImportPrimaryButton` is a `PillButton`.
+            #expect(code.firstMatch(of: #/\bPrimaryButton\b/#) == nil, "\(file.lastPathComponent) names PrimaryButton")
         }
     }
 
@@ -95,6 +107,37 @@ struct ImportNocturneTests {
         }
     }
 
+    @Test("Step 6 has no way back: its Back is hidden and both back swipes are off; step 5 keeps them")
+    func step6NoWayBack() async throws {
+        try await host("6-done") { w in
+            let nav = try #require(Self.navigationController(w), "a navigation controller")
+            #expect(nav.viewControllers.count > 1, "step 6 is pushed: \(nav.viewControllers.count)")
+            #expect(nav.topViewController?.navigationItem.hidesBackButton == true, "the Back button is hidden")
+            try await w.wait("the swipes off") { nav.interactivePopGestureRecognizer?.isEnabled == false }
+            if #available(iOS 26.0, *) {
+                let content = try #require(nav.interactiveContentPopGestureRecognizer, "iOS 26's content swipe")
+                #expect(!content.isEnabled, "iOS 26's content swipe")
+            }
+        }
+        try await host("5-preview-plan") { w in
+            let nav = try #require(Self.navigationController(w), "a navigation controller")
+            #expect(nav.topViewController?.navigationItem.hidesBackButton == false)
+            #expect(nav.interactivePopGestureRecognizer?.isEnabled == true, "step 5 goes back with a swipe")
+            if #available(iOS 26.0, *) {
+                // On by default: step 6 is what turns it off.
+                #expect(nav.interactiveContentPopGestureRecognizer?.isEnabled == true, "iOS 26's content swipe on step 5")
+            }
+        }
+    }
+
+    private static func navigationController(_ w: HostedWindow) -> UINavigationController? {
+        func find(_ controller: UIViewController) -> UINavigationController? {
+            if let nav = controller as? UINavigationController { return nav }
+            return controller.children.lazy.compactMap(find).first ?? controller.presentedViewController.flatMap(find)
+        }
+        return find(w.host)
+    }
+
     // MARK: the pinned pill per state
 
     struct PillCase: CustomTestStringConvertible, Sendable {
@@ -123,7 +166,12 @@ struct ImportNocturneTests {
         PillCase(screen: "6-rejections", pills: ["import.retryRejected": "Retry 4", "import.done": "Done"],
                  absent: ["import.openHistory"]),
         PillCase(screen: "6-saved", pills: ["import.done": "Done", "import.discardJob": "Discard import"]),
-        PillCase(screen: "6-offline", pills: ["import.discardJob": "Discard import"], absent: ["import.done", "import.openHistory"]),
+        PillCase(screen: "6-offline", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
+        PillCase(screen: "6-retrying", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
+        PillCase(screen: "6-attention", pills: ["import.done": "Done", "import.discardJob": "Discard import"],
+                 absent: ["import.openHistory"]),
         PillCase(screen: "6-account", pills: ["import.done": "Done"], absent: ["import.discardJob"]),
     ]
 
@@ -148,6 +196,34 @@ struct ImportNocturneTests {
         }
     }
 
+    @Test("Paused (offline, a retry, a hold, refused): Done is the pill; Discard a quieter text action under it")
+    func pausedBar() async throws {
+        for screen in ["6-offline", "6-retrying", "6-attention"] {
+            try await host(screen) { w in
+                let nodes = w.nodes()
+                let done = try #require(nodes.first { $0.identifier == "import.done" }, "\(screen)")
+                let discard = try #require(nodes.first { $0.identifier == "import.discardJob" }, "\(screen)")
+                #expect(discard.frame.minY >= done.frame.maxY - 0.5, "\(screen): under the pill \(discard.frame) \(done.frame)")
+                #expect(discard.frame.height >= 43.5, "\(screen): \(discard.frame)")
+                #expect(discard.frame.width < done.frame.width / 2, "\(screen): a text action, not a pill: \(discard.frame)")
+            }
+        }
+    }
+
+    @Test("Discard import (paused): the tap asks first; the job stays until Discard is confirmed")
+    func discardAsks() async throws {
+        let h = ImportUploadHarness(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: ImportUploadHarness.sessions(2))))
+        #expect(h.uploader.status?.phase == .paused(.offline))
+        let model = ImportMockData.flow(.result, uploader: h.uploader)
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            let discard = try #require(w.nodes().first { $0.identifier == "import.discardJob" })
+            #expect(discard.activate())
+            try await w.wait("the question") { model.confirmsDiscardJob }
+            #expect(model.job != nil && h.jobs().count == 1, "nothing discarded yet")
+        }
+    }
+
     // MARK: selection
 
     @Test("Step 3: the plan's toggle row turns it off and on; history's toggle shows the range only while on")
@@ -167,6 +243,16 @@ struct ImportNocturneTests {
             try await w.wait("history off") { model.selection?.includesHistory == false }
             try await w.settle()
             #expect(!w.nodes().contains { $0.identifier == "import.range" }, "history off: no range")
+        }
+    }
+
+    @Test("Step 3, a range without workouts: VoiceOver reads the words, not the glyph")
+    func emptyRangeSpeech() async throws {
+        try await host("3-choose-range-empty") { w in
+            let range = try #require(w.nodes().first { $0.identifier == "import.range" })
+            let spoken = range.value ?? ""
+            let detail = spoken.components(separatedBy: ", ").last?.trimmingCharacters(in: .whitespaces)
+            #expect(detail == "0 workouts in this range", "\(spoken)")
         }
     }
 
@@ -237,6 +323,38 @@ struct ImportNocturneTests {
 
     // MARK: the result
 
+    @Test("Done on a result with refused items marks it seen (I4) and closes")
+    func doneMarksSeen() async throws {
+        let h = ImportUploadHarness()
+        let sessions = ImportUploadHarness.sessions(3)
+        h.live.trainImportSource.rejectIDs = [sessions[1].id: "exercise not found"]
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        #expect(h.uploader.status?.isFinished == true && h.uploader.status?.hasRejected == true)
+        let model = ImportMockData.flow(.result, uploader: h.uploader)
+        var finished: [ImportFlowModel.Finish] = []
+        model.onFinish = { finished.append($0) }
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            #expect(h.uploader.status?.resultSeen == false, "shown isn't seen while items were refused")
+            let done = try #require(w.nodes().first { $0.identifier == "import.done" })
+            #expect(done.activate())
+            try await w.wait("seen") { h.uploader.status?.resultSeen == true }
+            #expect(finished == [.close])
+        }
+    }
+
+    @Test("Open plan opens the plan the import wrote")
+    func openPlanFinishes() async throws {
+        let model = ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.done))
+        var finished: [ImportFlowModel.Finish] = []
+        model.onFinish = { finished.append($0) }
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            let open = try #require(w.nodes().first { $0.identifier == "import.openPlan" })
+            #expect(open.activate())
+            try await w.wait("the finish") { !finished.isEmpty }
+            #expect(finished == [.openPlan(MockTrainImport.planID)])
+        }
+    }
+
     @Test("Refused items: the lead says so, Not imported opens to each reason with Details, the sentence stays")
     func rejections() async throws {
         try await host("6-rejections") { w in
@@ -264,9 +382,24 @@ struct ImportNocturneTests {
             #expect(nodes.contains { $0.label == "Done" && $0.traits.contains(.header) })
             let workouts = try #require(nodes.first { $0.label == "Workouts imported" })
             #expect(workouts.value == "\(MockTrainImport.leftAsIsDone.sessionsImported)", "\(workouts.value ?? "nil")")
+            let plans = try #require(nodes.first { $0.label == "Plans imported" }, "the plan was written")
+            #expect(plans.value == "1, Upper/Lower · 6 weeks", "\(plans.value ?? "nil")")
             let left = try #require(nodes.first { $0.label == "Left as it is in RYFT" })
             #expect(left.value?.hasPrefix("3") == true, "\(left.value ?? "nil")")
             #expect(nodes.contains { $0.label.hasPrefix("Past strain on these days is being recalculated") })
+        }
+        // The plan changed in RYFT since (`newer_on_server`): not imported, so no Plans imported row; it's left as it is.
+        let job = MockTrainImport.planLeftAsIsDone
+        #expect(job.plansImported == 0 && job.planSummaries.allSatisfy { !$0.isImported })
+        try await host("6-done-plan-left") { w in
+            let nodes = w.nodes()
+            #expect(!nodes.contains { $0.label == "Plans imported" }, "no plan was imported")
+            #expect(!nodes.contains { $0.label.contains("Upper/Lower") || ($0.value ?? "").contains("Upper/Lower") })
+            let left = try #require(nodes.first { $0.label == "Left as it is in RYFT" })
+            #expect(left.value?.hasPrefix("1") == true, "\(left.value ?? "nil")")
+            let result = try #require(nodes.first { $0.identifier == "import.result" })
+            #expect(result.label.hasPrefix("Imported 12 workouts"), "\(result.label)")
+            #expect(!result.label.contains("plan"), "\(result.label)")
         }
     }
 
@@ -280,7 +413,9 @@ struct ImportNocturneTests {
             let progress = try #require(nodes.first { $0.identifier == "import.progress" })
             let notice = try #require(nodes.first { $0.label.hasPrefix("You're offline.") })
             #expect(notice.frame.minY >= progress.frame.maxY, "under the progress: \(notice.frame) \(progress.frame)")
-            #expect(!nodes.contains { $0.label.hasPrefix("Imported") || $0.label == "Done" || $0.label == "Importing…" })
+            // The Done pill closes; nothing *says* done: no Done lead, no Imported, no Importing….
+            #expect(!nodes.contains { $0.label.hasPrefix("Imported") || $0.label == "Importing…" })
+            #expect(!nodes.contains { $0.label == "Done" && $0.traits.contains(.header) })
         }
     }
 
@@ -304,6 +439,19 @@ struct ImportNocturneTests {
             let firstRow = rows.map(\.frame.minY).min() ?? 0
             #expect(!rows.isEmpty)
             #expect(firstRow >= top, "the notice first: \(top) \(firstRow)")
+        }
+    }
+
+    @Test("Step 5: Import with uploads available (demo's binding, the flag on); Keep on this iPhone without")
+    func previewUploads() async throws {
+        #expect(ImportMockData.uploader(nil).uploadsAvailable)
+        #expect(!ImportMockData.uploader(nil, available: false).uploadsAvailable)
+        try await host("5-preview-plan") { w in
+            let nodes = w.nodes()
+            let pill = try #require(nodes.first { $0.identifier == "import.import" }, "the Import pill")
+            #expect(pill.label.hasPrefix("Import "), "\(pill.label)")
+            #expect(pill.isEnabled)
+            #expect(!nodes.contains { $0.identifier == "import.keep" })
         }
     }
 
@@ -331,6 +479,70 @@ struct ImportNocturneTests {
             ok.activate()
             try await w.wait("dismissed") { w.nodes().contains { $0.identifier == SheetHost<EmptyView>.closed } }
         }
+    }
+
+    // MARK: VoiceOver on step 6
+
+    @Test("VoiceOver hears the lead line as the phase changes (not twice for one line), and the result as it arrives")
+    func announcements() {
+        typealias T = ImportResultText
+        let at = MockTrainImport.createdAt
+        let cases: [(from: ImportJobStatus.Phase?, to: ImportJobStatus.Phase, said: String?)] = [
+            (.uploading, .paused(.offline), "Waiting for a connection"),
+            (.uploading, .paused(.retrying(at: at)), "Import paused"),
+            (.uploading, .paused(.held), "Import paused"),
+            (.uploading, .paused(.gated(.gate(.consentRequired))), "Import paused"),
+            (.uploading, .paused(.needsAttention), "Some items weren't imported"),
+            (.uploading, .paused(.notAvailable), "Saved on this iPhone"),
+            (.uploading, .paused(.waitingForAccount), "Import needs attention"),
+            (.paused(.offline), .uploading, "Importing…"),
+            (.preparing, .uploading, "Importing…"),
+            (.paused(.retrying(at: at)), .paused(.retrying(at: at.addingTimeInterval(30))), nil),
+            (.paused(.retrying(at: at)), .paused(.held), nil),
+            (nil, .preparing, nil),
+            (.uploading, .uploading, nil),
+        ]
+        for c in cases {
+            #expect(T.announcement(from: c.from, to: MockTrainImport.status(c.to)) == c.said, "\(String(describing: c.from)) → \(c.to)")
+        }
+        for job in [MockTrainImport.done, MockTrainImport.partlyDone, MockTrainImport.planLeftAsIsDone] {
+            #expect(T.announcement(from: .uploading, to: job) == "Import finished. " + T.sentence(job))
+        }
+        #expect(T.announcement(from: .finished, to: MockTrainImport.done) == nil)
+        #expect(T.announcement(from: .uploading, to: nil) == nil, "the job went (discarded)")
+    }
+
+    @Test("VoiceOver, hosted: a state change on step 6 is said once; the state it opened on isn't")
+    func announcesPhase() async throws {
+        let h = ImportUploadHarness(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: ImportUploadHarness.sessions(3))))
+        #expect(h.uploader.status?.phase == .paused(.offline))
+        let seeded = ImportMockData.flow(.result, uploader: h.uploader)
+        let spoken = Spoken()
+        var deps = seeded.deps
+        deps.announce = { spoken.lines.append($0) }
+        let model = ImportFlowModel(deps: deps)
+        model.path = seeded.path
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            #expect(w.node("Waiting for a connection", exactly: true) != nil)
+            // Back online, but importing isn't enabled for the account: saved on this iPhone.
+            h.live.trainImportSource.notEnabled = true
+            h.connectivity.update(true)
+            try await w.wait("saved on this iPhone") { spoken.lines.contains("Saved on this iPhone") }
+            // Enabled when the app opens again: it goes, and the result is said.
+            h.live.trainImportSource.notEnabled = false
+            await h.uploader.appBecameActive()
+            let job = try #require(h.uploader.status)
+            #expect(job.isFinished)
+            let result = "Import finished. " + ImportResultText.sentence(job)
+            try await w.wait("the result") { spoken.lines.last == result }
+            let leads = spoken.lines.filter { $0 != "Importing…" && $0 != "Getting ready" }
+            #expect(leads == ["Saved on this iPhone", result], "\(spoken.lines)")
+        }
+    }
+
+    @MainActor final class Spoken {
+        var lines: [String] = []
     }
 
     // MARK: AX3 and targets
@@ -363,7 +575,7 @@ struct ImportNocturneTests {
 
     nonisolated static let targetScreens = ["1-pick", "1-pick-problem", "2-detected", "3-choose", "3-choose-existing", "4-map",
                                             "5-preview-plan", "5-preview-history", "6-done-plan", "6-rejections", "6-offline",
-                                            "6-saved", "rows-profile", "rows-resume"]
+                                            "6-retrying", "6-attention", "6-saved", "rows-profile", "rows-resume"]
 
     @Test("44 pt: every button on the page", arguments: Self.targetScreens)
     func targets(_ screen: String) async throws {

@@ -38,7 +38,7 @@ struct ImportNocturneShotsTests {
         "4-map", "4-map-loading", "4-map-offline", "4-map-many",
         "5-preview-plan", "5-preview-history", "5-preview-unchecked", "5-preview-keep", "5-preview-already",
         "6-preparing", "6-uploading", "6-offline", "6-retrying", "6-attention", "6-saved", "6-account", "6-done",
-        "6-done-plan", "6-rejections",
+        "6-done-plan", "6-done-plan-left", "6-rejections",
         "sheet-unavailable", "rows-profile", "rows-resume",
     ]
 
@@ -111,6 +111,7 @@ struct ImportNocturneShotsTests {
         case "6-account": return AnyView(result(MockTrainImport.status(.paused(.waitingForAccount))))
         case "6-done": return AnyView(result(MockTrainImport.leftAsIsDone))
         case "6-done-plan": return AnyView(result(MockTrainImport.done))
+        case "6-done-plan-left": return AnyView(result(MockTrainImport.planLeftAsIsDone))
         case "6-rejections": return AnyView(result(MockTrainImport.mixedRejections))
         case "sheet-unavailable":
             return AnyView(Theme.background.ignoresSafeArea().sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }

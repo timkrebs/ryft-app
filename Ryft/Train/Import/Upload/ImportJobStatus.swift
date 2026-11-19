@@ -96,6 +96,13 @@ struct ImportPlanSummary: Equatable, Sendable, Identifiable {
     let weeks: Int?
     let daysPerWeek: Int
     let state: State
+    /// The platform's result for a done plan (`created`, `unchanged`, `updated` or `newer_on_server`); nil before.
+    var result: String?
+
+    /// Written now or before: done, and not left as it is because it was changed in the app since (`newer_on_server`).
+    var isImported: Bool { state == .done && result != ImportPlanSummary.newerOnServer }
+
+    static let newerOnServer = "newer_on_server"
 }
 
 /// One kind of item's progress.

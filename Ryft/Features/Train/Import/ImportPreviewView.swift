@@ -140,7 +140,8 @@ struct ImportPreviewView: View {
         return VStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
             GroupedCard(nil) {
                 FormField(Text("Plan name"), isFocused: editingName, valueSize: .large) {
-                    TextField(text: Binding(get: { model.planName(preview) }, set: { model.setPlanName($0, for: preview) })) {
+                    TextField(text: Binding(get: { model.planName(preview) }, set: { model.setPlanName($0, for: preview) }),
+                              prompt: Text("Name this plan", comment: "Training import, step 5: the plan name field, empty.").fieldPrompt()) {
                         Text("Plan name")
                     }
                     .textInputAutocapitalization(.words)

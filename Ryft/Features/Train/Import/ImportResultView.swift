@@ -40,10 +40,10 @@ struct ImportResultView: View {
             Text("Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is not changed.",
                  comment: "Training import S2: what discarding a saved import does.")
         }
-        .onChange(of: job?.isFinished) { _, finished in
-            guard finished == true, let job else { return }
-            model.deps.announce(String(localized: "Import finished. \(ImportResultText.sentence(job))",
-                                       comment: "Training import, VoiceOver: the result as it arrives."))
+        // VoiceOver hears the lead line as the state changes (offline, a retry, a hold, refused items), and the result as
+        // it arrives; the notices under the lead stay quiet (`announces: false`), so it's said once.
+        .onChange(of: job?.phase) { old, _ in
+            if let line = ImportResultText.announcement(from: old, to: job) { model.deps.announce(line) }
         }
     }
 
@@ -53,7 +53,7 @@ struct ImportResultView: View {
     private var state: some View {
         switch job?.phase {
         case nil, .preparing?:
-            lead(String(localized: "Getting ready", comment: "Training import I1."), systemImage: "hourglass")
+            lead(systemImage: "hourglass")
             VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
                 ImportProgressBar(fraction: 0, showsFill: false)
                 if let pending = job?.exercises.pending, pending > 0 {
@@ -70,10 +70,11 @@ struct ImportResultView: View {
         }
     }
 
-    /// The lead line (c-23d): a 44 pt ring with the state's glyph, 12, the word at 20 Light. `attention`: the glyph in
-    /// `warning` (some items weren't imported); the word says it too.
-    private func lead(_ text: String, systemImage: String, attention: Bool = false) -> some View {
-        HStack(spacing: ImportLayout.leadGap) {
+    /// The lead line (c-23d): a 44 pt ring with the state's glyph, 12, the state's word (`ImportResultText.lead`) at 20
+    /// Light. `attention`: the glyph in `warning` (some items weren't imported); the word says it too.
+    private func lead(systemImage: String, attention: Bool = false) -> some View {
+        let text = ImportResultText.lead(job?.phase, hasRejected: job?.hasRejected ?? false)
+        return HStack(spacing: ImportLayout.leadGap) {
             Image(systemName: systemImage)
                 .font(.system(size: IconDisc.glyphSize + 4, weight: .light))
                 .foregroundStyle(attention ? Theme.warning : Theme.textPrimary)
@@ -100,7 +101,7 @@ struct ImportResultView: View {
     /// I2: the bar fills by items; "8 of 12 workouts".
     @ViewBuilder
     private func uploading(_ job: ImportJobStatus) -> some View {
-        lead(String(localized: "Importing…", comment: "Training import I2."), systemImage: "arrow.up")
+        lead(systemImage: "arrow.up")
         progress(job, paused: false)
         GroupFooter(Text("You can close this. The import continues while RYFT is open and picks up where it stopped.",
                          comment: "Training import I2."))
@@ -129,20 +130,18 @@ struct ImportResultView: View {
         switch pause {
         case .offline:
             // Not "Importing…": nothing moves until the connection is back, and the words say so.
-            lead(String(localized: "Waiting for a connection", comment: "Training import: Profile → Data's row."), systemImage: "wifi.slash")
+            lead(systemImage: "wifi.slash")
             progress(job, paused: true)
             InlineMessage(message: String(localized: "You're offline. Your import is kept on this iPhone and continues when you're back online.",
                                           comment: "Training import I6."),
                           systemImage: "wifi.slash", caption: ImportResultText.keptLimits, identifier: "import.offline",
                           announces: false)
         case let .retrying(at):
-            lead(String(localized: "Import paused", comment: "Training import: the resume row, held for a reason the user can't act on."),
-                 systemImage: "pause")
+            lead(systemImage: "pause")
             progress(job, paused: true)
             retrying(job, at: at)
         case .gated:
-            lead(String(localized: "Import paused", comment: "Training import: the resume row, held for a reason the user can't act on."),
-                 systemImage: "pause")
+            lead(systemImage: "pause")
             progress(job, paused: true)
             InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
                           systemImage: "hand.raised",
@@ -153,8 +152,7 @@ struct ImportResultView: View {
                           identifier: "import.gated", severity: .attention, announces: false)
         case .notAvailable:
             // Calm and final for now: no error styling, no Try again. RYFT asks again when the app opens.
-            lead(String(localized: "Saved on this iPhone", comment: "Training import I9: importing isn't available for the account (403 import_not_enabled)."),
-                 systemImage: "tray.and.arrow.down")
+            lead(systemImage: "tray.and.arrow.down")
             VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
                 Text("Your import is saved on this iPhone.", comment: "Training import I9.")
                     .font(.ryft(.headline))
@@ -167,8 +165,7 @@ struct ImportResultView: View {
             }
         case .held:
             // A 403 this build doesn't know: nothing for the user to answer, so no consent or gate words.
-            lead(String(localized: "Import paused", comment: "Training import: the resume row, held for a reason the user can't act on."),
-                 systemImage: "pause")
+            lead(systemImage: "pause")
             progress(job, paused: true)
             InlineMessage(message: String(localized: "The upload is paused. RYFT will try again later.",
                                           comment: "Training import: a refusal with no step for the user (an unknown 403)."),
@@ -178,8 +175,7 @@ struct ImportResultView: View {
         case .needsAttention:
             // The platform refused everything in the last pass; the rest is still pending. Not "Importing…": nothing
             // moves until Try again (ui.md I4, the resume row's "Import needs attention").
-            lead(String(localized: "Some items weren't imported", comment: "Training import I4."),
-                 systemImage: "exclamationmark", attention: true)
+            lead(systemImage: "exclamationmark", attention: true)
             progress(job, paused: true)
             InlineMessage(message: String(localized: "Some items weren't accepted, so the upload stopped.",
                                           comment: "Training import: the platform refused every request of the last pass."),
@@ -193,8 +189,7 @@ struct ImportResultView: View {
             if job.hasRejected { rejected(job) }
         case .waitingForAccount:
             // A final 401 or an account deletion: the job goes with the account's data, so nothing resumes it.
-            lead(String(localized: "Import needs attention", comment: "Training import: the resume row."),
-                 systemImage: "person.crop.circle.badge.exclamationmark", attention: true)
+            lead(systemImage: "person.crop.circle.badge.exclamationmark", attention: true)
             InlineMessage(message: String(localized: "This import can't continue.", comment: "Training import I7: signed out mid-upload."),
                           systemImage: "person.crop.circle.badge.exclamationmark",
                           details: job.lastFailure?.details,
@@ -228,10 +223,9 @@ struct ImportResultView: View {
     private func finished(_ job: ImportJobStatus) -> some View {
         VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
             if job.hasRejected {
-                lead(String(localized: "Some items weren't imported", comment: "Training import I4."),
-                     systemImage: "exclamationmark", attention: true)
+                lead(systemImage: "exclamationmark", attention: true)
             } else {
-                lead(String(localized: "Done"), systemImage: "checkmark")
+                lead(systemImage: "checkmark")
             }
             Text(verbatim: ImportResultText.sentence(job))
                 .font(.ryft(.callout))
@@ -245,10 +239,11 @@ struct ImportResultView: View {
                            comment: "Training import I3: after history was imported.") : nil) {
             // c-23d's order: what was imported, what was already there, what was skipped.
             GroupedRow.value(Text("Workouts imported"), value: Text(verbatim: "\(job.sessionsImported)"))
-            if job.plans.total > 0 {
-                let names = job.planSummaries.filter { $0.state == .done }.map(ImportResultText.plan)
+            // Only plans written: one left as it is in RYFT (changed there since) counts under "Left as it is in RYFT".
+            if job.plansImported > 0 {
+                let names = job.planSummaries.filter(\.isImported).map(ImportResultText.plan)
                 GroupedRow.value(Text("Plans imported", comment: "Training import I3: the count of plans imported."),
-                                 value: Text(verbatim: "\(job.plans.done)"),
+                                 value: Text(verbatim: "\(job.plansImported)"),
                                  detail: names.isEmpty ? nil : Text(verbatim: names.joined(separator: "\n")))
             }
             if job.skipped.alreadyImported > 0 {
@@ -342,7 +337,7 @@ struct ImportResultView: View {
     }
 
     /// One primary and at most one secondary (c-23d): I3 Open history, then Open plan; I4 Retry, then Done; saved on this
-    /// iPhone Done, then Discard; a gate Continue in RYFT, then Discard; paused, Discard alone.
+    /// iPhone Done, then Discard; a gate Continue in RYFT, then Discard; paused, Done, then Discard as a text action.
     @ViewBuilder
     private var buttons: some View {
         if let name = model.waitingFileName(), job?.isFinished == true {
@@ -382,7 +377,10 @@ struct ImportResultView: View {
             }
             discardJob
         case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
-            discardJob
+            // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
+            // there, quieter, and still asks first.
+            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportDestructiveTextButton(title: Self.discardTitle, identifier: "import.discardJob") { model.confirmsDiscardJob = true }
         case .paused(.waitingForAccount)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
         default:
@@ -392,15 +390,55 @@ struct ImportResultView: View {
 
     /// S2: a saved or paused job can always be discarded, after a confirmation.
     private var discardJob: some View {
-        ImportSecondaryButton(title: String(localized: "Discard import", comment: "Training import S2: remove the saved import from this iPhone."),
-                              identifier: "import.discardJob", style: .destructive) {
+        ImportSecondaryButton(title: Self.discardTitle, identifier: "import.discardJob", style: .destructive) {
             model.confirmsDiscardJob = true
         }
+    }
+
+    private static var discardTitle: String {
+        String(localized: "Discard import", comment: "Training import S2: remove the saved import from this iPhone.")
     }
 }
 
 /// Step 6's words (ui.md §8.2, §11).
 enum ImportResultText {
+    /// The lead line's word for `phase` (c-23d); `hasRejected`: a finished job with refused items. Before a job, "Getting
+    /// ready".
+    static func lead(_ phase: ImportJobStatus.Phase?, hasRejected: Bool = false) -> String {
+        switch phase {
+        case nil, .preparing?:
+            String(localized: "Getting ready", comment: "Training import I1.")
+        case .uploading?:
+            String(localized: "Importing…", comment: "Training import I2.")
+        case .paused(.offline)?:
+            String(localized: "Waiting for a connection", comment: "Training import: Profile → Data's row.")
+        case .paused(.retrying)?, .paused(.gated)?, .paused(.held)?:
+            String(localized: "Import paused", comment: "Training import: the upload waits (for a retry, for an answer in RYFT such as consent or an invite, or held with nothing to do); step 6's lead and the resume row.")
+        case .paused(.notAvailable)?:
+            String(localized: "Saved on this iPhone", comment: "Training import I9: importing isn't available for the account (403 import_not_enabled).")
+        case .paused(.needsAttention)?:
+            String(localized: "Some items weren't imported", comment: "Training import I4.")
+        case .paused(.waitingForAccount)?:
+            String(localized: "Import needs attention", comment: "Training import: the resume row.")
+        case .finished? where hasRejected:
+            String(localized: "Some items weren't imported", comment: "Training import I4.")
+        case .finished?:
+            String(localized: "Done")
+        }
+    }
+
+    /// What VoiceOver hears as step 6's phase changes from `old` to `job`'s: a finished job its result; another phase its
+    /// lead line, when the line changes (a retry's next countdown, or a gate after a retry, both "Import paused", isn't
+    /// news). nil: nothing to say (the job went, or nothing changed).
+    static func announcement(from old: ImportJobStatus.Phase?, to job: ImportJobStatus?) -> String? {
+        guard let job, job.phase != old else { return nil }
+        if job.isFinished {
+            return String(localized: "Import finished. \(sentence(job))", comment: "Training import, VoiceOver: the result as it arrives.")
+        }
+        let line = lead(job.phase)
+        return line == lead(old) ? nil : line
+    }
+
     /// "Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps)", and the I4 and nothing-new variants.
     static func sentence(_ job: ImportJobStatus) -> String {
         var parts: [String] = []
@@ -508,6 +546,11 @@ enum ImportResultText {
 
 #Preview("Step 6 · left as it is") {
     NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.leftAsIsDone))) }
+        .previewEnvironment()
+}
+
+#Preview("Step 6 · the plan left as it is") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.planLeftAsIsDone))) }
         .previewEnvironment()
 }
 

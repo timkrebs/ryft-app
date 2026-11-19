@@ -1002,7 +1002,7 @@ final class TrainImportUploader {
         await store(current.progress, finished: nil)
     }
 
-    private static let newerOnServer = "newer_on_server"
+    private static let newerOnServer = ImportPlanSummary.newerOnServer
     private static let unknownPlanReference = "unknown_plan_reference"
 
     /// Items the platform refused (or that can't be sent): kept with the request's status and ID until Retry.
@@ -1280,7 +1280,8 @@ final class TrainImportUploader {
             case .blocked?: .blocked
             case .duplicate?, nil: .pending
             }
-            return ImportPlanSummary(id: item.id, name: item.name, weeks: item.weeks, daysPerWeek: item.daysPerWeek, state: state)
+            return ImportPlanSummary(id: item.id, name: item.name, weeks: item.weeks, daysPerWeek: item.daysPerWeek, state: state,
+                                     result: progress[item.id]?.result)
         }
         status = ImportJobStatus(
             phase: phase, createdAt: row.createdAt, source: ImportFormatID(rawValue: row.source), timeZoneID: row.timeZoneID,
