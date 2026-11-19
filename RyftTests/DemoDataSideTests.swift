@@ -291,6 +291,70 @@ struct BedtimeDemoSideTests {
                 "the account's plan on disk, as it was")
         #expect(planner.plan == mine && planner.planned(nightEnding: night)?.bed == planner.bedtime, "the account's own shows")
     }
+
+    @Test("2: Sleep → Bedtime's plan held across the switch, both ways: the account's never shows in demo data, demo data's never lands in the account's",
+          .timeLimit(.minutes(1)))
+    func heldSleepTabAnswersStayOnTheirSide() async throws {
+        let (state, live, demo) = sideGraph()
+        let screens = appScreens(state)
+        let planner = screens.sleep.planner
+        await planner.load()
+        let mine = try #require(planner.plan)
+        let cached = state.env.persistence.document(SleepPlannerViewModel.Cached.self, key: SleepPlannerViewModel.cacheKey)
+        #expect(cached?.plan == mine)
+
+        let accountHold = RequestHold()
+        live.beforePlan = { _ in await accountHold.wait() }
+        let asking = Task { await planner.load() }
+        #expect(await eventually { accountHold.waiting == 1 })
+        switchDemo(state, on: true)
+        accountHold.release()
+        await asking.value
+        #expect(planner.plan == nil && planner.asOf == nil && planner.failure == nil, "the account's answer, dropped")
+        live.beforePlan = nil
+
+        await planner.load()
+        let demos = try #require(planner.plan)
+        #expect(demos != mine)
+        let demoHold = RequestHold()
+        demo.beforePlan = { _ in await demoHold.wait() }
+        let demoAsking = Task { await planner.load() }
+        #expect(await eventually { demoHold.waiting == 1 })
+        switchDemo(state, on: false)
+        demoHold.release()
+        await demoAsking.value
+        #expect(state.env.persistence.document(SleepPlannerViewModel.Cached.self, key: SleepPlannerViewModel.cacheKey) == cached,
+                "the account's plan on disk, as it was")
+        #expect(planner.plan == mine, "the account's own shows")
+        withExtendedLifetime(screens) {}
+    }
+
+    @Test("4: Sleep → Bedtime's wake time is its side's: the switch drops the one followed and the one picked, and a plan for another wake time isn't shown")
+    func sleepTabWakeStaysWithItsSide() async throws {
+        let (state, _, _) = sideGraph()
+        let screens = appScreens(state)
+        let planner = screens.sleep.planner
+        let start = planner.wakeText
+        var early = SleepSchedule.default
+        early.setWeekdays("05:45")
+        early.setWeekend("05:45")
+        planner.follow(early)
+        #expect(planner.wakeText == "05:45" && start != "05:45")
+        await planner.load()
+        #expect(planner.plan != nil, "the account's plan for 05:45")
+        planner.setWake(planner.wake.addingTimeInterval(15 * 60))
+        #expect(planner.pickerMoved)
+
+        switchDemo(state, on: true)
+        #expect(planner.wakeText == start && !planner.pickerMoved && planner.plan == nil, "demo data's own wake time")
+        planner.follow(early)
+        #expect(planner.wakeText == "05:45", "demo data's Bedtime & wake is followed again, not the account's picker")
+
+        state.env.connectivityMonitor.update(false)
+        switchDemo(state, on: false)
+        #expect(planner.wakeText == start && planner.plan == nil, "the account's 05:45 plan isn't the \(start) one")
+        withExtendedLifetime(screens) {}
+    }
 }
 
 @MainActor

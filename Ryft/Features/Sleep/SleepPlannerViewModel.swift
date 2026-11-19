@@ -60,7 +60,8 @@ final class SleepPlannerViewModel {
     }
 
     /// Signed out, another account, or the Demo data switch (an account-state forgetter, `ScreenModels`): the previous side's
-    /// plan goes, a request on its way is dropped, and this side's last plan shows until it's asked again.
+    /// plan goes, a request on its way is dropped, and so do the wake time it asked for and the schedule it followed (they
+    /// were that side's Bedtime & wake); this side's last plan for the wake time shown stays until it's asked again.
     func accountChanged() {
         pending?.cancel()
         pending = nil
@@ -70,6 +71,10 @@ final class SleepPlannerViewModel {
         asOf = nil
         failure = nil
         isLoading = false
+        wake = Self.defaultWake(state: state, now: state.env.clock.now())
+        pickerMoved = false
+        followed = nil
+        followedSchedule = nil
         adoptCached()
     }
 
@@ -79,8 +84,9 @@ final class SleepPlannerViewModel {
         return documents.document(Cached.self, key: Self.cacheKey)
     }
 
+    /// The last plan, when it was asked for the wake time shown (another one's bedtimes aren't this one's).
     private func adoptCached() {
-        guard let cached else { return }
+        guard let cached, cached.wake == wakeText else { return }
         plan = cached.plan
         asOf = cached.fetchedAt
     }
