@@ -248,12 +248,13 @@ struct ProfileView: View {
                 Text(verbatim: screens.push.lastResult ?? "—").font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
             }
             FieldLabel("API URL override")
-            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
+            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-            FieldLabel("Ingest URL override (compose: :8081)")
-            TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
+            FieldLabel("Ingest URL override (compose: :8081, needed with an API override)")
+            TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
+                      text: Bindable(settings).devIngestURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()

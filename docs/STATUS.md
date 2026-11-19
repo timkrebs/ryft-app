@@ -1,4 +1,31 @@
-# Status — 2026-11-05
+# Status — 2026-11-14
+
+## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
+
+Plan: `docs/work/2026-11-14-domain-ryftlab/plan.md`.
+
+2026-11-15: The sync (`POST /v1/sync`) now goes to `RYFT_INGEST_URL` = `https://ingest.ryftlab.de` (platform D217), and every other route to `api.ryftlab.de`, with no fallback between them. A build without an ingest URL fails `PlatformConfigTests`. In Debug, an API override needs its ingest override (compose: `:8081` ingest, `:8082` api). Simulator-verified only.
+
+The domain moved from `ryftapp.de` to `ryftlab.de` as a hard cut: there's no fallback, and `ryftapp.de` isn't served anymore. That covers the API (`api.ryftlab.de`), the legal pages and support, `trackers.json` and universal links. The old name stays in the dated entry "Session 2026-10-23 → 26", in `docs/work/2026-10-*` and in `docs/work/2026-11-06-alpine/`. Only the host changed; `redirectURL` stays `ryft://auth/callback`, and Associated Domains stays off.
+
+- **Verified on the simulator:** build with 0 warnings; unit tests: every host, deep-link and fixture test passes.
+- **Pre-existing failures, also on `main`:** `FocusedRowInViewTests`, `FocusedPolishHostedTests`, `RestPillHostedTests` and one `ImportTimeResolverTests` case fail on this Mac's only simulator, "iPhone Duo".
+- **Not verified on a device:** no build has talked to `api.ryftlab.de` yet.
+- **Release:** a merge ships with that night's nightly to Internal. No version bump: the marketing version stays 1.0.0, and the build number is the archive time.
+- **Your steps:**
+  - Supabase → Authentication → URL Configuration:
+    - move the Site URL to ryftlab.de;
+    - **delete every Redirect URL on the old domain**;
+    - keep `ryft://auth/callback`.
+    A leftover old-domain redirect would let whoever holds that domain later capture a reset session.
+  - Keep the old domain registered at least until the builds already out expire (about 2027-01-30): they still call its `api.` host with tokens and health data.
+    - Give it no `api.` record, a null MX and DMARC `p=reject`.
+    - Expire those builds in App Store Connect once the new one ships.
+  - App Store Connect: the TestFlight Test Information and App Information URLs.
+  - The demo account: the docs name `review@ryftlab.de`, which `seed_demo.sh` doesn't seed yet. Fill App Store Connect only after it does. Delete or move every Supabase account on an old-domain address.
+- **Platform:**
+  - Push `ryft.url`, `/v1/config` `privacy_policy_url` and the `trackers.json` help links on ryftlab.de: the app now ignores other hosts.
+  - The move to GCP changes the processors named in the privacy policy (`docs/APP_STORE.md` still says AWS eu-central-1).
 
 English only (`chore/english-only`): the app has no German, the catalogs carry no `de`, and tracker copy and the German UI test follow suit; open for the platform: `de` tracker text and the `Accept-Language` header.
 
@@ -592,8 +619,8 @@ Garmin Connect after 08:00).
    - the brief `CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md` plus `API_REQUESTS.md` → Tracker setup (§1 corrected: Garmin has
      resting HR);
    - `User.trackers`;
-   - `trackers.json` on ryftapp.de.
-2. **ryftapp.de/privacy:** problem reports include tracker ids and Check sync result codes; the daily catalog download (no
+   - `trackers.json` on ryftlab.de.
+2. **ryftlab.de/privacy:** problem reports include tracker ids and Check sync result codes; the daily catalog download (no
    account data); the tracker choice stays on the phone; vendor guides open vendor sites.
 3. **Turn `devices.setup` on** only after the platform deploy, the morning device check, and the TestFlight notes below.
 
@@ -770,7 +797,7 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
 - `NSHealthUpdateUsageDescription` (en + de) now says what's true; `docs/APP_STORE_METADATA.md`
   (both descriptions and the App Review notes) too. `PrivacyInfo.xcprivacy` unchanged (Health data
   was already declared; writing is not collection).
-- **Your step:** the privacy policy at ryftapp.de/privacy needs the same line (RYFT may write
+- **Your step:** the privacy policy at ryftlab.de/privacy needs the same line (RYFT may write
   strength workouts to Apple Health, opt-in).
 - **On your iPhone:** turn it on after a workout; the workout appears in Fitness / Health with
   RYFT as its source; the next sync doesn't list it twice on Strain. With a watch strength
@@ -1050,7 +1077,7 @@ examples), strict build, `make lint`, `make style`. Screens captured in the simu
   Apple" (without it the app says linking isn't switched on yet).
 - Once this is on TestFlight: both gates `on` on the platform (its `STATUS.md` →
   Accounts and sync, step 6).
-- `ryftapp.de/support` is named in the account-hint sheet; it has to exist.
+- `ryftlab.de/support` is named in the account-hint sheet; it has to exist.
 - ~~`Ryft/` and `RyftTests/` to synchronized folders~~ — done 2026-10-23 (#39).
 - `Package.resolved` on `main` doesn't match the package requirements (dependabot's
   swift-crypto 5.0.1; the resolver picks 4.5.2 and adds swift-issue-reporting). CI
@@ -1133,7 +1160,7 @@ error. Against compose (or in demo mode) all three show up.
 
 ### Universal links
 
-No `associated-domains` entitlement until `ryftapp.de` hosts an AASA with the app's paths (an empty array blocked launching; `make check-entitlements` now guards it). The
+No `associated-domains` entitlement until `ryftlab.de` hosts an AASA with the app's paths (an empty array blocked launching; `make check-entitlements` now guards it). The
 request is in `docs/API_REQUESTS.md`, with app ID `M77SKHKG63.dev.timkrebs.ryft` and the
 paths. `ryft://` links and notification taps work now.
 
@@ -1172,7 +1199,7 @@ for me.
 | Every view model and state machine tested | ✅ 318 unit tests, all green in Xcode |
 | Offline history works | ✅ in tests (`RepositoryOfflineTests`, SwiftData read models); ⏳ device check: airplane mode, relaunch, scroll 90 days |
 | Sandbox push arrives | ⏳ capability and registration done; device check open (Platform wiring → Device verification) |
-| A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftapp.de` and the platform's AASA paths |
+| A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftlab.de` and the platform's AASA paths |
 | Flags toggle without a rebuild | ✅ observation test; ⏳ device check: flip a flag on the platform, return to the app |
 | CI green, one nightly TestFlight build | ⏳ workflows written, not yet run: no GitHub remote push from here, and the ASC secrets and paid team are missing (`docs/CI.md`) |
 | Docs: ARCHITECTURE.md, CI.md, STATUS.md | ✅ |
@@ -1277,7 +1304,7 @@ no open *fix* rows.
 - **Release hygiene** (`9213d79`):
   - `ITSAppUsesNonExemptEncryption = NO`; background modes `fetch` only.
   - Graphite launch screen; no Mac or Vision Pro.
-  - Associated Domains `applinks:ryftapp.de`, with the universal-link auth callback.
+  - Associated Domains `applinks:ryftlab.de`, with the universal-link auth callback.
   - Version 1.0.0 with a timestamp build number.
   - `make archive` with `scripts/ExportOptions.plist`, and a Licences screen.
 - **Accessibility** (`89e3d9a`):
@@ -1309,7 +1336,7 @@ Only the account holder can do these; the full list is in `docs/APP_STORE.md` §
   `TEST_RUNNER_RYFT_DEMO_PASSWORD`.
 - **Simulator only so far**: HealthKit permission flow, Instruments memory peak on the first
   90-day sync, Network Link Conditioner, one iPad run (compatibility mode).
-- **Website**: `/privacy`, `/terms` and `/support` on ryftapp.de, and the AASA file for
+- **Website**: `/privacy`, `/terms` and `/support` on ryftlab.de, and the AASA file for
   `/auth/*`.
 - **App Store Connect**: age rating, App Privacy, Accessibility Nutrition Labels, DSA trader
   status, review notes.
@@ -1543,7 +1570,7 @@ contract points are in `docs/API_REQUESTS.md`.
   - **Log out and deletion** clear the session, `ResponseCache`, HealthKit anchors and
     per-user defaults. A different account on the phone also starts from scratch.
 - **Configuration**: `Config/Production.xcconfig` (committed) carries `RYFT_API_URL`
-  (`https://api.ryftapp.de`), `RYFT_SUPABASE_URL` and `RYFT_SUPABASE_PUBLISHABLE_KEY`,
+  (`https://api.ryftlab.de`), `RYFT_SUPABASE_URL` and `RYFT_SUPABASE_PUBLISHABLE_KEY`,
   exposed via Info.plist. Per-user server fields are gone. A missing value shows an in-app
   message.
   - Debug-only **Profile → Developer**: API/ingest URL overrides, API key mode for
@@ -1591,8 +1618,8 @@ contract points are in `docs/API_REQUESTS.md`.
 - **Release configuration → `Config/Production.xcconfig`.** Set it in Xcode (Project → Info
   → Configurations); per `CLAUDE.md` the project file isn't edited by hand. Until then,
   Release uses the git-ignored `Config/Release.xcconfig`, which includes it.
-- **Legal pages.** The consent line links `https://ryftapp.de/terms` and
-  `https://ryftapp.de/privacy`. Both must exist before release.
+- **Legal pages.** The consent line links `https://ryftlab.de/terms` and
+  `https://ryftlab.de/privacy`. Both must exist before release.
 
 ## Open
 

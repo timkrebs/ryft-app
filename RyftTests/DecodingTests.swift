@@ -66,7 +66,7 @@ struct DecodingTests {
         struct Payload: Decodable { let ryft: RyftPushInfo }
         let alert = try Fixture.decode(Payload.self, "push_alert").ryft
         #expect(alert.category == "MORNING_SCORE" && alert.day == "2026-10-19")
-        #expect(alert.url == "https://ryftapp.de/day/2026-10-19" && alert.kind == nil)
+        #expect(alert.url == "https://ryftlab.de/day/2026-10-19" && alert.kind == nil)
         let refresh = try Fixture.decode(Payload.self, "push_refresh").ryft
         #expect(refresh.kind == "refresh" && refresh.category == nil && refresh.url == nil)
     }
@@ -544,17 +544,17 @@ struct TrackerCatalogTests {
         }
         #expect(try help("https://support.garmin.com/en-US/")?.host == "support.garmin.com")
         #expect(try help("https://SUPPORT.garmin.com/")?.host != nil)
-        #expect(try help("https://ryftapp.de/setup/garmin")?.host == "ryftapp.de")
-        #expect(try help("https://ryftapp.de/help/sync")?.host == "ryftapp.de")
+        #expect(try help("https://ryftlab.de/setup/garmin")?.host == "ryftlab.de")
+        #expect(try help("https://ryftlab.de/help/sync")?.host == "ryftlab.de")
         // On RYFT's host, content pages only: never the universal-link routes, nor the root.
-        #expect(try help("https://ryftapp.de/auth/callback?code=x") == nil)
-        #expect(try help("https://ryftapp.de/invite/ABC123") == nil)
-        #expect(try help("https://ryftapp.de/") == nil)
+        #expect(try help("https://ryftlab.de/auth/callback?code=x") == nil)
+        #expect(try help("https://ryftlab.de/invite/ABC123") == nil)
+        #expect(try help("https://ryftlab.de/") == nil)
         // Exact hosts only: no other subdomain, no bare domain, no subdomain of RYFT's.
         #expect(try help("https://garmin.com/") == nil)
         #expect(try help("https://connect.garmin.com/") == nil)
-        #expect(try help("https://www.ryftapp.de/setup") == nil)
-        #expect(try help("https://evil.ryftapp.de/setup") == nil)
+        #expect(try help("https://www.ryftlab.de/setup") == nil)
+        #expect(try help("https://evil.ryftlab.de/setup") == nil)
         // Dropped, the rest of the copy kept: another host, a look-alike, http, a port, user info.
         #expect(try help("https://evil.example/garmin") == nil)
         #expect(try help("https://support.garmin.com.evil.example/") == nil)
@@ -566,7 +566,7 @@ struct TrackerCatalogTests {
         // Another tracker's host isn't Garmin's; a new id has only RYFT's until a release lists it.
         #expect(try help("https://support.ouraring.com/") == nil)
         #expect(try help("https://support.garmin.com/", id: "newtracker") == nil)
-        #expect(try help("https://ryftapp.de/setup/newtracker", id: "newtracker")?.host == "ryftapp.de")
+        #expect(try help("https://ryftlab.de/setup/newtracker", id: "newtracker")?.host == "ryftlab.de")
     }
 
     // MARK: a hostile remote copy (security review)
@@ -627,16 +627,16 @@ struct TrackerCatalogTests {
                 if id != "garmin" { $0["app_store_id"] = nil; $0["healthkit"] = nil }
             }).tracker(id)?.help
         }
-        for url in ["https://ryftapp.de/setup/../auth/callback", "https://ryftapp.de/setup/%2E%2E/invite/ABC",
-                    "https://ryftapp.de/setup/%2e./invite/ABC", "https://ryftapp.de/help/..%2Finvite/ABC",
-                    "https://ryftapp.de/help/./guide", "https://ryftapp.de/help/x%5Cy", "https://ryftapp.de/help/x%2fy",
+        for url in ["https://ryftlab.de/setup/../auth/callback", "https://ryftlab.de/setup/%2E%2E/invite/ABC",
+                    "https://ryftlab.de/setup/%2e./invite/ABC", "https://ryftlab.de/help/..%2Finvite/ABC",
+                    "https://ryftlab.de/help/./guide", "https://ryftlab.de/help/x%5Cy", "https://ryftlab.de/help/x%2fy",
                     "https://support.garmin.com/en-US/../x"] {
             #expect(try help(url) == nil, "\(url)")
         }
         #expect(try help("https://support.google.com/googlehealth/../accounts/x", id: "fitbit") == nil)
         #expect(try help("https://support.google.com/googlehealth/answer/%2E%2E/x", id: "fitbit") == nil)
         // Dots inside a segment are ordinary.
-        #expect(try help("https://ryftapp.de/help/v1.2/sync..guide") != nil)
+        #expect(try help("https://ryftlab.de/help/v1.2/sync..guide") != nil)
         #expect(try help("https://support.google.com/googlehealth/answer/17037331?hl=en", id: "fitbit") != nil)
     }
 

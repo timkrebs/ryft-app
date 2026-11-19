@@ -2,7 +2,7 @@ import Foundation
 
 /// A place in the app, from a URL, a notification's `ryft.url` or an insight.
 /// One parser for all of them. Universal links come as
-/// `https://ryftapp.de/<path>`; until an AASA is hosted (Associated Domains
+/// `https://ryftlab.de/<path>`; until an AASA is hosted (Associated Domains
 /// is empty), the same paths work as `ryft://<path>` and from notifications.
 ///
 /// | Path | Opens |
@@ -34,7 +34,7 @@ enum AppRoute: Equatable {
     /// A beta invite: the code fills in the invite step.
     case invite(code: String)
 
-    static let host = "ryftapp.de"
+    static let host = "ryftlab.de"
     static let scheme = "ryft"
 
     /// `nil` only for URLs that aren't ours (another host or scheme). Ours with a

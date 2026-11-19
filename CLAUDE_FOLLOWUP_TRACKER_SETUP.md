@@ -73,7 +73,7 @@ Oura · Polar · Suunto · COROS · Withings · Amazfit (Zepp) · Ultrahuman · 
 **Content source, so guides can change without an app release:** the guides are data, not code —
 `trackers.json` (id, display name, HealthKit bundle IDs and source names, capability matrix, setup steps en/de, habit
 tips en/de, vendor help URL, `checked` date). The app bundles a copy and fetches the latest from
-`https://ryftapp.de/trackers.json` (served by `../plattform/web`, cached, ETag) — file the request for the web side in
+`https://ryftlab.de/trackers.json` (served by `../plattform/web`, cached, ETag) — file the request for the web side in
 `docs/API_REQUESTS.md` (the web can also render `/setup/<tracker>` pages from the same file). Remote content is
 validated against a schema; on failure use the bundled copy.
 
