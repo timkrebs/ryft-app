@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Add sleep / Edit sleep (Nocturne PR 6 B §10.2, `b-20`): the sheet header (the Cancel circle, the title, a compact Save),
 /// when you went to bed and woke up as chips, the time between them live, the reasons under the times, and that the entry is
-/// "added by you" (the tracker's night wins later). Editing adds Delete this entry. Medium detent; large at accessibility sizes.
+/// "added by you" (the tracker's night wins later). Editing adds Delete this entry. Medium detent; large from xLarge.
 /// Saving writes on this iPhone first, so it works the same offline.
 struct AddSleepSheet: View {
     @State var model: AddSleepModel
@@ -14,29 +14,47 @@ struct AddSleepSheet: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var confirmsDelete = false
     @State private var announced: [AddSleepModel.Issue] = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title2) private var valueSize: CGFloat = ActivitiesLayout.sleepValueSize
+
+    /// The save error's place in the scroll view.
+    private static let saveErrorID = "addSleep.saveError"
+
+    /// From xLarge the form doesn't fit the medium detent: it opens large.
+    static func detents(for typeSize: DynamicTypeSize) -> Set<PresentationDetent> {
+        typeSize >= .xLarge ? [.large] : [.medium, .large]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if model.trackerHasNight {
-                        InlineMessage(message: String(localized: "Sleep was already recorded by \(MyDayAssembler.appleHealth).",
-                                                      comment: "Add sleep: the platform has a night for this day; its source."),
-                                      systemImage: "bed.double", identifier: "addSleep.exists")
-                    } else {
-                        if saveFailed {
-                            saveError.padding(.bottom, ActivitiesLayout.sleepIntroGap)
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if model.trackerHasNight {
+                            InlineMessage(message: String(localized: "Sleep was already recorded by \(MyDayAssembler.appleHealth).",
+                                                          comment: "Add sleep: the platform has a night for this day; its source."),
+                                          systemImage: "bed.double", identifier: "addSleep.exists")
+                        } else {
+                            if saveFailed {
+                                saveError.id(Self.saveErrorID).padding(.bottom, ActivitiesLayout.sleepIntroGap)
+                            }
+                            form
                         }
-                        form
+                    }
+                    .padding(.horizontal, Theme.Metrics.screenPadding)
+                    .padding(.top, ActivitiesLayout.headerGap)
+                    .padding(.bottom, ActivitiesLayout.bottomPadding)
+                }
+                .scrollIndicators(.hidden)
+                // Save is at the top, the form may be scrolled: bring the reason into view.
+                .onChange(of: saveFailed) { _, failed in
+                    guard failed else { return }
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+                        scroll.scrollTo(Self.saveErrorID, anchor: .top)
                     }
                 }
-                .padding(.horizontal, Theme.Metrics.screenPadding)
-                .padding(.top, ActivitiesLayout.headerGap)
-                .padding(.bottom, ActivitiesLayout.bottomPadding)
             }
-            .scrollIndicators(.hidden)
         }
         .background(Theme.background.ignoresSafeArea())
         .confirmationDialog(Text("Delete this sleep entry?"), isPresented: $confirmsDelete, titleVisibility: .visible) {
@@ -51,7 +69,7 @@ struct AddSleepSheet: View {
         } message: {
             Text("Your scores for that night are recalculated.", comment: "Delete a night the user added: what happens.")
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDetents(Self.detents(for: typeSize))
         .presentationDragIndicator(.visible)
         .presentationBackground(Theme.background)
         .accessibilityIdentifier("addSleep.sheet")
@@ -66,13 +84,15 @@ struct AddSleepSheet: View {
 
     // MARK: header
 
-    /// The Cancel circle · "Add sleep" / "Edit sleep" · Save (none where the tracker has the night): off until the night is
-    /// valid, its VoiceOver hint the first reason; busy while it writes.
+    /// The Cancel circle ("Close" where the tracker has the night: nothing to discard) · "Add sleep" / "Edit sleep" · Save
+    /// (none where the tracker has the night): off until the night is valid and once it saved, its VoiceOver hint the first
+    /// reason; busy while it writes.
     private var header: some View {
-        SheetHeader(Text(verbatim: model.title), closeLabel: Text("Cancel")) {
+        // nil: the sheet header's "Close".
+        SheetHeader(Text(verbatim: model.title), closeLabel: model.trackerHasNight ? nil : Text("Cancel")) {
             if !model.trackerHasNight {
                 PillButton(Text("Save"), size: .compact, busy: model.isSaving) { save() }
-                    .disabled(!model.issues.isEmpty)
+                    .disabled(!model.issues.isEmpty || model.didSave)
                     .accessibilityHint(Text(verbatim: model.issues.first.map(AddSleepModel.message) ?? ""))
                     .accessibilityIdentifier("addSleep.save")
                     // A compact pill keeps its one line (`SheetHeader`).
@@ -85,19 +105,21 @@ struct AddSleepSheet: View {
     }
 
     private func save() {
+        // Once saved, a second tap (the sheet is closing) does nothing.
+        guard model.canSave else { return }
         if model.save() {
             saveFailed = false
             onSaved()
             dismiss()
         } else {
             saveFailed = true
+            AccessibilityNotification.Announcement(AddActivitySheet.saveErrorMessage).post()
         }
     }
 
     private var saveError: some View {
-        InlineMessage(message: String(localized: "Couldn't save on this iPhone.",
-                                      comment: "Add activity or Add sleep: Save couldn't write the entry on the phone; the form stays. Try again follows."),
-                      systemImage: "exclamationmark.circle", retry: { save() }, identifier: "addSleep.saveError")
+        InlineMessage(message: AddActivitySheet.saveErrorMessage, systemImage: "exclamationmark.circle", retry: { save() },
+                      identifier: Self.saveErrorID)
     }
 
     // MARK: form
@@ -110,9 +132,14 @@ struct AddSleepSheet: View {
             .foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
         GroupedCard {
-            chipRow(Text("Went to bed"), selection: $model.bed,
-                    in: DayFormat.shift(model.earliestWake, days: -1)...model.now, id: "addSleep.bed")
-            chipRow(Text("Woke up"), selection: $model.wake, in: model.earliestWake...model.now, id: "addSleep.wake")
+            chipRow(Text("Went to bed"),
+                    date: Text("Date you went to bed", comment: "VoiceOver: Add sleep's chip for the bedtime's day."),
+                    time: Text("Time you went to bed", comment: "VoiceOver: Add sleep's chip for the bedtime."),
+                    selection: $model.bed, in: DayFormat.shift(model.earliestWake, days: -1)...model.now, id: "addSleep.bed")
+            chipRow(Text("Woke up"),
+                    date: Text("Date you woke up", comment: "VoiceOver: Add sleep's chip for the wake-up's day."),
+                    time: Text("Time you woke up", comment: "VoiceOver: Add sleep's chip for the wake-up time."),
+                    selection: $model.wake, in: model.earliestWake...model.now, id: "addSleep.wake")
         }
         .padding(.top, ActivitiesLayout.sleepIntroGap)
         ForEach(model.issues, id: \.self) { issue in
@@ -134,13 +161,14 @@ struct AddSleepSheet: View {
         }
     }
 
-    /// Went to bed or Woke up: the label and two chips, the date and the time. The date chip keeps the row's identifier; the
-    /// time chip adds `.time`.
-    private func chipRow(_ label: Text, selection: Binding<Date>, in range: ClosedRange<Date>, id: String) -> some View {
+    /// Went to bed or Woke up: the label and two chips, the date and the time, each named for VoiceOver. The date chip keeps
+    /// the row's identifier; the time chip adds `.time`.
+    private func chipRow(_ label: Text, date: Text, time: Text, selection: Binding<Date>, in range: ClosedRange<Date>,
+                         id: String) -> some View {
         ValueChipRow(label) {
-            ValueChip(label, date: selection, in: range, displayedComponents: .date)
+            ValueChip(date, date: selection, in: range, displayedComponents: .date)
                 .accessibilityIdentifier(id)
-            ValueChip(label, date: selection, in: range, displayedComponents: .hourAndMinute)
+            ValueChip(time, date: selection, in: range, displayedComponents: .hourAndMinute)
                 .accessibilityIdentifier("\(id).time")
         }
     }

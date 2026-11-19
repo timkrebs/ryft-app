@@ -3,8 +3,8 @@ import SwiftUI
 /// Splits (ui.md §7.1, Nocturne PR 6 B §10.3 item 4): one row per kilometre (the last one partial), its pace (or speed for
 /// cycling), a bar scaled to the fastest, and the climb. The table is in the unit its splits were measured in, kilometres and
 /// metres, whatever the locale (per-mile splits are A4's). The column header is `axis` in `textTertiary`; rows are at least
-/// 40 high with a hairline between them; the bars are `metricStrain` at 60 %, the fastest split's in ink with the word
-/// "Fastest" under its pace: never colour alone. Over 20 rows the table shows the first 10 and "Show all".
+/// 40 high with a hairline between them; the bars are `metricStrain` at 60 %, the fastest split's (each, on a tie as shown) in
+/// ink with the word "Fastest" under its pace: never colour alone. Over 20 rows the table shows the first 10 and "Show all".
 struct SplitsTable: View {
     let splits: [ActivitySplit]
     var paceStyle: TrackProfile.PaceStyle = .pace
@@ -28,9 +28,28 @@ struct SplitsTable: View {
         return s.distanceM / s.durationSec
     }
 
-    private var fastest: Int? {
-        splits.filter { speed($0) != nil }.max { (speed($0) ?? 0) < (speed($1) ?? 0) }?.index
+    /// The splits marked "Fastest" (by `index`): every split that reads as fast as the best, compared as shown (whole seconds
+    /// per kilometre, or tenths of km/h), so a tie on screen is a tie in the table. None with one split, or when every split
+    /// reads the same.
+    nonisolated static func fastest(_ splits: [ActivitySplit], paceStyle: TrackProfile.PaceStyle) -> Set<Int> {
+        func shown(_ s: ActivitySplit) -> Double? {
+            guard s.distanceM > 0, s.durationSec > 0 else { return nil }
+            switch paceStyle {
+            case .pace:
+                // Fewer seconds is faster: negated, so the largest wins either way. Past an hour per km it isn't shown.
+                let seconds = (s.durationSec / (s.distanceM / 1_000)).rounded()
+                return seconds < 3_600 ? -seconds : nil
+            case .speed:
+                return (s.distanceM / s.durationSec * 36).rounded()
+            }
+        }
+        let read = splits.compactMap { s in shown(s).map { (index: s.index, value: $0) } }
+        guard read.count > 1, let best = read.map(\.value).max() else { return [] }
+        let tied = Set(read.filter { $0.value == best }.map(\.index))
+        return tied.count == read.count ? [] : tied
     }
+
+    private var fastest: Set<Int> { Self.fastest(splits, paceStyle: paceStyle) }
 
     var body: some View {
         Card {
@@ -87,7 +106,7 @@ struct SplitsTable: View {
             ? ActivityFormat.speed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
             : ActivityFormat.pace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
         let climb = s.ascentM.flatMap { ActivityFormat.elevation($0, locale: locale, inMetres: true) }.map { "+\($0)" } ?? ""
-        let isFastest = s.index == fastest && splits.count > 1
+        let isFastest = fastest.contains(s.index)
         let label = Text(verbatim: ActivityFormat.splitLabel(s, locale: locale))
             .font(.ryft(.callout))
             .monospacedDigit()

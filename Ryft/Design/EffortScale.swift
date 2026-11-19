@@ -7,8 +7,9 @@ enum EffortScaleSpec {
     /// A circle: 46 at the default size, a 1 pt outline in `textPrimary` at 16 % (the circle button's ring).
     nonisolated static let diameter: CGFloat = 46
     nonisolated static let ringOpacity = CircleButton.borderOpacity
-    /// The circle grows with the text up to these (5 across fit the Add activity card at xxxLarge; 3 across from AX1).
-    nonisolated static let maxDiameter: CGFloat = 54, maxLargeTextDiameter: CGFloat = 84
+    /// The circle grows with the text up to these (5 across fit the Add activity card at xxxLarge on 390 pt; 3 across from AX1),
+    /// and never past its column less `minGap`, so two circles never touch (a 320 pt screen from xLarge).
+    nonisolated static let maxDiameter: CGFloat = 54, maxLargeTextDiameter: CGFloat = 84, minGap: CGFloat = 4
     /// The number: 17 at the default size (`ryftNumber`), growing with the text, never past 42 % of the circle.
     nonisolated static let numberSize: CGFloat = 17, numberShare: CGFloat = 0.42
     /// Five per row; three from AX1 (B §10.1).
@@ -19,6 +20,14 @@ enum EffortScaleSpec {
     /// The columns at a text size.
     nonisolated static func columns(for typeSize: DynamicTypeSize) -> Int {
         typeSize.isAccessibilitySize ? largeTextColumns : columns
+    }
+
+    /// The circle for the text's `scaled` size in a grid `width` wide (0: not measured yet): capped by the size's maximum and
+    /// by the column less `minGap`.
+    nonisolated static func diameter(scaled: CGFloat, typeSize: DynamicTypeSize, width: CGFloat) -> CGFloat {
+        let capped = min(scaled, typeSize.isAccessibilitySize ? maxLargeTextDiameter : maxDiameter)
+        guard width > 0 else { return capped }
+        return max(1, min(capped, width / CGFloat(columns(for: typeSize)) - minGap))
     }
 
     /// The selected circle: an ink fill with the number in `background` and Bold (17.35:1), so the pick is a shape and a weight,
@@ -38,6 +47,8 @@ struct EffortScale: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var scaledDiameter: CGFloat = EffortScaleSpec.diameter
     @ScaledMetric(relativeTo: .body) private var scaledNumber: CGFloat = EffortScaleSpec.numberSize
+    /// The grid's width, measured: the circles fit their columns.
+    @State private var width: CGFloat = 0
 
     static let range = 1...10
 
@@ -62,7 +73,7 @@ struct EffortScale: View {
     static func caption(_ value: Int) -> String { "\(value) · \(word(value))" }
 
     private var diameter: CGFloat {
-        min(scaledDiameter, typeSize.isAccessibilitySize ? EffortScaleSpec.maxLargeTextDiameter : EffortScaleSpec.maxDiameter)
+        EffortScaleSpec.diameter(scaled: scaledDiameter, typeSize: typeSize, width: width)
     }
 
     private var numberSize: CGFloat { min(scaledNumber, diameter * EffortScaleSpec.numberShare) }
@@ -78,6 +89,7 @@ struct EffortScale: View {
                     circle(n)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // Only once a value is picked: no empty line under the grid before.
             if let value {
                 Text(verbatim: Self.caption(value))

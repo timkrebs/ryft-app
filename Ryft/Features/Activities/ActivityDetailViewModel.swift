@@ -205,12 +205,15 @@ final class ActivityDetailViewModel {
         case value(Double)
         /// D7, scored: no heart rate for the time.
         case noHeartRate
-        /// R1/R2: heart rate may still arrive.
+        /// R1/R2: RYFT has the activity and heart rate may still arrive.
         case waiting
+        /// RYFT doesn't have it yet (this iPhone has no platform copy): unsent, offline, retrying, refused, gated, held
+        /// while the account is deleted, or not available yet. Nothing about heart rate can be said.
+        case notAtRYFT
     }
 
     var strainLine: StrainLine {
-        guard let a = activity else { return .waiting }
+        guard let a = activity else { return .notAtRYFT }
         if let value = a.strain {
             switch a.strainSource {
             case .heartRate?: return .heartRate(value, source: a.hrSource)
@@ -218,7 +221,9 @@ final class ActivityDetailViewModel {
             case .noSource?, nil: return .value(value)
             }
         }
-        return a.strainSource == .noSource ? .noHeartRate : .waiting
+        if a.strainSource == .noSource { return .noHeartRate }
+        // "Waiting for heart rate" only once the platform has it and is waiting.
+        return serverCopy == nil ? .notAtRYFT : .waiting
     }
 
     /// The tracker's name on a merged activity ("Garmin Connect").

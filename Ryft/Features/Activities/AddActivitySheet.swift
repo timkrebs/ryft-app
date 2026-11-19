@@ -15,6 +15,7 @@ struct AddActivitySheet: View {
     @Environment(TrainCoordinator.self) private var coordinator
     @Environment(\.locale) private var locale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @FocusState private var focus: Field?
     @State private var picksSport = false
     @State private var announced: [AddActivityModel.Issue] = []
@@ -22,39 +23,48 @@ struct AddActivitySheet: View {
 
     private enum Field { case distance, notes }
 
-    /// Whether the platform makes strain from perceived effort (open question 4, plan D2-4): the footer's second
-    /// sentence. Both variants stay until the contract says which applies.
-    static let effortMakesStrain = true
+    /// The save error's place in the scroll view.
+    private static let saveErrorID = "addActivity.saveError"
 
-    /// Save is off while a time, the distance or the notes need fixing (not while it saves: the pill is busy then).
+    /// Save is off while a time, the distance or the notes need fixing (not while it saves: the pill is busy then); it also
+    /// stays off once it saved, while the sheet closes (`didSave`).
     private var isValid: Bool { model.issues.isEmpty }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                ScrollView {
-                    VStack(alignment: .leading, spacing: ActivitiesLayout.blockSpacing) {
-                        if saveFailed { saveError }
-                        sportGroup
-                        if model.suggestsTrain {
-                            strengthSuggestion
-                        } else if model.sport == .strength, model.mode == .add {
-                            strengthNote
+                ScrollViewReader { scroll in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: ActivitiesLayout.blockSpacing) {
+                            if saveFailed { saveError.id(Self.saveErrorID) }
+                            sportGroup
+                            if model.suggestsTrain {
+                                strengthSuggestion
+                            } else if model.sport == .strength, model.mode == .add {
+                                strengthNote
+                            }
+                            whenGroup
+                            if model.showsDistance { distanceGroup }
+                            effortGroup
+                            notesGroup
+                            if model.sport != .strength { footer }
                         }
-                        whenGroup
-                        if model.showsDistance { distanceGroup }
-                        effortGroup
-                        notesGroup
-                        if model.sport != .strength { footer }
+                        .padding(.horizontal, Theme.Metrics.screenPadding)
+                        .padding(.top, ActivitiesLayout.headerGap)
+                        .padding(.bottom, ActivitiesLayout.bottomPadding)
+                        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.suggestsTrain)
                     }
-                    .padding(.horizontal, Theme.Metrics.screenPadding)
-                    .padding(.top, ActivitiesLayout.headerGap)
-                    .padding(.bottom, ActivitiesLayout.bottomPadding)
-                    .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.suggestsTrain)
+                    .scrollIndicators(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
+                    // Save is at the top, the form may be scrolled: bring the reason into view.
+                    .onChange(of: saveFailed) { _, failed in
+                        guard failed else { return }
+                        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+                            scroll.scrollTo(Self.saveErrorID, anchor: .top)
+                        }
+                    }
                 }
-                .scrollIndicators(.hidden)
-                .scrollDismissesKeyboard(.interactively)
             }
             .background(Theme.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
@@ -90,7 +100,7 @@ struct AddActivitySheet: View {
     private var header: some View {
         SheetHeader(Text(verbatim: model.title), closeLabel: Text("Cancel")) {
             PillButton(Text("Save"), size: .compact, busy: model.isSaving) { save() }
-                .disabled(!isValid)
+                .disabled(!isValid || model.didSave)
                 .accessibilityHint(Text(verbatim: model.issues.first.map(AddActivityModel.message) ?? ""))
                 .accessibilityIdentifier("addActivity.save")
                 // A compact pill keeps its one line (`SheetHeader`).
@@ -102,20 +112,28 @@ struct AddActivitySheet: View {
     }
 
     private func save() {
+        // Once saved, a second tap (the sheet is closing) does nothing: no second activity, no error.
+        guard model.canSave else { return }
         if model.save() {
             saveFailed = false
             onSaved()
             dismiss()
         } else {
             saveFailed = true
+            // Every failed try is said, a Try again that fails too included.
+            AccessibilityNotification.Announcement(Self.saveErrorMessage).post()
         }
+    }
+
+    static var saveErrorMessage: String {
+        String(localized: "Couldn't save on this iPhone.",
+               comment: "Add activity or Add sleep: Save couldn't write the entry on the phone; the form stays. Try again follows.")
     }
 
     /// Nothing could be written (signed out meanwhile, the row gone): the form stays as typed.
     private var saveError: some View {
-        InlineMessage(message: String(localized: "Couldn't save on this iPhone.",
-                                      comment: "Add activity or Add sleep: Save couldn't write the entry on the phone; the form stays. Try again follows."),
-                      systemImage: "exclamationmark.circle", retry: { save() }, identifier: "addActivity.saveError")
+        InlineMessage(message: Self.saveErrorMessage, systemImage: "exclamationmark.circle", retry: { save() },
+                      identifier: Self.saveErrorID)
     }
 
     // MARK: sport
@@ -171,8 +189,12 @@ struct AddActivitySheet: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 GroupedCard {
-                    chipRow(Text("Start"), selection: $model.start, in: model.earliest...model.now, id: "addActivity.start")
-                    chipRow(Text("End"), selection: $model.end, in: model.start...max(model.start, model.now), id: "addActivity.end")
+                    chipRow(Text("Start"), date: Text("Start date", comment: "VoiceOver: Add activity's chip for the start's day."),
+                            time: Text("Start time", comment: "VoiceOver: Add activity's chip for the start's time."),
+                            selection: $model.start, in: model.earliest...model.now, id: "addActivity.start")
+                    chipRow(Text("End"), date: Text("End date", comment: "VoiceOver: Add activity's chip for the end's day."),
+                            time: Text("End time", comment: "VoiceOver: Add activity's chip for the end's time."),
+                            selection: $model.end, in: model.start...max(model.start, model.now), id: "addActivity.end")
                     durationRow
                 }
                 issueLines(model.issues.filter(Self.isTimeIssue))
@@ -184,45 +206,93 @@ struct AddActivitySheet: View {
         [.endInFuture, .endBeforeStart, .longerThanADay, .startTooEarly].contains(issue)
     }
 
-    /// Start or End: the label and two chips, the date and the time (the system's compact pickers behind them). From AX1 the
-    /// chips go under the label (`ValueChipRow`). The date chip keeps the row's identifier; the time chip adds `.time`.
-    private func chipRow(_ label: Text, selection: Binding<Date>, in range: ClosedRange<Date>, id: String) -> some View {
+    /// Start or End: the label and two chips, the date and the time (the system's compact pickers behind them, named "Start
+    /// date", "Start time" for VoiceOver). The chips go under the label from AX1, or where it wouldn't keep its line
+    /// (`ValueChipRow`). The date chip keeps the row's identifier; the time chip adds `.time`.
+    private func chipRow(_ label: Text, date: Text, time: Text, selection: Binding<Date>, in range: ClosedRange<Date>,
+                         id: String) -> some View {
         ValueChipRow(label) {
-            ValueChip(label, date: selection, in: range, displayedComponents: .date)
+            ValueChip(date, date: selection, in: range, displayedComponents: .date)
                 .accessibilityIdentifier(id)
-            ValueChip(label, date: selection, in: range, displayedComponents: .hourAndMinute)
+            ValueChip(time, date: selection, in: range, displayedComponents: .hourAndMinute)
                 .accessibilityIdentifier("\(id).time")
         }
     }
 
-    /// "Duration" · "(next day)" across midnight · "1h 00m" in 20 Light; one line at every size.
+    /// "Duration" · "(next day)" across midnight · "1h 00m" in 20 Light, on one line while they fit; from AX1, or where they
+    /// don't (320 pt at xxxLarge across midnight), the value and "(next day)" go under the label, one under the other if need be.
     private var durationRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("Duration")
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-            Spacer(minLength: 8)
-            if model.crossesMidnight {
-                Text("(next day)", comment: "Add activity: the end is on the day after the start.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .fixedSize()
+        Group {
+            if typeSize.isAccessibilitySize {
+                durationStacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: ActivitiesLayout.durationGap) {
+                        durationLabel
+                        Spacer(minLength: ActivitiesLayout.durationGap)
+                        if model.crossesMidnight { nextDay }
+                        durationValue
+                    }
+                    durationStacked
+                }
             }
-            Text(verbatim: Fmt.duration(seconds: model.duration))
-                .font(.ryftNumber(size: durationSize, weight: .light))
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(1)
-                .fixedSize()
         }
         .padding(.horizontal, GroupedListSpec.rowInset)
         .padding(.vertical, GroupedListSpec.textPadding)
         .frame(maxWidth: .infinity, minHeight: ActivitiesLayout.durationRowMinHeight, alignment: .leading)
         .groupedRowHairline()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Duration, \(MyDayRow.spokenDuration(model.duration))",
-                                 comment: "VoiceOver: the activity's duration, spelled out."))
+        .accessibilityLabel(durationSpoken)
         .accessibilityIdentifier("addActivity.duration")
+    }
+
+    private var durationStacked: some View {
+        VStack(alignment: .leading, spacing: ActivitiesLayout.durationStackGap) {
+            durationLabel
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: ActivitiesLayout.durationGap) {
+                    durationValue
+                    if model.crossesMidnight { nextDay }
+                }
+                VStack(alignment: .leading, spacing: ActivitiesLayout.durationStackGap) {
+                    durationValue
+                    if model.crossesMidnight { nextDay }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var durationLabel: some View {
+        Text("Duration")
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var nextDay: some View {
+        Text("(next day)", comment: "Add activity: the end is on the day after the start.")
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var durationValue: some View {
+        Text(verbatim: Fmt.duration(seconds: model.duration))
+            .font(.ryftNumber(size: durationSize, weight: .light))
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    /// "Duration, 1 hour", and across midnight "Duration, 1 hour, ends the next day": the "(next day)" said, not only shown.
+    private var durationSpoken: Text {
+        let spoken = MyDayRow.spokenDuration(model.duration)
+        return model.crossesMidnight
+            ? Text("Duration, \(spoken), ends the next day",
+                   comment: "VoiceOver: the activity's duration, spelled out; its end is on the day after the start.")
+            : Text("Duration, \(spoken)", comment: "VoiceOver: the activity's duration, spelled out.")
     }
 
     /// A recorded (or merged) activity: its times as measured, shown, not editable.
@@ -252,10 +322,12 @@ struct AddActivitySheet: View {
                         .focused($focus, equals: .distance)
                         .accessibilityIdentifier("addActivity.distance")
                     } trailing: {
+                        // Said after the field ("miles"), not only shown: the number alone doesn't say the unit.
                         Text(verbatim: ActivityFormat.distanceSymbol(locale))
                             .font(.ryft(.callout))
                             .foregroundStyle(Theme.textSecondary)
-                            .accessibilityHidden(true)
+                            .accessibilityLabel(Text(verbatim: Self.unitName(locale)))
+                            .accessibilityIdentifier("addActivity.distanceUnit")
                     }
                 }
             }
@@ -325,9 +397,18 @@ struct AddActivitySheet: View {
         }
     }
 
-    /// Where strain comes from, as a fact at the bottom.
+    /// The distance unit's name for VoiceOver: "miles" or "kilometers", the locale's word.
+    static func unitName(_ locale: Locale) -> String {
+        let formatter = MeasurementFormatter()
+        formatter.locale = locale
+        formatter.unitStyle = .long
+        return formatter.string(from: ActivityFormat.distanceUnit(locale))
+    }
+
+    /// Where strain comes from, as a fact at the bottom: the effort rating only for a sport it makes strain for, so the
+    /// detail never says otherwise (mobility: "Without heart rate there is no strain for this activity.").
     private var footer: some View {
-        Text(Self.effortMakesStrain
+        Text(model.effortMakesStrain
              ? String(localized: "Strain comes from the heart rate your tracker syncs for this time. Without it, your effort rating is used.")
              : String(localized: "Without heart rate there is no strain for this activity."))
             .font(.ryft(.caption))
@@ -492,6 +573,7 @@ private enum AddPreview {
     .previewEnvironment(AddPreview.state)
 }
 
+#if DEBUG
 #Preview("Add activity · saving") {
     Color.clear.sheet(isPresented: .constant(true)) {
         AddActivitySheet(model: AddPreview.add {
@@ -501,6 +583,7 @@ private enum AddPreview {
     }
     .previewEnvironment(AddPreview.state)
 }
+#endif
 
 #Preview("Add activity · couldn't save") {
     Color.clear.sheet(isPresented: .constant(true)) {

@@ -48,24 +48,43 @@ final class AddActivityUITests: XCTestCase {
         entry.tap()
         XCTAssertTrue(app.otherElements["addActivity.sheet"].waitForExistence(timeout: wait), "the Add activity sheet")
         XCTAssertTrue(app.datePickers["addActivity.start"].waitForExistence(timeout: wait))
-        let startDate = dateChip("addActivity.start", in: app).value as? String
-        let endDate = dateChip("addActivity.end", in: app).value as? String
-        XCTAssertNotNil(startDate)
+        let startDate = shown(dateChip("addActivity.start", in: app), as: Self.date, "the start's date")
+        let endDate = shown(dateChip("addActivity.end", in: app), as: Self.date, "the end's date")
         XCTAssertEqual(startDate, endDate, "the default window starts today, not yesterday")
+        // Each chip has its own name for VoiceOver (the row's label is read before them).
+        for (id, name) in [("addActivity.start", "Start date"), ("addActivity.start.time", "Start time"),
+                           ("addActivity.end", "End date"), ("addActivity.end.time", "End time")] {
+            XCTAssertEqual(app.datePickers[id].label, name, "\(id) is named")
+        }
     }
 
     // Start and End are two chips each (Nocturne PR 6 B §10.1): the date (the row's identifier) and the time (`.time`),
-    // each the system's compact picker behind the chip. The picker's one button is "Date Picker" or "Time Picker"; its value
-    // is what the chip shows.
+    // each the system's compact picker behind the chip. The picker's one button is "Date Picker" or "Time Picker"; what the
+    // chip shows is its value, or on releases that put it there, its label.
 
-    /// The date chip's button (value "Nov 19, 2026").
+    /// The date chip's button ("Nov 19, 2026").
     private func dateChip(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
         app.datePickers[identifier].buttons.firstMatch
     }
 
-    /// The time chip's button (value "10:29 AM").
+    /// The time chip's button ("10:29 AM").
     private func timeChip(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
         app.datePickers["\(identifier).time"].buttons.firstMatch
+    }
+
+    /// "Nov 19, 2026" (en_US, the launch's locale).
+    private static let date = #"^[A-Z][a-z]{2} \d{1,2}, \d{4}$"#
+    /// "10:29 AM", with a plain or a narrow no-break space.
+    private static let time = #"^\d{1,2}:\d{2}[\s\x{202F}]?[AP]M$"#
+
+    /// What a chip shows: its button's value, else its label; it must read as a date or a time (`pattern`), so a lookup that
+    /// lands on the button's name ("Date Picker") fails here rather than comparing two names.
+    private func shown(_ chip: XCUIElement, as pattern: String, _ what: String) -> String {
+        XCTAssertTrue(chip.exists, "\(what): the chip")
+        let value = (chip.value as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let text = value ?? chip.label
+        XCTAssertNotNil(text.range(of: pattern, options: .regularExpression), "\(what) reads as a date or time: \(text)")
+        return text
     }
 
     /// The detail's pushed header: its label is the title.
@@ -115,11 +134,9 @@ final class AddActivityUITests: XCTestCase {
     /// Moves the start's hour to the end's, so both are the same minute (the end picker's range follows the start).
     /// Only the hour and AM/PM wheels move; the minute is already equal because the default start is an hour before.
     private func setStartToEnd(_ app: XCUIApplication) {
-        let endTime = timeChip("addActivity.end", in: app)
-        XCTAssertTrue(endTime.exists, "the end's time chip")
-        let shown = endTime.value as? String ?? ""
-        let digits = shown.prefix { $0 != ":" }
-        let suffix = shown.uppercased().contains("PM") ? "PM" : "AM"
+        let endTime = shown(timeChip("addActivity.end", in: app), as: Self.time, "the end's time")
+        let digits = endTime.prefix { $0 != ":" }
+        let suffix = endTime.uppercased().contains("PM") ? "PM" : "AM"
 
         timeChip("addActivity.start", in: app).tap()
         let wheels = app.pickerWheels
@@ -260,6 +277,12 @@ final class AddActivityUITests: XCTestCase {
         addSleep.tap()
         XCTAssertTrue(app.otherElements["addSleep.sheet"].waitForExistence(timeout: wait), "the Add sleep sheet")
         XCTAssertTrue(app.descendants(matching: .any)["addSleep.duration"].waitForExistence(timeout: wait), "Time asleep, live")
+        for (id, name) in [("addSleep.bed", "Date you went to bed"), ("addSleep.bed.time", "Time you went to bed"),
+                           ("addSleep.wake", "Date you woke up"), ("addSleep.wake.time", "Time you woke up")] {
+            XCTAssertEqual(app.datePickers[id].label, name, "\(id) is named")
+        }
+        _ = shown(dateChip("addSleep.wake", in: app), as: Self.date, "the wake-up's date")
+        _ = shown(timeChip("addSleep.wake", in: app), as: Self.time, "the wake-up's time")
         XCTAssertTrue(app.buttons["addSleep.save"].isEnabled, "the default night (23:00 to 07:00) is valid")
         app.buttons["addSleep.save"].tap()
         waitForAbsence(of: app.otherElements["addSleep.sheet"], "the sheet closes on Save")

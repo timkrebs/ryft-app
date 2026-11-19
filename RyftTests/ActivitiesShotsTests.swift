@@ -13,14 +13,15 @@ import UIKit
 @Suite("T6B.7: Add activity, Add sleep and the activity detail, shots", .serialized)
 struct ActivitiesShotsTests {
     /// The screens, each its own test (a test has a minute).
-    nonisolated static let screens = ["add-empty", "add-filled", "add-strength", "add-saving", "add-error", "add-recorded",
-                                      "sport-picker", "sleep-new", "sleep-edit", "detail-manual", "detail-effort", "detail-run",
-                                      "detail-pending", "detail-offline"]
+    nonisolated static let screens = ["add-empty", "add-filled", "add-midnight", "add-strength", "add-saving", "add-error",
+                                      "add-recorded", "sport-picker", "sleep-new", "sleep-edit", "detail-manual", "detail-effort",
+                                      "detail-run", "detail-pending", "detail-offline"]
 
     private static func view(_ name: String) -> AnyView {
         switch name {
         case "add-empty": return AnyView(ActivitiesShotFixtures.add { _ in })
         case "add-filled": return AnyView(ActivitiesShotFixtures.add(ActivitiesShotFixtures.fill))
+        case "add-midnight": return AnyView(ActivitiesShotFixtures.add(ActivitiesShotFixtures.acrossMidnight))
         case "add-strength": return AnyView(ActivitiesShotFixtures.add { $0.sport = .strength })
         case "add-saving": return AnyView(ActivitiesShotFixtures.saving())
         case "add-error": return AnyView(ActivitiesShotFixtures.failed())
@@ -91,11 +92,21 @@ enum ActivitiesShotFixtures {
         model.effort = 7
     }
 
-    /// The form as Save writes it (the busy commit).
+    /// The draft's form from 23:30 two days back to 00:30: the Duration row says "(next day)".
+    static func acrossMidnight(_ model: AddActivityModel) {
+        fill(model)
+        let evening = Calendar.current.date(bySettingHour: 23, minute: 30, second: 0, of: DayFormat.shift(.now, days: -2)) ?? .now
+        model.start = evening
+        model.end = evening.addingTimeInterval(3_600)
+    }
+
+    /// The form as Save writes it (the busy commit). `previewSaving` is Debug's; tests build Debug.
     static func saving() -> some View {
         add { model in
             fill(model)
+            #if DEBUG
             model.previewSaving()
+            #endif
         }
     }
 
