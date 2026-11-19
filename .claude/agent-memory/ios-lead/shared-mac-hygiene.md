@@ -26,3 +26,5 @@ The Mac, the repo and the scratchpad are shared: my agents, a parallel ios-lead 
 - Push an integration branch after every merge, and recreate a missing worktree from its branch
   (`git worktree add <path> <branch>`, then copy the Config xcconfigs and fonts) instead of assuming it is there.
 - UI smoke at 834 s fits the 25-minute cap (#123) even at peak load; a timeout is a real signal now.
+- Before claiming an ADR number, list `docs/adr/` on every remote branch *and* the user's checkout (untracked files too):
+  on 2026-11-19 a parallel lead's App Attest ADR took 0023 in the checkout while my plan had assigned 0023 to O6.

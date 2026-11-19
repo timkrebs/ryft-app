@@ -41,3 +41,4 @@
 - [Autosave editors](review-checks-autosave-editors.md) — save chains awaiting the network, stale drafts in other tabs, async Turn off, conditional push hosts
 - [Setting editors](review-checks-setting-editors.md) — waitsForConnectivity hangs, failure-time offline, page-local busy, account-blind editors, off-grid steps
 - [Widget surfaces + Live Activities](review-checks-widget-surfaces.md) — privacySensitive escapes placeholder (probed), per-device accessory sizes, test-only models, Volt scope, ages
+- [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
