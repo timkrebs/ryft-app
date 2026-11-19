@@ -59,15 +59,17 @@ struct ImpactIntervalBar: View {
     }
 }
 
-/// Insights → Behaviors: unlocked effects first, then the ones still locked, in
-/// the platform's order (never re-sorted here).
+/// Insights → Habits (the user's F1: "Habits" wherever the app shows the journal's behaviors; the API keeps its name):
+/// unlocked effects first, then the ones still locked, in the platform's order (never re-sorted here).
 struct BehaviorsSection: View {
     let impacts: BehaviorImpacts
     @State private var expanded: Set<UUID> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Behaviors").ryftLabelStyle()
+        VStack(alignment: .leading, spacing: InsightsLayout.labelToCards) {
+            Text("Habits", comment: "Insights: the label above how the journal's habits change the morning after.")
+                .ryftLabelStyle()
+                .accessibilityAddTraits(.isHeader)
             Card {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(impacts.impacts) { impact in
@@ -91,13 +93,13 @@ struct BehaviorsSection: View {
         }
     }
 
-    /// Significant: coloured by direction × polarity (CHART_STYLE → Readouts), so a
-    /// drop in recovery is never teal. Otherwise muted.
+    /// Significant: coloured by direction × polarity as `DeltaLabel` colours a change (L27: a good change in the metric's
+    /// own colour, never teal unless the metric is recovery; a bad one in `alert`). Otherwise muted.
     static func color(_ effect: BehaviorEffect, spec: MetricSpec) -> Color {
         guard effect.significant else { return Theme.textTertiary }
         switch spec.polarity {
-        case .higherIsBetter: return effect.delta >= 0 ? Theme.accent : Theme.alert
-        case .lowerIsBetter: return effect.delta <= 0 ? Theme.accent : Theme.alert
+        case .higherIsBetter: return effect.delta >= 0 ? DeltaLabel.goodColor(spec) : Theme.alert
+        case .lowerIsBetter: return effect.delta <= 0 ? DeltaLabel.goodColor(spec) : Theme.alert
         case .neutral: return Theme.textSecondary
         }
     }
@@ -191,8 +193,8 @@ struct BehaviorsSection: View {
     }
 }
 
-#Preview("Behaviors", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("Habits", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         BehaviorsSection(impacts: MockJournal.impacts)
     }
 }
