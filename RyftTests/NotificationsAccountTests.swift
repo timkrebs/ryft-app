@@ -3,7 +3,8 @@ import Testing
 @testable import Ryft
 
 // PR 6 C's fix round (6c8): Notifications. A queued save is the account's that made it (security review S1), it waits
-// as every settings write does (review S3: `SettingsWrite`), and a failed question leaves the user marked (review S5).
+// as every settings write does (review S3: `SettingsWrite`), and a failed question leaves the user marked (review S5). A save
+// that may have saved marks the user whether it's the latest or not, and a later success reads the settings back (round 2).
 // Synthetic data only (Alex Doe).
 
 // MARK: - Notifications: a queued save is the account's (S1)
@@ -67,6 +68,61 @@ struct NotificationAccountTests {
         #expect(model.failure == nil)
     }
 
+    @Test("A signs out while a PATCH is out, nobody signs in: the queued second is never sent, the page shows no one's change",
+          .timeLimit(.minutes(1)))
+    func aSignOutAloneDropsTheQueue() async throws {
+        let h = WipeHarness()
+        let api = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let model = model(h)
+        let hold = RequestHold()
+        api.beforePatchNotifications = { await hold.wait() }
+        let first = Task { await model.set(.pr, on: false) }
+        #expect(await eventually { hold.waiting == 1 })
+        let second = Task { await model.set(.morningScore, on: false) }
+        #expect(await eventually { !model.isOn(.morningScore) })
+
+        await h.auth.signOut()
+        #expect(!h.auth.isSignedIn)
+        #expect(await eventually { !model.saving }, "the queue is cancelled at the sign-out itself")
+        #expect(model.isOn(.pr) && model.isOn(.morningScore), "neither of A's changes shows")
+        hold.release()
+        await first.value
+        await second.value
+        #expect(api.count("patchNotifications") == 1 && api.prefs.isOn(.morningScore), "the second never went")
+        #expect(model.isOn(.pr) && model.isOn(.morningScore) && model.failure == nil, "A's late answer changed nothing")
+    }
+
+    @Test("Demo data off while demo's PATCH is out: the queued second goes to neither, the page shows the account's settings",
+          .timeLimit(.minutes(1)))
+    func demoOffDropsTheQueue() async throws {
+        let h = WipeHarness(demo: true)
+        let account = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let demo = try #require(h.env.demoAPI as? MockPlatformAPI)
+        // The account's settings as its store has them: PRs off.
+        var user = MockData.user
+        user.notifications = NotificationPrefs(categories: [NotificationCategory.pr.rawValue: false], quietHours: nil)
+        h.state.repository.writingToAccountStore { h.state.user = user }
+        let model = model(h)
+        #expect(model.isOn(.pr), "demo data's settings")
+        let hold = RequestHold()
+        demo.beforePatchNotifications = { await hold.wait() }
+        let first = Task { await model.set(.sessionScored, on: false) }
+        #expect(await eventually { hold.waiting == 1 })
+        let second = Task { await model.set(.morningScore, on: false) }
+        #expect(await eventually { !model.isOn(.morningScore) })
+
+        h.env.settings.demoMode = false
+        h.state.reset()
+        #expect(await eventually { !model.saving }, "the queue is cancelled")
+        #expect(!model.isOn(.pr) && model.isOn(.morningScore) && model.isOn(.sessionScored), "the account's, as its store has them")
+        hold.release()
+        await first.value
+        await second.value
+        #expect(demo.count("patchNotifications") == 1 && account.count("patchNotifications") == 0)
+        #expect(demo.prefs.isOn(.morningScore) && account.prefs.isOn(.morningScore) && account.prefs.isOn(.sessionScored))
+        #expect(!model.isOn(.pr) && model.isOn(.sessionScored) && model.failure == nil, "demo's late answer changed nothing")
+    }
+
     @Test("No answer, and RYFT can't be asked: the cached user is marked, so the next refresh asks (S5)")
     func aFailedQuestionMarksTheUser() async throws {
         let api = MockPlatformAPI()
@@ -89,6 +145,74 @@ struct NotificationAccountTests {
         #expect(api.count("me") == asked + 1, "marked: the next .ifStale refresh asks")
         try await state.repository.refreshUser()
         #expect(api.count("me") == asked + 1, "asked once: the mark went with the answer")
+    }
+}
+
+// MARK: - a save that may have saved, the latest or not (review 2, item 2)
+
+/// Counts the calls a hook sees, from any thread.
+private final class Calls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+
+    func next() -> Int { lock.withLock { n += 1; return n } }
+}
+
+@MainActor
+struct NotificationUnsureSaveTests {
+    /// Save 1 (PRs off) held at the platform and given up on after 25 s while save 2 (morning score off) waits behind it;
+    /// save 2 then held on its way. The second hold is the one `PATCH 2` waits on.
+    private func oneUnanswered() async -> (NotificationSettingsViewModel, AppState, MockPlatformAPI, first: RequestHold,
+                                             second: RequestHold, Task<Void, Never>, Task<Void, Never>) {
+        let clock = TestClock()
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: clock, flags: [.pushEnabled: true])
+        let state = AppState(env: env)
+        state.user = MockData.user
+        let model = NotificationSettingsViewModel(state: state, push: PushRegistrar(env: env))
+        let holds = (RequestHold(), RequestHold())
+        let calls = Calls()
+        api.beforePatchNotifications = { if calls.next() == 1 { await holds.0.wait() } else { await holds.1.wait() } }
+        let one = Task { await model.set(.pr, on: false) }
+        #expect(await eventually { holds.0.waiting == 1 && clock.pendingSleeps == 1 })
+        let two = Task { await model.set(.morningScore, on: false) }
+        #expect(await eventually { !model.isOn(.morningScore) })
+        clock.advance(by: SettingsWrite.deadline)
+        await one.value
+        #expect(await eventually { holds.1.waiting == 1 }, "save 2 went once save 1 gave up")
+        return (model, state, api, holds.0, holds.1, one, two)
+    }
+
+    @Test("Save 1 gets no answer while save 2 waits behind it: no words for it, but the cached user is marked", .timeLimit(.minutes(1)))
+    func anEarlierUnansweredSaveMarksTheUser() async throws {
+        let (model, state, api, first, second, _, two) = await oneUnanswered()
+        #expect(model.failure == nil && model.saving, "not the latest: its failure isn't the page's to say")
+        let asked = api.count("me")
+        try await state.repository.refreshUser()
+        #expect(api.count("me") == asked + 1, "marked: the next .ifStale refresh asks")
+        first.release()
+        second.release()
+        await two.value
+    }
+
+    @Test("Save 2 succeeds after save 1 got no answer, and save 1 lands after it: the page reads RYFT's settings back once",
+          .timeLimit(.minutes(1)))
+    func aLaterSuccessReadsTheSettingsBack() async throws {
+        let (model, state, api, first, second, _, two) = await oneUnanswered()
+        let meHold = RequestHold()
+        api.beforeMeRead = { await meHold.wait() }
+        let asked = api.count("me")
+        second.release()
+        #expect(await eventually { meHold.waiting == 1 }, "save 2 answered; RYFT is asked again")
+        #expect(model.isOn(.pr) && !model.isOn(.morningScore), "save 2's answer: save 1 hadn't landed")
+        // The abandoned write lands now, after the newer one.
+        first.release()
+        #expect(await eventually { !api.prefs.isOn(.pr) })
+        meHold.release()
+        await two.value
+        #expect(api.count("me") == asked + 1, "read back once")
+        #expect(!model.isOn(.pr) && !model.isOn(.morningScore), "the page shows what RYFT holds")
+        #expect(state.user?.notifications.isOn(.pr) == false && model.failure == nil)
     }
 }
 

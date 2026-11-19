@@ -14,6 +14,10 @@ import Observation
 /// `env.api`): another account or the switch before its turn and it isn't sent, while it's out and its answer is dropped,
 /// and the queue is cancelled (PR 6 C security review S1). A save waits as every settings write does (`SettingsWrite`):
 /// one attempt, an answer within 25 s or none, none at once when the network goes.
+///
+/// A save that may have saved (no answer, an unreadable answer, a `5xx`) marks the cached user, the latest or not, so the
+/// next refresh asks (`Repository.userMayDiffer`); only the latest asks at once. Since such a write may still land after a
+/// newer one, the next save that succeeds reads the settings back once and shows what RYFT holds (PR 6 C review 2).
 @MainActor
 @Observable
 final class NotificationSettingsViewModel {
@@ -39,6 +43,9 @@ final class NotificationSettingsViewModel {
     @ObservationIgnored private var accountWatch: ObservationWatch?
     /// RYFT asked again after a change that may have saved, while it's out (`askAgain`; tests await it).
     private(set) var asking: Task<Void, Never>?
+    /// An earlier save may have saved without an answer, and may still land after a later one: the next save that succeeds
+    /// reads the settings back once (`send`).
+    @ObservationIgnored private var unsure = false
 
     /// A change is on its way: every switch and time chip waits for it.
     var saving: Bool { inFlight > 0 }
@@ -202,29 +209,58 @@ final class NotificationSettingsViewModel {
             // A later change is on its way: its answer is the one to show.
             guard mine == saves else { return }
             prefs = saved
+            let readBack = unsure
+            unsure = false
             // The user as the platform has it now, these settings with it: asked again, not assembled here from the
             // cached user, which a change of the user stored meanwhile (the withdrawal) may already have replaced.
-            try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
+            guard readBack else {
+                try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
+                return
+            }
+            // An earlier save got no answer and may have landed after this one: the page shows what RYFT holds now (once).
+            await readSettingsBack(mine: mine, binding: binding)
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.
             guard binding.isCurrent(in: state.env) else { return }
+            // Cancelled on its way, it may still have saved: the next refresh asks.
+            mayHaveSaved()
             if mine == saves { prefs = confirmed }
         } catch {
-            guard binding.isCurrent(in: state.env), mine == saves else { return }
-            prefs = confirmed
+            guard binding.isCurrent(in: state.env) else { return }
             let failed = NotificationSettingsFailure(error, quietHours: patch.quietHours != nil)
+            // It may have saved (no answer, an unreadable answer), or RYFT had a problem (5xx), the latest save or not: the
+            // cached user is marked, so the next refresh asks (as the editors do), even offline.
+            if failed.kind.rereads { mayHaveSaved() }
+            guard mine == saves else { return }
+            prefs = confirmed
             failure = failed
-            guard failed.kind.rereads else { return }
-            // Offline the question would wait for the network: the cached user is marked instead, so the next refresh
-            // asks (as the editors do).
-            guard state.isDemo || state.env.connectivity.isOnline else {
-                state.repository.userMayDiffer()
-                return
-            }
-            // It may have saved (no answer), or RYFT had a problem (5xx): the page shows what RYFT holds, asked again outside
-            // this turn, so the switches don't wait for the question (and the next save doesn't either).
+            // Offline the question would wait for the network: the mark is enough.
+            guard failed.kind.rereads, state.isDemo || state.env.connectivity.isOnline else { return }
+            // The page shows what RYFT holds, asked again outside this turn, so the switches don't wait for the question (and
+            // the next save doesn't either). That's the read-back an earlier unsure save needed too.
+            unsure = false
             asking = Task { await self.askAgain(patch, mine: mine, binding: binding) }
         }
+    }
+
+    /// A save that may have saved without saying so: the cached user may differ from the platform's.
+    private func mayHaveSaved() {
+        state.repository.userMayDiffer()
+        unsure = true
+    }
+
+    /// The latest save succeeded after one that may still land: `GET /v1/me`, and the page takes the settings RYFT holds.
+    /// When the question fails the cached user stays marked, so the next refresh asks.
+    private func readSettingsBack(mine: Int, binding: AccountBinding) async {
+        do {
+            try await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
+        } catch {
+            if binding.isCurrent(in: state.env) { state.repository.userMayDiffer() }
+            return
+        }
+        guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
+        confirmed = held
+        prefs = held
     }
 
     /// `GET /v1/me` after a change that may have saved. Only an answer counts: when the question fails the page stays as it
@@ -264,6 +300,7 @@ final class NotificationSettingsViewModel {
         lastSave = nil
         asking?.cancel()
         asking = nil
+        unsure = false
         // Every answer still to come is the previous account's: none of them is shown.
         saves += 1
         failure = nil

@@ -532,8 +532,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before `me()` answers (tests hold an export's archive open with it, or a read answered before a change).
     var beforeMe: (@Sendable () async -> Void)?
 
+    #if DEBUG
+    /// Runs as `me()` arrives, before the user is read (tests let a late write land first).
+    var beforeMeRead: (@Sendable () async -> Void)?
+    #endif
+
     func me() async throws -> User {
         try enter("me")
+        #if DEBUG
+        await beforeMeRead?()
+        #endif
         // Read when the request arrives, as the platform reads it: an answer held on its way back is from then.
         let user: User
         if let patched = lock.withLock({ patchedUser }) {
