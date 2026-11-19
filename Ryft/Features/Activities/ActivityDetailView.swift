@@ -244,7 +244,7 @@ struct ActivityDetailScreen: View {
 
     /// Where the strain comes from (§10.3 item 3): from heart rate, Today's strain tile (the glow, the value, the band, the
     /// compact ruler) with its source under it; otherwise a `surface` card that says what is missing and why. A merged activity
-    /// says what each side gave instead of the source.
+    /// says what each side gave, in every state: instead of the source under the tile, last in the card.
     @ViewBuilder private var strainBlock: some View {
         Group {
             switch model.strainLine {
@@ -264,6 +264,12 @@ struct ActivityDetailScreen: View {
                              reason: Text("Without heart rate there is no strain for this activity."))
             case .waiting:
                 unscoredCard(value: nil, line: Text("Waiting for heart rate"), systemImage: nil, reason: nil)
+            case .notAtRYFT:
+                // Not "waiting for heart rate": RYFT can't look for it before it has the activity.
+                unscoredCard(value: nil,
+                             line: Text("Strain comes once RYFT has this activity.",
+                                        comment: "Activity detail: the activity hasn't reached RYFT yet (unsent, offline, held), so there is no strain."),
+                             systemImage: nil, reason: nil)
             }
         }
         .accessibilityIdentifier("activityDetail.strain")
@@ -287,7 +293,8 @@ struct ActivityDetailScreen: View {
         .accessibilityValue(Text(verbatim: ActivityStrainTile.spokenBlock(value, caption: caption)))
     }
 
-    /// "Strain" (with the platform's value when it made one from the effort rating), the line with its glyph, the reason.
+    /// "Strain" (with the platform's value when it made one from the effort rating), the line with its glyph, the reason, and
+    /// on a merged activity what each side gave.
     private func unscoredCard(value: Double?, line: Text, systemImage: String?, reason: Text?) -> some View {
         Card {
             VStack(alignment: .leading, spacing: ActivitiesLayout.strainCardSpacing) {
@@ -327,6 +334,13 @@ struct ActivityDetailScreen: View {
                 }
                 if let reason {
                     reason
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, ActivitiesLayout.strainReasonGap - ActivitiesLayout.strainCardSpacing)
+                }
+                if model.isMerged {
+                    Text(verbatim: mergeText)
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
