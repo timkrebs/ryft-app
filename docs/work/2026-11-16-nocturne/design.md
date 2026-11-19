@@ -2242,6 +2242,15 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-33 | A 30-day min–max band | The usual range: mean ± 1 SD of the 30-day values before the newest, from 7 of them; below that "Band needs 7 days of data". The expanded chart draws it at TrendChart's 10 % (T5.3 review) | Min–max with the newest inside filled the chart box and could never read above or below |
 | D5-34 | "vs 7 d" from each range's own series | Today's rule (`MetricDelta.vsSevenDayMean`) over the 7 days ending on the newest value, the same in every range; duration changes keep `DeltaLabel`'s "+17m" style, not the board's "0:17" (T5.3 review, lead) | Insights, Today and Sleep agree on one number and one format |
 | D5-35 | Range control always shown; no stale note | "Not set up" hides the range control; a failed refresh shows "As of <MMM d>"; nothing loaded and nothing in flight shows "Not loaded" (T5.3) | Nothing to range over; never claim "no data" for a read that didn't happen |
+| D5-36 | Week/Month tiles as `NeutralTile`; a `TrendLine` | `SleepNeutralTile`/`SleepTileGrid` (88 pt, Day's dot row); no TrendLine (T5.5) | They match Day's tiles; the spec gives TrendLine no place |
+| D5-37 | Week/Month without a delta | "<night> ▲/▼ … vs 7 d": the newest night against the six before it in its seven (Today's and Insights' rule), the same in Week and Month; "Last night" only for this morning's night, else the weekday (T5.5, F6, review) | F6; one rule app-wide; never call an older night "last night" |
+| D5-38 | The date row as chart axis labels | An overlay `Layout` under the plot; colliding labels drop, the newest stays (T5.5) | Charts can't centre the last label; the plot doesn't move |
+| D5-39 | Stage segments with surface-coloured gaps | Gaps in data units (1.5 pt at the 128 pt plot) (T5.5) | No stroke over the glow; a stage shorter than the gap collapses harmlessly |
+| D5-40 | Bedtime's numeral from `options.first` | The schedule's goal for its next wake (as Today, the reminder and the widget) until the picker moves; "As of" only for a cached plan (T5.5 review B1) | Sleep → Bedtime and Today must name the same bedtime |
+| D5-41 | No schedule → invitation only | The invitation over the three bedtimes and the settings card; no numeral, ruler, tiles or "your goal" (T5.5 review S7, lead) | Keeps the planner the old mode offered to everyone |
+| D5-42 | "–" / "–:––" placeholders | Unlit "0:00" / "00:00" (T5.5) | `DotNumeral`'s pending look; its Light fallback still shows "–:––" |
+| D5-43 | `ProgressBar` in accent | Defaults to `metricSleep` (T5.5) | Its only caller is Sleep's details card |
+| D5-44 | No staleness note on Week/Month | "As of <day>" footer when offline, after a failed read, or when the range doesn't end today (T5.5 review S5) | A days-old week mustn't read as current |
 
 ### Questions for the lead
 
