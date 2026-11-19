@@ -1038,7 +1038,7 @@ struct BedtimeHostedTests {
         }
     }
 
-    @Test("Turn off asks first: the system dialog names what goes, Turn off destructive, Cancel; the tap alone turns nothing off")
+    @Test("Turn off asks first: the dialog from the row, Turn off destructive, Cancel; what goes in the footer; the tap alone turns nothing off")
     func turnOffAsksFirst() async throws {
         let (state, _) = BedtimeShotScreen.state()
         let alarms = MockWakeAlarms()
@@ -1051,7 +1051,11 @@ struct BedtimeHostedTests {
         try await host(SubpageShotScreen.pushed(state) { SleepScheduleView(planner: planner) }) { w in
             try await w.wait("the page") { has(w, id: "schedule.turnOff") }
             try await w.settle()
-            #expect(try node(w, id: "schedule.turnOff").activate())
+            // What goes is said before the tap: the footer under the row (the dialog keeps to its title).
+            let row = try node(w, id: "schedule.turnOff")
+            let footer = try #require(w.node(Self.turnOffFooter, exactly: true), "the footer")
+            #expect(footer.frame.minY >= row.frame.maxY - 0.5, "under the row: \(footer.frame) \(row.frame)")
+            #expect(row.activate())
             var alert: UIAlertController?
             try await w.wait("the dialog") {
                 alert = Self.presentedAlert(w.host)
@@ -1059,7 +1063,15 @@ struct BedtimeHostedTests {
             }
             let dialog = try #require(alert)
             #expect(dialog.title == "Turn off Bedtime & wake?")
-            #expect(dialog.message == "Your wake times, goal and wind-down are removed from this iPhone, and the bedtime reminder and the wake-up alarm stop.")
+            #expect((dialog.message ?? "").isEmpty, "the dialog's message: \(dialog.message ?? "")")
+            // iOS 26 draws it as a popover from its source: the row, not the alarm's card above it or the page.
+            if let popover = dialog.popoverPresentationController, let source = popover.sourceView {
+                let anchor = source.convert(popover.sourceRect, to: nil)
+                let onTheRow = row.frame.insetBy(dx: -1, dy: -1).contains(CGPoint(x: anchor.midX, y: anchor.midY))
+                #expect(onTheRow && anchor.height < row.frame.height * 2, "the dialog's source \(anchor), the row \(row.frame)")
+            } else if #available(iOS 26, *) {
+                Issue.record("no popover source for the dialog")
+            }
             #expect(dialog.actions.contains { $0.title == "Turn off" && $0.style == .destructive })
             #expect(dialog.actions.contains { $0.style == .cancel })
             #expect(has(w, id: "schedule.sameOnWeekdays"), "still set up while it asks")
@@ -1073,6 +1085,9 @@ struct BedtimeHostedTests {
             #expect(alarms.scheduled == nil && reminders(state).isEmpty && state.repository.tonightBedtime == nil)
         }
     }
+
+    /// The footer under Turn off: what turning it off removes and stops.
+    private static let turnOffFooter = "Your wake times, goal and wind-down are removed from this iPhone, and the bedtime reminder and the wake-up alarm stop."
 
     /// The dialog's button `title`, as a tap runs it: the dialog goes, then its handler runs (UIKit keeps it private).
     private static func choose(_ title: String, in alert: UIAlertController) throws {

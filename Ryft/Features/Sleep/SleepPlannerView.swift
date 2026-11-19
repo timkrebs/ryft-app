@@ -395,22 +395,6 @@ struct SleepScheduleView: View {
         .onChange(of: planner.schedule != nil) { _, isSetUp in
             if isSetUp { setsUp = false }
         }
-        .confirmationDialog(Text("Turn off Bedtime & wake?",
-                                 comment: "Bedtime & wake: the confirmation before Turn off."),
-                            isPresented: $confirmsTurnOff, titleVisibility: .visible) {
-            Button(role: .destructive) {
-                turnOff()
-            } label: {
-                Text("Turn off", comment: "Bedtime & wake's confirmation: turns it off.")
-            }
-            .accessibilityIdentifier("schedule.turnOff.confirm")
-            Button(role: .cancel) {} label: {
-                Text("Cancel")
-            }
-        } message: {
-            // swiftlint:disable:next line_length
-            Text("Your wake times, goal and wind-down are removed from this iPhone, and the bedtime reminder and the wake-up alarm stop.", comment: "Bedtime & wake's confirmation before Turn off: what goes.")
-        }
     }
 
     // MARK: wake
@@ -556,23 +540,42 @@ struct SleepScheduleView: View {
 
     // MARK: turn off
 
-    /// Turn off asks first (the system dialog, its destructive button); while the reminders and alarms go the row says so
-    /// and the page takes no changes. The footer says there is no Save button.
+    /// Turn off asks first: the system dialog, anchored on the row (iOS 26 draws it as a popover from its source), its
+    /// title and destructive button only; what goes is the group's footer, there before the tap and at any text size.
+    /// While the reminders and alarms go the row says so and the page takes no changes. The page's last line says there
+    /// is no Save button.
     @ViewBuilder private var last: some View {
-        let footer = Text("Changes save as you make them.",
-                          comment: "Footer at the end of Bedtime & wake: there is no Save button.")
         if planner.schedule != nil || editor.isTurningOff {
-            GroupedCard(footer: footer) {
+            GroupedCard(footer: Self.turnOffFooter) {
                 GroupedRow.destructive(editor.isTurningOff
                                        ? Text("Turning off…", comment: "Bedtime & wake's Turn off row while it turns off.")
                                        : Text("Turn off Bedtime & wake"),
                                        busy: editor.isTurningOff, identifier: "schedule.turnOff") {
                     confirmsTurnOff = true
                 }
+                .confirmationDialog(Text("Turn off Bedtime & wake?",
+                                         comment: "Bedtime & wake: the confirmation before Turn off."),
+                                    isPresented: $confirmsTurnOff, titleVisibility: .visible) {
+                    Button(role: .destructive) {
+                        turnOff()
+                    } label: {
+                        Text("Turn off", comment: "Bedtime & wake's confirmation: turns it off.")
+                    }
+                    .accessibilityIdentifier("schedule.turnOff.confirm")
+                    Button(role: .cancel) {} label: {
+                        Text("Cancel")
+                    }
+                }
             }
-        } else {
-            GroupFooter(footer)
         }
+        GroupFooter(Text("Changes save as you make them.",
+                         comment: "Footer at the end of Bedtime & wake: there is no Save button."))
+    }
+
+    /// Under Turn off: what it removes and stops.
+    static var turnOffFooter: Text {
+        Text("Your wake times, goal and wind-down are removed from this iPhone, and the bedtime reminder and the wake-up alarm stop.",
+             comment: "Bedtime & wake: the footer under Turn off, what turning it off removes and stops.")
     }
 
     private func turnOff() {
