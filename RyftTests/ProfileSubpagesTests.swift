@@ -722,6 +722,10 @@ struct ProfileSubpagesHostedTests {
             try await w.settle()
             let close = try node(w, "Close")
             #expect(close.isEnabled == !saving, "Close enabled: \(close.isEnabled)")
+            // Busy keeps the title and shows the spinner; VoiceOver says it's in progress (as the editors' Save does).
+            let add = try node(w, id: "addHabit.add")
+            #expect(add.label == "Add" && (add.value == "In progress") == saving, "\(add.label) · \(String(describing: add.value))")
+            #expect(w.node("Adding…", exactly: true) == nil)
         }
     }
 

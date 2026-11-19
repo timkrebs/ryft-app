@@ -349,7 +349,7 @@ private struct HabitRow: View {
 // MARK: - Add a habit
 
 /// Add a habit (PR 6 C §4.8, F1, F23): a sheet with its own header and Close; the name (1–60 characters), the answer kind and
-/// the category as select rows, and the pinned Add ("Adding…" while it goes). A failure shows above the groups and keeps
+/// the category as select rows, and the pinned Add (its spinner while it goes). A failure shows above the groups and keeps
 /// what was typed; offline it says it wasn't saved (writes need the network).
 ///
 /// - One habit per sheet: every Add sends the sheet's own ids (`POST` with the same id updates it, `200`), so a retry after
@@ -429,7 +429,8 @@ struct AddBehaviorSheet: View {
         // The fields and Close: the sheet stays as it is until the answer is in.
         .disabled(saving)
         .pinnedBar(caption: isFull ? Self.fullCaption : nil) {
-            PillButton(saving ? Text("Adding…") : Text("Add"), systemImage: "plus", busy: saving) { await add() }
+            // Busy keeps the title and shows the spinner; VoiceOver says "In progress" (as the editors' Save does).
+            PillButton(Text("Add"), systemImage: "plus", busy: saving) { await add() }
                 .disabled((!Self.isValid(name: name) || isFull) && !saving)
                 .accessibilityIdentifier("addHabit.add")
         }
