@@ -964,4 +964,18 @@ struct SignInHoldTests {
         #expect(rig.wipes.count == wipes)
         #expect(rig.ledgerOnDisk == nil)
     }
+
+    // MARK: the previews
+
+    /// The previews' held sign-in is reached the way a launch reaches one, and is the real state: nothing published,
+    /// the stored session kept, and a message that outlives a screen clearing its errors as it appears.
+    @Test func thePreviewsHeldSignInIsHeld() async {
+        let auth = AuthService.previewHeld()
+        for _ in 0..<20 { await Task.yield() } // the SDK's first event
+        #expect(auth.accountID == nil)
+        #expect(auth.state == .signedOut)
+        #expect(auth.errorMessage == AuthMessage.signInHeld)
+        auth.errorMessage = nil
+        #expect(auth.errorMessage == AuthMessage.signInHeld)
+    }
 }

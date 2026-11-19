@@ -189,4 +189,18 @@ extension AuthService {
                     deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                     postAppleAuthorization: { _ in })
     }
+
+    /// A sign-in held over an owed wipe (design.md §4, At sign-in), reached the way a launch reaches it: another
+    /// account's wipe is owed, this phone refuses it again, and the stored session isn't published. Its ledger is in
+    /// memory and its wipe touches nothing.
+    static func previewHeld() -> AuthService {
+        let ledger = WipeLedger(file: nil)
+        ledger.begin(Wipe(reason: .user, account: "0000000A-0000-4000-8000-00000000000A"),
+                     at: Date(timeIntervalSince1970: 1_800_000_000))
+        return AuthService(client: MockAuthClient(session: .preview()),
+                           defaults: UserDefaults(suiteName: "ryft.preview.auth.held") ?? .standard,
+                           wipeLocalData: { _ in false },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in }, ledger: ledger)
+    }
 }

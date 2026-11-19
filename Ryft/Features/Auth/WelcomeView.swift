@@ -188,6 +188,32 @@ private struct ValueLine: View {
         .preferredColorScheme(.light)
 }
 
+/// A sign-in held over an owed wipe: the message under the ways in, derived from the hold, so `onAppear` doesn't clear it.
+#Preview("Welcome · sign-in held") {
+    WelcomeView()
+        .environment(AuthService.previewHeld())
+        .environment(Settings.shared)
+}
+
+/// The most it shows: an expiry's notice and its parked rows, then another account's sign-in held over them, at AX3.
+/// The scrolling child.
+#Preview("Welcome · sign-in held · parked · AX3") {
+    let auth = AuthService.previewHeld()
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
+        .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Welcome · sign-in held · light system") {
+    WelcomeView()
+        .environment(AuthService.previewHeld())
+        .environment(Settings.shared)
+        .preferredColorScheme(.light)
+}
+
 #Preview("Welcome · light system") {
     WelcomeView()
         .environment(AuthService.preview(signedIn: false))
