@@ -575,17 +575,27 @@ final class OnboardingCoordinator {
     }
 
     /// The banner's words for a failure the step has none of its own for (PR 6 A §A-7): not reaching the platform says
-    /// so (the sentence `AuthMessage` uses); anything else, a server's message or an answer that didn't decode included,
-    /// says only that it didn't work. The details (request ID) stay behind Details.
+    /// so (the sentence `AuthMessage` uses); `APIError`'s own sentences stay (429, 503, …); a server's text, an answer
+    /// that didn't decode and anything unknown say only that it didn't work. The details (request ID) stay behind Details.
     nonisolated static func fallbackMessage(for error: Error) -> String {
-        let unreachable: Bool
-        if case .transport? = error as? APIError {
-            unreachable = true
-        } else {
-            unreachable = error is URLError || (error as NSError).domain == NSURLErrorDomain
+        let offline = String(localized: "No connection. Check your internet and try again.")
+        let other = String(localized: "Something went wrong. Please try again.")
+        if let api = error as? APIError {
+            if case .transport = api { return offline }
+            return hasOwnWords(api) ? api.localizedDescription : other
         }
-        return unreachable ? String(localized: "No connection. Check your internet and try again.")
-            : String(localized: "Something went wrong. Please try again.")
+        return error is URLError || (error as NSError).domain == NSURLErrorDomain ? offline : other
+    }
+
+    /// `APIError`'s own, vetted sentences (`APIError.errorDescription`): the rest there is the server's text, or a bare
+    /// status.
+    private nonisolated static func hasOwnWords(_ error: APIError) -> Bool {
+        switch error {
+        case .notConfigured, .signedOut: return true
+        case .http(401, _, _, _, _), .http(429, _, _, _, _), .http(500, _, _, _, _), .http(503, _, _, _, _): return true
+        case .http(403, _, _, .inviteRequired?, _), .http(403, _, _, .consentRequired?, _), .http(403, _, _, nil, _): return true
+        case .http, .transport: return false
+        }
     }
 
     // MARK: private

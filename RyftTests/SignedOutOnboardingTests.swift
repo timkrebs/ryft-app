@@ -348,14 +348,21 @@ struct SignedOutOnboardingTests {
 
     // MARK: the onboarding steps' fallback text
 
-    @Test("A step that can't reach the platform says so; any other failure, a server's message included, says only that it didn't work (§A-7)")
+    @Test("A step offline says so; RYFT's own sentences stay (429, 503); a server's text and anything unknown say only that it didn't work (§A-7)")
     func fallbackMessages() {
         let offline = OnboardingCoordinator.fallbackMessage(for: APIError.transport(URLError(.notConnectedToInternet)))
         #expect(offline == String(localized: "No connection. Check your internet and try again."))
         #expect(OnboardingCoordinator.fallbackMessage(for: URLError(.timedOut)) == offline)
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(429, "slow down", retryAfter: 60))
+            == String(localized: "Too many requests. Try again in a minute."))
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(503, ""))
+            == String(localized: "RYFT is catching up. Try again in a moment."))
+        // A 500's own sentence, never the server's text.
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(500, "pq: relation \"users\" does not exist"))
+            == String(localized: "Something went wrong on RYFT's side. Try again later."))
         let other = String(localized: "Something went wrong. Please try again.")
-        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(503, "")) == other)
-        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(500, "pq: relation \"users\" does not exist")) == other)
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(409, "pq: duplicate key value")) == other)
+        #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(418, "")) == other, "not a bare status either")
         let undecodable = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unexpected field"))
         #expect(OnboardingCoordinator.fallbackMessage(for: undecodable) == other)
     }
