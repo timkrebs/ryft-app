@@ -45,6 +45,9 @@ enum LiveSessionSpec {
 
     /// The row's tint, the ✓ and the strip's tile: radius 14. The fields inside a row: 12.
     nonisolated static let rowRadius: CGFloat = 14, fieldRadius: CGFloat = 12
+    /// List's set row: 56 high at every size (its numerals are fixed). `SetRow` lays it out and `CurrentSetHighlight` sizes its
+    /// bar from it.
+    nonisolated static let listRowHeight: CGFloat = 56
     /// The active row's `#`: a 32 pt raised circle (the number column's width at 320), with a 5 pt Volt dot at its corner.
     nonisolated static let activeNumber: CGFloat = 32, activeDot: CGFloat = 5
     /// The active row's leading bar: 2 pt of Volt, 8 shorter than the row at each end.

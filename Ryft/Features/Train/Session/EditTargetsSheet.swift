@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Nocturne: `SheetHeader("Edit targets")` with a compact "Done", then one grouped card titled with the exercise: a
 /// `RyftStepperRow` each for Sets, Reps from, Reps to, the target weight (with "Clear target weight" under it while there is
-/// one) and Rest, and the footer that says the changes stay in this workout.
+/// one) and Rest, and the footer that says the changes stay in this workout. From XL it opens at full height (§12).
 struct EditTargetsSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -44,7 +44,7 @@ struct EditTargetsSheet: View {
                 restRow
             }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDetents(SheetFrameSpec.detents(for: typeSize))
     }
 
     // MARK: rows

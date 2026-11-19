@@ -1,13 +1,15 @@
 import SwiftUI
 
 /// An exercise's notes in this workout ("pause on chest"); they go up with the session (PR 6 B §4.8): `SheetHeader("Notes")`
-/// with a compact "Save", then a grouped card titled with the exercise holding one multi-line field. The close circle
-/// ("Cancel") or a drag down keeps the notes as they were.
+/// with a compact "Save", then a grouped card holding one multi-line field labelled with the exercise's name (the sheet's
+/// title already says Notes). The close circle ("Cancel") or a drag down keeps the notes as they were. From XL it opens at
+/// full height (§12).
 struct ExerciseNotesSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var text: String
     @FocusState private var focused: Bool
 
@@ -28,8 +30,8 @@ struct ExerciseNotesSheet: View {
             }
             .accessibilityIdentifier("notes.save")
         } content: {
-            GroupedCard(Text(verbatim: exercise.name)) {
-                FormField(Text("Notes", comment: "Title of an exercise's notes sheet in a workout."), isFocused: focused) {
+            GroupedCard {
+                FormField(Text(verbatim: exercise.name), isFocused: focused) {
                     TextField(text: $text,
                               prompt: Text("Notes for this exercise", comment: "Placeholder of an exercise's notes in a workout.")
                                   .fieldPrompt(),
@@ -43,7 +45,7 @@ struct ExerciseNotesSheet: View {
             }
         }
         .onAppear { focused = true }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(SheetFrameSpec.detents(for: typeSize))
     }
 }
 

@@ -265,7 +265,14 @@ private struct PlanBar<Control: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         if let plan {
-            content.pinnedBar { control(plan) }
+            // `pinnedBar`'s bar, with VoiceOver meeting it after the header and the search and before the list it decides
+            // about (it sits under it). The priority goes on the bar itself: it is a group of its own.
+            content
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    PinnedActionBar { control(plan) }
+                        .accessibilitySortPriority(SheetFrameSpec.outsidePinnedPriority)
+                }
+                .accessibilityElement(children: .contain)
         } else {
             content
         }

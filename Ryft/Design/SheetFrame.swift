@@ -9,12 +9,22 @@ enum SheetFrameSpec {
     /// The body's insets: 12 on top, the header's 20 at the sides, a sub-page's bottom padding under the last line.
     static let bodyInsets = EdgeInsets(top: bodyGap, leading: SheetHeaderSpec.sidePadding, bottom: SubpageSpec.bottomPadding,
                                        trailing: SheetHeaderSpec.sidePadding)
+    /// VoiceOver's order: the header and the pinned part first (one group, its own order inside), then a bar a caller pins
+    /// outside the frame at `outsidePinnedPriority` (Replace's plan toggle; the sheet's root a `.contain` group), then the body.
+    static let headerPriority: Double = 2, outsidePinnedPriority: Double = 1
+
+    /// §12: a sheet opens at `.large` from XL; below it, `compact` (half height first, the drag up to full).
+    static func detents(for typeSize: DynamicTypeSize,
+                        compact: Set<PresentationDetent> = [.medium, .large]) -> Set<PresentationDetent> {
+        typeSize >= .xLarge ? [.large] : compact
+    }
 }
 
 /// A sheet's frame (PR 6 B §4.8, D6B-13): `SheetHeader` on top (the close circle, the centred title, the trailing slot), 26 under
 /// the sheet's edge and 20 from the sides; an optional pinned part under it, 10 below (Add exercise's search field); then the
 /// scrolling body. Neither the header nor the pinned part scrolls, so the commit and the search stay in reach. `background`
-/// behind it all. The detents are the caller's.
+/// behind it all. The detents are the caller's (`SheetFrameSpec.detents(for:)` for §12's rule). VoiceOver meets the header and
+/// the pinned part before the body (`SheetFrameSpec.headerPriority`).
 ///
 /// `SheetFrame(Text("Notes"), closeLabel: Text("Cancel")) { PillButton(Text("Save"), size: .compact) { … } } content: { … }`.
 /// Settings, each a modifier on the frame: the close circle's (`closeHidden()`, `closeDisabled(_:)`, `closeIdentifier(_:)`, as
@@ -42,6 +52,8 @@ struct SheetFrame<Trailing: View, Pinned: View, Content: View>: View {
             }
             .padding(.horizontal, SheetHeaderSpec.sidePadding)
             .padding(.top, SheetHeaderSpec.topInset)
+            .accessibilityElement(children: .contain)
+            .accessibilitySortPriority(SheetFrameSpec.headerPriority)
             ScrollView {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
