@@ -44,3 +44,6 @@
 - [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
 - [Flow restyles with live results](review-checks-flow-restyles.md) — dropped hidesBackButton vs other branch keepers, "imported" incl. server-kept, muted live notices, catalog gaps, untapped pill tests
 - [Side-effect passes](review-checks-side-effect-passes.md) — memo not reset after undo, sibling stale surfaces, off-main mock races (no approachable), OS probes
+- [Area integration reviews](review-checks-area-integration.md) — #Preview builds w/o DEBUG (probed), sibling merge-tree, per-page failure rules drift, shared-editor hosts
+- [Shared write waits + account-bound stores](review-checks-shared-write-waits.md) — demo shares env.persistence, not-latest exits skip marks, abandoned writes reorder, log-checked green claims
+- [Presented-root styles + shared rules](review-checks-presented-styles.md) — root tint/toggleStyle miss sheets (iOS 27.2), no app AccentColor, one "vs 7 d" rule, demo-aware online

@@ -22,6 +22,9 @@ Leads ask for a mutation check per new test ("break what it guards, see it fail,
   different path or setting is a second full build (~1.2 GB, 10+ min under load). Then mutant texts must be
   warning-free: `&& s.id == UUID()` instead of `&& false` ("will never be executed"), `_ = cap` instead of deleting
   the only use of a `let`.
+- (2026-11-19) "ERROR 65" with "SwiftData … backing data was detached" and "Restarting after unexpected exit" means
+  the mutant made code touch a deleted model's rows. That counts as a kill by crash, not by the test's checks. Say so
+  in the test's doc comment rather than claiming the row checks catch it.
 
 **Why:** reviews re-run mutants ([[feedback-tests-pin-decisions]]); doing it by hand for 20+ mutants is slow and
 error-prone. **How to apply:** any round that asks for mutation results.

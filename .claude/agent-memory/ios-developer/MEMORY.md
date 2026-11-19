@@ -3,3 +3,4 @@
 - [Settings write honesty](project_settings_write_honesty.md) — SettingsWriteFailure: judge and word failed writes by what left the phone; test pitfalls
 - [Widget look and limits](project_widget_look_and_limits.md) — Shared/WidgetLook.swift tests, placeholder redaction, accessory slot sizes, the 160 pt Live Activity limit
 - [Import step 6 and the mock uploader](project_import_step6_and_mock_uploader.md) — weak env in preview uploaders, harness for tap tests, no way back, counts of what was written, VoiceOver per phase
+- [Settings write shared wait](project_settings_write_shared_wait.md) — SettingsWrite (one attempt, 25 s, offline); account binding; demo data in memory only (accountDocuments); mutation-proving tests; Release previews

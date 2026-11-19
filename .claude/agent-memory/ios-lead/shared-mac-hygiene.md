@@ -28,3 +28,5 @@ The Mac, the repo and the scratchpad are shared: my agents, a parallel ios-lead 
 - UI smoke at 834 s fits the 25-minute cap (#123) even at peak load; a timeout is a real signal now.
 - Before claiming an ADR number, list `docs/adr/` on every remote branch *and* the user's checkout (untracked files too):
   on 2026-11-19 a parallel lead's App Attest ADR took 0023 in the checkout while my plan had assigned 0023 to O6.
+- Count builds with `pgrep -x xcodebuild`, not `pgrep -f xcodebuild`: `-f` also matches every agent's shell wrapper and gate
+  loop that mentions xcodebuild, so the gate reads "busy" when it isn't (localization-editor, 2026-11-19). Briefs say `-x`.

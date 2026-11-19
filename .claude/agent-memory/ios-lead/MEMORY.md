@@ -20,3 +20,4 @@
 - [Offline-first rule](offline-first-requirement.md) — user 2026-11-19: everything visible offline; offline data kept + uploaded on reconnect
 - [Fleet memory branch](fleet-memory-branch.md) — memory goes to chore/fleet-memory (PR #125) via a scratch worktree; batch pushes, never the checkout
 - [Shared Mac hygiene](shared-mac-hygiene.md) — parallel leads: fetch + compare trees; recorded PIDs only; git -C; worktrees can vanish, push after merges
+- [Release build check](release-build-check.md) — PR CI is Debug only; add a Release build to every integration run
