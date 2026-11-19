@@ -85,15 +85,17 @@ struct NeedDisclosure: View {
 
 /// Tonight on Today (and in the debug screen): `TonightView` for the planner's board; it plans when there is no plan yet,
 /// and again once the iPhone is back online with none, so offline never stays on screen after the connection returns.
+/// Bedtime & wake is pushed from the card. When Today drops the card under the open page (the evening ends, a first import
+/// starts), the page stays and Back returns to Today (`BedtimeHostedTests.todayKeepsThePage`).
 struct TonightCard: View {
     let planner: BedtimePlanner
-    @State private var showsSchedule = false
+    @Environment(\.locale) private var locale
+    @State private var opening: SleepScheduleView.Opening?
 
     var body: some View {
-        TonightView(board: planner.tonight(), numeralStyle: planner.numeralStyle,
-                    retry: { await planner.refresh() }, signIn: { await planner.signIn() },
-                    openSchedule: { showsSchedule = true })
-            .navigationDestination(isPresented: $showsSchedule) { SleepScheduleView(planner: planner) }
+        TonightView(board: planner.tonight(locale: locale), numeralStyle: planner.numeralStyle,
+                    retry: { await planner.refresh() }, signIn: { await planner.signIn() }, openSchedule: { opening = $0 })
+            .navigationDestination(item: $opening) { SleepScheduleView(planner: planner, opening: $0) }
             .task { if planner.plan == nil { await planner.refresh() } }
             .onChange(of: planner.isOnline) { _, online in
                 guard online, planner.plan == nil else { return }
@@ -120,9 +122,8 @@ struct TonightView: View {
     var reduceTransparency: Bool?
     var retry: (() async -> Void)?
     var signIn: (() async -> Void)?
-    var openSchedule: () -> Void = {}
-
-    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Bedtime & wake: from the group's row, or from Set up (`.setUp`: leaving without a change sets it up).
+    var openSchedule: (SleepScheduleView.Opening) -> Void = { _ in }
 
     var body: some View {
         switch board.look {
@@ -137,41 +138,57 @@ struct TonightView: View {
 
     private var planned: some View {
         VStack(alignment: .leading, spacing: TonightLayout.groupGap) {
-            GlowTile(Theme.metricSleep, kind: .hypnogram, minHeight: TonightLayout.tileMinHeight,
-                     reduceTransparency: reduceTransparency) {
-                VStack(alignment: .leading, spacing: 0) {
-                    head
-                    Text("In bed by")
-                        .ryftGlowLabelStyle()
-                        .padding(.top, TonightLayout.labelGap)
-                    numeral
-                        .padding(.top, TonightLayout.numeralGap)
-                    Text(board.line)
-                        .ryftGlowLabelStyle()
-                        .monospacedDigit()
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, TonightLayout.lineGap)
-                    VStack(alignment: .leading, spacing: TonightLayout.goalGap) {
-                        ForEach(board.goals) { goalRow($0) }
-                    }
-                    .padding(.top, TonightLayout.goalsGap)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Tonight"))
-            .accessibilityValue(Text(board.spoken))
-            .accessibilityHint(Text("Bedtime & wake, below, sets the wake time and the goal.",
-                                    comment: "VoiceOver hint of Today's Tonight tile: the row under it changes what the tile shows."))
-            .accessibilityIdentifier("tonight.tile")
+            TonightTile(board: board, numeralStyle: numeralStyle, reduceTransparency: reduceTransparency)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Tonight"))
+                .accessibilityValue(Text(board.spoken))
+                .accessibilityIdentifier("tonight.tile")
             if let alarm = board.alarmProblem {
-                InlineMessage(message: alarm, systemImage: "alarm", identifier: "tonight.alarm", severity: .attention)
+                // Part of the card: VoiceOver reads it in place, not as an announcement.
+                InlineMessage(message: alarm, systemImage: "alarm", identifier: "tonight.alarm", severity: .attention,
+                              announces: false)
             }
             GroupedCard {
                 if let plan = board.plan {
                     NeedDisclosure(plan: plan, identifier: "tonight.why")
                 }
-                GroupedRow.push(Text("Bedtime & wake"), value: Text(board.summary), identifier: "tonight.schedule",
-                                action: openSchedule)
+                GroupedRow.push(Text("Bedtime & wake"), value: Text(board.summary), identifier: "tonight.schedule") {
+                    openSchedule(.edit)
+                }
+            }
+        }
+    }
+}
+
+/// Tonight's glow tile (§4.13): "Tonight" and "As of" when the plan is the last one fetched; "In bed by"; the bedtime as a dot
+/// numeral with its meridiem; "for 100 % · wake 6:30 AM · need 8:18"; the three goals, the filled marker for yours. In
+/// `TonightView` it is one VoiceOver element; on its own (tests) its parts are.
+struct TonightTile: View {
+    let board: TonightBoard
+    var numeralStyle: DotNumeral.Style = .dots
+    var reduceTransparency: Bool?
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        GlowTile(Theme.metricSleep, kind: .hypnogram, minHeight: TonightLayout.tileMinHeight,
+                 reduceTransparency: reduceTransparency) {
+            VStack(alignment: .leading, spacing: 0) {
+                head
+                Text("In bed by")
+                    .ryftGlowLabelStyle()
+                    .padding(.top, TonightLayout.labelGap)
+                numeral
+                    .padding(.top, TonightLayout.numeralGap)
+                Text(board.line)
+                    .ryftGlowLabelStyle()
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, TonightLayout.lineGap)
+                VStack(alignment: .leading, spacing: TonightLayout.goalGap) {
+                    ForEach(board.goals) { goalRow($0) }
+                }
+                .padding(.top, TonightLayout.goalsGap)
             }
         }
     }
@@ -238,7 +255,9 @@ struct TonightView: View {
             }
         }
     }
+}
 
+extension TonightView {
     // MARK: not set up, planning
 
     private var notSetUp: some View {
@@ -251,7 +270,7 @@ struct TonightView: View {
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, TonightLayout.outlineGap)
-                PillButton(Text("Set up Bedtime & wake"), systemImage: "bed.double", action: openSchedule)
+                PillButton(Text("Set up Bedtime & wake"), systemImage: "bed.double") { openSchedule(.setUp) }
                     .accessibilityIdentifier("tonight.setUp")
                     .padding(.top, TonightLayout.pillGap)
             }
@@ -296,9 +315,10 @@ struct TonightView: View {
         if let problem = board.problem {
             VStack(alignment: .leading, spacing: GroupedListSpec.titleGap) {
                 GroupTitle(Text("Tonight"))
+                // Part of the card, as on Sleep → Bedtime: read in place, not announced.
                 InlineMessage(message: problem.message, systemImage: problem.systemImage, retryTitle: problem.action.title,
                               details: problem.details, retry: problem.action.button(retry: retry, signIn: signIn),
-                              identifier: "tonight.failure")
+                              identifier: "tonight.failure", announces: false)
             }
         }
     }
@@ -308,30 +328,46 @@ struct TonightView: View {
 
 /// Bedtime & wake (§4.13): the wake times first ("Wake up at": the same time on weekdays, or each day, as time chips), the
 /// goal, the wind-down, the reminder and the alarm, then Turn off. Every change shows at once and is saved on this iPhone
-/// (`BedtimeScheduleEditor`: 400 ms after the last one, and when the page goes), online or not. A switch iOS refuses stays
-/// off with an amber row and Open Settings; an alarm iOS stopped allowing goes back off with the planner's sentence.
+/// (the planner's `BedtimeScheduleEditor`, one for every way in: 400 ms after the last change, and when the page goes),
+/// online or not. A switch iOS refuses stays off with an amber row and Open Settings; an alarm iOS stopped allowing goes back
+/// off with the planner's sentence. Turn off asks first, then the page waits, disabled, while the reminders and alarms go.
 struct SleepScheduleView: View {
-    @State private var editor: BedtimeScheduleEditor
+    /// How the page was opened: from a "Set up Bedtime & wake" button, leaving it without a change sets it up as shown.
+    enum Opening: Hashable, Sendable {
+        case edit, setUp
+    }
+
+    /// Pushed (Back) or a root page with a title only (the debug screen).
+    enum Placement: Sendable {
+        case pushed, root
+    }
+
+    let planner: BedtimePlanner
+    var opening: Opening
+    var placement: Placement
+    @State private var confirmsTurnOff = false
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(planner: BedtimePlanner) {
-        _editor = State(initialValue: BedtimeScheduleEditor(planner: planner))
+    init(planner: BedtimePlanner, opening: Opening = .edit, placement: Placement = .pushed) {
+        self.planner = planner
+        self.opening = opening
+        self.placement = placement
     }
 
-    private var planner: BedtimePlanner { editor.planner }
+    private var editor: BedtimeScheduleEditor { planner.editor }
     private var draft: SleepSchedule { editor.draft }
 
-    /// Monday first, in the user's language (the calendar's own names).
+    /// The calendar's own day names, in the user's language, put in Monday-first order.
     private static let weekdayNames: [String] = {
         let symbols = Calendar.current.standaloneWeekdaySymbols
         return Array(symbols[1...]) + [symbols[0]]
     }()
 
     var body: some View {
-        SubpageScaffold(Text("Bedtime & wake")) {
+        SubpageScaffold(Text("Bedtime & wake"), navigation: placement == .root ? .none : .back()) {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 wake
                 goal
@@ -340,12 +376,30 @@ struct SleepScheduleView: View {
                 alarm
                 last
             }
+            .disabled(editor.isTurningOff)
         }
         // iOS stopped allowing the alarm: the planner turned it off.
         .onChange(of: planner.schedule?.alarmOn) { _, on in
             if on == false { editor.alarmWentOff() }
         }
-        .onDisappear { editor.leave() }
+        .onAppear { editor.open() }
+        .onDisappear { editor.leave(settingUp: opening == .setUp) }
+        .confirmationDialog(Text("Turn off Bedtime & wake?",
+                                 comment: "Bedtime & wake: the confirmation before Turn off."),
+                            isPresented: $confirmsTurnOff, titleVisibility: .visible) {
+            Button(role: .destructive) {
+                turnOff()
+            } label: {
+                Text("Turn off", comment: "Bedtime & wake's confirmation: turns it off.")
+            }
+            .accessibilityIdentifier("schedule.turnOff.confirm")
+            Button(role: .cancel) {} label: {
+                Text("Cancel")
+            }
+        } message: {
+            // swiftlint:disable:next line_length
+            Text("Your wake times, goal and wind-down are removed from this iPhone, and the bedtime reminder and the wake-up alarm stop.", comment: "Bedtime & wake's confirmation before Turn off: what goes.")
+        }
     }
 
     // MARK: wake
@@ -443,7 +497,13 @@ struct SleepScheduleView: View {
                                       if !allowed { announceRefusal() }
                                   }
                               }))
-            if editor.reminderRefused { refused(identifier: "schedule.reminder.refused") }
+            if editor.reminderRefused {
+                refused(systemImage: "bell.slash", identifier: "schedule.reminder.refused")
+            } else if draft.reminderOn, planner.remindersWaiting {
+                // No plan yet, and none to estimate one from: the reminder isn't set, and the page says so.
+                ScheduleNoticeRow(message: Self.remindersWaiting, systemImage: "bell.slash", tone: .neutral,
+                                  identifier: "schedule.reminder.waiting")
+            }
         }
     }
 
@@ -461,12 +521,15 @@ struct SleepScheduleView: View {
                                   }
                               }))
             if editor.alarmRefused {
-                refused(identifier: "schedule.alarm.refused")
+                refused(systemImage: "alarm", identifier: "schedule.alarm.refused")
             } else if let problem = planner.alarmProblem {
-                ScheduleNoticeRow(message: Text(problem), identifier: "schedule.alarm.problem")
+                ScheduleNoticeRow(message: Text(problem), systemImage: "alarm", identifier: "schedule.alarm.problem")
             }
         }
     }
+
+    // swiftlint:disable:next line_length
+    private static var remindersWaiting: Text { Text("Reminders resume once RYFT has tonight's plan.", comment: "Bedtime & wake, under the reminder: no plan for the wake time yet (offline, or it couldn't load) and none from before, so no reminder is set.") }
 
     /// VoiceOver hears why the switch stayed off.
     private func announceRefusal() {
@@ -474,54 +537,81 @@ struct SleepScheduleView: View {
     }
 
     /// iOS said no: an amber row, and where to change it.
-    private func refused(identifier: String) -> some View {
-        ScheduleNoticeRow(message: Text("Not allowed in iOS Settings."), identifier: identifier) {
+    private func refused(systemImage: String, identifier: String) -> some View {
+        ScheduleNoticeRow(message: Text("Not allowed in iOS Settings."), systemImage: systemImage, identifier: identifier) {
             if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
         }
     }
 
     // MARK: turn off
 
-    /// Back to "Off": no reminders, no alarms, no Tonight. No dialog: setting it up again is the same page.
+    /// Turn off asks first (the system dialog, its destructive button); while the reminders and alarms go the row says so
+    /// and the page takes no changes. The footer says there is no Save button.
     @ViewBuilder private var last: some View {
         let footer = Text("Changes save as you make them.",
                           comment: "Footer at the end of Bedtime & wake: there is no Save button.")
-        if planner.schedule != nil {
+        if planner.schedule != nil || editor.isTurningOff {
             GroupedCard(footer: footer) {
-                GroupedRow.destructive(Text("Turn off Bedtime & wake"), identifier: "schedule.turnOff") {
-                    Task {
-                        await editor.turnOff()
-                        dismiss()
-                    }
+                GroupedRow.destructive(editor.isTurningOff
+                                       ? Text("Turning off…", comment: "Bedtime & wake's Turn off row while it turns off.")
+                                       : Text("Turn off Bedtime & wake"),
+                                       busy: editor.isTurningOff, identifier: "schedule.turnOff") {
+                    confirmsTurnOff = true
                 }
             }
         } else {
             GroupFooter(footer)
         }
     }
+
+    private func turnOff() {
+        Task {
+            await editor.turnOff()
+            switch placement {
+            case .pushed: dismiss()
+            // Nothing to go back to: the page stays, not set up, and takes changes again.
+            case .root: editor.open()
+            }
+        }
+    }
 }
 
-/// An amber row at the end of a group (Bedtime & wake's reminder and alarm): why a switch is off, and "Open Settings ↗"
-/// at the end when iOS Settings is where to change it (under the sentence from AX1). VoiceOver reads the sentence, then the
-/// link.
+/// A row at the end of a group (Bedtime & wake's reminder and alarm), its glyph and its sentence (§2.3: a tone never
+/// alone): amber where something needs the user (a switch iOS refused, an alarm iOS stopped allowing), neutral where it
+/// only says what's true (the reminder waits for a plan). "Open Settings ↗" at the end when iOS Settings is where to change
+/// it (under the sentence from AX1). VoiceOver reads the sentence, then the link.
 private struct ScheduleNoticeRow: View {
+    enum Tone {
+        case attention, neutral
+    }
+
     let message: Text
+    let systemImage: String
+    var tone = Tone.attention
     let identifier: String
     var openSettings: (() -> Void)?
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The glyph grows with the sentence, as `InlineMessage`'s does.
+    @ScaledMetric(relativeTo: .callout) private var glyphSize = InlineMessageSpec.glyphSize
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
             : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
         layout {
-            message
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.warning)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
-                .accessibilityIdentifier(identifier)
+            HStack(alignment: .firstTextBaseline, spacing: InlineMessageSpec.glyphGap) {
+                Image(systemName: systemImage)
+                    .font(.system(size: glyphSize))
+                    .foregroundStyle(tone == .attention ? Theme.warning : Theme.textSecondary)
+                    .accessibilityHidden(true)
+                message
+                    .font(.ryft(.callout))
+                    .foregroundStyle(tone == .attention ? Theme.warning : Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(identifier)
+            }
+            .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
             if let openSettings {
                 Button(action: openSettings) {
                     HStack(spacing: 4) {
@@ -547,33 +637,36 @@ private struct ScheduleNoticeRow: View {
 
 // MARK: - previews (dark only)
 
-/// Tonight in each of its states, from boards on the mock plan (previews; the shots use the real planner).
+/// Tonight in each of its states, from boards on the mock plan in the preview's locale (previews; the shots use the real
+/// planner).
 @MainActor
 enum TonightPreview {
     static let alarmProblem = "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them."
 
-    static func board(_ look: TonightBoard.Look, cached: Bool = false, alarm: Bool = false) -> TonightBoard {
+    static func board(_ look: TonightBoard.Look, cached: Bool = false, alarm: Bool = false,
+                      locale: Locale) -> TonightBoard {
         let plan = MockJournal.sleepPlan(wake: "06:30")
         switch look {
         case .planned:
             return TonightBoard(schedule: .default, plan: plan, asOf: cached ? .now.addingTimeInterval(-3_600) : nil,
-                                alarmProblem: alarm ? alarmProblem : nil)
+                                alarmProblem: alarm ? alarmProblem : nil, locale: locale)
         case .notSetUp:
-            return TonightBoard(schedule: nil, plan: nil)
+            return TonightBoard(schedule: nil, plan: nil, locale: locale)
         case .planning:
-            return TonightBoard(schedule: .default, plan: nil)
+            return TonightBoard(schedule: .default, plan: nil, locale: locale)
         case .offline:
-            return TonightBoard(schedule: .default, plan: nil, problem: .offline, isOnline: false)
+            return TonightBoard(schedule: .default, plan: nil, problem: .offline, isOnline: false, locale: locale)
         case .failed:
             let failure = SleepLoadFailure(APIError.http(503, "", requestID: "01JD8K2V9Q7M3X"), isOnline: true, at: .now)
-            return TonightBoard(schedule: .default, plan: nil, problem: .failed(failure))
+            return TonightBoard(schedule: .default, plan: nil, problem: .failed(failure), locale: locale)
         }
     }
 
-    static func page(_ board: TonightBoard, size: DynamicTypeSize = .large) -> some View {
+    static func page(_ look: TonightBoard.Look, cached: Bool = false, alarm: Bool = false,
+                     size: DynamicTypeSize = .large) -> some View {
         NavigationStack {
             ScrollView {
-                TonightView(board: board, retry: {})
+                Page(look: look, cached: cached, alarm: alarm)
                     .padding(.horizontal, Theme.Metrics.screenPadding)
                     .padding(.vertical, 16)
             }
@@ -582,15 +675,27 @@ enum TonightPreview {
         .previewEnvironment()
         .dynamicTypeSize(size)
     }
+
+    /// The board in the environment's locale, as `TonightCard` builds it.
+    private struct Page: View {
+        let look: TonightBoard.Look
+        let cached: Bool
+        let alarm: Bool
+        @Environment(\.locale) private var locale
+
+        var body: some View {
+            TonightView(board: TonightPreview.board(look, cached: cached, alarm: alarm, locale: locale), retry: {})
+        }
+    }
 }
 
-#Preview("Tonight") { TonightPreview.page(TonightPreview.board(.planned)) }
-#Preview("Tonight · as of, alarm off") { TonightPreview.page(TonightPreview.board(.planned, cached: true, alarm: true)) }
-#Preview("Tonight · not set up") { TonightPreview.page(TonightPreview.board(.notSetUp)) }
-#Preview("Tonight · planning") { TonightPreview.page(TonightPreview.board(.planning)) }
-#Preview("Tonight · offline") { TonightPreview.page(TonightPreview.board(.offline)) }
-#Preview("Tonight · failed") { TonightPreview.page(TonightPreview.board(.failed)) }
-#Preview("Tonight · AX3") { TonightPreview.page(TonightPreview.board(.planned, cached: true), size: .accessibility3) }
+#Preview("Tonight") { TonightPreview.page(.planned) }
+#Preview("Tonight · as of, alarm off") { TonightPreview.page(.planned, cached: true, alarm: true) }
+#Preview("Tonight · not set up") { TonightPreview.page(.notSetUp) }
+#Preview("Tonight · planning") { TonightPreview.page(.planning) }
+#Preview("Tonight · offline") { TonightPreview.page(.offline) }
+#Preview("Tonight · failed") { TonightPreview.page(.failed) }
+#Preview("Tonight · AX3") { TonightPreview.page(.planned, cached: true, size: .accessibility3) }
 
 @MainActor
 private func schedulePreview(_ schedule: SleepSchedule?, alarmsAllowed: Bool = true,

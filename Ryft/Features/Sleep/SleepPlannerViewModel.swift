@@ -3,6 +3,7 @@ import Observation
 import UserNotifications
 #if canImport(AlarmKit)
 import AlarmKit
+import SwiftUI
 #endif
 
 /// Sleep → Bedtime (`GET /v1/sleep/plan?wake=HH:MM`, behind `sleep.planner`):
@@ -297,11 +298,23 @@ struct PlannedNight: Codable, Equatable, Sendable {
 /// the wake alarm. Re-asks after syncs that touch today and in the evening refresh; moves the
 /// reminders only when the bedtime moved by 10 minutes or more. Behind `sleep.planner`: with
 /// the flag off, signed out or on another account, nothing of it stays on the phone.
+///
+/// A change is saved on this iPhone at once (`commit`); what follows from it (the reminders, the alarms, tonight's plan) runs
+/// in passes, one at a time, each with the schedule as it is when it starts (`refresh`). A pass stops at its next step once
+/// the schedule or the account changed, and the next pass does the work with what is current: nothing waits behind a plan
+/// on its way (a change cancels it), and nothing lands on an account that has gone.
 @MainActor
 @Observable
 final class BedtimePlanner {
     private let state: AppState
     private let alarms: WakeAlarms
+
+    /// Whose a change or a pass is: the account (and demo data or not) and the store's contents when it was made. Work for
+    /// an owner that isn't current any more (signed out, wiped, another account, a final 401) writes and schedules nothing.
+    struct Owner: Equatable {
+        let account: AccountBinding
+        let epoch: Int
+    }
 
     /// `nil` until set up ("Bedtime & wake") and after "Turn off".
     private(set) var schedule: SleepSchedule?
@@ -316,19 +329,32 @@ final class BedtimePlanner {
     var error: String? { problem?.message }
     /// iOS doesn't allow the alarm (any more): it was turned off, and this says why.
     private(set) var alarmProblem: String?
+    /// The reminder is on, but there is no plan for the wake time and none was ever fetched to estimate one from: no
+    /// reminder is set until there is (Bedtime & wake says so). With an earlier plan they're set from it (`remindWithoutAPlan`).
+    private(set) var remindersWaiting = false
     /// What each night planned, by its wake day (planned vs actual).
     private var records: [String: PlannedNight] = [:]
     /// The reminders were last set for this bedtime (the 10-minute rule).
     @ObservationIgnored private(set) var scheduledBedtime: Date?
     /// Bumped by every schedule or account change: an answer asked for before it is dropped.
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var refreshing: Task<Void, Never>?
+    /// The passes running (`refresh`), and whether another one is owed when this one ends.
+    @ObservationIgnored private var effects: Task<Void, Never>?
     @ObservationIgnored private var again = false
+    /// A change was saved since the last pass began: its reminders and alarms go before the plan.
+    @ObservationIgnored private var changed = false
+    /// Another account (or none) since the last pass: everything the previous one scheduled goes first.
+    @ObservationIgnored private var needsTeardown = false
+    /// Tonight's plan on its way: a change cancels it (its answer would be for the schedule before).
+    @ObservationIgnored private var asking: Task<SleepPlan, Error>?
     /// The alarm times as last set in this process; unknown at launch, so the first look sets them.
     @ObservationIgnored private var alarmsSet: [String]?
     @ObservationIgnored private var alarmsKnown = false
     /// Nothing of RYFT's is scheduled (after `teardown`); unknown at launch.
     @ObservationIgnored private var tornDown = false
+    /// Bedtime & wake's page, one for every way in (Profile, Tonight, Sleep → Bedtime): one copy being edited, one save at a
+    /// time.
+    @ObservationIgnored private(set) lazy var editor = BedtimeScheduleEditor(planner: self)
 
     /// A bedtime that moved less than this keeps its reminder.
     static let rescheduleThreshold: TimeInterval = 10 * 60
@@ -352,6 +378,8 @@ final class BedtimePlanner {
 
     private var env: AppEnvironment { state.env }
     private var now: Date { env.clock.now() }
+    /// Who is signed in now, and the store's epoch (`Owner`).
+    var owner: Owner { Owner(account: AccountBinding(env), epoch: env.persistence.epoch.current) }
     var isEnabled: Bool { env.flags.isOn(.sleepPlanner) }
     /// What the planner asks when it plans (`fetchPlan`): Tonight says offline from it, and plans again once it's back.
     var isOnline: Bool { env.connectivity.isOnline }
@@ -376,7 +404,8 @@ final class BedtimePlanner {
         let weekdays = SleepSchedule.clock(schedule.wake[0], locale: locale, calendar: calendar)
         guard schedule.wake[0] != schedule.wake[5] else { return weekdays }
         let weekend = SleepSchedule.clock(schedule.wake[5], locale: locale, calendar: calendar)
-        return String(localized: "\(weekdays) · weekend \(weekend)")
+        // swiftlint:disable:next line_length
+        return String(localized: "\(weekdays) · weekend\u{00A0}\(weekend)", comment: "Bedtime & wake's summary (Profile's row, Tonight's and Sleep's Bedtime & wake rows): the weekdays' wake time, then the weekend's. A no-break space keeps \"weekend\" with its time when the row wraps (\"6:30 AM · weekend 8:00 AM\").")
     }
 
     /// "Peak · reminder · alarm".
@@ -404,16 +433,19 @@ final class BedtimePlanner {
         asOf = nil
         problem = nil
         alarmProblem = nil
+        remindersWaiting = false
         scheduledBedtime = nil
         if let schedule { adoptCached(for: schedule.nextWake(after: now)) }
     }
 
     /// Signed out or another account signed in: the previous account's reminders, alarms and
-    /// widget bedtime go; this account's come back.
+    /// widget bedtime go (and a change it was editing); this account's come back.
     func accountChanged() async {
         generation += 1
+        asking?.cancel()
+        editor.discard()
         load()
-        await teardown()
+        needsTeardown = true
         await refresh()
     }
 
@@ -424,6 +456,7 @@ final class BedtimePlanner {
         alarmsSet = nil
         alarmsKnown = true
         scheduledBedtime = nil
+        remindersWaiting = false
         state.repository.tonightBedtime = nil
         tornDown = true
     }
@@ -438,23 +471,38 @@ final class BedtimePlanner {
 
     // MARK: editing
 
-    /// Saves the schedule (`nil`: turned off) and plans with it. A reminder turned off goes at
-    /// once, online or not; the alarms follow the wake times.
-    func update(_ new: SleepSchedule?) async {
+    /// Saves `new` (`nil`: turned off) on this iPhone at once, online or not, and starts a pass for what follows from it
+    /// without waiting for it: a reminder turned off goes and the alarms follow the wake times before the plan is asked
+    /// for; a plan on its way for the schedule before is cancelled. `false`, and nothing saved, when `owner` isn't current:
+    /// a change made before a sign-out, a wipe or another account's sign-in never lands on the next one.
+    @discardableResult
+    func commit(_ new: SleepSchedule?, for owner: Owner) -> Bool {
+        guard owner == self.owner else { return false }
         generation += 1
         schedule = new
         let account = env.auth.accountID
         if let new { new.save(account: account, defaults: env.defaults) } else { SleepSchedule.remove(account: account, defaults: env.defaults) }
         scheduledBedtime = nil   // the goal or the wind-down may have moved it
+        changed = true
         if new?.alarmOn == true { alarmProblem = nil }
-        if new?.reminderOn != true { await cancelReminders() }
-        await syncAlarms()
-        guard new != nil else {
+        if let new {
+            // A plan for another wake time isn't tonight's: Tonight plans again (or shows the stored one for this wake).
+            adoptCached(for: new.nextWake(after: now))
+        } else {
             plan = nil
+            asOf = nil
             problem = nil
+            remindersWaiting = false
             state.repository.tonightBedtime = nil
-            return
         }
+        asking?.cancel()
+        startPasses()
+        return true
+    }
+
+    /// `commit` for whoever is signed in now, then waits for its pass.
+    func update(_ new: SleepSchedule?) async {
+        commit(new, for: owner)
         await refresh()
     }
 
@@ -476,54 +524,90 @@ final class BedtimePlanner {
 
     // MARK: planning
 
-    /// Asks for tonight's plan and keeps the reminders, the alarms and the widget in step with
-    /// it. One at a time: a call while one runs makes it run once more when it's done.
+    /// Asks for tonight's plan and keeps the reminders, the alarms and the widget in step with it, in passes, one at a time:
+    /// a call while one runs makes it run once more when it's done (with the schedule as it is then), and waits for that.
     func refresh() async {
-        if let running = refreshing {
-            again = true
-            return await running.value
-        }
-        let task = Task {
-            repeat {
-                again = false
-                await planTonight()
-            } while again
-            refreshing = nil
-        }
-        refreshing = task
-        await task.value
+        startPasses()
+        await effects?.value
     }
 
-    private func planTonight() async {
+    /// Waits for the passes running, without asking for another (Turn off, tests).
+    func settle() async {
+        await effects?.value
+    }
+
+    private func startPasses() {
+        guard effects == nil else {
+            again = true
+            return
+        }
+        effects = Task {
+            repeat {
+                again = false
+                await pass()
+            } while again
+            effects = nil
+        }
+    }
+
+    /// One pass with the schedule and the account as they are when it starts. After every step that waits it stops if
+    /// either changed: the pass the change asked for does the work again with what is current.
+    private func pass() async {
+        let gen = generation, owner = self.owner
+        func current() -> Bool { gen == generation && owner == self.owner }
+        if needsTeardown {
+            // Another account: what the previous one scheduled goes before anything of this one's is set.
+            needsTeardown = false
+            await teardown()
+            guard current() else { return }
+        }
         guard isEnabled, state.hasDataSource, let schedule else {
             // The flag went off, nobody is signed in or nothing is set up: nothing stays scheduled.
             if !tornDown { await teardown() }
             return
         }
         tornDown = false
-        await fetchPlan(for: schedule)
-        // After the plan: Tonight doesn't wait for the alarms.
-        await syncAlarms()
+        if changed {
+            // A change's reminders and alarms don't need the network: they go first, so they're right however long the
+            // plan takes, or offline.
+            changed = false
+            if !schedule.reminderOn {
+                await cancelReminders()
+                remindersWaiting = false
+            }
+            guard current() else { return }
+            await syncAlarms(gen: gen, owner: owner)
+            guard current() else { return }
+        }
+        await fetchPlan(for: schedule, gen: gen, owner: owner)
+        guard current() else { return }
+        // After the plan: Tonight doesn't wait for the alarms (the first look at launch).
+        await syncAlarms(gen: gen, owner: owner)
     }
 
-    private func fetchPlan(for schedule: SleepSchedule) async {
-        let gen = generation
+    private func fetchPlan(for schedule: SleepSchedule, gen: Int, owner: Owner) async {
+        func current() -> Bool { gen == generation && owner == self.owner }
         let wake = schedule.nextWake(after: now)
         adoptCached(for: wake)
         if env.connectivity.isOnline {
+            let api = env.api, hhmm = SleepPlannerViewModel.hhmm(wake)
+            let request = Task { try await api.sleepPlan(wake: hhmm) }
+            asking = request
+            defer { if asking == request { asking = nil } }
             do {
-                let fresh = try await env.api.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake))
-                guard gen == generation else { return }   // the schedule or the account changed meanwhile
-                guard let aligned = Self.align(fresh, to: wake) else {
-                    if plan == nil { problem = .otherTimeZone }
-                    return
+                let fresh = try await request.value
+                // The schedule or the account changed meanwhile: the answer isn't for this one (nor its store).
+                guard current() else { return }
+                if let aligned = Self.align(fresh, to: wake) {
+                    plan = aligned
+                    asOf = nil
+                    problem = nil
+                    env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
+                } else if plan == nil {
+                    problem = .otherTimeZone
                 }
-                plan = aligned
-                asOf = nil
-                problem = nil
-                env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
             } catch {
-                guard gen == generation, !error.isCancellation else { return }
+                guard current(), !error.isCancellation else { return }
                 if plan == nil {
                     // Offline, no answer or refused, in the app's words; the status and request ID go to Details.
                     problem = .failed(SleepLoadFailure(error, isOnline: state.isDemo || env.connectivity.isOnline,
@@ -537,11 +621,38 @@ final class BedtimePlanner {
         } else {
             markCached()
         }
-        guard let plan, gen == generation else { return }
+        guard current() else { return }
+        guard let plan else { return await remindWithoutAPlan(schedule, wake: wake, gen: gen, owner: owner) }
         let bed = schedule.goal.bedtime(in: plan)
         state.repository.tonightBedtime = bed
         record(PlannedNight(bed: bed, wake: plan.wake))
-        await rescheduleIfMoved(schedule: schedule, plan: plan)
+        await rescheduleIfMoved(schedule: schedule, plan: plan, gen: gen, owner: owner)
+    }
+
+    /// No plan for tonight's wake (offline, the request failed, another time zone). Reminders set for an earlier schedule
+    /// would fire at its bedtimes, so they're set again for this one, estimated as the nights after tonight always are:
+    /// the last plan's time in bed before each night's wake. With no plan ever fetched there's nothing to estimate from:
+    /// they go, and Bedtime & wake says they resume once RYFT has tonight's plan (`remindersWaiting`).
+    private func remindWithoutAPlan(_ schedule: SleepSchedule, wake: Date, gen: Int, owner: Owner) async {
+        guard schedule.reminderOn, scheduledBedtime == nil else { return }
+        if let last = env.persistence.document(Cached.self, key: Self.cacheKey)?.plan {
+            let estimate = Self.estimate(from: last, wake: wake)
+            await scheduleReminders(schedule: schedule, plan: estimate)
+            guard gen == generation, owner == self.owner else { return }
+            scheduledBedtime = schedule.goal.bedtime(in: estimate)
+        } else {
+            await cancelReminders()
+            guard gen == generation, owner == self.owner else { return }
+            remindersWaiting = true
+        }
+    }
+
+    /// A plan for `wake` from `last`'s need and time in bed: the bedtimes are `wake − share · in_bed_min`, as the reminders
+    /// estimate the nights after tonight's.
+    static func estimate(from last: SleepPlan, wake: Date) -> SleepPlan {
+        func bed(_ share: Double) -> Date { wake.addingTimeInterval(-share * Double(last.inBedMin) * 60) }
+        return SleepPlan(wake: wake, needMin: last.needMin, inBedMin: last.inBedMin, efficiency: last.efficiency,
+                         bedtime100: bed(1), bedtime85: bed(0.85), bedtime70: bed(0.7), basis: last.basis)
     }
 
     /// Takes the stored plan when it is for `wake`, and drops one for another night.
@@ -577,11 +688,13 @@ final class BedtimePlanner {
                          bedtime70: plan.bedtime70.addingTimeInterval(shift), basis: plan.basis)
     }
 
-    private func rescheduleIfMoved(schedule: SleepSchedule, plan: SleepPlan) async {
+    private func rescheduleIfMoved(schedule: SleepSchedule, plan: SleepPlan, gen: Int, owner: Owner) async {
         let bed = schedule.goal.bedtime(in: plan)
         if let last = scheduledBedtime, abs(last.timeIntervalSince(bed)) < Self.rescheduleThreshold { return }
         await scheduleReminders(schedule: schedule, plan: plan)
+        guard gen == generation, owner == self.owner else { return }
         scheduledBedtime = bed
+        remindersWaiting = false
     }
 
     private func cancelReminders() async {
@@ -591,9 +704,9 @@ final class BedtimePlanner {
 
     /// Tonight's reminder from the plan; the following nights from tonight's time in bed at
     /// each night's wake (refined when the app plans those nights). Stops when the schedule
-    /// changes meanwhile.
+    /// or the account changes meanwhile.
     func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan, calendar: Calendar = .current) async {
-        let gen = generation
+        let gen = generation, owner = self.owner
         await cancelReminders()
         guard schedule.reminderOn else { return }
         let share = Double(schedule.goal.rawValue) / 100
@@ -615,7 +728,7 @@ final class BedtimePlanner {
             content.categoryIdentifier = PushCategories.bedtime
             let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
             let id = Self.reminderPrefix + DayFormat.string(from: wakeDay)
-            guard gen == generation else { return }
+            guard gen == generation, owner == self.owner else { return }
             try? await env.notifier.add(UNNotificationRequest(identifier: id, content: content,
                                                               trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
         }
@@ -623,8 +736,11 @@ final class BedtimePlanner {
 
     /// Sets the wake alarms the schedule asks for, once per change, and once at launch (a
     /// restore, a new iPhone or an iOS update leaves `alarmOn` without alarms). When iOS doesn't
-    /// allow them (any more), the alarm turns off and `alarmProblem` says why.
-    private func syncAlarms() async {
+    /// allow them (any more), the alarm turns off and `alarmProblem` says why. For a pass that a
+    /// change overtook nothing more happens (the next pass compares with `alarmsSet`); alarms set
+    /// for an account that has gone meanwhile are taken away again.
+    private func syncAlarms(gen: Int, owner: Owner) async {
+        func current() -> Bool { gen == generation && owner == self.owner }
         let want = isEnabled && state.hasDataSource && schedule?.alarmOn == true ? schedule?.wake : nil
         if alarmsKnown, alarmsSet == want { return }
         alarmsKnown = true
@@ -632,12 +748,19 @@ final class BedtimePlanner {
         guard let want else { return await alarms.cancelAll() }
         do {
             guard await alarms.isAllowed() else { throw WakeAlarmError.notAllowed }
+            guard current() else {
+                // Not set: the next pass mustn't take them for set.
+                alarmsKnown = false
+                return
+            }
             try await alarms.schedule(want)
+            if owner != self.owner { await alarms.cancelAll() }
         } catch {
             alarmsSet = nil
+            guard current() else { return }
             await alarms.cancelAll()
             alarmProblem = String(localized: "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them.")
-            guard var off = schedule else { return }
+            guard var off = schedule, current() else { return }
             off.alarmOn = false
             schedule = off
             off.save(account: env.auth.accountID, defaults: env.defaults)
@@ -830,38 +953,63 @@ struct TonightBoard: Equatable {
 
 // MARK: - Bedtime & wake, as the page edits it
 
-/// Bedtime & wake's page (PR 6 C §4.13): the schedule as edited. A change shows at once and is saved 400 ms after the last
-/// one (a wheel sends many) and when the page goes, one save after the other, so the last change is the one kept. Saving is
-/// the planner's, on this iPhone, online or not. A switch iOS refuses stays off and says why; an alarm iOS stops allowing
-/// goes back off with the planner's sentence (`alarmProblem`).
+/// Bedtime & wake's page (PR 6 C §4.13), one for the planner (`BedtimePlanner.editor`) whichever way it was opened (Profile,
+/// Tonight, Sleep → Bedtime): a change shows at once and is saved on this iPhone 400 ms after the last one (a wheel sends
+/// many) and when the page goes, online or not, the latest change last. Saving is synchronous (`BedtimePlanner.commit`); the
+/// reminders, the alarms and the plan follow in the planner's passes. A change is the account's that made it: after a
+/// sign-out, a wipe or another account's sign-in it is dropped, never saved as the next one's. A switch iOS refuses stays
+/// off and says why; an alarm iOS stops allowing goes back off with the planner's sentence (`alarmProblem`).
 @MainActor
 @Observable
 final class BedtimeScheduleEditor {
-    let planner: BedtimePlanner
-    private(set) var draft: SleepSchedule
-    /// iOS said no: the switch stayed off, and its group says why until it is turned on.
+    /// The planner owns the editor.
+    unowned let planner: BedtimePlanner
+    /// The schedule as changed and not saved yet; `nil` once saved, when the page shows the planner's.
+    private var copy: SleepSchedule?
+    /// Whose `copy` is: who was signed in when its first change was made.
+    private var copyOwner: BedtimePlanner.Owner?
+    /// iOS said no: the switch stayed off, and its group says why until it is turned on or the page is left.
     private(set) var reminderRefused = false
     private(set) var alarmRefused = false
-    /// Changed here: only then does leaving save (opening "Set up" and going back doesn't).
-    @ObservationIgnored private(set) var edited = false
+    /// Turn off is on its way: the page is disabled and the row says so.
+    private(set) var isTurningOff = false
+    /// Turn off started since the page opened: changes and leaving do nothing more (leaving doesn't set it up again).
+    @ObservationIgnored private var turnedOff = false
     @ObservationIgnored private var pending: Task<Void, Never>?
-    @ObservationIgnored private var lastSave: Task<Void, Never>?
 
     /// Quiet after the last change before it is saved.
     static let saveDelay: Duration = .milliseconds(400)
 
     init(planner: BedtimePlanner) {
         self.planner = planner
-        draft = planner.draft
+    }
+
+    /// What the page shows: the change not saved yet, else the saved schedule (or the starting point).
+    var draft: SleepSchedule { liveCopy ?? planner.draft }
+
+    /// A change not saved yet (only then does leaving save).
+    var edited: Bool { liveCopy != nil }
+
+    /// `copy`, while it is still the signed-in account's. Both are read every time, so a view that read `draft` before the
+    /// first change is redrawn by it.
+    private var liveCopy: SleepSchedule? {
+        let copy = copy, owner = copyOwner
+        return owner == planner.owner ? copy : nil
+    }
+
+    /// The page appeared: a Turn off from an earlier visit is over.
+    func open() {
+        turnedOff = false
     }
 
     /// A change: shown at once, saved once the page has been still for `saveDelay`.
     func edit(_ change: (inout SleepSchedule) -> Void) {
+        guard !turnedOff else { return }
         var next = draft
         change(&next)
         guard next != draft else { return }
-        draft = next
-        edited = true
+        if liveCopy == nil { copyOwner = planner.owner }
+        copy = next
         pending?.cancel()
         let clock = planner.clock
         pending = Task { [weak self] in
@@ -869,29 +1017,51 @@ final class BedtimeScheduleEditor {
             // A later change replaced this one while it woke: that one saves.
             guard !Task.isCancelled, let self else { return }
             self.pending = nil
-            self.save(self.draft)
+            self.save()
         }
     }
 
-    /// The page goes: a change made just before still counts.
-    func leave() {
+    /// The page goes: a change made just before still counts. Opened from "Set up Bedtime & wake" (`settingUp`) and left
+    /// without a change, it is set up as the page showed it (`setUp`). After Turn off, nothing.
+    func leave(settingUp: Bool = false) {
+        reminderRefused = false
+        alarmRefused = false
+        guard !turnedOff else { return }
         pending?.cancel()
         pending = nil
-        guard edited, draft != planner.schedule else { return }
-        save(draft)
+        if edited {
+            save()
+        } else if settingUp {
+            setUp()
+        }
     }
 
-    /// Back to "Off": no reminders, no alarms, no Tonight. Waits for the saves before it.
+    /// Sets Bedtime & wake up as the page shows it, without a change (the defaults): "Set up Bedtime & wake", then back.
+    func setUp() {
+        guard planner.schedule == nil, !turnedOff else { return }
+        planner.commit(draft, for: planner.owner)
+    }
+
+    /// Back to "Off": the schedule (the wake times of each day, the goal, the wind-down), the bedtime reminder and the wake
+    /// alarm go. Saved at once; it waits only for the reminders and the alarms to go, never for a plan on its way (the
+    /// change cancels it).
     func turnOff() async {
+        guard !isTurningOff else { return }
+        isTurningOff = true
+        turnedOff = true
         pending?.cancel()
         pending = nil
-        edited = false
-        await save(nil).value
+        copy = nil
+        copyOwner = nil
+        planner.commit(nil, for: planner.owner)
+        await planner.settle()
+        isTurningOff = false
     }
 
     /// The reminder asks for notifications as it's turned on. `false`: iOS said no, the switch stays off.
     @discardableResult
     func setReminder(_ on: Bool) async -> Bool {
+        guard !turnedOff else { return true }
         guard on else {
             edit { $0.reminderOn = false }
             return true
@@ -908,6 +1078,7 @@ final class BedtimeScheduleEditor {
     /// The alarm asks for AlarmKit (or notifications) as it's turned on. `false`: iOS said no, the switch stays off.
     @discardableResult
     func setAlarm(_ on: Bool) async -> Bool {
+        guard !turnedOff else { return true }
         guard on else {
             edit { $0.alarmOn = false }
             return true
@@ -921,31 +1092,38 @@ final class BedtimeScheduleEditor {
         return true
     }
 
-    /// The planner turned the alarm off (iOS no longer allows it): the switch goes back off. Nothing to save: the planner
-    /// saved it, and a save still waiting takes the draft as it is now.
+    /// The planner turned the alarm off (iOS no longer allows it) while a change with the alarm on wasn't saved yet: the
+    /// change keeps everything else, the alarm goes back off. Saved changes need nothing: the page shows the planner's.
     func alarmWentOff() {
-        guard planner.schedule?.alarmOn == false, draft.alarmOn else { return }
-        draft.alarmOn = false
+        guard planner.schedule?.alarmOn == false, copy?.alarmOn == true else { return }
+        copy?.alarmOn = false
     }
 
-    /// Waits for the save in waiting and the saves on their way (tests).
+    /// Another account (or none): a change not saved yet was the previous one's, and goes.
+    func discard() {
+        pending?.cancel()
+        pending = nil
+        copy = nil
+        copyOwner = nil
+        reminderRefused = false
+        alarmRefused = false
+    }
+
+    /// Waits for the save in waiting and the planner's passes (tests).
     func settle() async {
         await pending?.value
-        await lastSave?.value
+        await planner.settle()
     }
 
-    /// Hands `schedule` to the planner once the saves before it are done. An alarm iOS doesn't allow (any more) can't be
-    /// set: the planner turns it off and says why (`alarmProblem`, amber in the alarm's group), and the switch goes back.
-    @discardableResult
-    private func save(_ schedule: SleepSchedule?) -> Task<Void, Never> {
-        let before = lastSave
-        let turn = Task { [weak self, planner] in
-            await before?.value
-            await planner.update(schedule)
-            if schedule?.alarmOn == true, planner.schedule?.alarmOn == false { self?.alarmWentOff() }
+    /// Hands the change to the planner, which saves it at once; dropped when it was made for an account that has gone.
+    private func save() {
+        guard let copy, let copyOwner else { return }
+        guard planner.commit(copy, for: copyOwner) else { return discard() }
+        // Saved: the page shows the planner's schedule again until the next change.
+        if planner.schedule == copy {
+            self.copy = nil
+            self.copyOwner = nil
         }
-        lastSave = turn
-        return turn
     }
 }
 
@@ -1089,6 +1267,14 @@ struct WakeAlarmMetadata: AlarmMetadata {}
 @MainActor
 enum AlarmKitWake {
     static let snooze: TimeInterval = 9 * 60
+    /// The alarm's and its Live Activity's tint, as the widget's alarm look: `Theme.textPrimary`'s light ink, #F2F1EC.
+    /// Literals, not the Theme colours: `AlarmAttributes` is encoded and drawn by the system's process, where the app's
+    /// asset colours may not resolve (`AlarmKitWakeTests` keeps them equal to the Theme's). Never teal: teal is
+    /// recovery's (L27).
+    static let tint = Color(red: 0.949, green: 0.945, blue: 0.925)
+    /// Snooze's words, on the tint: `Theme.background`'s graphite, #0A0C0B. Stop (iOS 26.0 only) sits on the system's own
+    /// fill, so its words stay light.
+    static let snoozeText = Color(red: 0.039, green: 0.047, blue: 0.043)
 
     static func authorize() async -> Bool {
         switch AlarmManager.shared.authorizationState {
@@ -1106,7 +1292,7 @@ enum AlarmKitWake {
             guard parts.count == 2 else { continue }
             let schedule = Alarm.Schedule.relative(.init(time: .init(hour: parts[0], minute: parts[1]),
                                                          repeats: .weekly(group.days.map { weekdays[$0] })))
-            let snoozeButton = AlarmButton(text: LocalizedStringResource("Snooze"), textColor: .white, systemImageName: "zzz")
+            let snoozeButton = AlarmButton(text: LocalizedStringResource("Snooze"), textColor: snoozeText, systemImageName: "zzz")
             let alert: AlarmPresentation.Alert
             if #available(iOS 26.1, *) {
                 // The system draws Stop itself from 26.1 on.
@@ -1120,7 +1306,7 @@ enum AlarmKitWake {
             }
             let countdown = AlarmPresentation.Countdown(title: LocalizedStringResource("Snoozing"))
             let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert, countdown: countdown),
-                                             metadata: WakeAlarmMetadata(), tintColor: .teal)
+                                             metadata: WakeAlarmMetadata(), tintColor: tint)
             let configuration = AlarmManager.AlarmConfiguration(
                 countdownDuration: Alarm.CountdownDuration(preAlert: nil, postAlert: snooze),
                 schedule: schedule, attributes: attributes)

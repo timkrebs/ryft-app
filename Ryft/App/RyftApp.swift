@@ -705,7 +705,7 @@ private struct DebugBedtime: View {
     var body: some View {
         NavigationStack {
             if screen == .bedtime {
-                SleepScheduleView(planner: screens.bedtime)
+                SleepScheduleView(planner: screens.bedtime, placement: .root)
             } else {
                 ScrollView { TonightCard(planner: screens.bedtime).padding() }
                     .background(Theme.background.ignoresSafeArea())
