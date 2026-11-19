@@ -1,6 +1,6 @@
-// The wake alarm's snooze (Bedtime & wake, AlarmKit): a countdown on the lock screen and in
-// the Dynamic Island. AlarmKit expects the widget extension to provide it once an alarm can
-// count down; the alert itself is the system's.
+// The wake alarm's snooze (Bedtime & wake, AlarmKit): a countdown on the lock screen and in the Dynamic Island. AlarmKit
+// expects the widget extension to provide it once an alarm can count down; the alert itself is the system's. Nocturne
+// (c-27): the words in `textSecondary`, the countdown 40 Light in ink, no teal; the keyline as the workout's.
 #if canImport(AlarmKit)
 import AlarmKit
 import SwiftUI
@@ -10,73 +10,109 @@ import WidgetKit
 struct WakeAlarmLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AlarmAttributes<WakeAlarmMetadata>.self) { context in
-            SnoozeLockScreen(state: context.state)
+            SnoozeLockScreen(fireDate: context.state.snoozeFireDate)
                 .activityBackgroundTint(Brand.graphite)
                 .activitySystemActionForegroundColor(Brand.mist)
         } dynamicIsland: { context in
-            DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    Label("Snoozing", systemImage: "zzz")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Brand.teal)
-                }
+            let fireDate = context.state.snoozeFireDate
+            return DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) { SnoozeIslandLabel() }
                 DynamicIslandExpandedRegion(.trailing) {
-                    SnoozeClock(state: context.state)
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    SnoozeClock(fireDate: fireDate)
+                        .font(.system(size: 28, weight: .light))
                 }
             } compactLeading: {
-                Image(systemName: "zzz").foregroundStyle(Brand.teal)
+                SnoozeGlyph()
             } compactTrailing: {
-                SnoozeClock(state: context.state)
-                    .font(.system(.body, design: .rounded).weight(.semibold))
+                SnoozeClock(fireDate: fireDate)
+                    .font(.system(size: 15, weight: .light))
                     .frame(maxWidth: 56)
             } minimal: {
-                Image(systemName: "zzz").foregroundStyle(Brand.teal)
+                SnoozeGlyph()
             }
-            .keylineTint(Brand.teal)
+            .keylineTint(Brand.mist.opacity(WorkoutActivityLook.keylineOpacity))
         }
     }
 }
 
 @available(iOS 26.0, *)
-private struct SnoozeLockScreen: View {
-    let state: AlarmPresentationState
+private extension AlarmPresentationState {
+    /// The next ring while the alarm counts down (snoozed); nil otherwise.
+    var snoozeFireDate: Date? {
+        if case .countdown(let countdown) = mode { return countdown.fireDate }
+        return nil
+    }
+}
+
+/// "Snoozing" and "Your alarm rings again" in `textSecondary`, the countdown 40 Light in ink. One element for VoiceOver.
+struct SnoozeLockScreen: View {
+    let fireDate: Date?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: WorkoutActivityLook.labelGap) {
                 Text("Snoozing")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Brand.teal)
+                    .font(.caption2.weight(.medium))
                 Text("Your alarm rings again")
                     .font(.caption)
-                    .foregroundStyle(Brand.mist.opacity(0.6))
             }
-            Spacer()
-            SnoozeClock(state: state)
-                .font(.system(size: 40, weight: .semibold, design: .rounded))
-                .foregroundStyle(Brand.mist)
+            .foregroundStyle(WidgetInk.secondary.colour)
+            .lineLimit(1)
+            Spacer(minLength: 8)
+            SnoozeClock(fireDate: fireDate)
+                .font(.system(size: 40, weight: .light))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .padding(16)
+        .padding(WorkoutActivityLook.padding)
+        .dynamicTypeSize(...WorkoutActivityLook.largestType)
         .background(Brand.graphite)
+        .accessibilityElement(children: .combine)
     }
 }
 
-/// Counts down to the next ring.
-@available(iOS 26.0, *)
-private struct SnoozeClock: View {
-    let state: AlarmPresentationState
+/// The island's leading region: `zzz` and "Snoozing" in `textSecondary`.
+struct SnoozeIslandLabel: View {
+    var body: some View {
+        Label {
+            Text("Snoozing").font(.caption.weight(.medium))
+        } icon: {
+            Image(systemName: "zzz").font(.caption)
+        }
+        .foregroundStyle(WidgetInk.secondary.colour)
+        .padding(.leading, 4)
+        .dynamicTypeSize(...WorkoutActivityLook.largestType)
+    }
+}
+
+/// Compact and minimal: `zzz` in `textSecondary`.
+struct SnoozeGlyph: View {
+    var body: some View {
+        Image(systemName: "zzz")
+            .foregroundStyle(WidgetInk.secondary.colour)
+            .dynamicTypeSize(...WorkoutActivityLook.largestType)
+    }
+}
+
+/// Counts down to the next ring; the alarm glyph when there is none to count to.
+struct SnoozeClock: View {
+    let fireDate: Date?
 
     var body: some View {
-        if case .countdown(let countdown) = state.mode {
-            Text(timerInterval: Date.now...max(countdown.fireDate, .now), countsDown: true)
+        if let fireDate {
+            Text(timerInterval: Date.now...max(fireDate, .now), countsDown: true)
                 .monospacedDigit()
                 .multilineTextAlignment(.trailing)
-                .foregroundStyle(Brand.mist)
+                .foregroundStyle(WidgetInk.primary.colour)
         } else {
             Image(systemName: "alarm")
-                .foregroundStyle(Brand.teal)
+                .foregroundStyle(WidgetInk.secondary.colour)
         }
     }
+}
+
+#Preview("Snooze · lock screen", traits: .sizeThatFitsLayout) {
+    SnoozeLockScreen(fireDate: .now.addingTimeInterval(8 * 60 + 42))
+        .frame(width: 358)
 }
 #endif

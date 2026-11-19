@@ -1,7 +1,7 @@
-// The widget's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the system's rounded face
-// (the widget has no Satoshi), the marks accentable for tinted and clear home screens, the tracks quiet where the
-// system renders the widget in one colour. No VoiceOver of its own: the family's view reads `Words.spoken` (the
-// day's scores; while pending, only the last readiness).
+// The widget's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the system face (the widget has no
+// Satoshi; F21), Light from 20 pt up and never the dot grid (D6C-8), the marks accentable for tinted and clear home screens,
+// the tracks quiet where the system renders the widget in one colour. What the centre holds and in which ink is
+// `ReadinessWidgetLook`'s (`Shared/WidgetLook.swift`). No VoiceOver of its own: the family's view reads `Words.spoken`.
 import SwiftUI
 import WidgetKit
 
@@ -16,21 +16,21 @@ struct WidgetOrbitGauge: View {
     var previousReadiness: Int?
     /// The number inside the centre ring; off where the text beside it says it.
     var showsNumber = true
-    /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
+    /// The lock screen's circle: the number Medium, in the system's hierarchical inks (its vibrant rendering).
     var prominentNumber = false
 
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
-    /// On a locked device: the tracks only, no arcs or dots, and a constant number under the redaction (the real
-    /// one would show through by its width).
-    private var locked: Bool { redaction.contains(.privacy) }
+    /// On a locked device and in the placeholder: the tracks only, no arcs or dots, and a constant number under the
+    /// redaction (the real one would show through by its width).
+    private var hidden: Bool { redaction.hidesValues }
 
     var body: some View {
-        OrbitGaugeDrawing(mode: locked ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
+        OrbitGaugeDrawing(mode: hidden ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
             if showsNumber, size.dial >= OrbitGaugeGeometry.minDialForNumber {
                 centreText
-                    .font(.system(size: pointSize, weight: prominentNumber ? .semibold : .medium, design: .rounded))
+                    .font(.system(size: pointSize, weight: weight))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -42,37 +42,31 @@ struct WidgetOrbitGauge: View {
 
     private var pointSize: CGFloat { OrbitGaugeGeometry.numberPointSize(forDial: size.dial) }
 
-    /// Locked: the constant. Calibrating: the count, with " / 7" from a 100 pt dial up as in the app (below it the
-    /// segments say "of 7"). Pending: the previous day's readiness (or `previousReadiness`), dimmed, or the dash. Otherwise the readiness.
+    private var weight: Font.Weight {
+        if prominentNumber { return .medium }
+        return pointSize >= ReadinessWidgetLook.lightNumberFrom ? .light : .regular
+    }
+
+    private var centre: ReadinessWidgetLook.Centre {
+        ReadinessWidgetLook.centre(mode, readiness: readiness, previousReadiness: previousReadiness, hidden: hidden)
+    }
+
     private var centreText: Text {
-        if locked { return Text(verbatim: Words.lockedNumber).foregroundStyle(numberStyle(dimmed: false)) }
-        if case .calibrating(let calibration)? = mode {
-            let count = Text(verbatim: String(calibration.counted)).foregroundStyle(numberStyle(dimmed: false))
-            guard size.dial >= 100 else { return count }
-            return count + Text(verbatim: " / \(calibration.required)")
-                .font(.system(size: pointSize * 0.55, weight: .medium, design: .rounded))
-                .foregroundStyle(numberStyle(dimmed: true))
+        let centre = centre
+        let words: String
+        switch centre {
+        case .hidden: words = Words.lockedNumber
+        case .readiness(let readiness, _): words = String(readiness)
+        case .baselines(let counted): words = String(counted)
+        case .dash: words = "–"
         }
-        return Text(verbatim: number.map(String.init) ?? "–")
-            .foregroundStyle(numberStyle(dimmed: number == nil || mode?.isPending == true))
+        return Text(verbatim: words).foregroundStyle(style(ReadinessWidgetLook.ink(of: centre)))
     }
 
-    /// The readiness in the centre: the day's, the previous day's while pending (the drawing's, else
-    /// `previousReadiness`), `readiness` when the mode is unknown.
-    private var number: Int? {
-        switch mode {
-        case .scored(let values, _)?: return values.readiness
-        case .pending(let previous)?: return previous?.readiness ?? previousReadiness
-        case .calibrating?: return nil
-        case nil: return readiness
-        }
-    }
-
-    /// The ink of the centre: full, or dimmed for a dash, a previous day's number and the " / 7".
-    private func numberStyle(dimmed: Bool) -> AnyShapeStyle {
-        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink) }
-        if prominentNumber { return AnyShapeStyle(dimmed ? .secondary : .primary) }
-        return AnyShapeStyle(dimmed ? Brand.ink.opacity(0.4) : Brand.ink)
+    /// The ladder's ink; the circle's hierarchical styles, which the lock screen's vibrant rendering keeps apart.
+    private func style(_ ink: WidgetInk) -> AnyShapeStyle {
+        if prominentNumber { return ink == .primary ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary) }
+        return AnyShapeStyle(ink.colour)
     }
 
     /// The app's colours in full colour, the v3 tracks included. Tinted, clear and lock-screen renderings turn every
@@ -86,26 +80,22 @@ struct WidgetOrbitGauge: View {
 }
 
 #Preview("WidgetOrbitGauge", traits: .sizeThatFitsLayout) {
-    HStack(spacing: 16) {
-        ForEach([ColorScheme.dark], id: \.self) { scheme in
-            VStack(spacing: 12) {
-                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
-                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
-                WidgetOrbitGauge(mode: nil, readiness: 71)
-                WidgetOrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)))
-                WidgetOrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .custom(dial: 104))
-                WidgetOrbitGauge(mode: .pending(previous: OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88,
-                                                                            strain: 9.6)))
-                WidgetOrbitGauge(mode: .pending(previous: nil))
-                WidgetOrbitGauge(mode: .pending(previous: nil), previousReadiness: 64)
-                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)),
-                                 size: .custom(dial: 56), prominentNumber: true)
-                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
-                                 size: .custom(dial: 44), showsNumber: false)
-            }
-            .padding(16)
-            .background(Brand.background)
-            .environment(\.colorScheme, scheme)
-        }
+    VStack(spacing: 12) {
+        WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
+                         size: .custom(dial: 104))
+        WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)), size: .custom(dial: 104))
+        WidgetOrbitGauge(mode: nil, size: .custom(dial: 104), readiness: 71)
+        WidgetOrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .custom(dial: 104))
+        WidgetOrbitGauge(mode: .pending(previous: OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
+                         size: .custom(dial: 104))
+        WidgetOrbitGauge(mode: .pending(previous: nil), size: .custom(dial: 104))
+        WidgetOrbitGauge(mode: .pending(previous: nil), size: .custom(dial: 104), previousReadiness: 64)
+        WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)),
+                         size: .custom(dial: 62), prominentNumber: true)
+        WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
+                         size: .custom(dial: ReadinessWidgetLook.rectangularDial), showsNumber: false)
     }
+    .padding(16)
+    .background(Brand.background)
+    .environment(\.colorScheme, .dark)
 }
