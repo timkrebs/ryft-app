@@ -218,7 +218,8 @@ struct SleepBedtimeSection: View {
     var signIn: (() async -> Void)?
 
     @Environment(ScreenModels.self) private var screens
-    @State private var showsSchedule = false
+    /// Bedtime & wake, pushed: from the settings card, or from Set up (leaving it without a change sets it up).
+    @State private var opening: SleepScheduleView.Opening?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -230,7 +231,7 @@ struct SleepBedtimeSection: View {
             }
             planned
         }
-        .navigationDestination(isPresented: $showsSchedule) { SleepScheduleView(planner: screens.bedtime) }
+        .navigationDestination(item: $opening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
     }
 
     @ViewBuilder private var planned: some View {
@@ -263,7 +264,7 @@ struct SleepBedtimeSection: View {
             SleepTileGrid(tiles: board.tiles, isOutline: board.isOutline)
                 .padding(.top, SleepModesLayout.tilesGap)
         }
-        SleepBedtimeSettings(board: board, wake: $wake) { showsSchedule = true }
+        SleepBedtimeSettings(board: board, wake: $wake) { opening = .edit }
             .padding(.top, SleepModesLayout.settingsGap)
         if let problem = board.alarmProblem {
             InlineMessage(message: problem, systemImage: "alarm", identifier: "sleep.bedtime.alarm", severity: .attention)
@@ -283,7 +284,8 @@ struct SleepBedtimeSection: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-            PillButton(Text("Set up Bedtime & wake"), systemImage: "arrow.right") { showsSchedule = true }
+            // Tonight's glyph for the same action (§4.13).
+            PillButton(Text("Set up Bedtime & wake"), systemImage: "bed.double") { opening = .setUp }
                 .accessibilityIdentifier("sleep.bedtime.setUp")
         }
     }
