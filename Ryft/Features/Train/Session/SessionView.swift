@@ -138,7 +138,8 @@ struct SessionView: View {
         .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: controller.restsEnded)
         .sheet(isPresented: $showsAdd) {
             AddExerciseSheet { picked in
-                let row = controller.add(picked)
+                // Nil once the workout is over (a slow custom save that came back after Finish).
+                guard let row = controller.add(picked) else { return }
                 // Focused: the new exercise's page. The list stays where it is.
                 if controller.layout == .focused {
                     withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }

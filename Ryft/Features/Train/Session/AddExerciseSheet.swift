@@ -317,6 +317,9 @@ struct CustomExerciseForm: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: CustomExerciseDraft
     @State private var saving = false
+    /// Set once the form is cancelled or goes away. A save still under way then hands nothing back: the workout (or plan) it
+    /// was for may be over. A reference, so `save()` sees the write made after its await began.
+    @State private var closing = FormClosing()
     @FocusState private var nameFocused: Bool
 
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
@@ -335,15 +338,19 @@ struct CustomExerciseForm: View {
     }
 
     var body: some View {
-        SheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel")) {
+        SheetFrame(Text("Custom exercise"), closeLabel: Text("Cancel"), onClose: {
+            closing.closed = true
+            dismiss()
+        }) {
             PillButton(Text("Add"), size: .compact, busy: saving) { await save() }
                 .disabled(!draft.canSave)
                 .accessibilityIdentifier("customExercise.add")
         } content: {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 GroupedCard {
+                    // The field's label says "Name" once: an empty prompt, not the label again.
                     FormField(Text("Name"), isFocused: nameFocused) {
-                        TextField(text: $draft.name) { Text("Name") }
+                        TextField(text: $draft.name, prompt: Text(verbatim: "").fieldPrompt()) { Text("Name") }
                             .textInputAutocapitalization(.words)
                             .focused($nameFocused)
                             .accessibilityIdentifier("customExercise.name")
@@ -377,6 +384,7 @@ struct CustomExerciseForm: View {
                 .toggleStyle(.ryft)
             }
         }
+        .onDisappear { closing.closed = true }
     }
 
     private func save() async {
@@ -390,9 +398,16 @@ struct CustomExerciseForm: View {
         let e = draft.exercise
         let saved = await library.createExercise(e) ?? e
         saving = false
+        // Cancelled or gone while it saved: the library keeps the exercise; the session or plan doesn't get it.
+        guard !closing.closed else { return }
         onSave(saved)
         dismiss()
     }
+}
+
+/// `CustomExerciseForm`'s "closed" mark.
+@MainActor private final class FormClosing {
+    var closed = false
 }
 
 extension AddExerciseSheet {

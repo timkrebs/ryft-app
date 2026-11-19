@@ -163,9 +163,11 @@ extension SessionController {
         voiceOver || switchControl ? undoWindowVoiceOver : undoWindow
     }
 
-    /// Still the running workout: not finishing, completed or discarded. Late tasks touch the session only then.
+    /// Still the running workout: not finishing, completed or discarded, and not stopped (an account change). Late tasks, a
+    /// late add and a late replace touch the session only then.
     var isUnderway: Bool {
-        switch phase {
+        guard !stopped else { return false }
+        return switch phase {
         case .finishing, .completed, .discarded: false
         default: true
         }
@@ -209,7 +211,7 @@ extension SessionController {
     /// changes the plan day's exercise from the next session on.
     func replace(_ ex: LocalSessionExercise, with new: Exercise, alsoChangePlan: Bool = false,
                  window: Duration = SessionController.undoWindow) async {
-        guard canReplace(ex), new.id != ex.exerciseId else { return }
+        guard isUnderway, canReplace(ex), new.id != ex.exerciseId else { return }
         commitUndo()   // a second replace commits the first
         let focusBefore = focusBeforeReplace ?? focus
         focusBeforeReplace = nil

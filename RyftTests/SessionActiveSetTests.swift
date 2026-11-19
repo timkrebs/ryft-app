@@ -331,7 +331,7 @@ struct SessionActiveSetTests {
 
     @Test func anEmptyBodyweightRowOpensRepsNotKg() throws {
         let r = rig()
-        let dip = r.controller.add(r.other)
+        let dip = try #require(r.controller.add(r.other))
         r.store.save()
         #expect(dip.loadType == .bodyweight)
         let set = dip.orderedSets[0]
@@ -365,19 +365,19 @@ struct SessionActiveSetTests {
         #expect(r.row.orderedSets[1].isCompleted && r.row.orderedSets[1].reps == 8)
     }
 
-    @Test func bodyweightWithARepsGhostLogs() {
+    @Test func bodyweightWithARepsGhostLogs() throws {
         let r = rig()
-        let dip = r.controller.add(r.other)
+        let dip = try #require(r.controller.add(r.other))
         dip.targetRepsMin = 8
         dip.orderedSets[0].reps = nil
         r.controller.checkRow(dip.orderedSets[0], in: dip)
         #expect(dip.orderedSets[0].isCompleted && dip.orderedSets[0].reps == 8)
     }
 
-    @Test func timeAndDistanceRowsKeepTodaysBehaviourAndLogWhenEmpty() {
+    @Test func timeAndDistanceRowsKeepTodaysBehaviourAndLogWhenEmpty() throws {
         let r = rig()
-        let plank = r.controller.add(MockTrain.plank)
-        let erg = r.controller.add(MockTrain.erg)
+        let plank = try #require(r.controller.add(MockTrain.plank))
+        let erg = try #require(r.controller.add(MockTrain.erg))
         #expect(plank.loadType == .time && erg.loadType == .distance)
         r.controller.checkRow(plank.orderedSets[0], in: plank)
         r.controller.checkRow(erg.orderedSets[0], in: erg)
@@ -385,9 +385,9 @@ struct SessionActiveSetTests {
         #expect(r.controller.emptyCheck == nil)
     }
 
-    @Test func aStoredTimeIsALoggedValue() {
+    @Test func aStoredTimeIsALoggedValue() throws {
         let r = rig()
-        let plank = r.controller.add(MockTrain.plank)
+        let plank = try #require(r.controller.add(MockTrain.plank))
         plank.orderedSets[0].durationSec = 45
         r.controller.checkRow(plank.orderedSets[0], in: plank)
         #expect(plank.orderedSets[0].isCompleted && r.controller.emptyCheck == nil)
