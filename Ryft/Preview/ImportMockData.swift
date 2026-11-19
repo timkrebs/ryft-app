@@ -192,8 +192,13 @@ enum ImportMockData {
     /// An uploader showing `status`; `available` false: uploads aren't available yet (V5).
     @MainActor
     static func uploader(_ status: ImportJobStatus?, available: Bool = true) -> TrainImportUploader {
-        TrainImportUploader.preview(status, env: .preview(flags: [.trainImport: available]))
+        TrainImportUploader.preview(status, env: available ? uploadsOn : uploadsOff)
     }
+
+    /// The uploader's environment, kept here: it holds it weakly, and without it there's no binding (demo's), so uploads
+    /// would never read as available. Demo's platform publishes the import; the flag decides.
+    @MainActor private static let uploadsOn = AppEnvironment.preview(flags: [.trainImport: true])
+    @MainActor private static let uploadsOff = AppEnvironment.preview(flags: [.trainImport: false])
 
     // MARK: Step 5
 

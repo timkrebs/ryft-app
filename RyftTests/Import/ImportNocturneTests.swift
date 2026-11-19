@@ -47,18 +47,30 @@ struct ImportNocturneTests {
         }
     }
 
-    @Test("L27: the import's views and its progress bar name no teal or accent")
+    /// `ProfileSubpagesTests.noTeal`'s tokens (less its page-specific `ProfileSection`), and the tint and system teals.
+    nonisolated static let tealTokens = [
+        "Theme.accent", "Theme.onAccent", "Theme.teal", "Theme.recovery", "Theme.signal", "Color.accentColor", "accentColor",
+        "TealButtonStyle", ".tint(", ".teal", ".mint", ".cyan", "Color(\"Accent", "Color(\"Teal", "Color(\"Recovery",
+        "Locale(identifier: \"de\")", "preferredColorScheme(.light)",
+    ]
+
+    @Test("L27: the import's views and its progress bar name no teal, accent or tint, in code (comments may)")
     func noTeal() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let teal = try Regex(#"Theme\.(teal|accent\w*|onAccent|recovery)|Color\("(Accent|Teal|Recovery)|TealButtonStyle|\bPrimaryButton\("#)
         let folder = root.appendingPathComponent("Ryft/Features/Train/Import")
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "swift" } + [root.appendingPathComponent("Ryft/Design/ImportProgressBar.swift")]
         #expect(files.count >= 20, "the folder was found: \(files.count)")
         for file in files {
             let source = try String(contentsOf: file, encoding: .utf8)
-            let found = source.matches(of: teal).map { String(source[$0.range]) }
-            #expect(found.isEmpty, "\(file.lastPathComponent): \(found)")
+            // The code only, as ProfileSubpagesTests: a comment may name a token to say why it isn't used. `//` after a
+            // colon is a URL's.
+            let code = source.replacing(#/(^|[^:])//.*/#) { String($0.output.1) }
+            for token in Self.tealTokens {
+                #expect(!code.contains(token), "\(file.lastPathComponent) names \(token)")
+            }
+            // The old teal pill, as a word: `ImportPrimaryButton` is a `PillButton`.
+            #expect(code.firstMatch(of: #/\bPrimaryButton\b/#) == nil, "\(file.lastPathComponent) names PrimaryButton")
         }
     }
 
@@ -301,6 +313,38 @@ struct ImportNocturneTests {
 
     // MARK: the result
 
+    @Test("Done on a result with refused items marks it seen (I4) and closes")
+    func doneMarksSeen() async throws {
+        let h = ImportUploadHarness()
+        let sessions = ImportUploadHarness.sessions(3)
+        h.live.trainImportSource.rejectIDs = [sessions[1].id: "exercise not found"]
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        #expect(h.uploader.status?.isFinished == true && h.uploader.status?.hasRejected == true)
+        let model = ImportMockData.flow(.result, uploader: h.uploader)
+        var finished: [ImportFlowModel.Finish] = []
+        model.onFinish = { finished.append($0) }
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            #expect(h.uploader.status?.resultSeen == false, "shown isn't seen while items were refused")
+            let done = try #require(w.nodes().first { $0.identifier == "import.done" })
+            #expect(done.activate())
+            try await w.wait("seen") { h.uploader.status?.resultSeen == true }
+            #expect(finished == [.close])
+        }
+    }
+
+    @Test("Open plan opens the plan the import wrote")
+    func openPlanFinishes() async throws {
+        let model = ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.done))
+        var finished: [ImportFlowModel.Finish] = []
+        model.onFinish = { finished.append($0) }
+        try await host(ImportFlowView(model: model).previewEnvironment()) { w in
+            let open = try #require(w.nodes().first { $0.identifier == "import.openPlan" })
+            #expect(open.activate())
+            try await w.wait("the finish") { !finished.isEmpty }
+            #expect(finished == [.openPlan(MockTrainImport.planID)])
+        }
+    }
+
     @Test("Refused items: the lead says so, Not imported opens to each reason with Details, the sentence stays")
     func rejections() async throws {
         try await host("6-rejections") { w in
@@ -385,6 +429,19 @@ struct ImportNocturneTests {
             let firstRow = rows.map(\.frame.minY).min() ?? 0
             #expect(!rows.isEmpty)
             #expect(firstRow >= top, "the notice first: \(top) \(firstRow)")
+        }
+    }
+
+    @Test("Step 5: Import with uploads available (demo's binding, the flag on); Keep on this iPhone without")
+    func previewUploads() async throws {
+        #expect(ImportMockData.uploader(nil).uploadsAvailable)
+        #expect(!ImportMockData.uploader(nil, available: false).uploadsAvailable)
+        try await host("5-preview-plan") { w in
+            let nodes = w.nodes()
+            let pill = try #require(nodes.first { $0.identifier == "import.import" }, "the Import pill")
+            #expect(pill.label.hasPrefix("Import "), "\(pill.label)")
+            #expect(pill.isEnabled)
+            #expect(!nodes.contains { $0.identifier == "import.keep" })
         }
     }
 
