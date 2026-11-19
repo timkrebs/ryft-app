@@ -2251,6 +2251,18 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-42 | "–" / "–:––" placeholders | Unlit "0:00" / "00:00" (T5.5) | `DotNumeral`'s pending look; its Light fallback still shows "–:––" |
 | D5-43 | `ProgressBar` in accent | Defaults to `metricSleep` (T5.5) | Its only caller is Sleep's details card |
 | D5-44 | No staleness note on Week/Month | "As of <day>" footer when offline, after a failed read, or when the range doesn't end today (T5.5 review S5) | A days-old week mustn't read as current |
+| D5-45 | "updated 5 h ago" | The system relative format: "updated 5 hr. ago"; "updated now" under a minute (T5.4) | One formatter, localized by the system |
+| D5-46 | Demo state "Demo data" + glyph | Signed out in the demo: the demo person ("Alex Doe", "AD"); signed in with Demo data on: the session's account, with "Demo data" as the status source (T5.4, security review) | Account rows must describe the account they act on |
+| D5-47 | Apple Health as one link-out row with a value | A value row (`warning` when it needs attention), "Allow access" while RYFT can still ask, and "Open Health" ↗ (T5.4) | `GroupedRow` has no link-out kind with a value |
+| D5-48 | No Device ID row | Device ID kept as a value row in Devices and sync (T5.4) | Support asks for it |
+| D5-49 | — | Full re-sync removed from Profile; it stays in Sync details with its confirmation (T5.4) | §P5-6.2 lists no re-sync row |
+| D5-50 | Demo data's sentence as the card footer | The toggle's detail line; the footer carries the sync notices, the demo-exit error and the Health steps (T5.4) | The footer belongs to the whole card |
+| D5-51 | Baseline-need sentence under the row | Only in its editor (T5.4) | The editor explains it at length |
+| D5-52 | Export hidden in the demo | Shown whenever `canExport` (signed in or demo) (T5.4) | Same rule as before; the demo exports its sample |
+| D5-53 | Account: no email row; a provider badge | An Email row when the name is the title; Sign-in methods shows the provider as its value; Change password is an action row (T5.4) | Keeps what the old account card showed |
+| D5-54 | — | About keeps "Apple Health privacy" ↗, plus "Garmin Connect and Apple Health" ↗ without `devices.setup`; legal pages open in RYFT (T5.4) | Those links were on the page before |
+| D5-55 | Save strength workouts under Data, ungated | In Training, behind `train.enabled` (T5.4, lead) | Without Train no strength workout is logged, so nothing is written to Health |
+| D5-56 | "updated …" from the last read | The status row's age is the last good upload (`lastSync`); none → "not updated yet"; a locked phone never says "updating…" (T5.4 review) | The row must never claim freshness the upload doesn't have |
 
 ### Questions for the lead
 
