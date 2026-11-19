@@ -120,7 +120,7 @@ struct TodayView: View {
 
     // MARK: rows 2–4: greeting, sub-line, status
 
-    /// "Good evening, Tim", then "Sunday, Nov 15 · Your health is in balance." (one VoiceOver element, a header), then
+    /// "Good evening, Alex", then "Sunday, Nov 15 · Your health is in balance." (one VoiceOver element, a header), then
     /// the sync's status row, all leading.
     private func intro(_ day: TodayContent) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -152,7 +152,7 @@ struct TodayView: View {
         }
     }
 
-    /// "Good evening, Tim. Sunday, November 15. Your health is in balance." (§P4-8 row 3).
+    /// "Good evening, Alex. Sunday, November 15. Your health is in balance." (§P4-8 row 3).
     static func spokenIntro(greeting: String, day: TodayContent, locale: Locale) -> String {
         let intro = "\(greeting). \(TodayContent.spokenDate(day.facts.now, locale: locale))."
         let sentence = day.sentence

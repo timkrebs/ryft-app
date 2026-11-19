@@ -160,7 +160,7 @@ struct FlowLayout: Layout {
         VStack(alignment: .leading, spacing: 12) {
             SourceBadges(sources: [.tracker(name: "Garmin Connect", symbol: "watch.analog"), .ryftRecorded(indoor: false)],
                          merged: true)
-            SourceBadges(sources: [.tracker(name: "Tim's Apple Watch", symbol: "applewatch"), .train])
+            SourceBadges(sources: [.tracker(name: "Alex's Apple Watch", symbol: "applewatch"), .train])
             SourceBadges(sources: [.ryftManual])
             SourceBadges(sources: [.ryftRecorded(indoor: true)])
             SourceBadges(sources: [.tracker(name: "Oura", symbol: "circle.circle")])
