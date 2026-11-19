@@ -38,6 +38,10 @@ enum LiveSessionSpec {
     /// The page's soft top edge under the strip.
     nonisolated static let pageFade: CGFloat = 16
 
+    /// The outline of a thing at rest, ink at 12 %: the chips, the warm-up pill and the idle rest pill. The outlined keys and the
+    /// running pill take the secondary pill's 20 % (`OutlinedKey.edge`).
+    nonisolated static let restingEdge = 0.12
+
     // MARK: the set rows (§4.3)
 
     /// The row's tint, the ✓ and the strip's tile: radius 14. The fields inside a row: 12.

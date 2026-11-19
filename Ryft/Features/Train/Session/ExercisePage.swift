@@ -625,8 +625,8 @@ struct SessionChip: View {
         .contentShape(Rectangle())
     }
 
-    /// The chip's and the warm-up pill's edge: ink at 12 %.
-    static let edge = Theme.textPrimary.opacity(0.12)
+    /// The chip's and the warm-up pill's edge: the resting 12 %.
+    static let edge = Theme.textPrimary.opacity(LiveSessionSpec.restingEdge)
 
     private func glyph(_ name: String) -> some View {
         Image(systemName: name)

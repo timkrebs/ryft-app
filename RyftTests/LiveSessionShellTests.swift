@@ -50,8 +50,18 @@ struct LiveSessionShellTests {
     @Test("The rest pill: an outline idle and running, ink 12 % and 20 %; a 24 pt ring on an ink track at 16 %")
     func restPill() {
         #expect(RestPill.idleEdge == 0.12 && RestPill.runningEdge == 0.20 && RestPill.overFill == 0.12)
+        #expect(RestPill.idleEdge == LiveSessionSpec.restingEdge && RestPill.runningEdge == OutlinedKey.edge)
         #expect(RestPill.ring == 24 && RestPill.ringLine == 3 && RestPill.ringTrack == 0.16)
         #expect(RestPill.idleMinWidth == 112 && RestPill.runningMinWidth == 144)
+    }
+
+    /// §4.5, §4.6: the rest sheet's ±15 s, the keypad's steps and the plate calculator's are one key, the secondary pill's edge
+    /// at the row's radius. The chips and the idle pill share the resting 12 %.
+    @Test("One outlined key: the secondary pill's 20 % edge (10 % off) at radius 14; the chips' edge the resting 12 %")
+    func outlinedKey() {
+        #expect(OutlinedKey.edge == PillButton.outlineOpacity && OutlinedKey.edge == 0.20 && OutlinedKey.disabledEdge == 0.10)
+        #expect(OutlinedKey.radius == LiveSessionSpec.rowRadius && NumberPad.keyRadius == LiveSessionSpec.rowRadius)
+        #expect(LiveSessionSpec.restingEdge == 0.12 && SessionChip.edge == Theme.textPrimary.opacity(LiveSessionSpec.restingEdge))
     }
 
     // MARK: the row inks (§4.3)

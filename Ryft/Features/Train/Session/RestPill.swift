@@ -18,8 +18,8 @@ struct RestPill: View {
     static func height(_ typeSize: DynamicTypeSize) -> CGFloat { typeSize >= .accessibility3 ? 56 : 48 }
     /// Idle and running: at least 112 and 144 wide.
     static let idleMinWidth: CGFloat = 112, runningMinWidth: CGFloat = 144
-    /// The capsule's edge: ink at 12 % idle, 20 % running. "Rest over" fills it with ink at 12 %.
-    static let idleEdge = 0.12, runningEdge = 0.20, overFill = 0.12
+    /// The capsule's edge: the resting 12 % idle, the outlined keys' 20 % running. "Rest over" fills it with ink at 12 %.
+    static let idleEdge = LiveSessionSpec.restingEdge, runningEdge = OutlinedKey.edge, overFill = 0.12
     /// The ring: 24 pt, a 3 pt stroke on a track of ink at 16 %.
     static let ring: CGFloat = 24, ringLine: CGFloat = 3, ringTrack = 0.16
     /// The space a pill takes on the screen.

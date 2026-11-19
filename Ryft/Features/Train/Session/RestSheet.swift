@@ -34,8 +34,6 @@ struct RestSheet: View {
 
     /// −15 and +15. A fixed size, as every number here, so they grow by hand with the key.
     static func keyNumeral(_ typeSize: DynamicTypeSize) -> CGFloat { typeSize >= .accessibility3 ? 26 : 17 }
-    /// The keys' outline: ink at 20 %, 10 % while off. Radius 14.
-    static let keyEdge = 0.20, disabledKeyEdge = 0.10, keyRadius: CGFloat = 14
     /// Skip's glyph in the pill's circle.
     static let skipGlyph = "forward.end"
 
@@ -114,12 +112,7 @@ struct RestSheet: View {
                 .lineLimit(1)
                 .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary)
                 .frame(maxWidth: .infinity, minHeight: keySize)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous)
-                        .strokeBorder(Theme.textPrimary.opacity(enabled ? Self.keyEdge : Self.disabledKeyEdge),
-                                      lineWidth: Theme.Metrics.hairline)
-                }
-                .contentShape(Rectangle())
+                .outlinedKey(isEnabled: enabled)
         }
         .buttonStyle(PressableButtonStyle())
         // Held, it walks the length. Not a running rest: a held −15 would end it.
