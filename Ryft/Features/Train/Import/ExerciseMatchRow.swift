@@ -100,7 +100,7 @@ struct ExerciseMatchRow: View {
                 BodyweightQuestion(exerciseName: row.source.name, plus: plus, loadType: loadType,
                                    options: content.bodyweightOptions, selected: content.bodyweight) { answer in
                     actions.answer(answer)
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { editingAnswer = false }
+                    withAnimation(Theme.Motion.respecting(reduceMotion)) { editingAnswer = false }
                 }
                 .transition(.opacity)
             }
@@ -161,7 +161,7 @@ struct ExerciseMatchRow: View {
     /// The answered question as a tag under the match name: tapping it asks again.
     private func answerTag(_ title: String) -> some View {
         Button {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { editingAnswer.toggle() }
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { editingAnswer.toggle() }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "scalemass").imageScale(.small)

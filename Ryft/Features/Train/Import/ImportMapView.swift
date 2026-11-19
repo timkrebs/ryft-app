@@ -105,7 +105,7 @@ struct ImportMapView: View {
             ImportTextButton(title: String(localized: "Accept \(likely) likely matches",
                                            comment: "Training import, step 4: accept every likely suggestion."),
                              identifier: "import.accept") {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { model.acceptLikely() }
+                withAnimation(Theme.Motion.respecting(reduceMotion)) { model.acceptLikely() }
             }
             .padding(.vertical, -ImportLayout.lineGap)
         }
@@ -176,7 +176,7 @@ struct ImportMapView: View {
                 .id("\(section)\u{1F}\(row.id.name)\u{1F}\(row.id.equipment)")
                 .transition(.opacity)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: mapping.rows)
+        .animation(Theme.Motion.respecting(reduceMotion), value: mapping.rows)
     }
 
     private func actions(_ row: ImportMappingRow) -> ExerciseMatchRow.Actions {
@@ -184,11 +184,11 @@ struct ImportMapView: View {
         let isCheck = if case .check = row.decision { true } else { false }
         return ExerciseMatchRow.Actions(
             open: { actionsFor = target },
-            accept: isCheck ? { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { model.accept(row.id) } } : nil,
+            accept: isCheck ? { withAnimation(Theme.Motion.respecting(reduceMotion)) { model.accept(row.id) } } : nil,
             chooseAnother: { chooseFor = target },
             createCustom: { createFor = target },
             skip: { model.skip(row.id) },
-            setMuscle: { muscle in withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { model.setMuscle(row.id, muscle) } },
+            setMuscle: { muscle in withAnimation(Theme.Motion.respecting(reduceMotion)) { model.setMuscle(row.id, muscle) } },
             answer: { model.answer(row.id, $0) })
     }
 
@@ -208,7 +208,7 @@ struct ImportMapView: View {
         if let row = model.mapping?.row(target.key) {
             if case .check = row.decision, let name = model.mapping?.exercise(for: row)?.name {
                 Button(String(localized: "Use “\(name)”", comment: "Training import, step 4: accept the suggestion.")) {
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { model.accept(row.id) }
+                    withAnimation(Theme.Motion.respecting(reduceMotion)) { model.accept(row.id) }
                 }
             }
             Button(String(localized: "Choose another exercise…", comment: "Training import, step 4: pick from the library.")) {

@@ -74,6 +74,26 @@ struct ImportNocturneTests {
         }
     }
 
+    @Test("C §2.8: the import animates only with Theme.Motion, through respecting (none under Reduce Motion); no curve of its own")
+    func motion() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let folder = root.appendingPathComponent("Ryft/Features/Train/Import")
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+        #expect(files.count >= 20, "the folder was found: \(files.count)")
+        var animated = 0
+        for file in files {
+            let code = try String(contentsOf: file, encoding: .utf8).replacing(#/(^|[^:])//.*/#) { String($0.output.1) }
+            for curve in [".easeOut(", ".easeIn(", ".easeInOut(", ".linear(", ".spring(", ".smooth", ".snappy", ".bouncy",
+                          "Animation."] {
+                #expect(!code.contains(curve), "\(file.lastPathComponent) names \(curve)")
+            }
+            #expect(!code.contains("reduceMotion ? nil"), "\(file.lastPathComponent): Theme.Motion.respecting, not its own test")
+            animated += code.matches(of: #/withAnimation\(|\.animation\(/#).count
+        }
+        #expect(animated >= 5, "the scan saw the import's animations: \(animated)")
+    }
+
     // MARK: the frame by step
 
     struct FrameCase: CustomTestStringConvertible, Sendable {

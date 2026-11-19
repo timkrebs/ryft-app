@@ -28,7 +28,7 @@ struct DateRangeControl: View {
         }
         // What the row says: the preset and the result's words; the empty range's glyph is drawn, not read.
         .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: result)
+        .animation(Theme.Motion.respecting(reduceMotion), value: result)
         if preset == .custom {
             dateRow(Text("From"), day: $from)
             dateRow(Text("Until"), day: $to)

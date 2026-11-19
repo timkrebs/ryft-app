@@ -15,7 +15,7 @@ struct ImportWarningsList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { isExpanded.toggle() }
+                withAnimation(Theme.Motion.respecting(reduceMotion)) { isExpanded.toggle() }
             } label: {
                 HStack(alignment: .top, spacing: GroupedListSpec.rowSpacing) {
                     Image(systemName: "exclamationmark.circle")
