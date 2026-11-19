@@ -53,6 +53,8 @@ struct ImportSessionRow: View {
                     }
                     Spacer(minLength: 0)
                 }
+                // The row's padding is inside the button, so the whole row's height opens it (44 pt and more).
+                .padding(.vertical, GroupedListSpec.textPadding)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -62,7 +64,7 @@ struct ImportSessionRow: View {
         }
         .padding(.leading, GroupedListSpec.rowInset)
         .padding(.trailing, preview.verdict.isToggleable && !typeSize.isAccessibilitySize ? GroupedListSpec.rowInset - 10 : GroupedListSpec.rowInset)
-        .padding(.vertical, GroupedListSpec.textPadding)
+        .padding(.bottom, typeSize.isAccessibilitySize ? GroupedListSpec.textPadding : 0)
         .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
         .groupedRowHairline()
     }

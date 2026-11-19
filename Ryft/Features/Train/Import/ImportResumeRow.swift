@@ -32,6 +32,8 @@ struct ImportResumeRow: View {
                             .accessibilityHidden(true)
                     }
                 }
+                // The row's padding is inside the button: the whole row opens step 6.
+                .padding(.vertical, ActivityListRowSpec.verticalPadding)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -45,7 +47,6 @@ struct ImportResumeRow: View {
             }
         }
         .padding(.horizontal, ActivityListRowSpec.sidePadding)
-        .padding(.vertical, ActivityListRowSpec.verticalPadding)
         .frame(minHeight: ActivityListRowSpec.minHeight)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: ActivityListRowSpec.radius, style: .continuous))
     }

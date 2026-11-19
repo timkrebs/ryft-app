@@ -45,26 +45,33 @@ struct ExerciseMatchRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
-                Button(action: actions.open) { main }
-                    .buttonStyle(PressableButtonStyle())
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel(Text(verbatim: spokenLabel))
-                    .accessibilityHint(Text("Shows what you can do with this exercise",
-                                            comment: "Training import, step 4, VoiceOver: a row opens its actions."))
-                    .accessibilityAction(named: Text("Use suggestion", comment: "Training import, step 4: VoiceOver action.")) {
-                        actions.accept?()
-                    }
-                    .accessibilityAction(named: Text("Choose another", comment: "Training import, step 4: VoiceOver action.")) {
-                        actions.chooseAnother()
-                    }
-                    .accessibilityAction(named: Text("Create custom", comment: "Training import, step 4: VoiceOver action.")) {
-                        actions.createCustom()
-                    }
-                    .accessibilityAction(named: Text("Skip")) {
-                        actions.skip()
-                    }
-                    .accessibilityIdentifier("import.row.\(index)")
+                // The row's top padding is inside the button (and its bottom one when nothing follows), so the row's
+                // height opens it.
+                Button(action: actions.open) {
+                    main
+                        .padding(.top, GroupedListSpec.textPadding + 2)
+                        .padding(.bottom, hasExtras ? 0 : GroupedListSpec.textPadding + 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(Text(verbatim: spokenLabel))
+                .accessibilityHint(Text("Shows what you can do with this exercise",
+                                        comment: "Training import, step 4, VoiceOver: a row opens its actions."))
+                .accessibilityAction(named: Text("Use suggestion", comment: "Training import, step 4: VoiceOver action.")) {
+                    actions.accept?()
+                }
+                .accessibilityAction(named: Text("Choose another", comment: "Training import, step 4: VoiceOver action.")) {
+                    actions.chooseAnother()
+                }
+                .accessibilityAction(named: Text("Create custom", comment: "Training import, step 4: VoiceOver action.")) {
+                    actions.createCustom()
+                }
+                .accessibilityAction(named: Text("Skip")) {
+                    actions.skip()
+                }
+                .accessibilityIdentifier("import.row.\(index)")
                 if let shared = alsoUsedForText {
                     ImportNoteLine(systemImage: "arrow.triangle.merge", text: shared)
                         .accessibilityIdentifier("import.shared.\(index)")
@@ -87,7 +94,7 @@ struct ExerciseMatchRow: View {
                 }
             }
             .padding(.horizontal, GroupedListSpec.rowInset)
-            .padding(.vertical, GroupedListSpec.textPadding + 2)
+            .padding(.bottom, hasExtras ? GroupedListSpec.textPadding + 2 : 0)
             if let plus = row.source.plusLoads, let loadType = content.loadType, !content.bodyweightOptions.isEmpty,
                content.questionOpen || editingAnswer {
                 BodyweightQuestion(exerciseName: row.source.name, plus: plus, loadType: loadType,
@@ -100,6 +107,13 @@ struct ExerciseMatchRow: View {
         }
         .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
         .groupedRowHairline()
+    }
+
+    /// Lines under the row's button: a shared match, the bodyweight answer, the muscle group, the notes.
+    private var hasExtras: Bool {
+        if alsoUsedForText != nil || row.source.hasAssistedSets || content.dropsPlusLoad { return true }
+        if case .new(ready: false) = content.status { return true }
+        return !content.questionOpen && content.bodyweight != nil && content.loadType != nil && row.source.plusLoads != nil
     }
 
     // MARK: Parts
