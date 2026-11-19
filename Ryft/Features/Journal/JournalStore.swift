@@ -35,6 +35,16 @@ final class JournalStore {
     private(set) var impacts: BehaviorImpacts?
     private(set) var error: String?
 
+    /// Writes to the catalog that completed (`PATCH`, `POST`, `DELETE /v1/behaviors`), never reset. A list asked for
+    /// before the latest of them may be from before it: `load()` drops it (the page's opening `GET` can't undo a switch),
+    /// and a `PATCH` answered after another write brings only its own switch (its list may still hold a habit deleted
+    /// meanwhile). A count, not a time: two writes in one tick of the clock still differ. Kept small on purpose: the
+    /// durable outbox (O6) takes these writes over.
+    private var completedWrites = 0
+    /// Tests only: runs once a catalog answer arrived (`"behaviors"`, `"patchBehaviors"`), before it's applied, so a test
+    /// can finish another write meanwhile.
+    @ObservationIgnored var beforeApplying: (@MainActor (String) async -> Void)?
+
     static let behaviorsKey = "journal.behaviors"
     static let impactKey = "journal.impact"
     static func dayKey(_ day: String) -> String { "journal.day.\(day)" }
@@ -84,10 +94,13 @@ final class JournalStore {
     func load() async {
         guard env.isDemo || env.auth.isSignedIn else { return }
         let api = env.api
+        let asked = completedWrites
         do {
             switch try await read("behaviors", { try await api.behaviors() }) {
             case .some(.some(let list)):
-                replace(list)
+                await beforeApplying?("behaviors")
+                // A write completed while it was on its way: the list may be from before it, and the page has newer.
+                if completedWrites == asked { replace(list) }
                 availability = .live
                 error = nil
             case .some(.none):
@@ -141,14 +154,25 @@ final class JournalStore {
         if day == yesterday { Task { await loadImpacts() } }
     }
 
-    /// `PATCH /v1/behaviors {enabled: {id: on}}`; the whole list comes back.
+    /// `PATCH /v1/behaviors {enabled: {id: on}}`; the whole list comes back. Answered after another write completed, only
+    /// this habit's switch is taken from it (`completedWrites`).
     func setEnabled(_ id: UUID, _ on: Bool) async throws {
         guard isOnline else { throw JournalError.offline }
-        replace(try await env.api.patchBehaviors(BehaviorsPatch([id: on])))
+        let asked = completedWrites
+        let list = try await env.api.patchBehaviors(BehaviorsPatch([id: on]))
+        await beforeApplying?("patchBehaviors")
+        if completedWrites == asked {
+            replace(list)
+        } else if let answered = list.first(where: { $0.id == id }), let index = behaviors.firstIndex(where: { $0.id == id }) {
+            var merged = behaviors
+            merged[index].enabled = answered.enabled
+            replace(merged)
+        }
+        completedWrites += 1
     }
 
     /// `POST /v1/behaviors` with an app id; `409` once means the id is taken, so a
-    /// new one is tried, once.
+    /// new one is tried, once. The same `id` again updates the habit (`200`): a sheet sends its own each time it retries.
     @discardableResult
     func create(name: String, nameDe: String?, kind: BehaviorKind, category: BehaviorCategory?,
                 id: UUID = UUID(), retryID: UUID = UUID()) async throws -> Behavior {
@@ -169,6 +193,7 @@ final class JournalStore {
             }
         }
         replace(behaviors.filter { $0.id != created.id } + [created])
+        completedWrites += 1
         return created
     }
 
@@ -178,6 +203,7 @@ final class JournalStore {
         guard isOnline else { throw JournalError.offline }
         try await env.api.deleteBehavior(id: id)
         replace(behaviors.filter { $0.id != id })
+        completedWrites += 1
     }
 
     // MARK: cache

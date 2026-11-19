@@ -93,8 +93,9 @@ struct BehaviorsSection: View {
         }
     }
 
-    /// Significant: coloured by direction × polarity as `DeltaLabel` colours a change (L27: a good change in the metric's
-    /// own colour, never teal unless the metric is recovery; a bad one in `alert`). Otherwise muted.
+    /// Significant: coloured by direction × polarity as `DeltaLabel` colours a change (L27, F5: a good change in the
+    /// metric's own colour, so teal for recovery and HRV and violet for sleep performance; a bad one in `alert`). Otherwise
+    /// muted.
     static func color(_ effect: BehaviorEffect, spec: MetricSpec) -> Color {
         guard effect.significant else { return Theme.textTertiary }
         switch spec.polarity {

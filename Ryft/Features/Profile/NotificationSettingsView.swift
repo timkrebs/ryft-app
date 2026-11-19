@@ -17,9 +17,10 @@ struct NotificationSettingsView: View {
 /// - Rolling out (`push.enabled` off for the account): a notice and the four categories as rows to read, no switch that
 ///   looks on while nothing can be sent.
 /// - Otherwise "Notify me about" (a switch per category, its sentence under the title) and "Quiet hours" (a switch, then
-///   From and Until as time chips while it's on). The values are the account's as last loaded (`AppState.user`), so the page
-///   reads the same offline. A switch is disabled while its change is on its way; a change RYFT refuses or that can't be
-///   sent (offline) goes back and the notice says it wasn't saved.
+///   From and Until as time chips while it's on; from AX1 the chips go under their titles). The values are the account's as
+///   last loaded (`AppState.user`), so the page reads the same offline. While a change is on its way every switch and both
+///   chips are disabled (35 %, §4.7); a change RYFT refuses or that can't be sent (offline) goes back, and a notice under
+///   its group says so, with the status and request ID as its caption.
 /// - Not asked yet: a notice and the pinned "Allow notifications". Off in iOS Settings: a notice (the switches stay, the
 ///   choices are kept) and the pinned "Open Settings".
 private struct NotificationSettingsScreen: View {
@@ -35,11 +36,10 @@ private struct NotificationSettingsScreen: View {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 if model.showsSwitches {
                     permission
-                    if let error = model.error {
-                        InlineMessage(message: error, systemImage: "exclamationmark.circle")
-                    }
                     categories
+                    if let failure = model.failure, !failure.quietHours { notice(failure) }
                     quietHours
+                    if let failure = model.failure, failure.quietHours { notice(failure) }
                 } else {
                     // No switches that look on while nothing can be sent.
                     rollout
@@ -113,6 +113,14 @@ private struct NotificationSettingsScreen: View {
 
     // MARK: switches
 
+    /// A change is on its way: nothing else can change meanwhile (the model rolls a refused one back to what was saved).
+    private var inFlight: Bool { pending != nil || model.saving }
+
+    private func notice(_ failure: NotificationSettingsFailure) -> some View {
+        InlineMessage(message: failure.message, systemImage: "exclamationmark.circle", caption: failure.details)
+            .textSelection(.enabled)
+    }
+
     private var categories: some View {
         GroupedCard(Text("Notify me about")) {
             ForEach(NotificationCategory.allCases) { category in
@@ -121,7 +129,7 @@ private struct NotificationSettingsScreen: View {
                                   identifier: "notifications.\(category.rawValue)",
                                   isOn: change(category.rawValue, get: { model.isOn(category) },
                                                set: { await model.set(category, on: $0) }))
-                    .disabled(pending == category.rawValue)
+                    .disabled(inFlight)
             }
         }
     }
@@ -133,20 +141,24 @@ private struct NotificationSettingsScreen: View {
                               detail: Text("Nothing arrives in this window; the morning score waits until it ends."),
                               identifier: "notifications.quietHours",
                               isOn: change(Self.quietKey, get: { model.quietHoursOn }, set: { await model.setQuietHours(on: $0) }))
-                .disabled(pending == Self.quietKey)
+                .disabled(inFlight)
             if model.quietHoursOn {
-                GroupedRow.custom(Text("From")) {
-                    ValueChip(Text("From"), date: Binding(get: { model.quietFrom },
-                                                          set: { d in Task { await model.setQuietFrom(d) } }),
-                              displayedComponents: .hourAndMinute)
+                ValueChipRow(Text("From")) {
+                    timeChip(Text("From"), get: { model.quietFrom }, set: { await model.setQuietFrom($0) })
                 }
-                GroupedRow.custom(Text("Until")) {
-                    ValueChip(Text("Until"), date: Binding(get: { model.quietTo },
-                                                           set: { d in Task { await model.setQuietTo(d) } }),
-                              displayedComponents: .hourAndMinute)
+                ValueChipRow(Text("Until")) {
+                    timeChip(Text("Until"), get: { model.quietTo }, set: { await model.setQuietTo($0) })
                 }
             }
         }
+    }
+
+    /// A time chip: each value the wheel stops on is saved; only the latest save's answer shows (the model). Disabled and at
+    /// 35 % while a change is on its way, as the switches are.
+    private func timeChip(_ label: Text, get: @escaping () -> Date, set: @escaping (Date) async -> Void) -> some View {
+        ValueChip(label, date: Binding(get: get, set: { date in Task { await set(date) } }), displayedComponents: .hourAndMinute)
+            .disabled(inFlight)
+            .opacity(inFlight ? GroupedListSpec.disabledOpacity : 1)
     }
 
     /// A switch's binding: the model's value; a change marks the switch pending while it's saved. One change at a time
@@ -182,12 +194,17 @@ private struct RolloutRow: View {
 // MARK: - previews (dark only)
 
 @MainActor
-private func notificationsPreview(_ status: UNAuthorizationStatus, rolledOut: Bool = true,
+private func notificationsPreview(_ status: UNAuthorizationStatus, rolledOut: Bool = true, quietHours: Bool = false,
                                   size: DynamicTypeSize = .large) -> some View {
     let notifier = MockNotifier()
     notifier.status = status
+    let state = AppState.preview(flags: rolledOut ? [.pushEnabled: true] : [:], notifier: notifier)
+    if quietHours, let user = state.user {
+        state.user?.notifications = NotificationPrefs(categories: user.notifications.categories,
+                                                      quietHours: NotificationSettingsViewModel.defaultQuietHours)
+    }
     return NavigationStack { NotificationSettingsView() }
-        .previewEnvironment(.preview(flags: rolledOut ? [.pushEnabled: true] : [:], notifier: notifier))
+        .previewEnvironment(state)
         .toggleStyle(.ryft)
         .dynamicTypeSize(size)
 }
@@ -197,3 +214,5 @@ private func notificationsPreview(_ status: UNAuthorizationStatus, rolledOut: Bo
 #Preview("Notifications · off in iOS") { notificationsPreview(.denied) }
 #Preview("Notifications · not asked") { notificationsPreview(.notDetermined) }
 #Preview("Notifications · AX3") { notificationsPreview(.authorized, size: .accessibility3) }
+#Preview("Notifications · quiet hours") { notificationsPreview(.authorized, quietHours: true) }
+#Preview("Notifications · quiet hours · AX3") { notificationsPreview(.authorized, quietHours: true, size: .accessibility3) }
