@@ -1,20 +1,28 @@
 import SwiftUI
 
-/// A finished exercise, folded after its last set (ui.md §5): "✓ Incline bench press · 4 sets · best 80 × 6".
-/// A tap opens the card again, and it stays open.
+/// A finished exercise, folded after its last set (ui.md §5; PR 6 B §4.7): "✓ Incline bench press · 4 sets · best 80 × 6".
+/// A tap opens the card again, and it stays open. A `surface` row, radius 22 (the card's), with an outlined `checkmark.circle`
+/// in grey: a done exercise is quiet, as a done set is, so no wall of filled checks builds up as the session goes on.
 struct CollapsedExerciseRow: View {
     let exercise: LocalSessionExercise
     var onExpand: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// The check: `checkmark.circle`, 20 pt, `textSecondary`.
+    static let checkSymbol = "checkmark.circle", checkSize: CGFloat = 20
+    static let checkInk = Theme.textSecondary
+    /// The row's corners: the card's 22.
+    static let radius = CardSpec.radius
+
     var body: some View {
         let summary = Self.summary(for: exercise)
+        let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
         Button(action: onExpand) {
             HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
+                Image(systemName: Self.checkSymbol)
+                    .font(.system(size: Self.checkSize, weight: .regular))
+                    .foregroundStyle(Self.checkInk)
                 if typeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 4) {
                         name
@@ -30,10 +38,10 @@ struct CollapsedExerciseRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.textTertiary)
             }
-            .padding(14)
+            .padding(ExerciseCard.padding)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+            .background(Theme.surface, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .ignore)
@@ -108,28 +116,35 @@ struct CollapsedExerciseRow: View {
     }
 }
 
-/// The set the user does next (ui.md §5): a stronger tint than a checked row and a 2 pt accent bar on the leading
-/// edge, so it isn't colour alone. No keypad, no focus change. VoiceOver hears "Next set." as the row's value.
-/// One view structure whether current or not, so the row (and its accessibility element) keeps its identity as
-/// the highlight moves. Inside the session the row can also take VoiceOver focus after a jump (`SessionVoiceOverFocus`).
+/// The set the user does next in List (ui.md §5; PR 6 B §4.3, §4.7), drawn as Focused's active row (`FocusedRowHighlight`): ink
+/// at 5 % under the row, radius 14, and a 2 pt Volt bar outside its leading edge, in the card's padding (10 pt from the row, 4 from
+/// the card's edge), 8 shorter than the row at each end. The row's own dot and filled ✓ are `SetRow`'s. Not colour alone: the
+/// tint, the bar, the raised fields and the filled ✓. No keypad, no focus change. VoiceOver hears "Next set." as the row's value;
+/// the bar is hidden from it. One view structure whether current or not, so the row (and its accessibility element) keeps its
+/// identity as the highlight moves. Inside the session the row can also take VoiceOver focus after a jump (`SessionVoiceOverFocus`).
 struct CurrentSetHighlight: ViewModifier {
     let isCurrent: Bool
     let setID: UUID
 
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
+    /// List's set row: 56 high at every size (its numerals are fixed), so the bar is 40.
+    static let rowHeight: CGFloat = 56
+    /// From the row's leading edge to the bar's: 10, as Focused's on its 16 pt page sides.
+    static let barOutset = LiveSessionSpec.activeBarOutset(padding: LiveSessionSpec.sidePadding)
+
     func body(content: Content) -> some View {
         let highlighted = content
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.accent.opacity(isCurrent ? FocusedRowInk.activeTint : 0))
+                RoundedRectangle(cornerRadius: LiveSessionSpec.rowRadius, style: .continuous)
+                    .fill(FocusedRowInk.activeRowFill(isCurrent))
             }
-            .overlay(alignment: .leading) {
+            .overlay(alignment: .topLeading) {
                 Capsule()
-                    .fill(Theme.accent)
-                    .frame(width: 2)
-                    .padding(.vertical, 10)
-                    .offset(x: -7) // in the card's padding, beside the set number
+                    .fill(FocusedRowInk.mark)
+                    .frame(width: LiveSessionSpec.activeBarWidth,
+                           height: LiveSessionSpec.activeBarHeight(rowHeight: Self.rowHeight))
+                    .offset(x: -Self.barOutset, y: LiveSessionSpec.activeBarInset)
                     .opacity(isCurrent ? 1 : 0)
                     .accessibilityHidden(true)
             }
@@ -163,24 +178,27 @@ extension View {
     }
 }
 
-// MARK: - previews
+// MARK: - previews (dark only)
 
-/// The mock session has two of four bench sets checked: the collapsed row summarises those, and the card shows
-/// set 3 as the current set.
+/// The List draft with Bench press done: its folded row over Barbell row's card, whose set 1 is the current set.
 #Preview("Collapsed row · highlighted set", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    return SchemePair {
-        VStack(spacing: 12) {
-            CollapsedExerciseRow(exercise: c.exercises[0], onExpand: {})
-            ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
-        }
+    let c = SessionSheetsPreview.listFolded()
+    return VStack(spacing: 14) {
+        CollapsedExerciseRow(exercise: c.exercises[0], onExpand: {})
+        ExerciseCard(controller: c, exercise: c.exercises[1], onPlates: {}, onHistory: {})
     }
+    .padding(LiveSessionSpec.sidePadding)
+    .frame(width: 390)
+    .background(Theme.background)
+    .previewEnvironment()
 }
 
 #Preview("Collapsed row · AX3", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    return SchemePair {
-        CollapsedExerciseRow(exercise: c.exercises[0], onExpand: {})
-    }
-    .dynamicTypeSize(.accessibility3)
+    let c = SessionSheetsPreview.listFolded()
+    return CollapsedExerciseRow(exercise: c.exercises[0], onExpand: {})
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
 }

@@ -277,7 +277,9 @@ struct SessionView: View {
 
     // MARK: exercises
 
-    /// The list layout: every exercise on one screen.
+    /// The list layout (PR 6 B §4.7, `b-02`): every exercise on one screen, 16 pt sides. Under the cards "Add exercise" as an
+    /// outline pill (the header's Finish is the one primary, and only once every set is done) and "Reorder exercises" as a quiet
+    /// text button. Offline is one grey line; an empty session an outlined card, as in Focused (§4.9).
     private var listContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -287,32 +289,40 @@ struct SessionView: View {
                               systemImage: "wifi.slash")
                             .font(.ryft(.caption))
                             .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     }
                     exerciseList
                     if controller.exercises.isEmpty {
                         InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
                                       systemImage: "dumbbell")
+                            // Focused's empty page: the message's 1 pt `separator` edge over its `surface`.
+                            .overlay {
+                                RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous)
+                                    .strokeBorder(Theme.separator, lineWidth: PlaceholderRowSpec.lineWidth)
+                                    .accessibilityHidden(true)
+                            }
                     }
                     if controller.isAllDone {
                         AllSetsDoneCard(exercises: controller.exercises.count,
                                         sets: controller.session.completedSetCount) { confirmFinish = true }
                     }
-                    Button {
-                        showsAdd = true
-                    } label: {
-                        Label("Add exercise", systemImage: "plus")
-                    }
-                    .buttonStyle(TealButtonStyle(prominent: false))
+                    PillButton(Text("Add exercise"), style: .secondary) { showsAdd = true }
                     if controller.exercises.count > 1 {
-                        Button("Reorder exercises") { showsReorder = true }
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(minHeight: 44)
+                        Button {
+                            showsReorder = true
+                        } label: {
+                            Text("Reorder exercises")
+                                .font(.ryft(.callout))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(maxWidth: .infinity, minHeight: Theme.Metrics.minHitTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                     Color.clear.frame(height: 1).id(Self.endAnchor)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, LiveSessionSpec.sidePadding)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
