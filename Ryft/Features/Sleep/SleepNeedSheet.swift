@@ -32,7 +32,8 @@ struct SleepNeedSheetContent: Equatable {
     }
 
     /// The "Baseline sleep need" row: its value, as VoiceOver reads it, and its second line (the source). While the account
-    /// isn't on this iPhone the value says "Not loaded yet", never the default as if it were saved.
+    /// isn't on this iPhone the value says "Not loaded yet", never the default as if it were saved; while a change is out it
+    /// says "Saving…" (the value on its way is the editor's alone), then the saved value.
     struct BaselineRow: Equatable {
         let value: String
         let spokenValue: String
@@ -40,7 +41,11 @@ struct SleepNeedSheetContent: Equatable {
 
         @MainActor
         init(editor: BodySettingsEditor) {
-            if editor.isLoaded {
+            if editor.isWriting(.sleepBase) {
+                value = BodySettingsEditor.savingWord
+                spokenValue = value
+                detail = nil
+            } else if editor.isLoaded {
                 value = Fmt.clock(minutes: editor.sleepBase)
                 spokenValue = Fmt.spokenDuration(minutes: editor.sleepBase)
                 // As the editor says it: set by hand is "Set by you" (the learned value is the editor's "Use RYFT's estimate").
@@ -59,7 +64,8 @@ struct SleepNeedSheetContent: Equatable {
 /// Nov 15") · 14 · the need as the dot numeral · 10 · "needed for this night" · 20 · the sleep tile of tick rows (or, for a
 /// night scored before the breakdown, a notice that says so) · 18 · the sentence · 18 · what the top-ups follow · 18 · the
 /// "Baseline sleep need" row, which pushes its editor inside the sheet. Everything here is the cached night and the cached
-/// account, so it reads the same offline; the editor says what it can't save.
+/// account, so it reads the same offline; the editor says what it can't save, and a failure that arrives after its page went
+/// (swiped back mid-save) is said under the row.
 struct SleepNeedSheet: View {
     /// `nil` for nights scored before the breakdown existed.
     let need: SleepNeed?
@@ -142,10 +148,11 @@ struct SleepNeedSheet: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// "Baseline sleep need 7:30 ›", its source under the title; pushes the editor (Back returns here).
-    private var baseline: some View {
+    /// "Baseline sleep need 7:30 ›", its source under the title; pushes the editor (Back returns here). A save's failure that
+    /// arrived with the editor gone is under it.
+    @ViewBuilder private var baseline: some View {
         let row = SleepNeedSheetContent.BaselineRow(editor: editor)
-        return GroupedCard {
+        GroupedCard {
             GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: row.value),
                             detail: row.detail.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: "sleepNeed.changeBaseline") {
@@ -155,6 +162,22 @@ struct SleepNeedSheet: View {
             // Set by you", not "7:30" read as a time of day.
             .accessibilityValue(Text(verbatim: [row.spokenValue, row.detail].compactMap(\.self).joined(separator: ", ")))
         }
+        if editor.errorMissed, editor.errorSetting == .sleepBase, let error = editor.error {
+            InlineMessage(message: error, systemImage: "exclamationmark.circle", caption: editor.errorDetails)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("sleepNeed.baselineError")
+        }
+    }
+}
+
+extension SleepDetail {
+    /// The night's need as terms (`sleep.need`), or `nil` for a night scored before the breakdown existed. API.md: such a
+    /// night reports its whole need as `base` until it is rescored, and its score's `nap_min` is `null` (the field came with
+    /// the breakdown, 2026-10-19; it is `0` without a nap otherwise). Without a score the need is taken as it is.
+    func needBreakdown(score: DailyScore?) -> SleepNeed? {
+        guard let need else { return nil }
+        if let score, score.napMin == nil { return nil }
+        return need
     }
 }
 

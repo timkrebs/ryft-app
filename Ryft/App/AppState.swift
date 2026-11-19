@@ -395,6 +395,13 @@ final class AppState {
 
     /// The previous account's export (shown, failed): ScreenModels connects the profile's `forgetExport()`.
     @ObservationIgnored var onForgetAccountState: (@MainActor () -> Void)?
+    /// Others that forget the previous account's state at the same moment, each adding itself (the body-setting editors:
+    /// their words and the value on its way).
+    @ObservationIgnored private var accountStateForgetters: [@MainActor () -> Void] = []
+
+    func forgetsAccountState(_ forget: @escaping @MainActor () -> Void) {
+        accountStateForgetters.append(forget)
+    }
 
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
@@ -451,14 +458,17 @@ final class AppState {
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
         // The export of what was just wiped (privacy review 3).
         onForgetAccountState?()
+        for forget in accountStateForgetters { forget() }
     }
 
     /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline). An answer that arrives after a
-    /// sign-out (another account, the Demo data switch) is dropped unwritten.
-    func patchUser(_ patch: UserPatch) async throws {
+    /// sign-out (another account, the Demo data switch) is dropped unwritten, as is one a change of the user begun
+    /// meanwhile may have overtaken: `false` then, and the caller doesn't say it saved.
+    @discardableResult
+    func patchUser(_ patch: UserPatch) async throws -> Bool {
         let change = repository.userChange()
         let patched = try await source.patchMe(patch)
-        await repository.store(user: patched, asOf: change).committed()
+        return !(await repository.store(user: patched, asOf: change).committed()).dropped
     }
 
     // MARK: per-screen data (cache-first, revalidated)

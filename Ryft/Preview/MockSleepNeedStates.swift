@@ -18,12 +18,20 @@ enum MockSleepNeedStates {
                     birthYear: 1990, maxHrSource: .estimated, sources: base.sources)
     }
 
-    /// The preview state with `user` (or, `account: false`, none: a first launch whose account hasn't loaded).
+    /// The preview state with `user` (or, `account: false`, none: a first launch whose account hasn't loaded). Offline is a
+    /// signed-in account's state, not demo data's (demo data needs no network, `BodySettingsEditor.isOnline`), so it is the
+    /// test environment's account, offline.
     @MainActor
     static func state(account: Bool = true, online: Bool = true) -> AppState {
-        guard account else { return AppState(env: .preview(online: online)) }
-        let state = AppState.preview(online: online)
-        state.user = user
+        let state: AppState
+        if !online {
+            state = AppState(env: .test(online: false))
+        } else if account {
+            state = AppState.preview()
+        } else {
+            state = AppState(env: .preview())
+        }
+        if account { state.user = user }
         return state
     }
 }

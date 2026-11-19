@@ -183,14 +183,16 @@ struct ProfileView: View {
         case .birthYear:
             BirthYearMenuRow(editor: editor)
         case .maxHR:
-            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.maxHRText),
-                            detail: editor.maxHRSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+            // The saved value, or "Saving…" while a change is out (the value on its way is the editor page's alone).
+            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.rowValue(.maxHR, saved: editor.maxHRText)),
+                            detail: editor.rowDetail(.maxHR).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: id) {
                 editing = .maxHR
             }
         case .sleepBase:
-            GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: editor.sleepBaseText),
-                            detail: editor.sleepBaseSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+            GroupedRow.push(Text("Baseline sleep need"),
+                            value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
+                            detail: editor.rowDetail(.sleepBase).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: id) {
                 editing = .sleepBase
             }
@@ -366,6 +368,11 @@ struct ProfileView: View {
             FooterStack {
                 if let error = editor.birthYearError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
+                }
+                // A save whose answer came after its editor page went: said here, where the user is.
+                if editor.errorMissed, let error = editor.error {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
+                        .accessibilityIdentifier("profile.bodySettingsError")
                 }
                 RescoreStatus(editor: editor)
                 GroupFooter(Text("Changing a setting doesn't rescore past days on its own."))

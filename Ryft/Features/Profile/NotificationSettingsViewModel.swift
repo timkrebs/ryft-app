@@ -138,6 +138,11 @@ final class NotificationSettingsViewModel {
     // MARK: saving
 
     private func save(_ patch: NotificationPatch, showing optimistic: NotificationPrefs) async {
+        // Offline nothing is sent: the change says so at once, instead of waiting for a network that isn't there.
+        guard state.isDemo || state.env.connectivity.isOnline else {
+            failure = NotificationSettingsFailure(.offline, quietHours: patch.quietHours != nil)
+            return
+        }
         saves += 1
         let mine = saves
         prefs = optimistic
@@ -149,14 +154,15 @@ final class NotificationSettingsViewModel {
         let before = lastSave
         let turn = Task { @MainActor in
             await before?.value
-            await self.send(patch, mine: mine, binding: binding)
+            await self.send(patch, showing: optimistic, mine: mine, binding: binding)
         }
         lastSave = turn
         await withTaskCancellationHandler { await turn.value } onCancel: { turn.cancel() }
     }
 
     /// One `PATCH`, once the saves before it are done.
-    private func send(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
+    private func send(_ patch: NotificationPatch, showing optimistic: NotificationPrefs, mine: Int,
+                      binding: AccountBinding) async {
         do {
             let saved = try await state.env.api.patchNotifications(patch)
             guard binding.isCurrent(in: state.env) else { return }
@@ -171,10 +177,18 @@ final class NotificationSettingsViewModel {
             // Not confirmed, not failed: the platform's answer on the next load decides.
             if mine == saves { prefs = confirmed }
         } catch {
-            guard mine == saves else { return }
+            guard binding.isCurrent(in: state.env), mine == saves else { return }
             prefs = confirmed
-            failure = NotificationSettingsFailure(error, online: state.env.connectivity.isOnline,
-                                                  quietHours: patch.quietHours != nil)
+            let failed = NotificationSettingsFailure(error, quietHours: patch.quietHours != nil)
+            failure = failed
+            guard failed.kind.rereads, state.isDemo || state.env.connectivity.isOnline else { return }
+            // It may have saved (no answer), or RYFT had a problem (5xx): the page shows what RYFT holds, asked again.
+            try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
+            guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
+            confirmed = held
+            prefs = held
+            // It did save: nothing to say.
+            if held == optimistic { failure = nil }
         }
     }
 
@@ -192,28 +206,24 @@ final class NotificationSettingsViewModel {
     }
 }
 
-/// What Notifications says when a change didn't save: calm words that it's back as it was, and the status and request ID as
-/// the caption when RYFT answered (never the raw error text).
+/// What Notifications says when a change didn't save: calm words (`SettingsWriteFailure`, shared with the body-setting
+/// editors), and the status and request ID as the caption when RYFT answered (never the raw error text).
 struct NotificationSettingsFailure: Equatable {
     let message: String
     let details: String?
     /// The change was to quiet hours (its notice goes under them), not to a category.
     let quietHours: Bool
+    /// What went wrong, judged by what left the phone: offline only when nothing did.
+    let kind: SettingsWriteFailure
 
-    init(_ error: Error, online: Bool, quietHours: Bool = false) {
+    init(_ error: Error, quietHours: Bool = false) {
+        self.init(SettingsWriteFailure(error), details: error.diagnosticDetails, quietHours: quietHours)
+    }
+
+    init(_ kind: SettingsWriteFailure, details: String? = nil, quietHours: Bool = false) {
+        self.kind = kind
         self.quietHours = quietHours
-        var transport = error as? URLError
-        if case .transport(let inner)? = error as? APIError { transport = inner as? URLError }
-        if !online || transport?.code == .notConnectedToInternet {
-            message = String(localized: "You're offline, so this wasn't saved. Try again when you're back online.",
-                             comment: "Notifications: a switch or time went back because the iPhone is offline.")
-        } else if FailureKind.of(error) == .transient, (error as? APIError)?.status != 429 {
-            message = String(localized: "RYFT didn't answer, so this may not have saved. Try again in a moment.",
-                             comment: "Notifications: no answer (a timeout, a dropped connection); the page shows the last saved value.")
-        } else {
-            message = String(localized: "RYFT couldn't save this change, so it's back as it was.",
-                             comment: "Notifications: the platform refused the change; it went back.")
-        }
-        details = error.diagnosticDetails
+        message = kind.saveMessage
+        self.details = details
     }
 }
