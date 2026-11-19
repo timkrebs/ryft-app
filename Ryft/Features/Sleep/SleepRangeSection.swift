@@ -418,16 +418,29 @@ struct SleepRangeDelta: View {
     var lead = ""
     var spokenLead = ""
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        // One line, or the night over the change when the line doesn't fit (large text).
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                leadText
-                change
-            }
-            VStack(spacing: 2) {
-                leadText
-                change
+        Group {
+            if typeSize.isAccessibilitySize {
+                // From AX1 three lines: the night, the change, "vs 7 d". On one line the change and "vs 7 d" outgrow the
+                // column at AX3, and a `ViewThatFits` whose last choice doesn't fit lays it out at its full width (T5.8 S1).
+                VStack(spacing: 2) {
+                    leadText
+                    change(stacked: true)
+                }
+            } else {
+                // One line, or the night over the change when the line doesn't fit (large text).
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        leadText
+                        change(stacked: false)
+                    }
+                    VStack(spacing: 2) {
+                        leadText
+                        change(stacked: false)
+                    }
+                }
             }
         }
         .multilineTextAlignment(.center)
@@ -443,8 +456,8 @@ struct SleepRangeDelta: View {
             .accessibilityLabel(Text(verbatim: spokenLead.isEmpty ? lead : spokenLead))
     }
 
-    private var change: some View {
-        DeltaLabel(spec: .sleepMin, delta: delta, reference: String(localized: "vs 7 d"))
+    private func change(stacked: Bool) -> some View {
+        DeltaLabel(spec: .sleepMin, delta: delta, reference: String(localized: "vs 7 d"), stacked: stacked)
     }
 }
 
@@ -711,7 +724,9 @@ struct SleepStageLegend: View {
 }
 
 /// A night in the list (§P5-7.2 row 5): the date, a nap, the total and the consistency at the end; 46 high. From AX1 the total
-/// goes under the date. One VoiceOver element with the night in words.
+/// goes under the date, and the nap under the total when the three don't fit on a line (AX5: "7h 48m", "25m" and "86" are
+/// 330 wide, more than a 402 pt screen's row has, and widened the whole column, T5.8 S1). One VoiceOver element with the night
+/// in words.
 struct SleepNightListRow: View {
     let row: SleepRangeSummary.NightRow
 
@@ -722,11 +737,22 @@ struct SleepNightListRow: View {
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 2) {
                     title
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        total
-                        nap
-                        Spacer(minLength: 0)
-                        consistency
+                    // The fallback (the nap on its own line) is at most the total and the consistency wide, which fits.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            total
+                            nap
+                            Spacer(minLength: 0)
+                            consistency
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                total
+                                Spacer(minLength: 0)
+                                consistency
+                            }
+                            nap
+                        }
                     }
                 }
                 .padding(.vertical, GroupedListSpec.textPadding)
