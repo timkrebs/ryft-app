@@ -561,6 +561,18 @@ Order that works: T5.0 → T6B.0 → { T6B.1, T6B.2, T6B.3, T6B.4, T6B.5, T6B.6,
 | D6B-16 | Activity detail: the strain as the hero | The duration is the numeral; strain has its own block | Every activity has a duration; not every one has strain (honest states) |
 | D6B-17 | `PrimaryButton` / `TealButtonStyle` | Not used in area B at all; `PillButton` called directly | T5.0 re-skins the old ones centrally, but these screens must not depend on that mapping |
 | D6B-18 | Summary's "Workout done" 26 pt title | Header subtitle | The numeral is the title of the screen |
+| D6B-19 | §5.1 "Strain · no heart rate for this workout" on the summary | No such state: an answered session always has a strain (muscular load); an unscored one is the pending state (T6B.3 review) | API.md: `Session.strain` comes back with every `/complete` |
+| D6B-20 | Paused tile: "since <date>", "week N waits" | "Paused / name / Resume continues where you stopped."; nothing invented (T6B.3) | `GET /v1/plans` returns no paused enrolment; asked in API_REQUESTS (Train #2) |
+| D6B-21 | Builder Rest: the session presets only | Presets plus 0, 30, 45, 360, 480, 600, 900 s and the current value (T6B.4, lead) | Nothing the old stepper allowed is lost (supersets, heavy singles) |
+| D6B-22 | b-24: muscle chips only | The kinds filter row is kept under the muscles (T6B.2) | Removing it would drop a working filter |
+| D6B-23 | §4.7: List set rows 64 high at AX3 ("as #115") | 56 at every size in List, as the base (T6B.2) | #115 applies to Focused; one row-height constant shared with `CurrentSetHighlight` |
+| D6B-24 | Edit targets: "Clear" as a trailing button | Its own row, "Clear target weight" (T6B.2) | The shared stepper row has no trailing slot; the visible label equals the spoken one |
+| D6B-25 | b-26: the missing night outlined solid | Dashed 4/4, as §9.2 (T6B.6) | The spec's wording; the draft's disc is already dashed |
+| D6B-26 | My Day "Show all" only above the cap, with a count | Whenever the day has activities, no count, as b-17 (T6B.6) | The draft |
+| D6B-27 | Exercise page hero: the PR | The newest e1RM estimate; older than 90 days → the newest point overall with its date (T6B.5, lead) | It pairs with "▲ x kg in 90 days"; the PR stays in the rule and the records |
+| D6B-28 | `addActivity.cancel` / `addSleep.cancel` | `sheet.close` (label "Cancel"; "Close" when nothing to discard) (T6B.7) | `SheetHeader` owns its close id (D6B-13); no test used the old ids |
+| D6B-29 | Activity detail: the Today strain tile itself | `ActivityStrainTile` built from the same parts (T6B.7) | `TodayStrainTile` is a Button bound to Today's content; extract a shared face after PR 6 |
+| D6B-30 | Activity detail: route map card | None (T6B.7) | The base had none; data-quality A4 adds it |
 
 ## 17. Questions only the user can answer
 
