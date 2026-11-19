@@ -37,3 +37,4 @@
 - [Settings subpages](review-checks-settings-subpages.md) — FormField drops lineLimit (AX prompt cut), "nothing changed" vs lost responses, List-row notices mute, silent tap guards
 - [Sync status pages](review-checks-sync-status-pages.md) — "Up to date" from last-good stamp, gated reads uncounted, every outbox, placement presenters, sheet insets
 - [Refusals as states](review-checks-refusal-states.md) — what the old drop let through, 2xx-undecodable, queued creates vs online callers, silent 422s, Retry with no dependency
+- [Form reads + whole saves](review-checks-form-reads-and-saves.md) — banner retry skips commit gate, post-await saves after day switch, reads rebuilding over edits

@@ -18,3 +18,4 @@
 - [Big programs in parallel](big-programs-parallel.md) — plan + parallel agents, max 5 builders, 4 while PRs wait on CI (runner = this Mac); batched questions
 - [Copilot review threads](copilot-review-threads.md) — unresolved Copilot threads keep a green PR BLOCKED; list them, verify, fix or answer, resolve
 - [Offline-first rule](offline-first-requirement.md) — user 2026-11-19: everything visible offline; offline data kept + uploaded on reconnect
+- [Fleet memory branch](fleet-memory-branch.md) — memory goes to chore/fleet-memory (PR #125) via a scratch worktree; batch pushes, never the checkout
