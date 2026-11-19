@@ -1798,7 +1798,9 @@ struct ProfileViewModelTests {
         }()
         api.failure = APIError.http(429, "")
         await vm.bodySettings.rescore()
-        #expect(vm.bodySettings.rescoreStatus == APIError.http(429, "").localizedDescription)
+        // In words: refused, so past days keep their scores (PR 6 C §4.11).
+        #expect(vm.bodySettings.rescoreStatus
+                == "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.")
     }
 
     @Test func healthStatusComesFromTheStore() async {
