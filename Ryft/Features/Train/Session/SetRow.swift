@@ -50,7 +50,8 @@ struct SetTableColumns: Equatable {
     }
 }
 
-/// A Focused row's look (design.md §3.1). Derived from the set and the page's active row, never stored.
+/// A row's look (design.md §3.1, PR 6 B §4.3): Focused's states, which List's rows take too (§4.7). Derived from the set and the
+/// active row, never stored.
 enum FocusedRowState: Equatable {
     case active, done, upcoming
 
@@ -60,7 +61,8 @@ enum FocusedRowState: Equatable {
 }
 
 /// One set: number (tap: warm-up), kg, reps, RPE, check. 56 pt tall, large
-/// monospaced numbers; empty fields show last time / the target ghosted.
+/// monospaced numbers; empty fields show last time / the target ghosted. Both layouts draw the three looks of §4.3
+/// (`FocusedRowInk`): List's active row is the controller's current set, and its upcoming fields stay raised at 55 %.
 struct SetRow: View {
     var controller: SessionController
     let set: LocalSet
@@ -86,6 +88,11 @@ struct SetRow: View {
     private static let revealWidth: CGFloat = 88
 
     private var ghost: (reps: Int?, kg: Double?) { controller.ghost(for: set, in: exercise) }
+    /// The look: Focused's state, or List's (§4.7: done, the controller's current set, or upcoming). Inks only: what a tap or
+    /// VoiceOver does still follows `rowState`.
+    private var look: FocusedRowState {
+        rowState ?? FocusedRowState(isCompleted: set.isCompleted, isActive: controller.currentSetID == set.id)
+    }
     private var usesWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
@@ -145,9 +152,9 @@ struct SetRow: View {
             } label: {
                 Text(set.isWarmup ? "W" : "\(number)")
                     .font(.ryftNumber(size: 17))
-                    .foregroundStyle(numberColor)
+                    .foregroundStyle(FocusedRowInk.number(look))
                     .frame(width: columns?.number ?? 40, height: rowHeight)
-                    .background { if rowState == .active { activePill } }
+                    .background { if look == .active { activePill } }
                     .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: 56)))
             }
             .buttonStyle(.plain)
@@ -173,25 +180,23 @@ struct SetRow: View {
             Button {
                 tap { check() }
             } label: {
+                let shape = RoundedRectangle(cornerRadius: LiveSessionSpec.rowRadius, style: .continuous)
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(checkGlyph)
+                    .foregroundStyle(FocusedRowInk.checkGlyph(look))
                     .frame(width: 56, height: rowHeight)
-                    .background(checkFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(FocusedRowInk.checkFill(look), in: shape)
                     .overlay {
-                        if rowState == .upcoming {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(FocusedRowInk.upcomingOutline(), lineWidth: 1)
+                        if look == .upcoming {
+                            shape.strokeBorder(FocusedRowInk.upcomingOutline(), lineWidth: Theme.Metrics.hairline)
                         }
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .contentShape(shape)
             }
             .buttonStyle(PressableButtonStyle())
             .accessibilityHidden(true)
         }
         .frame(minHeight: rowHeight)
-        .background(rowState == nil && set.isCompleted ? Theme.accent.opacity(0.06) : .clear,
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     /// RPE at the sizes without a fourth column (design.md §5.1): "RPE 8.5", full width, 44 high. It takes the row's taps as
@@ -209,10 +214,10 @@ struct SetRow: View {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: rpeLineIsQuiet ? .topLeading : .center)
                 .padding(.leading, rpeLineIsQuiet ? (columns?.number ?? 0) + (columns?.gap ?? 0) : 0)
                 .background(Theme.surfaceRaised.opacity(fieldOpacity(.rpe, focused: focused)),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
-                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous)
+                    .strokeBorder(focused ? FocusedRowInk.focusRing : .clear, lineWidth: 2))
+                .contentShape(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         // Over the row's empty lower edge, clear of the ✓, so it stays that row's caption. Its 44 pt stay whole.
@@ -225,57 +230,34 @@ struct SetRow: View {
     /// Centred, with the same gap above and below, it read as the next row's.
     private var rpeLineIsQuiet: Bool { fieldOpacity(.rpe, focused: rpeLineIsFocused) == 0 }
 
-    // MARK: Focused's states (design.md §2.5, §2.8)
+    // MARK: the looks (PR 6 B §4.3, §4.7)
 
-    private var numberColor: Color {
-        if set.isWarmup { return Theme.warning }
-        return rowState == .active ? Theme.textPrimary : Theme.textSecondary
-    }
-
-    /// The raised `#` of the active row, with its dot.
+    /// The raised `#` of the active row, with its Volt dot (hidden from VoiceOver with the number: the row says "Next set.").
     private var activePill: some View {
-        Capsule()
+        let side = min(columns?.number ?? LiveSessionSpec.activeNumber, LiveSessionSpec.activeNumber)
+        return Circle()
             .fill(Theme.surfaceRaised)
-            .frame(width: min(columns?.number ?? 32, 32), height: min(columns?.number ?? 32, 32))
+            .frame(width: side, height: side)
             .overlay(alignment: .topTrailing) {
-                Circle().fill(Theme.accent).frame(width: 5, height: 5)
+                Circle().fill(FocusedRowInk.mark).frame(width: LiveSessionSpec.activeDot, height: LiveSessionSpec.activeDot)
             }
     }
 
-    private var checkGlyph: Color {
-        switch rowState {
-        case .active: Theme.onAccent
-        case .done: Theme.textSecondary
-        case .upcoming: Theme.textTertiary
-        case nil: set.isCompleted ? Theme.onAccent : Theme.textTertiary
-        }
-    }
-
-    private var checkFill: Color {
-        switch rowState {
-        case .active: Theme.accent
-        case .done, .upcoming: .clear
-        case nil: set.isCompleted ? Theme.accent : Theme.surfaceRaised
-        }
-    }
-
-    /// Only the active row's fields are raised, and RPE stays quieter: it is optional.
+    /// Only the active row's fields are raised, and RPE stays quieter: it is optional. List raises its upcoming fields too, at
+    /// 55 %: it has no pager, so its rows read as a form (§4.7). A done row has no chrome in either.
     private func fieldOpacity(_ f: SetFocus.Field, focused: Bool) -> Double {
         guard !focused else { return 1 }
-        switch rowState {
+        switch look {
         case .active: return f == .rpe ? 0.55 : 1
-        case .done, .upcoming: return 0
-        case nil: return 0.55
+        case .done: return 0
+        case .upcoming: return rowState == nil ? 0.55 : 0
         }
     }
 
     /// A ghost reads as what you'll do, in a colour that holds 4.5:1; only an empty field is quieter than that. A done
     /// value is grey, told apart from a ghost by the check column.
-    private func valueColor(hasValue: Bool, hasGhost: Bool) -> Color {
-        switch rowState {
-        case nil: hasValue ? Theme.textPrimary : Theme.textTertiary.opacity(0.7)
-        case let state?: FocusedRowInk.value(state, hasValue: hasValue, hasGhost: hasGhost)
-        }
+    private func valueColor(_ f: SetFocus.Field, focused: Bool, hasValue: Bool, hasGhost: Bool) -> Color {
+        FocusedRowInk.value(look, hasValue: hasValue, hasGhost: hasGhost, onRaisedField: fieldOpacity(f, focused: focused) > 0)
     }
 
     private var deleteButton: some View {
@@ -285,9 +267,9 @@ struct SetRow: View {
             Label("Delete", systemImage: "trash")
                 .labelStyle(.iconOnly)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Theme.onAccent)
+                .foregroundStyle(Theme.background)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.alert, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Theme.alert, in: RoundedRectangle(cornerRadius: LiveSessionSpec.rowRadius, style: .continuous))
                 .padding(.leading, 6)
         }
         .buttonStyle(.plain)
@@ -404,7 +386,7 @@ struct SetRow: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(rowState == .active ? Theme.textPrimary : Theme.textSecondary)
+            .foregroundStyle(look == .active ? Theme.textPrimary : Theme.textSecondary)
             .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
     }
 
@@ -426,9 +408,10 @@ struct SetRow: View {
             }
     }
 
-    /// Focused's RPE is quieter than kg and reps, and empty when unset: a table without RPE stays calm (design.md §2.5).
+    /// RPE is quieter than kg and reps, and empty when unset: a table without RPE stays calm (design.md §2.5). List's too
+    /// (PR 6 B `b-02`): its raised field says where to type.
     private func emptyText(_ f: SetFocus.Field) -> String {
-        columns != nil && f == .rpe ? "" : Fmt.placeholder
+        f == .rpe ? "" : Fmt.placeholder
     }
 
     private func numeralSize(_ f: SetFocus.Field) -> CGFloat {
@@ -464,16 +447,16 @@ struct SetRow: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(columns == nil ? 0.6 : 0.75)
-                        .foregroundStyle(valueColor(hasValue: shown != nil, hasGhost: ghost != nil))
+                        .foregroundStyle(valueColor(f, focused: focused, hasValue: shown != nil, hasGhost: ghost != nil))
                 }
             }
             .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
             .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused)),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
+                        in: RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous)
+                .strokeBorder(focused ? FocusedRowInk.focusRing : .clear, lineWidth: 2))
             // A row with no field chrome still takes the whole field's tap.
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: LiveSessionSpec.fieldRadius, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -512,4 +495,110 @@ struct SetStoredValue: Equatable {
             return nil
         }
     }
+}
+
+/// Focused's active row (PR 6 B §4.3): ink at 5 % under it, radius 14, and a 2 pt Volt bar outside its leading edge (10 pt at
+/// 390, 6 pt from the screen's edge at either width), as high as the cells less 8 at each end. VoiceOver hears "Next set." as
+/// the row's value and the row takes VoiceOver focus after a jump, as List's `CurrentSetHighlight` does; the bar sits further out
+/// here, in the page's side rather than a card's padding. One structure whether active or not, so the row keeps its identity as
+/// the marks move.
+struct FocusedRowHighlight: ViewModifier {
+    let isActive: Bool
+    let setID: UUID
+    let columns: SetTableColumns
+
+    @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
+
+    func body(content: Content) -> some View {
+        let marked = content
+            .background {
+                RoundedRectangle(cornerRadius: LiveSessionSpec.rowRadius, style: .continuous)
+                    .fill(FocusedRowInk.activeRowFill(isActive))
+            }
+            .overlay(alignment: .topLeading) {
+                Capsule()
+                    .fill(FocusedRowInk.mark)
+                    .frame(width: LiveSessionSpec.activeBarWidth,
+                           height: LiveSessionSpec.activeBarHeight(rowHeight: columns.rowHeight))
+                    .offset(x: -LiveSessionSpec.activeBarOutset(padding: columns.padding), y: LiveSessionSpec.activeBarInset)
+                    .opacity(isActive ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityValue(isActive
+                ? Text("Next set.", comment: "VoiceOver: said with the set row the user does next in a workout.")
+                : Text(verbatim: ""))
+        // The environment is the same for every row of a page, so this never switches a row's identity.
+        if let voiceOverFocus {
+            marked.accessibilityFocused(voiceOverFocus, equals: setID)
+        } else {
+            marked
+        }
+    }
+}
+
+extension View {
+    /// Focused's active-row marks and its VoiceOver value and focus (`FocusedRowHighlight`).
+    func focusedRowHighlight(_ isActive: Bool, setID: UUID, columns: SetTableColumns) -> some View {
+        modifier(FocusedRowHighlight(isActive: isActive, setID: setID, columns: columns))
+    }
+}
+
+// MARK: - previews (dark only)
+
+/// A Focused page's rows as `ExercisePage` lays them out, at 390 pt: `b-04`'s Barbell row (set 1 done, set 2 active with its
+/// dot, bar and filled ✓, sets 3 and 4 upcoming on their ghosts).
+@MainActor
+private func focusedRows(_ scenario: FocusedPreview.Scenario, typeSize: DynamicTypeSize = .large) -> some View {
+    let c = FocusedPreview.controller(scenario)
+    let ex = c.pageExercise ?? c.exercises[0]
+    let sets = ex.orderedSets.filter { !$0.isWarmup }
+    let active = c.activeSet(in: ex)?.id
+    let columns = SetTableColumns.fitting(width: 390, typeSize: typeSize)
+    return VStack(spacing: 4) {
+        ForEach(Array(sets.enumerated()), id: \.element.id) { i, set in
+            SetRow(controller: c, set: set, exercise: ex, number: i + 1, count: sets.count, swipeToDelete: false,
+                   columns: columns, rowState: FocusedRowState(isCompleted: set.isCompleted, isActive: set.id == active))
+                .focusedRowHighlight(set.id == active, setID: set.id, columns: columns)
+        }
+    }
+    .padding(.horizontal, columns.padding)
+    .padding(.vertical, 20)
+    .frame(width: 390)
+    .background(Theme.background)
+    .dynamicTypeSize(typeSize)
+}
+
+/// List's rows on their card (§4.7): `b-02`'s Bench press, set 1 done, set 2 the current set, the rest upcoming with raised
+/// fields at 55 %.
+@MainActor
+private func listRows() -> some View {
+    let c = FocusedPreview.controller(.draftList)
+    let ex = c.exercises[0]
+    let sets = ex.orderedSets
+    return VStack(spacing: 10) {
+        ForEach(Array(sets.enumerated()), id: \.element.id) { i, set in
+            SetRow(controller: c, set: set, exercise: ex, number: i + 1, count: sets.count)
+        }
+    }
+    .padding(14)
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
+    .padding(16)
+    .frame(width: 390)
+    .background(Theme.background)
+}
+
+#Preview("Set rows · Focused", traits: .sizeThatFitsLayout) {
+    focusedRows(.draft).previewEnvironment()
+}
+
+#Preview("Set rows · Focused, a tapped row and a typed value", traits: .sizeThatFitsLayout) {
+    focusedRows(.tappedRow).previewEnvironment()
+}
+
+#Preview("Set rows · Focused, AX3", traits: .sizeThatFitsLayout) {
+    focusedRows(.draft, typeSize: .accessibility3).previewEnvironment()
+}
+
+#Preview("Set rows · List", traits: .sizeThatFitsLayout) {
+    listRows().previewEnvironment()
 }

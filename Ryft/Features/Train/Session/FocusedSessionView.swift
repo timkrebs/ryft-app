@@ -39,7 +39,7 @@ struct FocusedSessionView: View {
 
     /// The page's soft top edge, about a line of text, so nothing shows cut in half under the header. `ExercisePage` keeps its
     /// title clear of it.
-    static let topFade: CGFloat = 16
+    static let topFade: CGFloat = LiveSessionSpec.pageFade
     /// Beside the keypad with the strip gone, the page ends right under the header, usually mid-line: solid for what shows of
     /// that line, then a short fade. On the 138 pt page with a rest running, set 1's labels sit at y=13..37, so the fade runs
     /// into their line box and stops above the letters, with a pixel or so to spare at AX3. Longer dims their tops; a shorter
@@ -183,10 +183,13 @@ struct FocusedSessionView: View {
         .accessibilityIdentifier(controller.restPillState == .idle ? "" : "session.restBar")
     }
 
-    /// No pager with no pages: the + tile above is the way in.
+    /// No pager with no pages: the + tile above is the way in. An outlined card (PR 6 B §4.9): nothing here is loading, and the
+    /// outline says the page waits for its first exercise.
     private var emptyPage: some View {
         VStack {
             InlineMessage(message: String(localized: "An empty session. Add your first exercise."), systemImage: "dumbbell")
+                // Over the message's own `surface` fill: `placeholderOutline()` draws behind it, where the fill hides it.
+                .overlay { PlaceholderOutline(RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous)) }
             Spacer()
         }
         .padding(.horizontal, columns.padding)
@@ -221,66 +224,59 @@ private func session(_ scenario: FocusedPreview.Scenario) -> some View {
     SessionView(controller: FocusedPreview.controller(scenario))
 }
 
-#Preview("Focused · dark") {
+/// `b-04`: Upper A at 23:00, Barbell row's set 2 active, a rest running with 1:54 left.
+#Preview("Focused") {
+    session(.draft).previewEnvironment()
+}
+
+/// `b-05`.
+#Preview("Focused · AX3") {
+    session(.draft).previewEnvironment().dynamicTypeSize(.accessibility3)
+}
+
+/// `b-28`.
+#Preview("Focused · 320 pt", traits: .fixedLayout(width: 320, height: 693)) {
+    session(.draft).previewEnvironment()
+}
+
+#Preview("Focused · mid-session") {
     session(.midSession).previewEnvironment()
 }
 
-#Preview("Focused · light") {
-    session(.midSession).previewEnvironment(scheme: .light)
-}
-
+/// `b-06`: the keypad on set 2's kg, the rest still running above it.
 #Preview("Focused · keypad") {
-    let c = FocusedPreview.controller(.midSession)
-    if let ex = c.pageExercise { c.edit(ex.orderedSets[0], .kg) }
+    let c = FocusedPreview.controller(.draft)
+    if let ex = c.pageExercise { c.edit(ex.orderedSets[1], .kg) }
     return SessionView(controller: c).previewEnvironment()
 }
 
-#Preview("Focused · superset, dark") {
-    session(.superset).previewEnvironment()
-}
-
-#Preview("Focused · superset, light") {
-    session(.superset).previewEnvironment(scheme: .light)
-}
-
-#Preview("Focused · offline, dark") {
-    session(.offline).previewEnvironment()
-}
-
-#Preview("Focused · offline, light") {
-    session(.offline).previewEnvironment(scheme: .light)
-}
-
-#Preview("Focused · empty, dark") {
-    session(.empty).previewEnvironment()
-}
-
-#Preview("Focused · empty, light") {
-    session(.empty).previewEnvironment(scheme: .light)
-}
-
-#Preview("Focused · all done, dark") {
-    session(.allDone).previewEnvironment()
-}
-
-#Preview("Focused · all done, light") {
-    session(.allDone).previewEnvironment(scheme: .light)
-}
-
-#Preview("Focused · rest running, dark") {
-    session(.restRunning).previewEnvironment()
-}
-
-#Preview("Focused · rest running, light") {
-    session(.restRunning).previewEnvironment(scheme: .light)
-}
-
-#Preview("Focused · rest running, keypad") {
+#Preview("Focused · keypad at 320 pt", traits: .fixedLayout(width: 320, height: 693)) {
     let c = FocusedPreview.controller(.restRunning)
     if let ex = c.pageExercise { c.edit(ex.orderedSets[0], .kg) }
     return SessionView(controller: c).previewEnvironment()
 }
 
-#Preview("Focused · 320 pt", traits: .fixedLayout(width: 320, height: 693)) {
-    session(.midSession).previewEnvironment()
+#Preview("Focused · superset") {
+    session(.superset).previewEnvironment()
+}
+
+#Preview("Focused · offline") {
+    session(.offline).previewEnvironment()
+}
+
+#Preview("Focused · empty") {
+    session(.empty).previewEnvironment()
+}
+
+/// `b-08`: the card and the header's Finish filled.
+#Preview("Focused · all done") {
+    session(.allDone).previewEnvironment()
+}
+
+#Preview("Focused · all done, AX3") {
+    session(.allDone).previewEnvironment().dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Focused · rest over") {
+    session(.restOver).previewEnvironment()
 }

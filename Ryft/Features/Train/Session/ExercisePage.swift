@@ -278,6 +278,9 @@ struct ExercisePage: View {
 
     static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
 
+    /// "Add set" and "Add warm-up set": quiet text buttons, ink at 78 % (PR 6 B §1.1), 11.6:1 on the screen.
+    static let quietLink = 0.78
+
     private static func spokenDuration(_ seconds: Int) -> String {
         Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide))
     }
@@ -289,12 +292,16 @@ struct ExercisePage: View {
                 controller.focus = nil
                 onSheet(.notes(exercise.id))
             } label: {
-                Label(exercise.notes, systemImage: "note.text")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: 8) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 13, weight: .regular))
+                    Text(exercise.notes)
+                        .font(.ryft(.caption))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("Notes: \(exercise.notes)", comment: "VoiceOver: an exercise's notes in a workout. 1: the notes."))
@@ -311,7 +318,7 @@ struct ExercisePage: View {
             HStack(spacing: 6) {
                 Image(systemName: "flame")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.warning)
+                    .foregroundStyle(Theme.textSecondary)
                 warmupTitle
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
@@ -324,7 +331,7 @@ struct ExercisePage: View {
             .padding(.horizontal, 14)
             .frame(minHeight: 36)
             .background(Theme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(SessionChip.edge, lineWidth: Theme.Metrics.hairline))
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
@@ -355,7 +362,7 @@ struct ExercisePage: View {
             Label(String(localized: "Add warm-up set", comment: "Exercise menu in a workout: adds a warm-up set to this exercise."),
                   systemImage: "plus")
                 .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(Theme.textPrimary.opacity(Self.quietLink))
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
@@ -388,7 +395,7 @@ struct ExercisePage: View {
                swipeToDelete: false, columns: columns,
                rowState: FocusedRowState(isCompleted: set.isCompleted, isActive: set.id == active))
             .id(set.id) // scroll anchor for the keypad
-            .currentSetHighlight(set.id == active, setID: set.id)
+            .focusedRowHighlight(set.id == active, setID: set.id, columns: columns)
     }
 
     private var addSet: some View {
@@ -397,7 +404,7 @@ struct ExercisePage: View {
         } label: {
             Label("Add set", systemImage: "plus")
                 .font(.ryft(.callout))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.textPrimary.opacity(Self.quietLink))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .contentShape(Rectangle())
         }
@@ -486,6 +493,8 @@ struct LastTimeCard: View {
     var onTap: () -> Void
 
     private static let shown = 6
+    /// Inside the card.
+    static let padding: CGFloat = 14
     private var working: [SessionSet] { sets.filter { !$0.isWarmup } }
     private var listed: [SessionSet] { Array(working.prefix(Self.shown)) }
     /// The fourth column, top to bottom: what last time logged, there is no ghost here.
@@ -495,13 +504,12 @@ struct LastTimeCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            // The rows stay on the table's grid, so the card has no side padding of its own: the number column is its margin.
+            // A card (PR 6 B §4.2, `b-04`): the table's columns inside its 14 pt padding.
             VStack(alignment: .leading, spacing: 0) {
                 heading
                     .font(.ryft(.label))
                     .foregroundStyle(Theme.textTertiary)
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    .padding(.horizontal, 14)
                     .padding(.bottom, 6)
                 SetTableHeader(loadType: loadType, columns: columns, column: column)
                 let fourth = fourth
@@ -512,13 +520,12 @@ struct LastTimeCard: View {
                     Text(moreText)
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
-                        .padding(.horizontal, 14)
                         .frame(minHeight: 28)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 14)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+            .padding(Self.padding)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -592,7 +599,8 @@ struct LastTimeCard: View {
     }
 }
 
-/// A chip of the page's chip row: 32 pt high, 44 pt to touch. Never accent: three of them would outweigh the check.
+/// A chip of the page's chip row: 32 pt high, 44 pt to touch, an outline on `surface`. Never filled: the ✓ stays the page's one
+/// filled thing (PR 6 B §4.2).
 struct SessionChip: View {
     let text: String
     var leading: String?
@@ -612,10 +620,13 @@ struct SessionChip: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 32)
         .background(Theme.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: 1))
+        .overlay(Capsule().strokeBorder(Self.edge, lineWidth: Theme.Metrics.hairline))
         .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
+
+    /// The chip's and the warm-up pill's edge: ink at 12 %.
+    static let edge = Theme.textPrimary.opacity(0.12)
 
     private func glyph(_ name: String) -> some View {
         Image(systemName: name)

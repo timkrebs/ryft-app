@@ -38,9 +38,9 @@ enum ExerciseProgress: Equatable {
     }
 }
 
-/// One exercise on the strip: its kind's glyph over its position (design.md §4a). Dimming is by token, never opacity: at
-/// 60 % the tile's edge and the badge disappear in light mode. The current tile has the only ring and the only
-/// `textPrimary` number, so it isn't colour alone.
+/// One exercise on the strip: its kind's glyph over its position (design.md §4a, PR 6 B §4.2). A `surface` tile with a 1 pt ink
+/// edge at 10 %. Dimming is by token, never opacity. The current tile has the only ring (2 pt ink) and the only `textPrimary`
+/// content; a done one has the ink badge with its check: state is the ring, the number's brightness and the badge, never colour.
 struct ExerciseTile: View {
     let symbol: String
     let number: Int
@@ -48,14 +48,19 @@ struct ExerciseTile: View {
     let isDone: Bool
     var size: CGFloat = ExerciseTile.size
 
-    static let size: CGFloat = 56
+    static let size: CGFloat = LiveSessionSpec.tile
     /// From AX3 (design.md §5.1).
-    static let largeSize: CGFloat = 64
-    private static let corner: CGFloat = 14
+    static let largeSize: CGFloat = LiveSessionSpec.largeTile
+    private static let corner = LiveSessionSpec.tileRadius
+    /// The tile's edge, ink at 10 %, and the current tile's ring.
+    static let edge = Theme.textPrimary.opacity(0.10), ringWidth: CGFloat = 2
+    /// The done badge: a 16 pt ink disc with a 9 pt check in the screen's colour, 4 pt past the corner.
+    static let badge: CGFloat = 16, badgeOffset: CGFloat = 4
 
     private var isLarge: Bool { size >= Self.largeSize }
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
         VStack(spacing: 3) {
             Image(systemName: symbol)
                 .font(.system(size: isLarge ? 24 : 20, weight: .medium))
@@ -67,21 +72,19 @@ struct ExerciseTile: View {
         }
         .foregroundStyle(isCurrent ? Theme.textPrimary : Theme.textSecondary)
         .frame(width: size, height: size)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        .background(Theme.surface, in: shape)
         .overlay {
-            if isCurrent {
-                RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
-                    .strokeBorder(Theme.accent, lineWidth: 2)
-            }
+            shape.strokeBorder(isCurrent ? Theme.textPrimary : Self.edge,
+                               lineWidth: isCurrent ? Self.ringWidth : Theme.Metrics.hairline)
         }
         .overlay(alignment: .bottomTrailing) {
             if isDone {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: 16, height: 16)
-                    .background(Theme.accent, in: Circle())
-                    .offset(x: 4, y: 4)
+                    .foregroundStyle(Theme.background)
+                    .frame(width: Self.badge, height: Self.badge)
+                    .background(Theme.textPrimary, in: Circle())
+                    .offset(x: Self.badgeOffset, y: Self.badgeOffset)
             }
         }
     }
@@ -104,7 +107,11 @@ struct ExerciseStrip: View {
 
     private static let gap: CGFloat = 8
     /// 8 top, 56 tile, 3 gap, 3 bar, 6 bottom.
-    static let height: CGFloat = 76
+    static let height: CGFloat = LiveSessionSpec.strip
+    /// A superset's bar under its tiles: 3 pt of ink at 55 %.
+    static let supersetInk = Theme.textPrimary.opacity(0.55)
+    /// The + tile's dashed edge: ink at 16 %.
+    static let addEdge = Theme.textPrimary.opacity(0.16)
 
     static func tileSize(_ typeSize: DynamicTypeSize) -> CGFloat {
         typeSize >= .accessibility3 ? ExerciseTile.largeSize : ExerciseTile.size
@@ -170,7 +177,7 @@ struct ExerciseStrip: View {
             }
             if members.count > 1 {
                 Capsule()
-                    .fill(Theme.accent)
+                    .fill(Self.supersetInk)
                     .frame(height: 3)
                     .accessibilityHidden(true)
             }
@@ -182,7 +189,7 @@ struct ExerciseStrip: View {
         let done = Self.isDone(ex)
         return ExerciseTile(symbol: ex.kind.tileSymbol, number: number, isCurrent: ex.id == page, isDone: done,
                             size: Self.tileSize(typeSize))
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: LiveSessionSpec.tileRadius, style: .continuous))
             .onTapGesture {
                 withAnimation(motion) { controller.jump(to: ex.id) }
             }
@@ -203,8 +210,8 @@ struct ExerciseStrip: View {
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: Self.tileSize(typeSize), height: Self.tileSize(typeSize))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Theme.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    RoundedRectangle(cornerRadius: LiveSessionSpec.tileRadius, style: .continuous)
+                        .strokeBorder(Self.addEdge, style: StrokeStyle(lineWidth: Theme.Metrics.hairline, dash: [4, 3]))
                 }
                 .contentShape(Rectangle())
         }
@@ -243,16 +250,16 @@ struct ExerciseStrip: View {
     }
 }
 
-#Preview("Strip · dark and light", traits: .sizeThatFitsLayout) {
-    let c = FocusedPreview.controller(.midSession)
-    return SchemePair {
+#Preview("Strip", traits: .sizeThatFitsLayout) {
+    let c = FocusedPreview.controller(.draft)
+    return DarkPreview {
         ExerciseStrip(controller: c, onAdd: {}, onReorder: {}, onActivate: { _ in })
     }
 }
 
 #Preview("Strip · one exercise and empty", traits: .sizeThatFitsLayout) {
     let one = FocusedPreview.controller(.oneExercise), empty = FocusedPreview.controller(.empty)
-    return SchemePair {
+    return DarkPreview {
         VStack(spacing: 0) {
             ExerciseStrip(controller: one, onAdd: {}, onReorder: {}, onActivate: { _ in })
             ExerciseStrip(controller: empty, onAdd: {}, onReorder: {}, onActivate: { _ in })
@@ -262,7 +269,15 @@ struct ExerciseStrip: View {
 
 #Preview("Strip · 12 exercises", traits: .sizeThatFitsLayout) {
     let c = FocusedPreview.controller(.manyExercises)
-    return SchemePair {
+    return DarkPreview {
         ExerciseStrip(controller: c, onAdd: {}, onReorder: {}, onActivate: { _ in })
     }
+}
+
+#Preview("Strip · AX3", traits: .sizeThatFitsLayout) {
+    let c = FocusedPreview.controller(.draft)
+    return DarkPreview {
+        ExerciseStrip(controller: c, onAdd: {}, onReorder: {}, onActivate: { _ in })
+    }
+    .dynamicTypeSize(.accessibility3)
 }

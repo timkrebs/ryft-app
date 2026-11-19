@@ -12,18 +12,17 @@ struct SessionActions {
     var finish: () -> Void
 }
 
-/// Focused's Finish stays one word in a 48 pt capsule at every text size, "Beenden" and at 320 pt too (design.md §5.1). The
-/// header is full, so its size stops growing, and a long press shows it large. List's header keeps its own rules.
-private struct FocusedFinishLabel: ViewModifier {
+/// Finish beside the circles and the title (PR 6 B §4.1): the compact pill keeps its one line, so in a full row its type stops
+/// growing (`.xxLarge`, `.large` at 320) and a long press shows it large. List's stacked header at the accessibility sizes gives
+/// it a row of its own, where it grows.
+private struct FinishCap: ViewModifier {
     let isOn: Bool
-    let isCompact: Bool
+    let cap: DynamicTypeSize
 
     func body(content: Content) -> some View {
         if isOn {
             content
-                .lineLimit(1)
-                .fixedSize()
-                .dynamicTypeSize(...(isCompact ? DynamicTypeSize.large : .xxLarge))
+                .dynamicTypeSize(...cap)
                 .accessibilityShowsLargeContentViewer()
         } else {
             content
@@ -40,16 +39,6 @@ private struct CompactTextCap: ViewModifier {
 
     func body(content: Content) -> some View {
         if isOn { content.dynamicTypeSize(...cap) } else { content }
-    }
-}
-
-/// List's Finish at the accessibility sizes, on the buttons' own row: one word on one line. It shrinks only where even that
-/// row is too narrow for it (AX5 at 320 pt), and never breaks inside the word.
-private struct ListFinishLabel: ViewModifier {
-    let isOn: Bool
-
-    func body(content: Content) -> some View {
-        if isOn { content.lineLimit(1).minimumScaleFactor(0.5) } else { content }
     }
 }
 
@@ -190,21 +179,21 @@ struct SessionView: View {
 
     /// Focused at 320 pt (design.md §2.1): an hour clock doesn't fit the middle at 30 pt. The list keeps its header.
     private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width).isCompact }
-    /// §5.1: at AX3 `…` and Finish keep 48, at 320 too.
-    private var headerButton: CGFloat { isCompactHeader && typeSize < .accessibility3 ? 44 : 48 }
 
     /// List at the accessibility sizes: the buttons get a row of their own and the title and clock the full width under it.
     /// Side by side, Finish broke into "Finis/h" and at the largest sizes the title was cut. Focused keeps its one row (§5.1).
     private var stacksHeader: Bool { controller.layout == .list && typeSize.isAccessibilitySize }
 
+    /// PR 6 B §4.1: the minimise circle, the title over the clock, the More circle and Finish, 8 apart (6 at 320) from circle
+    /// edge to circle edge; each circle's edge, not its 44 pt box, on the page's 16 pt side (12 at 320). 6 above and below.
     private var header: some View {
         Group {
             if stacksHeader {
                 // VoiceOver keeps the one-row order (Minimise, the title and clock, More, Finish), not the drawn one.
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
+                VStack(spacing: LiveSessionSpec.headerGap) {
+                    HStack(spacing: LiveSessionSpec.headerGap) {
                         minimiseButton.accessibilitySortPriority(4)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: LiveSessionSpec.headerGap)
                         moreMenu.accessibilitySortPriority(2)
                         finishButton.accessibilitySortPriority(1)
                     }
@@ -212,29 +201,24 @@ struct SessionView: View {
                 }
                 .accessibilityElement(children: .contain)
             } else {
-                HStack(spacing: isCompactHeader ? 6 : 8) {
+                HStack(spacing: isCompactHeader ? LiveSessionSpec.compactHeaderGap : LiveSessionSpec.headerGap) {
                     minimiseButton
                     titleAndClock
                     moreMenu
                     finishButton
                 }
+                .frame(minHeight: LiveSessionSpec.headerRow)
             }
         }
-        .padding(.horizontal, isCompactHeader ? 12 : 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isCompactHeader ? LiveSessionSpec.compactSidePadding : LiveSessionSpec.sidePadding)
+        .padding(.vertical, LiveSessionSpec.headerVerticalPadding)
     }
 
     private var minimiseButton: some View {
-        Button {
+        CircleButton(systemImage: "chevron.down", iconSize: LiveSessionSpec.headerIcon, accessibilityLabel: Text("Minimise")) {
             coordinator.close()
-        } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: headerButton, height: headerButton)
-                .background(Theme.surface, in: Circle())
         }
-        .accessibilityLabel(Text("Minimise"))
+        .headerEdgeButton()
         .accessibilityHint(Text("The workout keeps running"))
     }
 
@@ -244,14 +228,14 @@ struct SessionView: View {
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .modifier(SessionTitleLines(wraps: stacksHeader))
-                .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
+                .modifier(CompactTextCap(isOn: isCompactHeader, cap: LiveSessionSpec.compactTitleCap))
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(Fmt.clock(controller.elapsed(at: context.date)))
-                    .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
+                    .font(.ryftNumber(size: isCompactHeader ? LiveSessionSpec.compactClock : LiveSessionSpec.clock))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(isCompactHeader ? 1 : nil)
-                    .minimumScaleFactor(isCompactHeader ? 0.8 : 1)
+                    .minimumScaleFactor(isCompactHeader ? LiveSessionSpec.compactClockScale : 1)
             }
         }
         .frame(maxWidth: .infinity)
@@ -259,42 +243,37 @@ struct SessionView: View {
         .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
     }
 
+    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers.
     private var moreMenu: some View {
         Menu {
             Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
             Button("Discard workout", systemImage: "trash", role: .destructive) { confirmDiscard = true }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: LiveSessionSpec.headerIcon, weight: .regular))
                 .foregroundStyle(Theme.textPrimary)
-                .frame(width: headerButton, height: headerButton)
-                .background(Theme.surface, in: Circle())
+                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
+                .overlay {
+                    Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
+                }
+                .frame(width: CircleButton.hitSize, height: CircleButton.hitSize)
+                .contentShape(Rectangle())
         }
+        .headerEdgeButton()
         .accessibilityLabel(Text("More"))
     }
 
+    /// An outline until every set is done, then filled (F14, D6B-5): one primary at a time, and at all-done the card's
+    /// "Finish workout" and this one. While it finishes, the pill's spinner (the title and width stay) and no second tap.
     private var finishButton: some View {
-        Button {
+        PillButton(Text("Finish"), style: controller.finishIsFilled ? .primary : .secondary, size: .compact,
+                   busy: controller.isFinishing) {
             confirmFinish = true
-        } label: {
-            Group {
-                if controller.isFinishing { ProgressView().tint(finishInk) } else { Text("Finish") }
-            }
-            .font(.ryft(.headline))
-            .foregroundStyle(finishInk)
-            .modifier(FocusedFinishLabel(isOn: controller.layout == .focused, isCompact: isCompactHeader))
-            .modifier(ListFinishLabel(isOn: stacksHeader))
-            .padding(.horizontal, isCompactHeader ? 14 : 18)
-            .frame(minHeight: headerButton)
-            .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
-            // The capsule's own edge is under 1.2:1 on the background, in either scheme.
-            .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
         }
-        .disabled(controller.isFinishing)
+        .modifier(FinishCap(isOn: !stacksHeader,
+                            cap: isCompactHeader ? LiveSessionSpec.compactFinishCap : LiveSessionSpec.finishCap))
         .accessibilityIdentifier("session.finish")
     }
-
-    private var finishInk: Color { controller.finishIsFilled ? Theme.onAccent : Theme.accent }
 
     // MARK: exercises
 
@@ -466,24 +445,25 @@ private struct ManualScrollReporter: ViewModifier {
     }
 }
 
-#Preview("Live session · dark") {
+#Preview("Live session · List") {
     SessionView(controller: TrainPreview.liveController())
         .previewEnvironment()
 }
 
-#Preview("Live session · light") {
-    SessionView(controller: TrainPreview.liveController())
-        .previewEnvironment(scheme: .light)
+/// `b-02`: List's first exercise under way, a rest running.
+#Preview("Live session · List draft") {
+    SessionView(controller: FocusedPreview.controller(.draftList))
+        .previewEnvironment()
 }
 
 /// The buttons on a row of their own, the title under them; the table's column titles on one line.
-#Preview("Live session · AX3") {
+#Preview("Live session · List, AX3") {
     SessionView(controller: TrainPreview.liveController())
         .previewEnvironment()
         .dynamicTypeSize(.accessibility3)
 }
 
-#Preview("Live session · keypad") {
+#Preview("Live session · List, keypad") {
     let c = TrainPreview.liveController()
     c.edit(c.exercises[0].orderedSets[2], .kg)
     return SessionView(controller: c).previewEnvironment()
