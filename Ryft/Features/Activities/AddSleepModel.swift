@@ -49,6 +49,8 @@ final class AddSleepModel: Identifiable {
     var bed: Date
     var wake: Date
     private(set) var isSaving = false
+    /// Saved once: Save stays off while the sheet closes, so a second tap can't write the night again.
+    private(set) var didSave = false
 
     /// The night that ends on `day`: to bed at 23:00 the evening before, up at 07:00 (no later than now). `night`
     /// says what a wake day already has, so a night isn't added twice or over a tracker's.
@@ -107,7 +109,7 @@ final class AddSleepModel: Identifiable {
         let existing = targetDay == editedDay ? Night.none : night(targetDay)
         return Self.issues(bed: bed, wake: wake, now: now, earliestWake: earliestWake, existing: existing)
     }
-    var canSave: Bool { issues.isEmpty && !isSaving && !trackerHasNight }
+    var canSave: Bool { issues.isEmpty && !isSaving && !didSave && !trackerHasNight }
 
     /// Loads the wake day's detail when it isn't on this iPhone, so its night can be checked (the sheet runs this
     /// whenever the wake day changes). Offline it stays unchecked, and Save waits.
@@ -166,6 +168,7 @@ final class AddSleepModel: Identifiable {
         guard env.activities.saveSleep(day: day, bed: bed, wake: wake) != nil else { return false }
         if let old = editedDay, old != day { env.uploader.sleepDeleted(day: old) }
         env.uploader.sleepSaved(day: day)
+        didSave = true
         return true
     }
 

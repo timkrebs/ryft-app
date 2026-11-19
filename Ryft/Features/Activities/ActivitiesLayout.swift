@@ -17,8 +17,9 @@ enum ActivitiesLayout {
     nonisolated static let sportRowMinHeight: CGFloat = 60, sportRowInset: CGFloat = 16, sportRowSpacing: CGFloat = 12
     /// The sport row's `chevron.up.chevron.down`: 13 pt, ink at 35 % (decoration: the row is a button named by the sport).
     nonisolated static let chevronSize: CGFloat = 13, chevronOpacity = 0.35
-    /// The Duration row: a list row's 46.
-    nonisolated static let durationRowMinHeight: CGFloat = 46
+    /// The Duration row: a list row's 46. On one line its parts are 8 apart; stacked (from AX1, or where one line doesn't
+    /// fit) the value goes 2 under the label.
+    nonisolated static let durationRowMinHeight: CGFloat = 46, durationGap: CGFloat = 8, durationStackGap: CGFloat = 2
     /// The duration's numerals: 20 Light, growing with the text like `.title3`.
     nonisolated static let durationValueSize: CGFloat = 20
     /// The effort card: its label → the scale.
