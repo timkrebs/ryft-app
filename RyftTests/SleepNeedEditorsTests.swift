@@ -451,7 +451,7 @@ struct SleepNeedHostedTests {
             #expect(!labels.contains { $0.hasPrefix("Nap credit") })
             let row = try #require(w.nodes().first { $0.identifier == "sleepNeed.changeBaseline" })
             #expect(row.label == "Baseline sleep need" && row.hint == "Opens the editor")
-            #expect(row.value?.hasPrefix("7 hours 30 minutes") == true, "\(row.value ?? "")")
+            #expect(row.value == "7 hours 30 minutes, Set by you", "in words, not a time of day: \(row.value ?? "")")
         }
     }
 
