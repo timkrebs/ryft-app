@@ -66,19 +66,6 @@ struct SettingRowLabel: View {
     }
 }
 
-/// A sheet's title between its two buttons: smaller rather than cut off (German runs long).
-struct SheetTitle: View {
-    let text: LocalizedStringKey
-
-    var body: some View {
-        Text(text)
-            .font(.headline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 /// How the rescore went; a failure with its request ID.
 struct RescoreStatus: View {
     let editor: BodySettingsEditor
@@ -107,22 +94,6 @@ struct RescoreStatus: View {
                 .foregroundStyle(Theme.textSecondary)
         case nil:
             EmptyView()
-        }
-    }
-}
-
-struct ProfileSection<Content: View>: View {
-    let title: LocalizedStringKey
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).ryftLabelStyle()
-                // A label, not a headline: past AX3 it would crowd out the content.
-                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
-            Card {
-                VStack(alignment: .leading, spacing: 14) { content() }
-            }
         }
     }
 }

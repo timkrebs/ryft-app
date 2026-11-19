@@ -1360,7 +1360,7 @@ struct TrackerSetupCard: View {
         }
     }
 
-    /// A hairline across the whole card, a label (13 pt `textTertiary`, capped at AX3 like `ProfileSection`), then the
+    /// A hairline across the whole card, a label (13 pt `textTertiary`, capped at AX3 as a group label is), then the
     /// content.
     private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
