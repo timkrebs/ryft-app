@@ -3,74 +3,64 @@ import SwiftUI
 
 // MARK: - sign-in methods
 
-/// Profile → Account → Sign-in methods: the account's identities, and "Add Sign in
-/// with Apple" for an email account, so both sign-ins open the same data.
+/// Sign-in methods' numbers (Nocturne, PR 6 C §4.9; plain values, so tests assert numbers).
+enum SignInMethodsLayout {
+    /// The system Sign in with Apple button: 52 high, radius 26 (the page's light pill).
+    nonisolated static let appleButtonHeight: CGFloat = 52, appleButtonRadius: CGFloat = 26
+    /// While `auth.isWorking`: the button at 35 % (`GroupedListSpec.disabledOpacity`).
+    nonisolated static let workingOpacity = 0.35
+}
+
+/// Profile → Account → Sign-in methods in Nocturne (PR 6 C §4.9): the account's identities as rows (a ringed glyph, the
+/// method, the address), and for an email account the sentence and the system "Continue with Apple" button, so both
+/// sign-ins open the same data. With both linked there is nothing to add and no button.
+///
+/// Before the identities arrive the session's own provider shows as one row; a linking failure shows as a notice under the
+/// button. The page has no unlink: the platform offers none (and so no last-method guard to keep).
 struct SignInMethodsView: View {
     @Environment(AuthService.self) private var auth
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        SubpageScaffold(Text("Sign-in methods")) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 Text("You can sign in to this account with:")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
-                VStack(spacing: 0) {
+                    .fixedSize(horizontal: false, vertical: true)
+                GroupedCard {
                     ForEach(methods) { method in
-                        HStack(spacing: 12) {
-                            Image(systemName: method.provider == "apple" ? "apple.logo" : "envelope")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(width: 24)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(Self.title(method.provider))
-                                    .font(.ryft(.body))
-                                    .foregroundStyle(Theme.textPrimary)
-                                if let email = method.email {
-                                    Text(email)
-                                        .font(.ryft(.caption))
-                                        .foregroundStyle(Theme.textSecondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                            Spacer()
-                        }
-                        .frame(minHeight: 52)
-                        .accessibilityElement(children: .combine)
-                        if method != methods.last { Divider().overlay(Theme.separator) }
+                        SignInMethodRow(title: Text(Self.title(method.provider)), email: method.email,
+                                        systemImage: method.provider == "apple" ? "apple.logo" : "envelope")
                     }
                 }
-                .padding(.horizontal, 14)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-                if !auth.hasAppleSignIn {
-                    Text("Add Sign in with Apple to open this account with your Apple ID too. Your data stays in this account.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    SignInWithAppleButton(.continue) { request in
-                        auth.prepareLink(request)
-                    } onCompletion: { result in
-                        Task { await auth.completeLink(result) }
-                    }
-                    .signInWithAppleButtonStyle(scheme == .dark ? .white : .black)
-                    .id(scheme) // the style is read once; a new scheme needs a new button
-                    .frame(height: 50)
-                    .clipShape(Capsule())
-                    .disabled(auth.isWorking)
-                    .accessibilityIdentifier("signInMethods.addApple")
-                }
+                if !auth.hasAppleSignIn { addApple }
                 if let error = auth.linkError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle")
                 }
             }
-            .padding(Theme.Metrics.screenPadding)
         }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text("Sign-in methods"))
-        .navigationBarTitleDisplayMode(.inline)
         .task { await auth.loadSignInMethods() }
+    }
+
+    /// The sentence and Apple's own button (its style and words are Apple's: `.white` on this dark page).
+    private var addApple: some View {
+        VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+            Text("Add Sign in with Apple to open this account with your Apple ID too. Your data stays in this account.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            SignInWithAppleButton(.continue) { request in
+                auth.prepareLink(request)
+            } onCompletion: { result in
+                Task { await auth.completeLink(result) }
+            }
+            .signInWithAppleButtonStyle(.white)
+            .frame(height: SignInMethodsLayout.appleButtonHeight)
+            .clipShape(RoundedRectangle(cornerRadius: SignInMethodsLayout.appleButtonRadius, style: .continuous))
+            .disabled(auth.isWorking)
+            .opacity(auth.isWorking ? SignInMethodsLayout.workingOpacity : 1)
+            .accessibilityIdentifier("signInMethods.addApple")
+        }
     }
 
     /// Loaded identities; before they arrive, the session's provider.
@@ -88,14 +78,55 @@ struct SignInMethodsView: View {
     }
 }
 
-#Preview("Sign-in methods · dark") {
+/// One identity: the ringed glyph, the method and the address under it. The address is the one text that may truncate (in
+/// the middle, at the default sizes); from AX1 it wraps. VoiceOver reads "Email and password, alex@example.com", whole.
+private struct SignInMethodRow: View {
+    let title: Text
+    let email: String?
+    let systemImage: String
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
+            IconDisc(systemImage: systemImage)
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
+                title
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let email {
+                    Text(verbatim: email)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, GroupedListSpec.textPadding)
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+        .groupedRowHairline()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(email.map { Text(verbatim: $0) } ?? Text(verbatim: ""))
+    }
+}
+
+// MARK: - previews (dark only)
+
+#Preview("Sign-in methods · email") {
     NavigationStack { SignInMethodsView() }
         .environment(AuthService.preview(provider: "email"))
         .preferredColorScheme(.dark)
 }
 
-#Preview("Sign-in methods · light") {
+#Preview("Sign-in methods · AX3") {
     NavigationStack { SignInMethodsView() }
         .environment(AuthService.preview(provider: "email"))
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }

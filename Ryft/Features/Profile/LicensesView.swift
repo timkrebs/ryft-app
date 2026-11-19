@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Profile → About → Licences: the open-source packages and the typeface in the app.
+/// Profile → About → Licences in Nocturne (PR 6 C §4.9): the open-source packages and the typeface in the app, one group of
+/// link-out rows (the name, "MIT · Supabase" under it, ↗) that open the licence in Safari. The legal wording, names,
+/// licences and holders are unchanged; no group title.
 struct LicensesView: View {
     struct Entry: Identifiable {
         let name: String
@@ -30,42 +32,27 @@ struct LicensesView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 10) {
-                ForEach(Self.entries) { e in
-                    Link(destination: URL(string: e.url)!) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(verbatim: e.name)
-                                    .font(.ryft(.body))
-                                    .foregroundStyle(Theme.textPrimary)
-                                Text(verbatim: "\(e.license) · \(e.holder)")
-                                    .font(.ryft(.caption))
-                                    .foregroundStyle(Theme.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.textTertiary)
-                                .accessibilityHidden(true)
-                        }
-                        .padding(14)
-                        .frame(minHeight: 56)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        SubpageScaffold(Text("Licences")) {
+            GroupedCard {
+                ForEach(Self.entries) { entry in
+                    if let url = URL(string: entry.url) {
+                        GroupedRow.linkOut(Text(verbatim: entry.name), detail: Text(verbatim: "\(entry.license) · \(entry.holder)"),
+                                           hint: Text("Opens the licence in Safari"), url: url)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityHint(Text("Opens the licence in Safari"))
                 }
             }
-            .padding(Theme.Metrics.screenPadding)
         }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle("Licences")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
     }
 }
 
-#Preview("Licences · dark") {
+// MARK: - previews (dark only)
+
+#Preview("Licences") {
     NavigationStack { LicensesView() }.preferredColorScheme(.dark)
+}
+
+#Preview("Licences · AX3") {
+    NavigationStack { LicensesView() }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }
