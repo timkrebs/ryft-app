@@ -181,7 +181,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var behaviorList = MockJournal.behaviors
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
-    private(set) var planWakes: [String] = []
+    /// The wake times `sleepPlan` was asked for, in order (read under the lock: a request may be on its way).
+    var planWakes: [String] { lock.withLock { askedWakes } }
+    private var askedWakes: [String] = []
     /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
     var planFor: (@Sendable (String) -> SleepPlan)?
     /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server. The activities
@@ -251,8 +253,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Runs before each sync answers (tests hold an upload open with it).
     var beforeSync: (@Sendable () async -> Void)?
+    #if DEBUG
     /// Runs before `sleepPlan` answers, with the wake time asked for (tests hold a plan's request open with it).
     var beforePlan: (@Sendable (String) async -> Void)?
+    #endif
     /// Where a sync's `403` gate refusal is reported, as `APIClient` reports it to `APIStatus.shared` (tests).
     var reportsGates: APIStatus?
 
@@ -410,12 +414,14 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func sleepPlan(wake: String) async throws -> SleepPlan {
         try enter("sleepPlan")
-        lock.withLock { planWakes.append(wake) }
+        lock.withLock { askedWakes.append(wake) }
+        #if DEBUG
         if let hold = beforePlan {
             // Held open by a test; cancelled meanwhile, it ends as a cancelled request does.
             await hold(wake)
             try Task.checkCancellation()
         }
+        #endif
         if let plan = planFor?(wake) { return plan }
         return MockJournal.sleepPlan(wake: wake, now: now())
     }

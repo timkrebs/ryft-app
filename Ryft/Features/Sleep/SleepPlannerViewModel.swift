@@ -450,7 +450,7 @@ final class BedtimePlanner {
     }
 
     /// Everything this phone scheduled: the reminders, the alarms, the widget's bedtime.
-    func teardown() async {
+    private func teardown() async {
         await cancelReminders()
         await alarms.cancelAll()
         alarmsSet = nil
@@ -488,6 +488,12 @@ final class BedtimePlanner {
         if let new {
             // A plan for another wake time isn't tonight's: Tonight plans again (or shows the stored one for this wake).
             adoptCached(for: new.nextWake(after: now))
+            if plan == nil {
+                // Dropped: "Planning tonight…", not the failure of the plan before; the widget shows no bedtime until
+                // RYFT has planned this one.
+                problem = nil
+                state.repository.tonightBedtime = nil
+            }
         } else {
             plan = nil
             asOf = nil
@@ -622,7 +628,12 @@ final class BedtimePlanner {
             markCached()
         }
         guard current() else { return }
-        guard let plan else { return await remindWithoutAPlan(schedule, wake: wake, gen: gen, owner: owner) }
+        guard let plan else {
+            // No plan for this wake (offline, failed, another time zone): the widget shows no bedtime rather than one
+            // RYFT didn't plan.
+            state.repository.tonightBedtime = nil
+            return await remindWithoutAPlan(schedule, wake: wake, gen: gen, owner: owner)
+        }
         let bed = schedule.goal.bedtime(in: plan)
         state.repository.tonightBedtime = bed
         record(PlannedNight(bed: bed, wake: plan.wake))
@@ -702,16 +713,25 @@ final class BedtimePlanner {
         env.notifier.removePending(ids: pending)
     }
 
-    /// Tonight's reminder from the plan; the following nights from tonight's time in bed at
-    /// each night's wake (refined when the app plans those nights). Stops when the schedule
-    /// or the account changes meanwhile.
-    func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan, calendar: Calendar = .current) async {
+    /// The reminders go and `schedule`'s are set (`reminders`). Stops when the schedule or the account changes meanwhile.
+    private func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan) async {
         let gen = generation, owner = self.owner
         await cancelReminders()
-        guard schedule.reminderOn else { return }
+        for request in Self.reminders(schedule: schedule, plan: plan, now: now) {
+            guard gen == generation, owner == self.owner else { return }
+            try? await env.notifier.add(request)
+        }
+    }
+
+    /// Tonight's reminder from the plan; the following nights from tonight's time in bed at each night's wake (refined
+    /// when the app plans those nights); none that would fire before `now`, none with the reminder off. Pure.
+    static func reminders(schedule: SleepSchedule, plan: SleepPlan, now: Date,
+                          calendar: Calendar = .current) -> [UNNotificationRequest] {
+        guard schedule.reminderOn else { return [] }
         let share = Double(schedule.goal.rawValue) / 100
         let sleepMin = Int((Double(plan.needMin) * share).rounded())
-        for night in 0..<Self.nightsAhead {
+        var requests: [UNNotificationRequest] = []
+        for night in 0..<nightsAhead {
             let wakeDay = calendar.date(byAdding: .day, value: night, to: plan.wake) ?? plan.wake
             let nightWake = night == 0 ? plan.wake
                 : SleepSchedule.date(schedule.wakeTime(on: wakeDay, calendar: calendar), on: wakeDay, calendar: calendar)
@@ -727,11 +747,10 @@ final class BedtimePlanner {
             content.sound = .default
             content.categoryIdentifier = PushCategories.bedtime
             let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
-            let id = Self.reminderPrefix + DayFormat.string(from: wakeDay)
-            guard gen == generation, owner == self.owner else { return }
-            try? await env.notifier.add(UNNotificationRequest(identifier: id, content: content,
-                                                              trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
+            requests.append(UNNotificationRequest(identifier: reminderPrefix + DayFormat.string(from: wakeDay), content: content,
+                                                  trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
         }
+        return requests
     }
 
     /// Sets the wake alarms the schedule asks for, once per change, and once at launch (a
@@ -754,10 +773,17 @@ final class BedtimePlanner {
                 return
             }
             try await alarms.schedule(want)
-            if owner != self.owner { await alarms.cancelAll() }
+            if owner != self.owner {
+                await alarms.cancelAll()
+                // Taken away again: the next pass doesn't know what is set.
+                alarmsKnown = false
+            }
         } catch {
             alarmsSet = nil
-            guard current() else { return }
+            guard current() else {
+                alarmsKnown = false
+                return
+            }
             await alarms.cancelAll()
             alarmProblem = String(localized: "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them.")
             guard var off = schedule, current() else { return }
