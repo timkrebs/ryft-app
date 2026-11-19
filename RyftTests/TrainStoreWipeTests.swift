@@ -555,13 +555,14 @@ struct TrainStoreWipeTests {
         let controller = try #require(coordinator.live)
         let exercise = try #require(controller.exercises.first)
 
-        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { _ in
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { w in
             controller.startRest(for: exercise, seconds: 120)
-            try await Task.sleep(for: .milliseconds(800))
+            try await w.wait("the rest bar") { w.node("Skip rest", exactly: true) != nil }
             disk.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now)
             coordinator.releaseRows()
-            // Three of the rest bar's half-second draws.
-            try await Task.sleep(for: .milliseconds(1600))
+            // The released screen has drawn, and nothing on it moves any more.
+            try await w.wait("the released screen") { w.nodes().isEmpty }
+            try await w.settle()
         }
 
         #expect(controller.isReleased)

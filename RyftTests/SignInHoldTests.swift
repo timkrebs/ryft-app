@@ -967,11 +967,12 @@ struct SignInHoldTests {
 
     // MARK: the previews
 
-    /// The previews' held sign-in is reached the way a launch reaches one, and is the real state: nothing published,
-    /// the stored session kept, and a message that outlives a screen clearing its errors as it appears.
-    @Test func thePreviewsHeldSignInIsHeld() async {
+    /// The previews' held sign-in is the real state, reached in `init` as a launch reaches it (the launch table holds the
+    /// stored session): nothing published, and a message that outlives a screen clearing its errors as it appears. The
+    /// SDK's first event only ends a restore, and there is none to end.
+    @Test func thePreviewsHeldSignInIsHeld() {
         let auth = AuthService.previewHeld()
-        for _ in 0..<20 { await Task.yield() } // the SDK's first event
+        #expect(!auth.isRestoring, "held in init, not waiting for the SDK")
         #expect(auth.accountID == nil)
         #expect(auth.state == .signedOut)
         #expect(auth.errorMessage == AuthMessage.signInHeld)
