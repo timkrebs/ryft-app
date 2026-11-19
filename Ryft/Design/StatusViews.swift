@@ -360,15 +360,16 @@ struct SyncStatusLineView: View {
     private func content(now: Date) -> some View {
         switch current {
         case .actionNeeded:
+            // In the ink, as the line's other actions (L27: teal is recovery only); its glyph says what's needed.
             if let action {
                 Button(action: action) {
-                    tapTarget(label(now: now).foregroundStyle(Theme.accent))
+                    tapTarget(label(now: now).foregroundStyle(Theme.textPrimary))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Text("Opens what's needed"))
                 .accessibilityIdentifier("today.actionNeeded")
             } else {
-                label(now: now).foregroundStyle(Theme.accent)
+                label(now: now).foregroundStyle(Theme.textPrimary)
             }
         case .stale:
             let layout = typeSize.isAccessibilitySize
@@ -389,7 +390,7 @@ struct SyncStatusLineView: View {
                         tapTarget(Text("Try again")
                             .font(.ryft(.caption))
                             .fontWeight(.medium)
-                            .foregroundStyle(Theme.accent))
+                            .foregroundStyle(Theme.textPrimary))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint(Text("Tries to load your data again"))
@@ -619,6 +620,8 @@ struct RefreshDetailsSheet: View {
     @Environment(\.reportProblemDestination) private var reportProblem
     @Environment(\.locale) private var locale
     @State private var copied = false
+    /// "Send to RYFT" was tapped: Report a problem is pushed on the sheet's stack.
+    @State private var sends = false
 
     var body: some View {
         NavigationStack {
@@ -644,6 +647,12 @@ struct RefreshDetailsSheet: View {
             .scrollIndicators(.hidden)
             // Pinned: "Send to RYFT" (and Copy details) are reachable at the opening (medium) detent.
             .safeAreaInset(edge: .bottom) { actions }
+            // On the stack's root, which is always there: a pill is a button, so the push is the stack's destination.
+            .navigationDestination(isPresented: $sends) {
+                if let reportProblem {
+                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
+                }
+            }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(Text("Details"))
             .navigationBarTitleDisplayMode(.inline)
@@ -657,27 +666,20 @@ struct RefreshDetailsSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// "Send to RYFT" (only once Report a problem is wired), "Copy details", and what's sent.
+    /// "Send to RYFT" (only once Report a problem is wired; the light pill, it pushes Report a problem), "Copy details" (the
+    /// outline pill), and what's sent (§P5-1.2).
     private var actions: some View {
         VStack(spacing: 10) {
-            if let reportProblem {
-                NavigationLink {
-                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
-                } label: {
-                    Text("Send to RYFT")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityIdentifier("refreshDetails.send")
+            if reportProblem != nil {
+                PillButton(Text("Send to RYFT")) { sends = true }
+                    .accessibilityIdentifier("refreshDetails.send")
             }
-            PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
+            PillButton(copied ? Text("Copied") : Text("Copy details"), style: .secondary) {
                 // On this iPhone only, and not for long (`LocalPasteboard`).
                 LocalPasteboard.copy(issue.copyText)
                 copied = true
             }
+            .accessibilityIdentifier("refreshDetails.copy")
             if reportProblem != nil {
                 Text("Sends this and the last 20 requests. No health values.")
                     .font(.ryft(.caption))
@@ -762,7 +764,7 @@ private struct RequestIDRow: View {
                     Button(action: copy) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(copied ? Theme.accent : Theme.textSecondary)
+                            .foregroundStyle(copied ? Theme.textPrimary : Theme.textSecondary)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -1718,18 +1720,14 @@ private enum PreviewIssue {
         .preferredColorScheme(.dark)
 }
 
-#Preview("Details sheet · with ID · light") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
-        .preferredColorScheme(.light)
-}
-
 #Preview("Details sheet · no ID · dark") {
     RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
         .preferredColorScheme(.dark)
 }
 
-#Preview("Details sheet · no ID · light · de") {
+#Preview("Details sheet · no request ID · AX3") {
     RefreshDetailsSheet(issue: PreviewIssue.make(.busy, requestID: nil))
-        .preferredColorScheme(.light)
-        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }
