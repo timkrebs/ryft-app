@@ -1500,7 +1500,7 @@ struct SyncDetailsTests {
         #expect(model.streams.map { $0.id } == ["sleep", "heart_rate"])
         // Sleep had nothing: drained (backfilled), nothing sent, no answer to show.
         #expect(model.streams[0].progress?.sent == 0 && model.streams[0].progress?.backfilled == true)
-        #expect(model.streams[0].lastPageText == nil && model.streams[0].newestText == String(localized: "Nothing sent yet"))
+        #expect(model.streams[0].lastPageText == nil && model.streams[0].newestLine(now: .now) == String(localized: "Nothing sent yet"))
         let hr = model.streams[1]
         #expect(hr.progress?.sent == 4)
         #expect(SyncDetailsModel.StreamRow(id: "hrv_sdnn", name: "HRV", progress: nil).title == "HRV")

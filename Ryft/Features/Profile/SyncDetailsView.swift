@@ -2,13 +2,15 @@ import SwiftUI
 
 /// Profile → Sync details (Nocturne PR 6 C2, design-pr6-c-settings.md §4.6, drafts c-09, c-09b): for support, what the sync
 /// knows, numbers first: the engine (its state never "Up to date" without an upload on record or a connection; the last
-/// upload's real age; what waits to be sent), what the app loaded, each stream, the last requests with their IDs, and "Sync
-/// last 3 days again", "Copy diagnostics", "Full resync". Monospace only for paths and IDs.
+/// upload's real age), what waits to be sent (activities and nights, workouts, reports), what the app loaded, each stream,
+/// the last requests with their IDs, and "Sync last 3 days again", "Copy diagnostics", "Full resync" (the two that upload
+/// are disabled offline, and the footer says why). Monospace only for paths and IDs.
 struct SyncDetailsView: View {
     let model: SyncDetailsModel
     var placement: DevicesPagePlacement = .pushed
     @State private var showResyncConfirm = false
     @State private var resending = false
+    @State private var resyncing = false
 
     var body: some View {
         SubpageScaffold(Text("Sync details"), navigation: placement.navigation, isSheet: placement.isSheet) {
@@ -19,12 +21,14 @@ struct SyncDetailsView: View {
                         .accessibilityIdentifier("syncDetails.offline")
                 }
                 engine
+                waiting
                 loadedData
                 streams
                 requests
                 actions
             }
         }
+        .devicesPagePlacement(placement)
         .task { await model.loadQueue() }
         .onChange(of: model.copied) { _, copied in
             if copied { AccessibilityNotification.Announcement(String(localized: "Copied")).post() }
@@ -32,7 +36,11 @@ struct SyncDetailsView: View {
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
             Button("Re-sync", role: .destructive) {
-                Task { await model.fullResync() }
+                resyncing = true
+                Task {
+                    await model.fullResync()
+                    resyncing = false
+                }
             }
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
@@ -41,7 +49,10 @@ struct SyncDetailsView: View {
 
     private var engine: some View {
         GroupedCard(Text("Engine")) {
-            GroupedRow.value(Text("State"), value: Text(model.phaseText), identifier: "syncDetails.state")
+            GroupedRow.value(Text("State"),
+                             value: Text(model.phaseText)
+                                 .foregroundStyle(model.stateNeedsAttention ? Theme.warning : Theme.textTertiary),
+                             identifier: "syncDetails.state")
             // The last upload's age, kept current like Loaded data's times.
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 GroupedRow.value(Text("Last sync"), value: Text(model.lastSyncText(now: context.date)),
@@ -52,11 +63,6 @@ struct SyncDetailsView: View {
             GroupedRow.value(Text("Queue"), value: Text(model.queueText))
             GroupedRow.value(Text("Backlog"), value: Text(model.backlogText))
             GroupedRow.value(Text("Uploaded"), value: Text(model.uploadedText))
-            let unsent = model.unsentActivities
-            GroupedRow.value(Text("Activities and nights",
-                                  comment: "Sync details → Engine: activities and nights added on this iPhone; the value says how many wait to be sent."),
-                             value: unsent > 0 ? Text("\(unsent) waiting to send") : Text("None"),
-                             identifier: "syncDetails.unsent")
             if model.engine.pendingDeletions > 0 {
                 GroupedRow.value(Text("Deletions kept"), value: Text(model.engine.pendingDeletions.formatted()))
             }
@@ -76,6 +82,24 @@ struct SyncDetailsView: View {
         .accessibilityIdentifier("syncDetails.engine")
     }
 
+    /// What this iPhone keeps until RYFT confirms it, beside Apple Health's uploads: a count per kind, "None" when nothing
+    /// waits, and why the workouts wait when a gate holds them. A recording isn't counted until it is saved.
+    private var waiting: some View {
+        GroupedCard(Text("Waiting to send", comment: "Sync details: the group of what this iPhone keeps until RYFT confirms it.")) {
+            GroupedRow.value(Text("Activities and nights",
+                                  comment: "Sync details → Waiting to send: activities and nights saved on this iPhone."),
+                             value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentActivities)),
+                             identifier: "syncDetails.unsent")
+            GroupedRow.value(Text("Workouts"), value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentWorkouts)),
+                             detail: model.workoutsHeldText.map { Text(verbatim: $0).foregroundStyle(Theme.warning) },
+                             identifier: "syncDetails.unsentWorkouts")
+            GroupedRow.value(Text("Reports", comment: "Sync details → Waiting to send: problem reports kept for later."),
+                             value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentReports)),
+                             identifier: "syncDetails.unsentReports")
+        }
+        .accessibilityIdentifier("syncDetails.waiting")
+    }
+
     /// What the app reads (uploads are Streams): when each loaded, and how its last fetches went.
     private var loadedData: some View {
         GroupedCard(Text("Loaded data")) {
@@ -91,10 +115,15 @@ struct SyncDetailsView: View {
 
     private var streams: some View {
         GroupedCard(Text("Streams")) {
-            ForEach(model.streams) { row in
-                let lines = row.lastPageText.map { Text(row.newestText) + Text(verbatim: "\n") + Text($0) } ?? Text(row.newestText)
-                GroupedRow.value(Text(row.title), value: Text((row.progress?.sent ?? 0).formatted()), detail: lines,
-                                 identifier: "syncDetails.stream.\(row.id)")
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.streams) { row in
+                        let newest = Text(verbatim: row.newestLine(now: context.date))
+                        let lines = row.lastPageText.map { newest + Text(verbatim: "\n") + Text($0) } ?? newest
+                        GroupedRow.value(Text(row.title), value: Text((row.progress?.sent ?? 0).formatted()), detail: lines,
+                                         identifier: "syncDetails.stream.\(row.id)")
+                    }
+                }
             }
         }
     }
@@ -121,26 +150,37 @@ struct SyncDetailsView: View {
         .accessibilityIdentifier("syncDetails.requests")
     }
 
-    /// The actions as rows: two that work here, the destructive one last; none while a sync can't run (copying always can).
+    /// The actions as rows: two that work here, the destructive one last; none while a sync can't run, and offline the
+    /// footer says why (copying always can).
     private var actions: some View {
-        GroupedCard(footer: SyncDetailsView.diagnosticsNote) {
+        GroupedCard(footer: actionsFooter) {
             GroupedRow.action(Text("Sync last 3 days again"), systemImage: "arrow.clockwise", busy: resending,
                               identifier: "syncDetails.resendRecent") {
+                // Busy before the task starts: a second tap in the same frame finds it busy.
+                resending = true
                 Task {
-                    resending = true
                     await model.resendRecent()
                     resending = false
                 }
             }
-            .disabled(!model.canSync)
+            .disabled(!model.canSyncAgain)
             GroupedRow.action(model.copied ? Text("Copied") : Text("Copy diagnostics"),
                               systemImage: model.copied ? "checkmark" : "doc.on.doc", hint: SyncDetailsView.diagnosticsNote,
                               identifier: "syncDetails.copy") {
                 Task { await model.copyAndConfirm() }
             }
-            GroupedRow.destructive(Text("Full resync"), identifier: "syncDetails.fullResync") { showResyncConfirm = true }
-                .disabled(!model.canSync)
+            GroupedRow.destructive(Text("Full resync"), busy: resyncing, identifier: "syncDetails.fullResync") {
+                showResyncConfirm = true
+            }
+                .disabled(!model.canSyncAgain)
         }
+    }
+
+    private var actionsFooter: Text {
+        guard model.isOffline else { return SyncDetailsView.diagnosticsNote }
+        return Text("You're offline. Syncing again works when you're back online.",
+                    comment: "Sync details: under the actions while offline; Sync last 3 days again and Full resync are disabled.")
+            + Text(verbatim: " ") + SyncDetailsView.diagnosticsNote
     }
 
     /// What Copy diagnostics copies: the group's footer and the row's VoiceOver hint.
@@ -217,6 +257,12 @@ private struct LoadedDataRow: View {
 
 #Preview("Sync details · offline, last sync 3 h ago") {
     let g = MockDevicesStates.graph(demo: false, online: false, lastSync: 3 * 3_600)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
+}
+
+#Preview("Sync details · reports waiting") {
+    let g = MockDevicesStates.graph(demo: false, reportsWaiting: 2)
     NavigationStack { SyncDetailsView(model: g.details) }
         .previewEnvironment(g.state)
 }

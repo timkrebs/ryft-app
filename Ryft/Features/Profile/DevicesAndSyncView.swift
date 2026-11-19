@@ -33,6 +33,7 @@ struct DevicesAndSyncView: View {
                 syncDetails.padding(.top, GroupedListSpec.groupSpacing)
             }
         }
+        .devicesPagePlacement(placement)
         .task { await model.appeared() }
         // Back from Check sync: "Last checked" and the rows' results.
         .onAppear { model.reloadCheck() }
@@ -44,12 +45,12 @@ struct DevicesAndSyncView: View {
         switch route {
         case .tracker(let id):
             if let tracker = model.catalog.tracker(id) {
-                TrackerDetailView(tracker: tracker, model: model) { editing = true }
+                TrackerDetailView(tracker: tracker, model: model, placement: placement.pushed) { editing = true }
             }
         case .check:
-            if let check { TrackerCheckView(model: check) }
+            if let check { TrackerCheckView(model: check, placement: placement.pushed) }
         case .syncDetails:
-            SyncDetailsView(model: screens.profile.syncDetails)
+            SyncDetailsView(model: screens.profile.syncDetails, placement: placement.pushed)
         }
     }
 
@@ -188,8 +189,9 @@ struct DevicesAndSyncView: View {
                                  .foregroundStyle(model.healthNeedsAttention ? Theme.warning : Theme.textTertiary))
             if model.canAskForHealth {
                 GroupedRow.action(Text("Allow access"), systemImage: "heart", busy: askingForHealth) {
+                    // Busy before the task starts: a second tap in the same frame finds it busy.
+                    askingForHealth = true
                     Task {
-                        askingForHealth = true
                         await model.requestHealthAccess()
                         askingForHealth = false
                     }

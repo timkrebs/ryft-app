@@ -38,12 +38,16 @@ final class ProfileViewModel {
         syncDetails = details
         // The read pipeline's record and Sync details' state through the report's allow-list (never its
         // support text); the trackers' ids while `devices.setup` is on.
-        report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared,
-                                    resources: { state.resourceStates },
-                                    trackers: { devices.isEnabled ? devices.selection.trackers : nil }) {
+        let report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared,
+                                        resources: { state.resourceStates },
+                                        trackers: { devices.isEnabled ? devices.selection.trackers : nil }) {
             FeedbackSync(engine: sync.engineState, backlogBytes: sync.backlogBytes, running: details.isRunning,
                          queued: details.hasQueuedRun, streams: details.streams)
         }
+        self.report = report
+        // Sync details' "Waiting to send": Train's outbox and the reports kept for later, read as they are.
+        details.trainOutbox = train?.sync
+        details.reportsWaiting = { [weak report] in report?.waiting ?? 0 }
     }
 
     private var env: AppEnvironment { state.env }
@@ -273,7 +277,7 @@ final class ProfileViewModel {
         }
     }
 
-    var healthNeedsAttention: Bool { healthStatus != .asked }
+    var healthNeedsAttention: Bool { healthStatus.needsAttention }
     var canAskForHealth: Bool { healthStatus == .notAsked }
 
     func refreshHealthStatus() async { healthStatus = await env.health.accessStatus() }
@@ -285,9 +289,7 @@ final class ProfileViewModel {
 
     // MARK: sync
 
-    var lastSyncText: String {
-        settings.lastSync?.formatted(.relative(presentation: .named)) ?? String(localized: "Never")
-    }
+    var lastSyncText: String { SyncDetailsModel.lastSyncWords(settings.lastSync, now: env.clock.now()) }
     var deviceIDText: String { String(settings.deviceId.uuidString.prefix(8)) + "…" }
     var isSyncing: Bool { sync.isSyncing }
     var syncProgress: String { sync.progress.isEmpty ? String(localized: "Syncing…") : sync.progress }
@@ -530,7 +532,12 @@ final class SyncDetailsModel {
         let name: String
         let progress: SyncEngineState.StreamProgress?
 
-        var newestText: String { progress?.newest.map(Fmt.date) ?? String(localized: "Nothing sent yet") }
+        /// "Newest 10:40", "Newest Yesterday 22:10" (the time as the status line says it), or "Nothing sent yet".
+        func newestLine(now: Date) -> String {
+            guard let newest = progress?.newest else { return String(localized: "Nothing sent yet") }
+            return String(localized: "Newest \(SyncLine.dataTime(newest, now: now))",
+                          comment: "Sync details → Streams: the newest reading this stream sent. The argument is its time: \"10:40\".")
+        }
         /// Sentence case ("Resting heart rate", "HRV", "VO₂ max").
         var title: String { name.prefix(1).uppercased() + name.dropFirst() }
 
@@ -559,30 +566,70 @@ final class SyncDetailsModel {
         case .recent: return String(localized: "First score: the last 3 days")
         case .backfill: return String(localized: "Importing the last 90 days")
         case .incremental: return String(localized: "Only what's new")
-        case .idle:
-            guard engine.backfillDone else { return String(localized: "Import not finished") }
-            // "Up to date" only with an upload on record and a connection (the offline-first rule): offline nothing is
-            // sent, and without an upload nothing has been.
-            if isOffline { return String(localized: "Offline") }
-            return env.isDemo || env.settings.lastSync != nil ? String(localized: "Up to date") : String(localized: "Idle")
+        case .idle: return idleState.text
         }
+    }
+
+    /// Between runs: never "Up to date" after a held, failed or stopped run (`SyncIdleState`).
+    var idleState: SyncIdleState {
+        SyncIdleState.decide(pausedFor: sync.pausedFor, offline: isOffline,
+                             failed: engine.lastError != nil || sync.lastError != nil, backfillDone: engine.backfillDone,
+                             backlog: sync.hasBacklog, uploaded: env.isDemo || env.settings.lastSync != nil)
+    }
+
+    /// The State row's value in `warning`: a hold or a failure, while nothing runs.
+    var stateNeedsAttention: Bool {
+        sync.activity == nil && !sync.waitingForUnlock && engine.phase == .idle && idleState.needsAttention
     }
 
     /// No connection, outside demo data: nothing is sent until it's back.
     var isOffline: Bool { !(env.isDemo || env.connectivity.isOnline) }
-    var now: Date { env.clock.now() }
 
-    /// Apple Health's last good upload (`Settings.lastSync`) and its real age: "5 min. ago", "Never".
-    func lastSyncText(now: Date) -> String {
-        guard let date = env.settings.lastSync else { return String(localized: "Never") }
+    /// "Sync last 3 days again" and "Full resync": they upload, so not offline (the footer says why).
+    var canSyncAgain: Bool { canSync && !isOffline }
+
+    /// Apple Health's last good upload (`Settings.lastSync`) and its real age: "5 minutes ago", "Never".
+    func lastSyncText(now: Date) -> String { Self.lastSyncWords(env.settings.lastSync, now: now) }
+
+    /// The last good upload's age in words, for Sync details and Profile's "Last sync" row alike.
+    static func lastSyncWords(_ date: Date?, now: Date) -> String {
+        guard let date else { return String(localized: "Never") }
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
-        formatter.unitsStyle = .abbreviated
+        formatter.unitsStyle = .full
         return formatter.localizedString(for: min(date, now), relativeTo: now)
     }
 
-    /// Activities and nights added on this iPhone that the platform hasn't confirmed: what waits to be sent.
-    var unsentActivities: Int { env.activities.unconfirmedCount(ofAccount: env.auth.accountID) }
+    // MARK: waiting to send
+
+    /// Train's outbox (`TrainCoordinator.sync`), when the app has one: its queued session writes and their gate.
+    @ObservationIgnored var trainOutbox: TrainSyncService?
+    /// Reports kept for later (`ReportProblemModel.waiting`); ProfileViewModel connects it.
+    @ObservationIgnored var reportsWaiting: @MainActor () -> Int = { 0 }
+
+    /// Activities and nights saved on this iPhone that the platform hasn't confirmed (`ActivityUploader.pendingCount`):
+    /// a recording isn't one until Save gives it a revision.
+    var unsentActivities: Int { env.uploader.pendingCount }
+    /// Workout writes (sessions, completions) queued in Train's outbox for the client in use.
+    var unsentWorkouts: Int { trainOutbox?.pendingCount ?? 0 }
+    var unsentReports: Int { reportsWaiting() }
+
+    /// Why the queued workouts wait, when a gate holds them (Today's words for a gate the user can pass).
+    var workoutsHeldText: String? {
+        guard unsentWorkouts > 0 else { return nil }
+        switch trainOutbox?.heldAt {
+        case .gate(let code)?: return SyncIdleState.actionNeeded(code == .inviteRequired ? .invite : .consent).text
+        case .policyUnknown?:
+            return String(localized: "Waiting for the privacy policy",
+                          comment: "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force.")
+        case .demo?, nil: return nil
+        }
+    }
+
+    /// A count, or "None".
+    static func waitingText(_ count: Int) -> String {
+        count > 0 ? count.formatted() : String(localized: "None")
+    }
 
     var queueText: String {
         if isRunning { return hasQueuedRun ? String(localized: "Running, another queued") : String(localized: "Running") }
@@ -2518,12 +2565,19 @@ final class DevicesViewModel {
     var sourcesFreshness: SourcesFreshness {
         let me = state.resourceStates[.me]
         return SourcesFreshness.decide(hasList: state.user != nil, isDemo: env.isDemo, isOnline: env.connectivity.isOnline,
-                                       fetchedAt: me?.fetchedAt, failures: me?.consecutiveFailures ?? 0)
+                                       fetchedAt: me?.fetchedAt, failures: me?.consecutiveFailures ?? 0,
+                                       lastError: me?.lastError)
     }
 
     /// The stale list's footer: "Showing what RYFT last loaded, 14:05." (the time as the rows' "Last data" is).
     func lastLoadedText(_ date: Date?) -> String {
-        guard let date else { return String(localized: "Offline. Showing your last loaded data.") }
+        guard let date else {
+            // Not known when: "Offline" only when it is (a refusal or failing loads happen online too).
+            return env.isDemo || env.connectivity.isOnline
+                ? String(localized: "Showing your last loaded data.",
+                         comment: "Devices & sync → Seen in Apple Health's footer: the list is from an earlier load whose time isn't known.")
+                : String(localized: "Offline. Showing your last loaded data.")
+        }
         let time = SyncLine.dataTime(date, now: env.clock.now())
         return String(localized: "Showing what RYFT last loaded, \(time).",
                       comment: "Devices & sync → Seen in Apple Health's footer for a list from an earlier load; the argument is its time (\"14:05\").")
@@ -2558,8 +2612,8 @@ final class DevicesViewModel {
     }
 
     var canAskForHealth: Bool { healthStatus == .notAsked }
-    /// The status asks something of the user (not requested, or no Apple Health): `warning`, with its word.
-    var healthNeedsAttention: Bool { healthStatus == .notAsked || healthStatus == .unavailable }
+    /// The status asks something of the user: `warning`, with its word (`HealthAccess.needsAttention`, as on Profile).
+    var healthNeedsAttention: Bool { healthStatus.needsAttention }
     /// The catalog's route to RYFT's own read permission (Health → … → Apps → RYFT).
     var healthAccessSteps: [String] { catalog.healthAccess.current }
 

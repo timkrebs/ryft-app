@@ -795,9 +795,9 @@ private struct DebugDevices: View {
                 case .trackerSetup: TrackerSetupStepView(model: screens.onboarding)
                 case .trackerCard:
                     NavigationStack {
-                        TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                        TrackerDetailView(tracker: tracker, model: screens.profile.devices, placement: .root) {}
                     }
-                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices) }
+                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices, placement: .root) }
                 }
             }
         }
@@ -827,7 +827,7 @@ private struct DebugSyncCheck: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers)) }
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers), placement: .root) }
     }
 }
 
@@ -836,7 +836,7 @@ private struct DebugSyncDetails: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails) }
+        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails, placement: .root) }
     }
 }
 #endif
