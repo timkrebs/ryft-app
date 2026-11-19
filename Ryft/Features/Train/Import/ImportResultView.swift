@@ -420,8 +420,10 @@ enum ImportResultText {
             String(localized: "Some items weren't imported", comment: "Training import I4.")
         case .paused(.waitingForAccount)?:
             String(localized: "Import needs attention", comment: "Training import: the resume row.")
+        case .finished? where hasRejected:
+            String(localized: "Some items weren't imported", comment: "Training import I4.")
         case .finished?:
-            hasRejected ? String(localized: "Some items weren't imported", comment: "Training import I4.") : String(localized: "Done")
+            String(localized: "Done")
         }
     }
 
