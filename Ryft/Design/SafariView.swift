@@ -43,7 +43,7 @@ extension View {
     /// Presents `page` in an in-app Safari sheet, and routes taps on our legal
     /// links in Markdown text to it.
     func safariSheet(_ page: Binding<LegalPage?>) -> some View {
-        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea() }
+        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea().presentedRoot() }
             .environment(\.openURL, OpenURLAction { url in
                 guard let legal = LegalPage(url: url) else { return .systemAction }
                 page.wrappedValue = legal

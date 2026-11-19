@@ -35,7 +35,7 @@ struct DevicesAndSyncView: View {
         .navigationDestination(isPresented: Binding(get: { check != nil }, set: { if !$0 { check = nil } })) {
             if let check { TrackerCheckView(model: check) }
         }
-        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
+        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model).presentedRoot() }
     }
 
     // MARK: your trackers

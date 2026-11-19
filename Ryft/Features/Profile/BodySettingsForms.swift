@@ -19,6 +19,7 @@ extension View {
                 }
             }
             .presentationDetents([.large])
+            .presentedRoot()
         }
     }
 }

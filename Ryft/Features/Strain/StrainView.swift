@@ -22,8 +22,8 @@ struct StrainView: View {
                 .navigationDestination(for: ActivityRoute.self) { ActivityDetailView(route: $0) }
                 .trainDestinations()
         }
-        .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet() }
-        .sheet(item: $adding) { AddActivitySheet(model: $0) }
+        .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet().presentedRoot() }
+        .sheet(item: $adding) { AddActivitySheet(model: $0).presentedRoot() }
         .task(id: TaskKey(date: model.date, refreshed: state.lastUpdated)) {
             await model.load()
             guard !Task.isCancelled else { return }

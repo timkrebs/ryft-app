@@ -86,15 +86,15 @@ struct TodayView: View {
                 }
                 .sensoryFeedback(.success, trigger: landed)
                 .sheet(isPresented: $showsJournal) {
-                    JournalSheet(model: JournalSheetModel(store: screens.journal))
+                    JournalSheet(model: JournalSheetModel(store: screens.journal)).presentedRoot()
                 }
                 // The status line's tap: Sync details over Today, with its own stack.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
-                    SyncDetailsSheet(model: screens.profile.syncDetails)
+                    SyncDetailsSheet(model: screens.profile.syncDetails).presentedRoot()
                 }
                 // The calibration note's link: the tracker's card, Check sync or Devices & sync, with Done.
                 .sheet(item: $calibrationLink, onDismiss: { linkCheck = nil }) { link in
-                    CalibrationLinkSheet(link: link, check: linkCheck)
+                    CalibrationLinkSheet(link: link, check: linkCheck).presentedRoot()
                 }
                 // The journal: whether it's live (M5), and yesterday's answer for the card.
                 .task(id: model.lastUpdated) {

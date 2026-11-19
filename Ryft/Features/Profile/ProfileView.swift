@@ -40,6 +40,7 @@ struct ProfileView: View {
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
         .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
             ShareSheet(items: [$0.url], completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
+                .presentedRoot()
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
@@ -94,7 +95,7 @@ struct ProfileView: View {
             Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
         }
         .sheet(isPresented: $showChangePassword) {
-            SetNewPasswordView(mode: .change)
+            SetNewPasswordView(mode: .change).presentedRoot()
         }
         .confirmationDialog("Withdraw your consent?", isPresented: $showWithdrawConfirm, titleVisibility: .visible) {
             Button("Withdraw consent", role: .destructive) {

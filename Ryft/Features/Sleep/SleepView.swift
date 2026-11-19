@@ -305,7 +305,7 @@ struct SleepNightCards: View {
             details
         }
         .sheet(isPresented: $showsNeed) {
-            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings)
+            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings).presentedRoot()
         }
     }
 
