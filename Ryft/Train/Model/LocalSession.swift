@@ -104,15 +104,7 @@ final class LocalSession {
     func apply(_ doc: TrainSession, names: (UUID) -> Exercise?, in context: ModelContext) {
         title = doc.title
         endedAt = doc.endedAt ?? endedAt
-        // Never back to in progress: a session finished here goes up as in_progress
-        // until `…/complete` (see `wireStatus`).
-        if !(status == .completed && doc.status == .inProgress) { status = doc.status }
-        if !doc.prs.isEmpty { prs = doc.prs }
-        workoutId = doc.workoutId ?? workoutId
-        bodyweightKg = doc.bodyweightKg ?? bodyweightKg
-        muscularTrimp = doc.muscularTrimp ?? muscularTrimp
-        strain = doc.strain ?? strain
-        volumeKg = doc.volumeKg ?? volumeKg
+        applyPlatformFields(doc)
         for remote in doc.exercises where !deletedExerciseIDs.contains(remote.id) {
             let local: LocalSessionExercise
             if let existing = exercises.first(where: { $0.id == remote.id }) {
@@ -138,6 +130,20 @@ final class LocalSession {
                 }
             }
         }
+    }
+
+    /// Only what the platform owns of a server document: the status (never back to in progress: a session finished
+    /// here goes up as in_progress until `…/complete`, see `wireStatus`), the workout, the records, the scores and the
+    /// body weight they used. Everything logged here (title, notes, times, exercises, sets) stays as it is: a
+    /// completion of an older copy than this one (ADR 0022 §5) changes none of it.
+    func applyPlatformFields(_ doc: TrainSession) {
+        if !(status == .completed && doc.status == .inProgress) { status = doc.status }
+        if !doc.prs.isEmpty { prs = doc.prs }
+        workoutId = doc.workoutId ?? workoutId
+        bodyweightKg = doc.bodyweightKg ?? bodyweightKg
+        muscularTrimp = doc.muscularTrimp ?? muscularTrimp
+        strain = doc.strain ?? strain
+        volumeKg = doc.volumeKg ?? volumeKg
     }
 }
 

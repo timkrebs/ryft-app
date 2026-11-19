@@ -249,8 +249,13 @@ final class TrainLibrary {
     /// Cached first, so it can be logged at once, offline too. Train's outbox sends it, ahead of every workout that uses
     /// it, and the answer replaces the cached row (O1); a refusal is kept there, never shown here. Returns the cached
     /// copy at once (the sheet adds it to the workout). Nil, with `error`, for a name the platform would refuse (empty,
-    /// or over 80 characters): nothing is cached or queued.
-    func createExercise(_ e: Exercise) async -> Exercise? {
+    /// or over 80 characters): nothing is cached or queued. A NUL in the names is dropped first (API.md → Text: the
+    /// platform answers `422` to it).
+    func createExercise(_ exercise: Exercise) async -> Exercise? {
+        var e = exercise
+        e.name = Self.withoutNUL(e.name)
+        e.nameEn = Self.withoutNUL(e.nameEn)
+        e.nameDe = Self.withoutNUL(e.nameDe)
         guard Self.isValidName(e.name) else {
             error = String(localized: "Give the exercise a name of up to 80 characters.")
             errorDetails = nil
@@ -273,26 +278,39 @@ final class TrainLibrary {
         return e
     }
 
-    /// Trimmed, not empty and at most `maxExerciseName` Unicode scalars, as the platform counts.
+    /// Without NUL, trimmed, not empty and at most `maxExerciseName` Unicode scalars, as the platform counts.
     nonisolated static func isValidName(_ name: String) -> Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && trimmed.unicodeScalars.count <= maxExerciseName
+    }
+
+    /// `text` without U+0000, which the platform can't store (API.md → Text): what the app sends of typed text.
+    nonisolated static func withoutNUL(_ text: String) -> String {
+        guard text.unicodeScalars.contains("\u{0}") else { return text }
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: text.unicodeScalars.filter { $0 != "\u{0}" })
+        return String(scalars)
     }
 
     // MARK: actions (online; the screen shows the error)
 
     /// A custom exercise the plan names that's still queued goes first, for at most `exerciseWait`: the platform refuses
-    /// a plan with an exercise it doesn't have (ADR 0022 §7). Offline, or after the wait, the plan goes as before.
+    /// a plan with an exercise it doesn't have (ADR 0022 §7). Offline, or after the wait, the plan goes as before. The
+    /// client and the binding are read before the wait: a sign-out, another account or the Demo data switch meanwhile
+    /// (or a cancelled caller) drops the save, and its answer is cached only for the binding that sent it.
     @discardableResult
     func savePlan(_ p: Plan) async -> Bool {
         let named = Set(p.days.flatMap { $0.exercises.map(\.exercise.id) })
-        await outbox().exercisesSent(named, upTo: exerciseWait)
+        let outbox = outbox(), src = remote, binding = outbox.binding
+        await outbox.exercisesSent(named, upTo: exerciseWait)
+        guard outbox.binding == binding, !Task.isCancelled else { return false }
         do {
-            let saved = try await remote.savePlan(p)
+            let saved = try await src.savePlan(p)
+            guard outbox.binding == binding else { return false }
             store.cache(plans: [saved])
             await reloadCatalog()
             return true
-        } catch where error.isCancellation {
+        } catch where error.isCancellation || outbox.binding != binding {
             return false
         } catch {
             self.error = error.localizedDescription

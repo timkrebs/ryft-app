@@ -10,7 +10,7 @@ enum UploadState: Equatable, Sendable {
 
     /// My Day: a cloud with an arrow.
     case pending(Pending)
-    /// My Day: Retry. The platform refused it, or three transient failures in a row while online.
+    /// My Day: Retry. The platform refused it (`UploadAttempt.isRefusal`), or three holds in a row while online.
     case failed(UploadAttempt)
     /// The server's copy decides from here: a hollow dot while strain is pending, then the strain.
     case confirmed
@@ -39,17 +39,31 @@ struct UploadAttempt: Codable, Equatable, Sendable {
 }
 
 extension UploadAttempt {
-    /// The platform refused this request (ADR 0022 §1, the one definition every outbox uses): sent again unchanged it
-    /// fails the same way (API.md → Errors), so only Retry or a newer edit sends it again. `400`, `409` (Train's `PUT`
-    /// only after its merge rounds), `413`, `422`, and `404` on a `complete` (the platform has no such session). Never a
-    /// transient failure, a sign-out, a gate or any `403`, a `404` on a `PUT` or `POST` (a route or server problem),
-    /// app-too-old, or a `2xx` the app couldn't read (that one was delivered).
+    /// The request can't succeed as it is (ADR 0022 §1, the one definition every outbox uses): sent again unchanged it
+    /// fails the same way, so only Retry or a newer edit sends it again. API.md → Errors: `400`, `409` (Train's `PUT`
+    /// only after its merge rounds), `413`, `422`, and "any other `4xx` (`405`, `431` …) is like `400`"; a `404` on a
+    /// `complete` (the platform has no such session); and a request this build couldn't make (an `EncodingError`: no
+    /// answer and no transport failure).
+    ///
+    /// Holds, never refusals (what the contract says to wait out or send again): a transient failure (no answer,
+    /// `408`, `429`, a `5xx`), a cancellation, a sign-out (`401` after the refresh), every `403` (a gate, or one this
+    /// build doesn't know), a `404` on a `PUT` or `POST` (a route problem: the app is newer than the server), `426`
+    /// (reserved for app-too-old, API_REQUESTS §3: a newer build sends the same document), and a `501`. A `2xx` the app
+    /// couldn't read was delivered: no attempt is kept for it.
     var isRefusal: Bool {
-        guard kind == .other, let status else { return false }
+        guard kind == .other else { return false }
+        guard let status else { return true }
         switch status {
-        case 400, 409, 413, 422: return true
+        case 401, 403, 408, 426, 429: return false
         case 404: return request == .complete
+        case 400..<500: return true
         default: return false
         }
     }
+}
+
+extension APIError {
+    /// A `2xx` whose body this build couldn't read (`APIClient.decode`): the platform took the request, so it was
+    /// delivered (ADR 0022 §1).
+    var wasDelivered: Bool { status.map { (200..<300).contains($0) } ?? false }
 }

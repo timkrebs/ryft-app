@@ -3,6 +3,14 @@ import SwiftData
 import Testing
 @testable import Ryft
 
+/// `aCustomExerciseNeedsAValidName`'s names, and whether the platform takes each.
+private let customExerciseNames: [(String, Bool)] = [
+    ("", false), ("   ", false), (String(repeating: "a", count: 81), false),
+    (String(repeating: "e\u{301}", count: 41), false), (String(repeating: "e\u{301}", count: 40), true),
+    (" " + String(repeating: "a", count: 80) + " ", true), ("\u{0}\u{0}", false),
+    (String(repeating: "a", count: 80) + "\u{0}", true),
+]
+
 // O1 and O2 (docs/work/2026-11-19-offline-first): a custom exercise goes through Train's outbox, and a refusal is a
 // state that keeps its op. In the "Train sync" suite, whose scripted network these share (it runs serialized).
 // Synthetic values only.
@@ -40,6 +48,29 @@ extension TrainSyncTests {
         var copy = e
         copy.name = name
         return .status(201, try APIClient.jsonEncoder.encode(copy))
+    }
+
+    /// The platform's copy of a session as its last `PUT` left it (`body`, which the stub echoed), completed and scored:
+    /// what `…/complete` answers with, by the same ids.
+    private func completedCopy(_ body: Data, workout: UUID) throws -> Data {
+        var copy = try APIClient.jsonDecoder.decode(TrainSession.self, from: body)
+        copy.status = .completed
+        copy.endedAt = copy.startedAt.addingTimeInterval(3_600)
+        copy.workoutId = workout
+        copy.strain = 9.4
+        copy.muscularTrimp = 38
+        copy.volumeKg = 15_000
+        copy.bodyweightKg = 82.5
+        return try APIClient.jsonEncoder.encode(copy)
+    }
+
+    /// What was logged of each set, in order: its id, reps, weight and when it was checked off.
+    private struct Logged: Equatable {
+        let id: UUID, reps: Int?, kg: Double?, done: Date?
+    }
+
+    private func logged(_ s: LocalSession) -> [Logged] {
+        s.orderedExercises.flatMap(\.orderedSets).map { Logged(id: $0.id, reps: $0.reps, kg: $0.weightKg, done: $0.completedAt) }
     }
 
     /// Waits for every replay in flight to end, so nothing started before a `reset()` takes a scripted reply after it.
@@ -270,9 +301,10 @@ extension TrainSyncTests {
         #expect(b.uploaded && a.uploaded && !a.pendingCompletion)
     }
 
-    /// O2 (1). Every other refusal of a `PUT` is the same state: a `400`, over 256 KiB (`413`), and `422`. Holds (every
-    /// `403`, a `404`, app-too-old, `5xx`) are `holdsKeepTheQueue`.
-    @Test(arguments: [400, 413, 422])
+    /// O2 (1). Every other refusal of a `PUT` is the same state: a `400`, over 256 KiB (`413`), `422`, and a `4xx` the
+    /// contract doesn't list (`405`, `431`: API.md → Errors, "like `400`"). Holds (every `403`, a `404`, `408`, `426`,
+    /// `501`, `5xx`) are `holdsKeepTheQueue`.
+    @Test(arguments: [400, 405, 413, 422, 431])
     func anyRefusalOfAPutIsKept(_ status: Int) async throws {
         let outbox = makeOutbox()
         let (a, b) = try await refusedFinish(outbox, status, "req-\(status)")
@@ -380,16 +412,18 @@ extension TrainSyncTests {
     // MARK: ADR 0022, holds and deliveries
 
     /// ADR 0022 §1: no refusal, a hold. Any `403` (a gate this build doesn't know, a proxy), a `404` on `PUT` (a route or
-    /// server problem), app-too-old (`426`): the op stays, nothing is recorded, and the next trigger sends it.
-    @Test(arguments: [#"{"error":"forbidden","request_id":"req-403"}"#, #"{"error":"x","code":"region_closed"}"#, "404", "426"])
+    /// server problem), `408` (transient, API.md → Errors), app-too-old (`426`), `501` (not there yet): the op stays,
+    /// nothing is recorded, and the next trigger sends it.
+    @Test(arguments: [#"{"error":"forbidden","request_id":"req-403"}"#, #"{"error":"x","code":"region_closed"}"#, "404", "408",
+                      "426", "501"])
     func holdsKeepTheQueue(_ answer: String) async throws {
         let outbox = makeOutbox()
         let a = session("A")
         outbox.sessionChanged(a)
-        let reply: TrainStubURLProtocol.Reply = switch answer {
-        case "404": refusal(404, "req-404")
-        case "426": refusal(426, "req-426")
-        default: .status(403, Data(answer.utf8))
+        let reply: TrainStubURLProtocol.Reply = if let status = Int(answer) {
+            refusal(status, "req-\(status)")
+        } else {
+            .status(403, Data(answer.utf8))
         }
         TrainStubURLProtocol.script([reply])
         await outbox.flush()
@@ -403,8 +437,8 @@ extension TrainSyncTests {
         #expect(sent == ["PUT \(path(a.id))"] && outbox.pendingCount == 0 && a.uploaded)
     }
 
-    /// ADR 0022 §1 for a custom exercise: a `403`, a `404` on `POST /v1/exercises`, `426` hold its op too.
-    @Test(arguments: [403, 404, 426])
+    /// ADR 0022 §1 for a custom exercise: a `403`, a `404` on `POST /v1/exercises`, `426`, `501` hold its op too.
+    @Test(arguments: [403, 404, 426, 501])
     func anExerciseHeldIsNoRefusal(_ status: Int) async throws {
         let outbox = makeOutbox()
         let e = customExercise()
@@ -481,9 +515,11 @@ extension TrainSyncTests {
         #expect(complete.bodyweightKg == 82.5)
     }
 
-    /// ADR 0022 §5. Alex Doe logs 50 sets of bench and they go up; set 51 is one too many and its `PUT` is refused
-    /// (`422`). Finish still completes the workout: the platform has it, with 50 sets, and scores it. The refused `PUT`
-    /// stays, for Retry or an edit, and set 51 stays here.
+    /// ADR 0022 §5. Alex Doe logs 50 sets of bench at 60 kg and they go up. Then set 1 was 6 × 65 kg, set 2 wasn't done
+    /// after all, and set 51 is one too many: that `PUT` is refused (`422`). Finish still completes the workout: the
+    /// platform has it, with its own 50 sets, and scores it. The answer is that copy (by the same ids), so it brings
+    /// only the status, the workout, the scores and the body weight: every set logged here stays as it is, the refused
+    /// `PUT` stays for Retry or an edit, and Retry sends the sets as logged.
     @Test func aRefusedPutOfAnUploadedSessionDoesNotHoldItsComplete() async throws {
         let outbox = makeOutbox()
         let a = SessionFactory.empty(in: store)
@@ -494,24 +530,79 @@ extension TrainSyncTests {
         TrainStubURLProtocol.script([.echo])
         await outbox.flush()
         #expect(a.uploaded && store.pendingOps().isEmpty)
+        let workout = UUID()
+        let answer = try completedCopy(TrainStubURLProtocol.requests[0].body, workout: workout)
 
+        check(bench.orderedSets[0], reps: 6, kg: 65)
+        bench.orderedSets[1].completedAt = nil
         check(SessionFactory.appendSet(index: 50, to: bench, in: store), reps: 5, kg: 60)
         outbox.sessionChanged(a)
+        let before = logged(a)
         TrainStubURLProtocol.reset()
-        TrainStubURLProtocol.script([refusal(422, "req-51"), .status(200, try Fixture.data("train_session_completed"))])
-        let done = await outbox.finish(a)
+        TrainStubURLProtocol.script([refusal(422, "req-51"), .status(200, answer)])
+        let done = await outbox.finish(a, bodyweightKg: 82.5)
         await settled(outbox)
 
         #expect(done != nil)
         #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
         let put = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[0].body)
         #expect(put.exercises[0].sets.count == 51)
-        #expect(!a.pendingCompletion)
+        // What the platform owns came with the answer ...
+        #expect(a.status == .completed && !a.pendingCompletion)
+        #expect(a.workoutId == workout && a.strain == 9.4 && a.muscularTrimp == 38 && a.bodyweightKg == 82.5)
+        // ... and what was logged here stayed: reps, weights, the times they were checked off, set 51.
+        #expect(logged(a) == before)
+        #expect(bench.orderedSets[0].weightKg == 65 && bench.sets.count == 51)
         #expect(store.pendingOps().map(\.kind) == [.put])
         let attempt = try #require(a.lastAttempt)
         #expect(attempt.status == 422 && attempt.request == .put && attempt.requestID == "req-51")
         #expect(outbox.state(of: a.id) == .failed(attempt))
-        #expect(bench.sets.count == 51)
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo])
+        await outbox.retry(sessionID: a.id)
+        #expect(sent == ["PUT \(path(a.id))"])
+        let again = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[0].body)
+        let sets = again.exercises[0].sets
+        #expect(again.status == .completed && sets.count == 51)
+        #expect(sets.first { $0.setIndex == 0 }?.weightKg == 65 && sets.first { $0.setIndex == 0 }?.reps == 6)
+        let second = try #require(sets.first { $0.setIndex == 1 })
+        #expect(second.completedAt == nil)
+    }
+
+    /// ADR 0022 §5, the other way the platform's copy is older: an edit while `complete` is out queues a `PUT` behind
+    /// it. The answer brings only what the platform owns; the edit stays, and the queued `PUT` sends it (here it finds
+    /// no network, so the edit is still what's here afterwards).
+    @Test func anEditWhileCompleteIsOutIsKept() async throws {
+        let outbox = makeOutbox()
+        let a = session("A")
+        for set in a.orderedExercises[0].orderedSets { check(set, reps: 5, kg: 60) }
+        outbox.sessionChanged(a)
+        TrainStubURLProtocol.script([.echo])
+        await outbox.flush()
+        #expect(a.uploaded)
+        let workout = UUID()
+        let answer = try completedCopy(TrainStubURLProtocol.requests[0].body, workout: workout)
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo, .holdThen(200, answer), .offline])
+        let finishing = Task { await outbox.finish(a) }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })   // `complete`, held
+        check(a.orderedExercises[0].orderedSets[0], reps: 6, kg: 65)
+        outbox.sessionChanged(a)                               // a `PUT` behind it
+        let before = logged(a)
+        TrainStubURLProtocol.release()
+        _ = await finishing.value
+        await settled(outbox)
+
+        #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))", "PUT \(path(a.id))"])
+        #expect(a.status == .completed && !a.pendingCompletion && a.workoutId == workout && a.strain == 9.4)
+        #expect(logged(a) == before)
+        #expect(store.pendingOps().map(\.kind) == [.put])
+        let put = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[2].body)
+        let first = try #require(put.exercises[0].sets.first { $0.setIndex == 0 })
+        #expect(first.weightKg == 65 && first.reps == 6)
+        #expect(put.status == .completed)
     }
 
     /// ADR 0022 §1: the attempt's time is the injected clock's.
@@ -560,6 +651,7 @@ extension TrainSyncTests {
         SessionFactory.add(e, to: s, sets: 1, in: store)
         _ = await outbox.finish(s, bodyweightKg: 82.5)        // offline
         await settled(outbox)
+        s.bodyweightKg = nil                                   // finished by a build before N6: only the op has it
         TrainStubURLProtocol.reset()
         TrainStubURLProtocol.script([refusal(422, "req-422")])
         await outbox.flush()
@@ -627,15 +719,14 @@ extension TrainSyncTests {
 
     /// A name the platform refuses (empty, or over 80 characters as it counts them: Unicode scalars of the trimmed
     /// name) is never cached or queued; the library says why. 80 scalars is fine, however few characters they make, and
-    /// so is a space around them.
-    @Test(arguments: [("", false), ("   ", false), (String(repeating: "a", count: 81), false),
-                      (String(repeating: "e\u{301}", count: 41), false), (String(repeating: "e\u{301}", count: 40), true),
-                      (" " + String(repeating: "a", count: 80) + " ", true)])
+    /// so is a space around them. A NUL doesn't count: it's dropped first (N3), so NULs alone are no name.
+    @Test(arguments: customExerciseNames)
     func aCustomExerciseNeedsAValidName(_ name: String, _ valid: Bool) async throws {
         let outbox = makeOutbox()
         let lib = library(outbox)
         var e = customExercise()
         e.name = name
+        #expect(TrainLibrary.isValidName(name) == valid)    // what the sheet's Save asks
         let made = await lib.createExercise(e)
         await settled(outbox)
         #expect((made != nil) == valid)
@@ -700,15 +791,18 @@ extension TrainSyncTests {
         #expect(store.pendingOps().isEmpty && sent == ["PUT \(path(a.id))"])
     }
 
-    /// Discarded while its `complete` is out: the answer writes nothing (no rows, no summary), and the `DELETE` goes.
+    /// Discarded while its `complete` is out: the answer, the platform's copy of this session by its ids, writes nothing
+    /// (no session, exercise or set row, in this context or a fresh one, and no summary), and the `DELETE` goes.
     @Test func aDiscardMidCompleteWritesNothing() async throws {
         let outbox = makeOutbox()
         let a = session("A")
+        let id = a.id
         check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
         _ = await outbox.finish(a)                             // offline
         await settled(outbox)
+        let answer = try completedCopy(try APIClient.jsonEncoder.encode(a.wire), workout: UUID())
         TrainStubURLProtocol.reset()
-        TrainStubURLProtocol.script([.echo, .holdThen(200, try Fixture.data("train_session_completed")), .status(204, Data())])
+        TrainStubURLProtocol.script([.echo, .holdThen(200, answer), .status(204, Data())])
         let replay = Task { await outbox.flush() }
         #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })
         outbox.discard(a)
@@ -716,8 +810,14 @@ extension TrainSyncTests {
         await replay.value
         await settled(outbox)
         #expect(outbox.lastCompletion == nil)
+        #expect(store.session(id: id) == nil)
         #expect(try store.context.fetchCount(FetchDescriptor<LocalSession>()) == 0)
         #expect(try store.context.fetchCount(FetchDescriptor<LocalSessionExercise>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSet>()) == 0)
+        let fresh = ModelContext(store.context.container)
+        #expect(try fresh.fetchCount(FetchDescriptor<LocalSession>()) == 0)
+        #expect(try fresh.fetchCount(FetchDescriptor<LocalSessionExercise>()) == 0)
+        #expect(try fresh.fetchCount(FetchDescriptor<LocalSet>()) == 0)
         #expect(store.pendingOps().isEmpty)
         #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))", "DELETE \(path(a.id))"])
     }
@@ -778,5 +878,236 @@ extension TrainSyncTests {
         #expect(sent == ["PUT \(path(a.id))"])
         #expect(store.pendingOps().map(\.kindRaw) == ["split_session"])
         #expect(outbox.pendingCount == 0)
+    }
+
+    // MARK: fix round 3
+
+    /// N3, API.md → Text: a NUL in a typed name never goes out (the platform answers `422` to a body with one). The
+    /// library drops it before it checks the name, caches it and queues the `POST`.
+    @Test func aNULInACustomExerciseNameIsDropped() async throws {
+        let outbox = makeOutbox()
+        let lib = library(outbox)
+        let e = customExercise("Land\u{0}mine press")
+        var platformCopy = e
+        platformCopy.name = "Landmine press"
+        platformCopy.nameEn = "Landmine press"
+        platformCopy.nameDe = "Landmine press"
+        TrainStubURLProtocol.script([.status(201, try APIClient.jsonEncoder.encode(platformCopy))])
+        let made = await lib.createExercise(e)
+        #expect(made?.name == "Landmine press" && made?.nameEn == "Landmine press" && made?.nameDe == "Landmine press")
+        await settled(outbox)
+        #expect(sent == ["POST /v1/exercises"])
+        let body = TrainStubURLProtocol.requests[0].body
+        let posted = try APIClient.jsonDecoder.decode(ExerciseInput.self, from: body)
+        #expect(posted.name == "Landmine press" && posted.nameDe == nil)
+        let text = try #require(String(data: body, encoding: .utf8))
+        #expect(!text.contains("\\u0000"))
+        #expect(TrainLibrary.withoutNUL("\u{0}a\u{0}b\u{0}") == "ab" && TrainLibrary.withoutNUL("ab") == "ab")
+    }
+
+    /// N4: the platform answers a custom exercise's `POST` without taking it (`503` after the client's retries). Its
+    /// op stays and the session that uses it waits, but an unrelated session's `PUT` and a discard's `DELETE` behind it
+    /// still go. No network is different: then nothing goes until the next trigger.
+    @Test func aHeldExerciseDoesNotHoldUnrelatedOps() async throws {
+        let outbox = makeOutbox()
+        let c = session("C")
+        outbox.sessionChanged(c)
+        TrainStubURLProtocol.script([.echo])
+        await outbox.flush()
+        #expect(c.uploaded)
+        TrainStubURLProtocol.reset()
+        let e = customExercise()
+        outbox.queueExercise(e)                                // offline
+        await settled(outbox)
+        let s = session("S")
+        SessionFactory.add(e, to: s, sets: 1, in: store)
+        outbox.sessionChanged(s)
+        let b = session("B")
+        outbox.sessionChanged(b)
+        outbox.discard(c)                                      // its replay finds no network either
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })
+        await settled(outbox)
+        #expect(store.pendingOps().map(\.kind) == [.exercise, .put, .put, .delete])
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script(Array(repeating: refusal(503, "req-503"), count: APIClient.maxUnavailableRetries + 1)
+            + [.echo, .status(204, Data())])
+        await outbox.flush()
+        let posts = Array(repeating: "POST /v1/exercises", count: APIClient.maxUnavailableRetries + 1)
+        #expect(sent == posts + ["PUT \(path(b.id))", "DELETE \(path(c.id))"])
+        #expect(store.pendingOps().map(\.kind) == [.exercise, .put])
+        #expect(store.pendingOps().map(\.sessionId) == [e.id, s.id])
+        let op = try #require(store.pendingOps().first)
+        #expect(op.lastAttempt == nil && b.uploaded && !s.uploaded)
+
+        let d = session("D")
+        outbox.sessionChanged(d)
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.offline, .echo, .echo])
+        await outbox.flush()
+        #expect(sent == ["POST /v1/exercises"])
+        #expect(store.pendingOps().map(\.sessionId) == [e.id, s.id, d.id])
+    }
+
+    /// S3: a `405` (a `4xx` the contract doesn't list: "like `400`") on the exercise's `POST` is a refusal, kept on the
+    /// op, as `422` is.
+    @Test func anExerciseAnswered405IsRefused() async throws {
+        let outbox = makeOutbox()
+        let e = customExercise()
+        TrainStubURLProtocol.script([refusal(405, "req-405")])
+        outbox.queueExercise(e)
+        await settled(outbox)
+        let op = try #require(store.pendingOps().first)
+        let attempt = try #require(op.lastAttempt)
+        #expect(op.kind == .exercise && attempt.status == 405 && attempt.requestID == "req-405" && attempt.isRefusal)
+        TrainStubURLProtocol.reset()
+        await outbox.flush()
+        #expect(TrainStubURLProtocol.requests.isEmpty)
+    }
+
+    /// S3: a session this build can't encode (a weight that isn't finite: JSON has no infinity) never leaves: an
+    /// `EncodingError` before any request is a refusal, kept with Retry, and it doesn't hold the queue. B's `PUT` goes;
+    /// nothing of A goes again. (Not NaN: SQLite stores it as NULL, so the saved set has no weight and goes.)
+    @Test func aSessionThatCantBeEncodedIsRefusedAndOthersGo() async throws {
+        let outbox = makeOutbox()
+        let a = session("A"), b = session("B")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: .infinity)
+        outbox.sessionChanged(a)
+        outbox.sessionChanged(b)
+        TrainStubURLProtocol.script([.echo, .echo])
+        await outbox.flush()
+
+        #expect(sent == ["PUT \(path(b.id))"])
+        let attempt = try #require(a.lastAttempt)
+        #expect(attempt.status == nil && attempt.request == .put && attempt.kind == .other && attempt.isRefusal)
+        #expect(outbox.state(of: a.id) == .failed(attempt))
+        #expect(store.pendingOps().map(\.sessionId) == [a.id] && b.uploaded)
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo])
+        await outbox.flush()
+        #expect(TrainStubURLProtocol.requests.isEmpty)
+    }
+
+    /// N6: Finish stores the body weight on the session. A `complete` that's in flight or gone when Retry queues the
+    /// upload again leaves no op to take it from: the session's goes, on the `PUT` and on the new `complete`.
+    @Test func retryTakesTheBodyWeightFromTheSessionWhenTheCompleteIsGone() async throws {
+        let outbox = makeOutbox()
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        _ = await outbox.finish(a, bodyweightKg: 82.5)        // offline
+        await settled(outbox)
+        #expect(a.bodyweightKg == 82.5)
+        let complete = try #require(store.pendingOps().first { $0.kind == .complete })
+        store.dequeue(complete)
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([refusal(422, "req-422")])
+        await outbox.flush()
+        #expect(a.lastAttempt?.status == 422 && store.pendingOps().map(\.kind) == [.put])
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo, .status(200, try Fixture.data("train_session_completed"))])
+        await outbox.retry(sessionID: a.id)
+        #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
+        let put = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[0].body)
+        #expect(put.bodyweightKg == 82.5)
+        let body = try APIClient.jsonDecoder.decode(SessionComplete.self, from: TrainStubURLProtocol.requests[1].body)
+        #expect(body.bodyweightKg == 82.5)
+        #expect(store.pendingOps().isEmpty && !a.pendingCompletion)
+    }
+
+    /// N1: every plan save that waits for the same `POST` ends its wait at the cap, and leaves nothing behind: no waiter
+    /// and no cap on the clock.
+    @Test func heldPlanSavesLeaveNoWaiterBehind() async throws {
+        let clock = TestClock()
+        let outbox = makeOutbox(clock: clock)
+        let platform = MockPlatformAPI()
+        let lib = library(outbox, remote: platform)
+        let e = customExercise()
+        TrainStubURLProtocol.script([.holdThen(201, try APIClient.jsonEncoder.encode(e))])
+        _ = await lib.createExercise(e)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })   // the POST, held
+        let saves = (0..<3).map { _ in Task { await lib.savePlan(planNaming(e)) } }
+        #expect(await eventually { outbox.exerciseWaiterCount == 3 && clock.pendingSleeps == 3 })
+
+        clock.advance(by: .seconds(10))
+        for save in saves {
+            let ok = await save.value
+            #expect(ok)
+        }
+        #expect(platform.count("savePlan") == 3)
+        #expect(outbox.exerciseWaiterCount == 0 && clock.pendingSleeps == 0)
+        #expect(store.pendingOps().contains { $0.kind == .exercise })   // the POST is still out
+        TrainStubURLProtocol.release()
+        await settled(outbox)
+        #expect(store.pendingOps().isEmpty)
+    }
+
+    /// N1: the exercise went before the cap: the save goes at once, and its cap is gone from the clock.
+    @Test func aPlanSaveWokenEarlyCancelsItsCap() async throws {
+        let clock = TestClock()
+        let outbox = makeOutbox(clock: clock)
+        let platform = MockPlatformAPI()
+        let lib = library(outbox, remote: platform)
+        let e = customExercise()
+        TrainStubURLProtocol.script([.holdThen(201, try APIClient.jsonEncoder.encode(e))])
+        _ = await lib.createExercise(e)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })
+        let save = Task { await lib.savePlan(planNaming(e)) }
+        #expect(await eventually { outbox.exerciseWaiterCount == 1 && clock.pendingSleeps == 1 })
+
+        TrainStubURLProtocol.release()
+        let ok = await save.value
+        #expect(ok && platform.count("savePlan") == 1)
+        #expect(outbox.exerciseWaiterCount == 0 && clock.pendingSleeps == 0)
+        await settled(outbox)
+    }
+
+    /// N1: a plan save cancelled while it waits ends then (the `POST` is still out), takes its waiter and its cap with
+    /// it, and sends nothing.
+    @Test func aCancelledPlanSaveStopsWaiting() async throws {
+        let clock = TestClock()
+        let outbox = makeOutbox(clock: clock)
+        let platform = MockPlatformAPI()
+        let lib = library(outbox, remote: platform)
+        let e = customExercise()
+        TrainStubURLProtocol.script([.holdThen(201, try APIClient.jsonEncoder.encode(e))])
+        _ = await lib.createExercise(e)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })
+        let save = Task { await lib.savePlan(planNaming(e)) }
+        #expect(await eventually { outbox.exerciseWaiterCount == 1 && clock.pendingSleeps == 1 })
+
+        save.cancel()
+        let ok = await save.value
+        #expect(!ok && platform.count("savePlan") == 0)
+        #expect(store.pendingOps().contains { $0.kind == .exercise })   // it didn't wait for the POST
+        #expect(outbox.exerciseWaiterCount == 0 && clock.pendingSleeps == 0)
+        clock.advance(by: .seconds(10))
+        TrainStubURLProtocol.release()
+        await settled(outbox)
+    }
+
+    /// N2: another account (or sign-out, or the Demo data switch) while a plan save waits for its exercise. The save is
+    /// dropped: nothing goes, and nothing is cached for whoever is signed in now.
+    @Test func aPlanSaveAcrossAnAccountChangeSendsNothing() async throws {
+        let clock = TestClock()
+        let outbox = makeOutbox(clock: clock)
+        let platform = MockPlatformAPI()
+        let lib = library(outbox, remote: platform)
+        let e = customExercise()
+        TrainStubURLProtocol.script([.holdThen(201, try APIClient.jsonEncoder.encode(e))])
+        _ = await lib.createExercise(e)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })
+        let plan = planNaming(e)
+        let save = Task { await lib.savePlan(plan) }
+        #expect(await eventually { outbox.exerciseWaiterCount == 1 })
+
+        outbox.accountChanged()
+        TrainStubURLProtocol.release()
+        let ok = await save.value
+        #expect(!ok && lib.error == nil)
+        #expect(platform.count("savePlan") == 0)
+        #expect(store.plan(id: plan.id) == nil)
+        #expect(outbox.exerciseWaiterCount == 0 && clock.pendingSleeps == 0)
+        await settled(outbox)
     }
 }

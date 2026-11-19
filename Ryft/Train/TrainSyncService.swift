@@ -10,9 +10,13 @@
 //   hold       ──▶ a session's PUT and complete wait while a replace can be undone (`hold`/`release`)
 //   exercise   ──▶ outbox `exercise`, ahead of every op ──▶ POST /v1/exercises (by id: a resend updates it); no gate;
 //                  a session that uses it waits while it's queued or refused (O1, ADR 0022 §7)
-//   refusal    ──▶ 400, 413, 422, 409 after the merges, 404 on complete: the op stays, with the attempt on its session
-//                  (on the op for an exercise); that session's ops wait until Retry or an edit; other sessions' go.
-//                  A 403, a 404 on PUT/POST, 426 and 5xx hold; a 2xx the app can't read is delivered (O2, ADR 0022)
+//   refusal    ──▶ any 4xx but 401, 403, 408, 426, 429 (409 after the merges; 404 only on complete), or a body this
+//                  build can't encode: the op stays, with the attempt on its session (on the op for an exercise); that
+//                  session's ops wait until Retry or an edit; other sessions' go. Every 403, a 404 on PUT/POST, 426,
+//                  408, 429 and 5xx hold (an answered hold of an exercise passes it over); a 2xx the app can't read is
+//                  delivered (O2, ADR 0022 §1)
+//   completed  ──▶ the answer is applied, but only what the platform owns while the session's PUT is refused or queued
+//                  (its copy is older: ADR 0022 §5)
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
@@ -81,6 +85,17 @@ final class TrainSyncService {
 
     private var accountCount = 0
     var generation: Generation { Generation(account: accountCount, store: store.epoch.current) }
+
+    /// Whose requests go now: the generation and the binding (`owner`). A caller that waits between reading its client
+    /// and sending (a plan save waiting for its exercises) compares this before and after, so nothing read for one
+    /// account or for demo goes as another's.
+    struct Binding: Equatable {
+        let generation: Generation
+        let owner: String?
+    }
+
+    var binding: Binding { Binding(generation: generation, owner: owner()) }
+
     /// Finish waits this long for the replay, then says "will sync" (the replay goes on).
     private let finishWait: Duration
     /// Off in tests: they drive "offline" through the stub URLProtocol instead.
@@ -152,6 +167,8 @@ final class TrainSyncService {
 
     /// Finish: upload the last state and complete. Returns the server's answer,
     /// or `nil` when offline (the session is marked `pendingCompletion`).
+    /// `bodyweightKg` goes on the session too, as the platform's completion stores it: Retry queues a `complete` with
+    /// it when the first one is in flight or gone (`requeueUpload`).
     @discardableResult
     func finish(_ s: LocalSession, bodyweightKg: Double? = nil) async -> TrainSession? {
         let now = Date.now
@@ -159,6 +176,7 @@ final class TrainSyncService {
         s.endedAt = now
         s.updatedAt = now
         s.volumeKg = s.liveVolumeKg
+        if let bodyweightKg { s.bodyweightKg = bodyweightKg }
         s.pendingCompletion = true
         s.restEndsAt = nil
         enqueuePut(for: s)
@@ -344,34 +362,45 @@ final class TrainSyncService {
     }
 
     /// For a plan save (ADR 0022 §7): waits until none of `ids` has an `exercise` op of this binding's that can still
-    /// go (it went, was refused, or is gone), at most `limit`. At once when none is queued, offline, or when nothing
-    /// may start; the plan then goes as it always did.
+    /// go (it went, was refused, or is gone), at most `limit` on the clock. At once when none is queued, offline, or
+    /// when nothing may start; the plan then goes as it always did. Whichever ends the wait first (the ops, the replay's
+    /// end, the cap, or the caller's cancellation), the waiter and its cap go with it.
     func exercisesSent(_ ids: Set<UUID>, upTo limit: Duration) async {
         let owner = owner()
         guard !ids.isEmpty, Self.awaitsExercise(ids, owner: owner, in: store.pendingOps()),
               let replay = startReplay() else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let once = ResumeOnce(continuation)
-            exerciseWaiters.append(ExerciseWaiter(ids: ids, owner: owner, once: once))
-            Task {
-                await replay.value
-                once.resume(())
-            }
-            Task {
-                try? await Task.sleep(for: limit)
-                once.resume(())
-            }
+        let wakeup = Wakeup()
+        exerciseWaiters.append(ExerciseWaiter(ids: ids, owner: owner, wakeup: wakeup))
+        let clock = clock
+        let replayEnded = Task {
+            await replay.value
+            wakeup.fire()
         }
+        let cap = Task {
+            try? await clock.sleep(for: limit)
+            wakeup.fire()
+        }
+        await withTaskCancellationHandler {
+            await wakeup.wait()
+        } onCancel: {
+            wakeup.fire()
+        }
+        cap.cancel()
+        replayEnded.cancel()
+        exerciseWaiters.removeAll { $0.wakeup === wakeup }
     }
 
-    /// A plan save waiting for exercise ops (`exercisesSent`): resumed by `refreshCount` once they can't go any more.
+    /// A plan save waiting for exercise ops (`exercisesSent`): woken by `refreshCount` once they can't go any more.
     private struct ExerciseWaiter {
         let ids: Set<UUID>
         let owner: String?
-        let once: ResumeOnce<Void>
+        let wakeup: Wakeup
     }
 
     private var exerciseWaiters: [ExerciseWaiter] = []
+
+    /// Plan saves waiting for their exercises right now (tests: none is left behind).
+    var exerciseWaiterCount: Int { exerciseWaiters.count }
 
     private static func awaitsExercise(_ ids: Set<UUID>, owner: String?, in queue: [PendingTrainOp]) -> Bool {
         queue.contains {
@@ -429,8 +458,9 @@ final class TrainSyncService {
         return .pending(.queued)
     }
 
-    /// The session's `PUT` and, while it's to be completed, its `complete` (with the body weight its last one had), at
-    /// the end of the queue for `owner`. The ones queued for it before go, except one in flight.
+    /// The session's `PUT` and, while it's to be completed, its `complete` (with the body weight its last one had, else
+    /// the one Finish stored on the session), at the end of the queue for `owner`. The ones queued for it before go,
+    /// except one in flight.
     private func requeueUpload(of s: LocalSession, as owner: String?) {
         let mine = store.pendingOps().filter {
             $0.sessionId == s.id && ($0.kind == .put || $0.kind == .complete) && Self.belongs($0, to: owner)
@@ -631,6 +661,16 @@ final class TrainSyncService {
                     delivered(op, kind, as: owner)
                     isOnline = true
                 case .hold:
+                    // A custom exercise the platform answered without taking (a `5xx`, a `403`, a `404`): passed over
+                    // for this pass, so other sessions' ops still go. The sessions that use it wait for it
+                    // (`blockingExercise`), and the next trigger sends it again. Not after a `429`: nothing more goes
+                    // before the platform says so.
+                    if kind == .exercise, let status = (error as? APIError)?.status, status != 429 {
+                        isOnline = true
+                        passedOver.insert(op.seq)
+                        refreshCount()
+                        continue
+                    }
                     // Offline, signed out, a gate or any `403`, the platform busy or not there: keep the queue as is.
                     if case .transport? = error as? APIError { isOnline = false }
                     refreshCount()
@@ -707,6 +747,14 @@ final class TrainSyncService {
         }
     }
 
+    /// A completion's answer is the platform's copy as its last `PUT` left it. It's older than this one while a `PUT` of
+    /// the session is refused (the attempt's request) or queued, in any binding: then the answer brings only what the
+    /// platform owns (ADR 0022 §5).
+    private func keepsLocalDocument(_ s: LocalSession) -> Bool {
+        s.lastAttempt?.request == .put
+            || store.pendingOps().contains { $0.sessionId == s.id && $0.kind == .put }
+    }
+
     /// The first of `owner`'s queued `exercise` ops, refused or not, for a custom exercise `s` uses (ADR 0022 §7).
     private func blockingExercise(for s: LocalSession, owner: String?, in queue: [PendingTrainOp]) -> PendingTrainOp? {
         let exercises = queue.filter { $0.kind == .exercise && Self.belongs($0, to: owner) }
@@ -716,16 +764,18 @@ final class TrainSyncService {
     }
 
     /// What a failed op's error means (ADR 0022 §1). `delivered`: a `2xx` this build couldn't read, so the platform
-    /// took it. `refused`: `UploadAttempt.isRefusal`, the one definition. Everything else holds: the op stays, and the
-    /// queue goes at the next trigger (offline, a sign-out, a gate or any `403`, `404` on a `PUT` or `POST`, app-too-old,
-    /// the platform busy).
+    /// took it. `refused`: `UploadAttempt.isRefusal`, the one definition (an `EncodingError` included). Everything else
+    /// holds: the op stays, and the queue goes at the next trigger (offline, a sign-out, no server configured, a gate or
+    /// any `403`, `404` on a `PUT` or `POST`, `426`, the platform busy).
     enum Disposition: Equatable {
         case delivered, hold, refused(UploadAttempt)
     }
 
     static func disposition(of kind: PendingTrainOp.Kind, _ error: Error, at date: Date) -> Disposition {
         let api = error as? APIError
-        if let status = api?.status, (200..<300).contains(status) { return .delivered }
+        if api?.wasDelivered == true { return .delivered }
+        // No server to send to: nothing went out, and nothing about the document is wrong.
+        if case .notConfigured? = api { return .hold }
         let request: UploadAttempt.Request = switch kind {
         case .put: .put
         case .complete: .complete
@@ -820,9 +870,14 @@ final class TrainSyncService {
             // Discarded meanwhile (its ops went with it): nothing to write, and its rows mustn't be read.
             guard store.session(id: op.sessionId) != nil else { return }
             s.pendingCompletion = false
-            s.apply(done, names: store.exercise(id:), in: store.context)
+            if keepsLocalDocument(s) {
+                // The platform completed its own copy, older than this one: what's logged here (a refused `PUT`'s
+                // sets, an edit queued behind) stays, and that `PUT` sends it later (ADR 0022 §5).
+                s.applyPlatformFields(done)
+            } else {
+                s.apply(done, names: store.exercise(id:), in: store.context)
+            }
             s.prs = done.prs
-            s.pendingCompletion = false
             store.save()
             lastCompletion = done
         case .delete:
@@ -884,7 +939,7 @@ final class TrainSyncService {
         outboxRevision += 1
         exerciseWaiters.removeAll { waiter in
             guard !Self.awaitsExercise(waiter.ids, owner: waiter.owner, in: queue) else { return false }
-            waiter.once.resume(())
+            waiter.wakeup.fire()
             return true
         }
     }
@@ -911,6 +966,33 @@ extension TrainSyncService {
                                     monitorsNetwork: false)
         sync.gate = { _ in nil }
         return sync
+    }
+}
+
+/// Wakes one waiting task, once: from any thread, and also when it fires before the wait has begun (a cancellation).
+private final class Wakeup: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var fired = false
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let now = lock.withLock { () -> Bool in
+                if fired { return true }
+                self.continuation = continuation
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func fire() {
+        let pending = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            fired = true
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume()
     }
 }
 
