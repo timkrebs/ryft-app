@@ -17,7 +17,7 @@ Status of facts used here: features as shipped on `main` (2026-10-21). Don't add
 | Subtitle (≤ 30) | en: **Readiness from your own data** (28) · de: **Bereitschaft aus deinen Daten** (29) |
 | Bundle ID | `dev.timkrebs.ryft` |
 | SKU | `ryft-ios` |
-| Primary language | English (U.S.); add German localisation |
+| Primary language | English (U.S.), the only language |
 | Primary category | Health & Fitness |
 | Secondary category | Sports |
 | Content rights | Contains no third-party content (only the user's own data) |

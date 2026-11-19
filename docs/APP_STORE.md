@@ -70,8 +70,8 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 
 | Requirement (guideline) | Status | Evidence |
 | --- | --- | --- |
-| Built with Xcode 26+ / iOS 26 SDK | ok | Xcode 27.1, iOS 27.1 SDK |
-| Deployment target iOS 17 (≥ 13 required) | ok | `IPHONEOS_DEPLOYMENT_TARGET = 17.0` (app, widget, tests) |
+| Built with Xcode 26+ / iOS 26 SDK | ok | Xcode 27.2, iOS 27.2 SDK |
+| Deployment target iOS 18.6 (≥ 13 required) | ok | `IPHONEOS_DEPLOYMENT_TARGET = 18.6` (app, widget, both test targets; ADR 0021) |
 | Release: no Developer section, no API key mode, no token / body / health-value logging; OSLog with privacy annotations | ok | `#if DEBUG` in `Settings`, `ProfileView`, `AuthService.staticBearer`. Logs carry only method, path, status and request ID, all `.public` |
 | `-O`, dSYMs, Release strip | ok | Release: `SWIFT_OPTIMIZATION_LEVEL = -O`, `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` |
 | `ITSAppUsesNonExemptEncryption = NO`: HTTPS (system TLS) only. SHA-256 is used for the Apple sign-in nonce and nothing is encrypted by the app, which is exempt | ok (fixed) | `Info.plist` |
@@ -100,7 +100,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Dynamic Type: text styles everywhere; rings keep fixed sizes, and text never clips | ok (fixed) | `Typography.swift` (`relativeTo:`). Rendered at AX 3: the Today tiles truncated ("RECOV…"), so they now stack at accessibility sizes. German "Überspringen" on the rest timer no longer wraps |
 | Reduce Motion: rings, counters, the pulsing dot and the summary celebration | ok | `accessibilityReduceMotion` checks |
 | Standard navigation: tab bar, system back, pull to refresh, system share sheet | ok | `RootView`, `ScreenScaffold`, Export |
-| Localisation: English and German complete, no stale keys | ok (fixed) | `make lint` (`scripts/lint-strings.py`) over Localizable, InfoPlist and the widget catalogs: 151 problems → 0 |
+| Localisation: English complete (RYFT is English only), no stale keys | ok (fixed) | `make lint` (`scripts/lint-strings.py`) over Localizable, InfoPlist and the widget catalogs: 151 problems → 0 |
 | Accessibility Nutrition Label answers | — | see below |
 
 ### Accessibility Nutrition Label (to enter in App Store Connect)
@@ -168,7 +168,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    `<TEAMID>.dev.timkrebs.ryft` on `/auth/*`. Then add `https://ryftlab.de/auth/callback`
    to Supabase's redirect URLs and switch `SupabaseConfig.redirectURL`. `ryft://` stays as
    the fallback.
-9. **Screenshots.** 6.9" and 6.5", dark theme, English and German, generated from the demo
+9. **Screenshots.** 6.9" and 6.5", dark theme, English, generated from the demo
    account (`scripts/screenshots.sh`). Show the app in use, not the login (2.3.3).
    Promotional text, keywords, description: say that it integrates with Apple Health (2.5.1).
 10. **App Review notes.**

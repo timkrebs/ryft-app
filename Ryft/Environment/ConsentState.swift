@@ -66,10 +66,10 @@ enum UploadWrite: Sendable {
 ///   the unlock reloads it (`isRecordReadable`).
 /// - **Wiped with the account:** every wipe deletes every `CachedDocument` and moves the binding.
 /// - **This phone's withdrawal** (`withdrew(at:)`) is kept beside the record, per account in `env.defaults`, outside
-///   the store: it holds the gate when the store refuses the withdrawal's saves (iOS 17 after demo data, T0.6) and in
-///   a background launch that never runs the check, until this phone agrees again (`consented`) or a `GET /v1/me`
-///   asked for after it shows consent to the policy in force (`heard`). Not wiped with the account: the same account
-///   signing in again hasn't agreed since either.
+///   the store: it holds the gate when the store refuses the withdrawal's saves (T0.6 did on iOS 17 after demo data;
+///   a failed save still can) and in a background launch that never runs the check, until this phone agrees again
+///   (`consented`) or a `GET /v1/me` asked for after it shows consent to the policy in force (`heard`). Not wiped with
+///   the account: the same account signing in again hasn't agreed since either.
 /// - **Demo data** reads and writes nothing: the gate decides demo before the record (design.md §3.2).
 @MainActor
 @Observable

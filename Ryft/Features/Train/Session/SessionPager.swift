@@ -5,8 +5,8 @@ import SwiftUI
 /// `scrollTo` on an order change (architecture.md §6).
 ///
 /// `TabView(.page)` won the probe on iOS 27: it follows the id through a reorder, writes nothing on a programmatic move
-/// and keeps only the current page in the accessibility tree. It has had no run on iOS 17 yet: that run is a condition
-/// for turning `train.focused_session` on (L15).
+/// and keeps only the current page in the accessibility tree. It has had no run on iOS 18.6, the oldest supported
+/// runtime, yet: that run is a condition for turning `train.focused_session` on (L15).
 struct SessionPager<Page: View>: View {
     let pages: [UUID]
     @Binding var selection: UUID?

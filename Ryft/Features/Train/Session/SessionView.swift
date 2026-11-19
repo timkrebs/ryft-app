@@ -107,6 +107,16 @@ struct SessionView: View {
     }
 
     var body: some View {
+        // The wipe or the demo's discard took this workout's rows (`SessionController.release`), and the cover may
+        // still be on its way out: none of them is read again.
+        if controller.isReleased {
+            Theme.background.ignoresSafeArea()
+        } else {
+            workout
+        }
+    }
+
+    private var workout: some View {
         VStack(spacing: 0) {
             header
                 // Backgrounded mid-workout: paused until the app is back.
@@ -453,20 +463,15 @@ struct SessionView: View {
 }
 
 /// Tells the controller when the user (not `scrollTo`) moves the list: a jump waits 3 s after that.
-/// iOS 18 reports the scroll phase; iOS 17 sees the drag (a simultaneous gesture, so scrolling still wins).
 private struct ManualScrollReporter: ViewModifier {
     var onScroll: () -> Void
 
     func body(content: Content) -> some View {
-        if #available(iOS 18, *) {
-            content.onScrollPhaseChange { old, new in
-                // The finger on the list, and again when it lets go or the list coasts to a stop.
-                if new == .interacting || new == .decelerating || old == .interacting || old == .decelerating {
-                    onScroll()
-                }
+        content.onScrollPhaseChange { old, new in
+            // The finger on the list, and again when it lets go or the list coasts to a stop.
+            if new == .interacting || new == .decelerating || old == .interacting || old == .decelerating {
+                onScroll()
             }
-        } else {
-            content.simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { _ in onScroll() })
         }
     }
 }

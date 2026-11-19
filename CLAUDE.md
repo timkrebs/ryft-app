@@ -15,7 +15,7 @@ and do not edit the pbxproj by hand. Sources in `Ryft/`:
 is `../ROADMAP.md`; the user pastes one milestone per session.
 
 ## Rules
-- Swift 5.10, SwiftUI, iOS 17+, async/await, Swift Charts. Dependencies: only
+- Swift 5.10, SwiftUI, iOS 18.6+ (ADR 0021), async/await, Swift Charts. Dependencies: only
   `supabase-swift`. Dark only (ADR 0016); palette and type live in `Design/Theme.swift`.
 - Wire models in `Networking/Models.swift` mirror `docs/API.md` exactly (snake_case via
   the shared decoder). For every new shape add a fixture-decoding test using the JSON

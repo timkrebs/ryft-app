@@ -25,6 +25,8 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var linkError: Error?
     /// Runs inside `signOut()`, before the session is dropped; a test can hold the call here.
     var onSignOut: (@Sendable () async -> Void)?
+    /// `signOut()` returns with a session still stored: a sign-in that came after the SDK dropped the last one.
+    var onSignOutLeavesTheSession = false
 
     // What happened.
     private(set) var refreshCount = 0
@@ -51,6 +53,9 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
         }
         return stream
     }
+
+    /// The Keychain answers after the first unlock: a session is there, with no event.
+    func unlock(_ session: Session?) { locked { stored = session } }
 
     /// Simulates the SDK reporting a change (e.g. a revoked refresh token → `.signedOut`).
     func emit(_ event: AuthChangeEvent, _ session: Session?) {
@@ -140,7 +145,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
             return onSignOut
         }
         await hook?()
-        emit(.signedOut, nil)
+        if !locked({ onSignOutLeavesTheSession }) { emit(.signedOut, nil) }
     }
 
     func identities() async throws -> [SignInMethod] { locked { methods } }
@@ -183,5 +188,19 @@ extension AuthService {
                     wipeLocalData: { _ in true },
                     deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                     postAppleAuthorization: { _ in })
+    }
+
+    /// A sign-in held over an owed wipe (design.md §4, At sign-in), reached the way a launch reaches it: another
+    /// account's wipe is owed, this phone refuses it again, and the stored session isn't published. Its ledger is in
+    /// memory and its wipe touches nothing.
+    static func previewHeld() -> AuthService {
+        let ledger = WipeLedger(file: nil)
+        ledger.begin(Wipe(reason: .user, account: "0000000A-0000-4000-8000-00000000000A"),
+                     at: Date(timeIntervalSince1970: 1_800_000_000))
+        return AuthService(client: MockAuthClient(session: .preview()),
+                           defaults: UserDefaults(suiteName: "ryft.preview.auth.held") ?? .standard,
+                           wipeLocalData: { _ in false },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in }, ledger: ledger)
     }
 }

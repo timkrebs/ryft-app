@@ -9,10 +9,22 @@ import UIKit
 @MainActor
 @Observable
 final class TrainCoordinator {
-    static let shared = TrainCoordinator()
+    static let shared: TrainCoordinator = {
+        let coordinator = TrainCoordinator()
+        existing = coordinator
+        return coordinator
+    }()
+
+    /// `shared`, once something has asked for it. A wipe at launch comes first and has no row to let go of
+    /// (`releaseRows`), so it doesn't build one.
+    private(set) static var existing: TrainCoordinator?
 
     /// Presented full screen while set.
     var live: SessionController?
+    /// A workout `open` presents once the start sheet has gone, not `live` yet. The wipe, the demo's discard and an
+    /// account change let go of it as they do of `live`: it never appears over rows they deleted, or after its account.
+    @ObservationIgnored private(set) var opening: SessionController?
+    @ObservationIgnored private(set) var presenting: Task<Void, Never>?
     /// Shown after Finish, over whatever screen the user returns to.
     var summary: FinishSummary?
     var showsStart = false
@@ -26,8 +38,8 @@ final class TrainCoordinator {
     /// The home-screen quick action says Start or Resume (`WorkoutLauncher`).
     @ObservationIgnored var onActiveChange: ((Bool) -> Void)?
 
-    /// The workout's Live Activity; `nil` in tests.
-    private let liveActivity: RestActivityController?
+    /// The workout's Live Activity; `nil` in tests, or their recorder.
+    private let liveActivity: (any WorkoutLiveActivity)?
     /// The live session's "now" and waits (the undo window, the jump to the next exercise).
     private let clock: AppClock
     /// Profile → Training → Jump to next exercise, read when a jump is due; tests replace it.
@@ -38,15 +50,17 @@ final class TrainCoordinator {
         SessionLayout.effective(flagOn: AppEnvironment.live.flags.isOn(.focusedSession), stored: Settings.shared.sessionLayout)
     }
 
+    /// `liveActivity`: tests' recorder; nil means the system's, or none without `liveActivities`.
     init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true,
-         clock: AppClock = SystemClock()) {
+         clock: AppClock = SystemClock(), liveActivity: (any WorkoutLiveActivity)? = nil) {
         self.sync = sync ?? .shared
         self.library = library ?? .shared
         self.clock = clock
-        liveActivity = liveActivities ? .shared : nil
+        self.liveActivity = liveActivity ?? (liveActivities ? RestActivityController.shared : nil)
         active = self.sync.store.activeSession()
-        // An activity left from a workout that's over (or an older version) goes.
-        liveActivity?.endAll(except: active?.id)
+        // An activity left from a workout that's over (or an older version) goes. `self.`: the parameter of the same
+        // name is nil in the app, where the stored property holds the system's controller.
+        self.liveActivity?.endAll(except: active?.id)
     }
 
     // MARK: quick start
@@ -112,27 +126,39 @@ final class TrainCoordinator {
 
     // MARK: starting
 
-    func start(_ s: LocalSession) {
+    /// Every session starts with this id (quick starts, plans, empty, repeat). In the demo it goes on the demo's list
+    /// before the factory saves the row, so ending the demo discards it (ADR 0019).
+    private func newSessionID() -> UUID {
+        let id = UUID()
+        sync.sessionStarting(id)
+        return id
+    }
+
+    private func start(_ s: LocalSession) {
         active = s
         open(s)
     }
 
     func startFromToday() {
         guard let today = library.today else { return }
-        start(SessionFactory.fromPlan(day: today.day, today: today, library: library.exercises, in: store))
+        let id = newSessionID()
+        start(SessionFactory.fromPlan(day: today.day, today: today, library: library.exercises, id: id, in: store))
     }
 
     func start(day: PlanDay) {
         let today = library.today?.day.id == day.id ? library.today : nil
-        start(SessionFactory.fromPlan(day: day, today: today, library: library.exercises, in: store))
+        let id = newSessionID()
+        start(SessionFactory.fromPlan(day: day, today: today, library: library.exercises, id: id, in: store))
     }
 
     func startEmpty() {
-        start(SessionFactory.empty(in: store))
+        let id = newSessionID()
+        start(SessionFactory.empty(id: id, in: store))
     }
 
     func repeatSession(_ last: TrainSession) {
-        start(SessionFactory.repeating(last, library: library.exercises, in: store))
+        let id = newSessionID()
+        start(SessionFactory.repeating(last, library: library.exercises, id: id, in: store))
     }
 
     // MARK: presenting
@@ -145,11 +171,11 @@ final class TrainCoordinator {
     }
 
     private func open(_ s: LocalSession) {
-        let controller = live?.session.id == s.id
-            ? live
-            : SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
-                                layout: sessionLayout())
-        controller?.jumpToNext = jumpToNext
+        dropOpening(releasing: false)
+        let controller = (live?.session.id == s.id ? live : nil)
+            ?? SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
+                                 layout: sessionLayout())
+        controller.jumpToNext = jumpToNext
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
         guard showsStart else {
@@ -157,10 +183,26 @@ final class TrainCoordinator {
             return
         }
         showsStart = false
-        Task {
-            try? await Task.sleep(for: .milliseconds(450))
+        opening = controller
+        presenting = Task { [weak self, clock] in
+            try? await clock.sleep(for: .milliseconds(450))
+            // Still its turn: a wipe, the demo's discard, an account change or another workout drops it (`dropOpening`).
+            guard let self, opening === controller else { return }
+            opening = nil
+            presenting = nil
             live = controller
         }
+    }
+
+    /// Lets go of the workout `open` hasn't presented yet: released when its rows go (it reads them on its ticker),
+    /// stopped otherwise. One that is `live` as well is left to `live`'s own handling.
+    private func dropOpening(releasing: Bool) {
+        presenting?.cancel()
+        presenting = nil
+        guard let controller = opening else { return }
+        opening = nil
+        guard controller !== live else { return }
+        if releasing { controller.release() } else { controller.stop() }
     }
 
     /// Minimise: back to the app, the session keeps running.
@@ -181,17 +223,80 @@ final class TrainCoordinator {
         return true
     }
 
+    /// In the wipe's own turn (`AuthService.wipeSharedLocalData`), before anything draws again: the workout's screen
+    /// and the in-progress banner let go of the rows the store just deleted. On iOS 18 and 26 reading a deleted row's
+    /// exercises or sets is a fatal error, whatever was read before the delete, and the rest timer reads them twice a
+    /// second. `accountChanged()` still follows, from the app's account-change handler a runloop later.
+    func releaseRows() {
+        dropOpening(releasing: true)
+        live?.release()
+        live = nil
+        active = nil
+    }
+
     /// Signed out or another account: the previous account's workout closes (it stays stored
     /// for that account) and leaves the lock screen.
     func accountChanged() {
         // The upload queue's replay first: nothing of the previous account's may land after this.
         sync.accountChanged()
+        dropOpening(releasing: false)
         live?.stop()
         live = nil
         summary = nil
         showsStart = false
         liveActivity?.end()
         refreshActive()
+    }
+
+    // MARK: the demo's workouts (ADR 0019)
+
+    /// What ending the demo would discard: the sessions started in it that the store still has, in progress or
+    /// finished. Nil: nothing (no confirmation). Throws when the list names sessions and the store can't be read: then
+    /// nothing is known, and the exit mustn't run (review R12). Computed each time, never stored.
+    func demoWorkouts() throws -> DemoWorkouts? {
+        let sessions = try sync.fetchDemoSessions()
+        return sessions.isEmpty ? nil : DemoWorkouts(count: sessions.count)
+    }
+
+    /// Whether the demo's list names a session: Profile's VoiceOver hint. Observable, and no fetch.
+    var hasDemoWorkouts: Bool { sync.hasDemoSessions }
+
+    /// The demo ends (`ProfileViewModel.endDemo`, the launch sweep): its live workout stops and leaves the lock
+    /// screen, then every session started in it goes, with its ops and from the library's caches (the session list,
+    /// exercise histories). Nothing is sent. An account's workout, even one that went on during the demo, isn't on the
+    /// list and stays. Nothing is fetched while the list is empty. What's
+    /// open is checked against the list itself, not against what the store found. `false`: the store couldn't be read,
+    /// and nothing changed (the exit leaves Demo data on).
+    @discardableResult
+    func discardDemoWorkouts() -> Bool {
+        guard sync.hasDemoSessions else { return true }
+        let ids = Set(sync.demoSessionIDs)
+        guard let sessions = try? sync.fetchDemoSessions() else { return false }
+        if let opening, ids.contains(opening.id) { dropOpening(releasing: true) }
+        if let live, ids.contains(live.session.id) {
+            // Tickers, the advance and the undo first: nothing of it runs on a deleted row. Released, as by the wipe
+            // (`releaseRows`): the cover may still be on its way out, and its screen draws none of the rows that go.
+            live.release()
+            self.live = nil
+        }
+        if let active, ids.contains(active.id) {
+            liveActivity?.end()
+            self.active = nil
+        }
+        if let summary, ids.contains(summary.sessionID) { self.summary = nil }
+        sync.discardDemoSessions(sessions)
+        library.forgetSessions(ids)
+        refreshActive()
+        return true
+    }
+
+    /// RyftApp at launch: the list's one-time seed (`TrainSyncService.seedDemoSessions`, never without protected data),
+    /// then the sweep. With Demo data off the demo ended outside its switch (Debug launch arguments, `defaults write`),
+    /// or the seed just listed what a demo before the list left, so its workouts go without asking. A kill inside the
+    /// switch's exit leaves Demo data on, so that launch is still in the demo.
+    func demoAtLaunch(demoMode: Bool, signedIn: Bool, protectedDataAvailable: Bool) {
+        sync.seedDemoSessions(signedIn: signedIn, protectedDataAvailable: protectedDataAvailable)
+        if !demoMode { discardDemoWorkouts() }
     }
 
     // MARK: ending
@@ -225,6 +330,12 @@ final class TrainCoordinator {
         live = nil
         active = nil
     }
+}
+
+/// The workouts ending the demo would discard (`TrainCoordinator.demoWorkouts`): what the confirmation counts.
+struct DemoWorkouts: Equatable, Sendable {
+    /// Started in the demo and still stored, in progress or finished.
+    let count: Int
 }
 
 /// What the summary sheet shows: the server's answer, or "will sync".

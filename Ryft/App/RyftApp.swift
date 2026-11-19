@@ -76,7 +76,7 @@ struct RyftApp: App {
         _state = State(initialValue: state)
         // Training logs are health data: Train's outbox waits for the same rule as every upload (ADR 0008).
         let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
-                                   store: .shared, library: .shared, trainSync: .shared)
+                                   store: .shared, library: .shared, trainSync: .shared, train: .shared)
         _screens = State(initialValue: screens)
         // Sign-out first deletes this phone's push registration, while the session still works.
         AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
@@ -101,10 +101,12 @@ struct RyftApp: App {
                                 settled: { [repository = state.repository] in
                                     await repository.settledBeforeCompletion()
                                 },
-                                compact: { [repository = state.repository, activities = state.env.activities] in
+                                compact: { [repository = state.repository, env = state.env, train = TrainCoordinator.shared, bedtime = screens.bedtime] in
                                     await repository.compact()
+                                    // A background-only run reaches an owed wipe here.
+                                    await env.auth.finishOwedWipe(train: train, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
-                                    activities.deleteExpiredParked()
+                                    env.activities.deleteExpiredParked()
                                 })
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
@@ -119,6 +121,13 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
+        // The demo's workouts (ADR 0019): the list's one-time seed for workouts logged before it, then, with Demo data
+        // off, the sweep. "Signed in" also counts the account `auth.lastUserID` still names (`AccountScope`): its wipe may
+        // have failed, and its workouts must never be seeded as the demo's. Before the first unlock that id (and the
+        // Keychain session) can't be read, so the seed waits for protected data.
+        TrainCoordinator.shared.demoAtLaunch(demoMode: Settings.shared.demoMode,
+                                             signedIn: AuthService.shared.isSignedIn || AccountScope.current() != nil,
+                                             protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable)
         let workoutActive = TrainCoordinator.shared.active != nil
         WorkoutLauncher.updateShortcutItems(resume: workoutActive)
         // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
@@ -206,6 +215,8 @@ struct RyftApp: App {
                     sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
+                    // A start asked for in the demo doesn't carry over, as one doesn't across an account change.
+                    if !on { WorkoutLauncher.discardPending() }
                     // Demo's remembered import matches and its import job go with it (also when it's switched off
                     // elsewhere); the import follows the binding in use.
                     if !on {
@@ -254,6 +265,7 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.
