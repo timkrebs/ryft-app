@@ -100,18 +100,27 @@ struct NocturneTrainPrimitivesHostedTests {
         }
     }
 
-    @Test("Search field: a search field labelled with its prompt; with text, a 44 pt Clear search that empties it")
+    /// The window's text fields: UIKit's, outside SwiftUI's accessibility nodes.
+    private func textFields(_ w: HostedWindow) -> [UITextField] {
+        func walk(_ view: UIView) -> [UITextField] {
+            (view as? UITextField).map { [$0] } ?? view.subviews.flatMap(walk)
+        }
+        return walk(w.window)
+    }
+
+    @Test("Search field: the text field named by its prompt; with text, a 44 pt Clear search that empties it")
     func searchField() async throws {
         try await host(SearchHost(text: "bench").padding(.top, 20)) { w in
             try await w.settle()
-            let field = try #require(w.nodes().first { $0.traits.contains(.searchField) }, "\(w.nodes().map(\.label))")
-            #expect(field.label == "Search exercises")
-            #expect(field.frame.height >= 44 - 0.5)
+            let field = try #require(textFields(w).first, "one text field")
+            #expect(field.accessibilityLabel == "Search exercises", "\(field.accessibilityLabel ?? "nil")")
+            #expect(field.text == "bench" && field.returnKeyType == .search && field.autocorrectionType == .no)
             let clear = try node(w, "Clear search")
             #expect(clear.frame.width >= 44 && clear.frame.height >= 44)
             clear.activate()
             try await w.settle()
             #expect(w.node("Clear search", exactly: true) == nil, "gone once the field is empty")
+            #expect(field.text?.isEmpty ?? true)
         }
     }
 

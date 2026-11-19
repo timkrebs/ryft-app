@@ -15,7 +15,8 @@ enum SearchFieldSpec {
 
 /// `SearchField(text: $query, prompt: Text("Search exercises"))`: `magnifyingglass` · the text (`body`, `textPrimary`; the
 /// prompt in the field prompt's `textSecondary`) · a clear button while there is text. One line; the keyboard's return key
-/// reads "Search", and corrections are off (exercise and sport names). VoiceOver reads a search field labelled with the prompt;
+/// reads "Search", and corrections are off (exercise and sport names). VoiceOver reads the text field named by the prompt
+/// ("Search exercises, text field": SwiftUI does not pass the search-field trait on to UIKit's field, so the prompt says it);
 /// the clear button is "Clear search". `identifier` goes on the text field.
 struct SearchField: View {
     @Binding private var text: String
@@ -40,7 +41,8 @@ struct SearchField: View {
                 .lineLimit(1)
                 .submitLabel(.search)
                 .autocorrectionDisabled()
-                .accessibilityAddTraits(.isSearchField)
+                // As `FormField` names its field: the label view alone leaves UIKit's field unnamed once it has text.
+                .accessibilityLabel(prompt)
                 .accessibilityIdentifier(identifier ?? "")
             if !text.isEmpty {
                 Button {
