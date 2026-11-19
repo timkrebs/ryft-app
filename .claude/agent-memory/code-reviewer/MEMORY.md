@@ -39,6 +39,7 @@
 - [Refusals as states](review-checks-refusal-states.md) — what the old drop let through, 2xx-undecodable, queued creates vs online callers, silent 422s, Retry with no dependency
 - [Form reads + whole saves](review-checks-form-reads-and-saves.md) — banner retry skips commit gate, post-await saves after day switch, reads rebuilding over edits
 - [Autosave editors](review-checks-autosave-editors.md) — save chains awaiting the network, stale drafts in other tabs, async Turn off, conditional push hosts
-- [Setting editors](review-checks-setting-editors.md) — waitsForConnectivity hangs, failure-time offline, page-local busy, account-blind editors, off-grid steps
+- [Setting editors](review-checks-setting-editors.md) — connectivity hangs, failure-time offline, busy flags left by stale-owner exits, modal locks, 2xx-unreadable
 - [Widget surfaces + Live Activities](review-checks-widget-surfaces.md) — privacySensitive escapes placeholder (probed), per-device accessory sizes, test-only models, Volt scope, ages
 - [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
+- [Flow restyles with live results](review-checks-flow-restyles.md) — dropped hidesBackButton vs other branch keepers, "imported" incl. server-kept, muted live notices, catalog gaps, untapped pill tests

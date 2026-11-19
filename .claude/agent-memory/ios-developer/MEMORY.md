@@ -1,0 +1,4 @@
+- [Destination on a covered root](feedback_destination_on_covered_root.md) — a destination on a conditional card doesn't pop its page; probe with a real redraw before moving it
+- [Editor saves never wait](project_editor_saves_never_wait.md) — autosave editors commit synchronously, side effects in passes; never chain behind the network
+- [Settings write honesty](project_settings_write_honesty.md) — SettingsWriteFailure: judge and word failed writes by what left the phone; test pitfalls
+- [Widget look and limits](project_widget_look_and_limits.md) — Shared/WidgetLook.swift tests, placeholder redaction, accessory slot sizes, the 160 pt Live Activity limit
