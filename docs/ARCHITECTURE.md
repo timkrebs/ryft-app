@@ -16,7 +16,8 @@ implementation:
 | Platform API | `PlatformAPI` (= `RyftDataSource` + `TrainDataSource` + sync, Apple code, config, push, notification prefs) | `APIClient` | `MockPlatformAPI` (mock data, records calls, scripted failures) |
 | Supabase Auth | `AuthClientProtocol` (Supabase's own type is `AuthClient`) | `SupabaseAuthClient` | `MockAuthClient` |
 | SwiftData | `Persistence` | `TrainStore` (on disk) | `TrainStore(inMemory: true)` |
-| Time | `AppClock` (`now()`, `sleep(for:)`); not `Clock`, which would shadow Swift's | `SystemClock` | `TestClock` (moves only on `advance(by:)`) |
+| Time | `AppClock` (`now()`, `sleep(for:)`, monotonic `uptime()`); not `Clock`, which would shadow Swift's | `SystemClock` | `TestClock` (moves only on `advance(by:)`) |
+| App Attest (ADR 0023) | `AppAttestService` (DeviceCheck), `AppAttestKeyStore` (the key's ID, with its account); `AppAttestor` owns the token in memory | `DeviceAppAttestService`, `KeychainAppAttestKeys` (`AfterFirstUnlockThisDeviceOnly`) | `FakeAppAttestService`, `MemoryAppAttestKeys` (tests) |
 | Notifications | `Notifier` (local + APNs registration) | `SystemNotifier` | `MockNotifier` |
 | Feature flags | `FeatureFlagProvider` | remote flags (§8) | `StaticFlags` |
 | Network path | `Connectivity` | `ConnectivityMonitor` | `ConnectivityMonitor.preview(online:)` |

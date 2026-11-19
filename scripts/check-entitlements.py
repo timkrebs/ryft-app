@@ -19,6 +19,8 @@ ALLOWED = {
     "aps-environment",
     "com.apple.security.application-groups",
     PREFIX + "applesignin",
+    # App Attest, `production` in every build (API.md → App Attest: the production servers accept no other).
+    PREFIX + "devicecheck.appattest-environment",
     PREFIX + "healthkit",
     PREFIX + "healthkit.access",
     PREFIX + "healthkit.background-delivery",
