@@ -791,8 +791,10 @@ extension TrainSyncTests {
         #expect(store.pendingOps().isEmpty && sent == ["PUT \(path(a.id))"])
     }
 
-    /// Discarded while its `complete` is out: the answer, the platform's copy of this session by its ids, writes nothing
-    /// (no session, exercise or set row, in this context or a fresh one, and no summary), and the `DELETE` goes.
+    /// Discarded while its `complete` is out: the answer (this session's own copy, by its ids) writes nothing and the
+    /// `DELETE` goes. What fails if the discard check goes: applying the answer reads the deleted session's rows, which are
+    /// detached, and SwiftData traps ("backing data was detached"), so the run crashes here rather than failing a check.
+    /// The row counts, in this context and a fresh one, and the summary catch a write that gets past without reading them.
     @Test func aDiscardMidCompleteWritesNothing() async throws {
         let outbox = makeOutbox()
         let a = session("A")
