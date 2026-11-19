@@ -341,7 +341,7 @@ enum MockMyDay {
     enum Case {
         /// Today's demo day: the night, mobility, the merged run, the walk, yoga (five rows).
         case populated
-        /// Over the cap: the pending and the failed rows too ("Show all 7").
+        /// Over the cap: the pending and the failed rows too (seven rows, the card shows five).
         case full
         /// Early: the night and nothing else.
         case nothing

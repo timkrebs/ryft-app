@@ -16,10 +16,12 @@ enum MyDayLayout {
     nonisolated static let showAllHeight: CGFloat = 46
     /// The Add activity pill: 4 under "Show all", 12 under the rows or the empty line.
     nonisolated static let addGapUnderShowAll: CGFloat = 4, addGap: CGFloat = 12
-    /// "Nothing logged yet today.": 12 above and below it under a row, 4 above it as the card's first line.
+    /// "Nothing logged yet today.": 12 above it under a row (the pill keeps its own 12 below), 4 above it as the card's first line.
     nonisolated static let emptyPadding: CGFloat = 12, emptyTopAlone: CGFloat = 4
-    /// The stale caption under the pill (or the rows).
-    nonisolated static let staleGap: CGFloat = 8
+    /// The stale caption under the pill (or the rows); its Try again 12 beside the words (under them from AX1).
+    nonisolated static let staleGap: CGFloat = 8, staleRetryGap: CGFloat = 12
+    /// The header → the outline rows, the failed or the offline message.
+    nonisolated static let stateGap: CGFloat = 12
     /// Loading: three outline rows (`ActivityListRowPlaceholder`), 8 apart.
     nonisolated static let placeholderRows = 3, placeholderSpacing: CGFloat = 8
 
@@ -31,6 +33,8 @@ enum MyDayLayout {
     nonisolated static let summaryGap: CGFloat = 18
     /// The summary line → the first row, and between the rows (tiles).
     nonisolated static let rowsGap: CGFloat = 12, rowSpacing: CGFloat = 8
+    /// The rows → "Nothing logged yet today." or "Nothing recorded on this day" (beside the rows' own 8).
+    nonisolated static let screenEmptyGap: CGFloat = 4
     /// "Strain" → the day's strain on the summary line.
     nonisolated static let strainLabelGap: CGFloat = 6
     /// The pinned Add activity: a 24 pt fade from the page into `background` above it, 16 between it and the tab bar, 20 at

@@ -14,7 +14,8 @@ final class MyDayViewModel {
 
     /// The full screen's day (start of day). The card shows today whatever this says.
     var date: Date
-    /// Days whose load failed with nothing cached: an error instead of the skeleton.
+    /// Days whose load failed, or was held back (`ReadScheduler` sent nothing: a `Retry-After` still holding), with
+    /// nothing cached: an error with Try again instead of the skeleton.
     private(set) var failed: Set<String> = []
     /// The tracker catalog was parsed off the main actor (`load`): rows name trackers by it from then on, and by
     /// HealthKit's raw source names before (ui.md §2.3), so Today's first frame never parses it.
@@ -59,14 +60,20 @@ final class MyDayViewModel {
         let items = items(for: day)
         let detail = state.cachedDayDetail(for: day)
         let cached = detail != nil || state.repository.activitiesFetchedAt(day: key) != nil
-        let phase: MyDayContent.Phase = cached || !items.isEmpty ? .ready : failed.contains(key) ? .failed : .loading
+        let online = env.isDemo || env.connectivity.isOnline
+        // Offline nothing is read (`ReadScheduler` sends nothing and throws nothing): without a cache that is its own
+        // state, never the skeleton for good.
+        let phase: MyDayContent.Phase = cached || !items.isEmpty ? .ready
+            : !online ? .offline
+            : failed.contains(key) ? .failed : .loading
         let isToday = calendar.isDate(day, inSameDayAs: today)
         let stale = phase == .ready ? staleSince(key, isToday: isToday) : nil
         let score = detail?.score ?? state.score(for: day)
         return MyDayContent(day: day, isToday: isToday, phase: phase, items: items, staleSince: stale,
                             offersRetry: stale.map { env.clock.now().timeIntervalSince($0) > MyDayContent.retryAfter } ?? false,
                             dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil,
-                            title: Fmt.dayTitle(day, today: today))
+                            title: Fmt.dayTitle(day, today: today),
+                            isYesterday: calendar.isDate(day, inSameDayAs: DayFormat.shift(today, days: -1)))
     }
 
     /// The full screen's week strip: today and the six days before, the selected one highlighted.
@@ -155,6 +162,15 @@ final class MyDayViewModel {
         }
     }
 
+    /// Retry on a row whose upload failed (R4): an activity, or a night the user added; the uploader sends it now.
+    func retryUpload(_ item: MyDayItem) async {
+        switch item.kind {
+        case .activity(let id): await env.uploader.retry(id)
+        case .sleep(let key) where item.isManualSleep: await env.uploader.retrySleep(day: key)
+        default: break
+        }
+    }
+
     /// The cached workout behind a row (`WorkoutDetailView`).
     func workout(_ id: UUID, on day: Date) -> Workout? {
         state.cachedDayDetail(for: day)?.workouts.first { $0.id == id }
@@ -184,9 +200,10 @@ final class MyDayViewModel {
         failed.remove(key)
         async let detail = loadDetail(day, mode: mode, userInitiated: force)
         async let activities: Void = loadActivities(key, mode: mode, userInitiated: force)
-        let loaded = await detail
+        let read = await detail
         await activities
-        if !loaded, state.cachedDayDetail(for: day) == nil { failed.insert(key) }
+        // Failed, or held back with nothing cached (offline it is `.offline` whatever this says).
+        if read == .failed || read == .declined, state.cachedDayDetail(for: day) == nil { failed.insert(key) }
         // Workouts to name: the catalog's first parse off the main actor, then the rows name trackers by it.
         if !namesTrackers, state.cachedDayDetail(for: day)?.workouts.isEmpty == false {
             _ = await TrackerCatalog.loadBundled()
@@ -233,13 +250,22 @@ final class MyDayViewModel {
         }
     }
 
-    /// False when the read failed (a cancellation isn't a failure: the next load says what's true).
-    private func loadDetail(_ day: Date, mode: ReadMode, userInitiated: Bool) async -> Bool {
+    /// How a day's read ended.
+    private enum DetailRead {
+        /// The day is here (fresh, fetched, or cached beside a failure).
+        case read
+        /// Nothing was sent and nothing is cached: offline, or a `Retry-After` holds automatic reads back.
+        case declined
+        case failed
+        /// Not a failure: the next load says what's true.
+        case cancelled
+    }
+
+    private func loadDetail(_ day: Date, mode: ReadMode, userInitiated: Bool) async -> DetailRead {
         do {
-            _ = try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated)
-            return true
+            return try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated) == nil ? .declined : .read
         } catch {
-            return error.isCancellation
+            return error.isCancellation ? .cancelled : .failed
         }
     }
 
@@ -255,8 +281,10 @@ struct MyDayContent: Equatable {
     enum Phase: Equatable {
         /// Nothing cached yet: outline rows, no spinner.
         case loading
-        /// Nothing cached and the read failed.
+        /// Nothing cached and the read failed, or was held back.
         case failed
+        /// Nothing cached and offline: nothing can be read until the iPhone is back online (a calm line, Try again).
+        case offline
         case ready
     }
 
@@ -277,6 +305,8 @@ struct MyDayContent: Equatable {
     var dayStrain: Double?
     /// "Today", "Yesterday", "Wed 21 Oct" against the environment's clock (`Fmt.dayTitle`); nil: against `.now`.
     var title: String?
+    /// The day before today on the environment's clock and calendar (the full screen's "Yesterday · Tue, Nov 17").
+    var isYesterday = false
 
     /// No workout, session or activity (the night may be there): "Nothing yet today" (ui.md §2.1 M2).
     var hasNoActivities: Bool { !items.contains { !$0.kind.isSleep } }
@@ -290,9 +320,6 @@ struct MyDayContent: Equatable {
         let others = items.filter { !$0.kind.isSleep }
         return night + others.suffix(max(0, Self.cardCap - night.count))
     }
-
-    /// "Show all 9" when the card leaves rows out.
-    var showsAll: Bool { items.count > cardRows.count }
 
     /// Everything but the night: workouts, sessions, activities.
     var activities: [MyDayItem] { items.filter { !$0.kind.isSleep } }

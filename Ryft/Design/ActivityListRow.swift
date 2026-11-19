@@ -49,13 +49,16 @@ enum ActivityListRowSpec {
 /// - `badges`: a second meta line of `SourceBadge`s, 4 under the meta. Such a row hangs from its top (12 above and below), so
 ///   the disc, the title and the value line up however many lines the text takes.
 /// - `mark`: an `ActivityStateMark` in the value's place (the scored strain, or a state's word); under the value when the row
-///   has both (a night that uploads). `retry` is its R4 Retry, also a VoiceOver action on the row.
+///   has both (a night that uploads). `retry` is its R4 Retry link; the caller puts VoiceOver's "Retry" action on the element
+///   it makes of the row (its button), as it names it.
 /// - `glyphInk`: the disc's glyph in `metricSleep` for the night (B §1.1); `valueUnit` after the value ("7:48" "h").
 /// - `style`: `.tile` (its own `surface`), `.card` (inside a card: no surface, no sides, 12 above and below; the card draws the
 ///   hairlines between), `.dashed` (what is missing, the night without sleep: no fill, a dashed outline and disc, the glyph in
 ///   `textTertiary`, the title in `textSecondary`).
-/// - `action`: a text action at the trailing edge ("Add sleep", `ryftLink`, 44 high), under the title from AX1, never broken.
-///   The row is then a VoiceOver container: its sentence, then the action's button.
+/// - `action`: a text action at the trailing edge ("Add sleep", `ryftLink`, 44 high); under the title where the two don't fit
+///   side by side on one line (a narrow screen, large text, every AX size), so neither ever breaks inside a word. The row is
+///   then a VoiceOver container: its words, then the action's button. Such a row carries no badges, value or mark: the action
+///   takes their place (asserted).
 struct ActivityListRow: View {
     /// What a row says. A value type, so the screens build it in their models and tests read it.
     struct Content: Equatable {
@@ -132,6 +135,8 @@ struct ActivityListRow: View {
 
     init(content: Content, accessory: Accessory = .none, style: Style = .tile, retry: (() -> Void)? = nil,
          action: Action? = nil) {
+        assert(action == nil || (content.badges.isEmpty && content.mark == nil && !content.showsValue),
+               "A row with a trailing action carries no badges, value or mark: the action takes their place.")
         self.content = content
         self.accessory = accessory
         self.style = style
@@ -148,13 +153,14 @@ struct ActivityListRow: View {
     var body: some View {
         HStack(alignment: hangs ? .top : .center, spacing: ActivityListRowSpec.spacing) {
             disc
-            text
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if !stacks {
-                if content.showsValue {
+            if let action, !stacks {
+                besideOrUnder(action)
+            } else {
+                text
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !stacks, content.showsValue {
                     valueSlot.padding(.top, hangs ? ActivityListRowSpec.valueTopInset : 0)
                 }
-                if let action { actionButton(action) }
             }
             if accessory == .chevron {
                 Image(systemName: "chevron.right")
@@ -168,7 +174,7 @@ struct ActivityListRow: View {
         .frame(maxWidth: .infinity, minHeight: ActivityListRowSpec.minHeight, alignment: .leading)
         .background { surface }
         .contentShape(style == .card ? AnyShape(Rectangle()) : AnyShape(shape))
-        .modifier(ActivityListRowAccessibility(spoken: content.spoken, isContainer: action != nil, retry: retry))
+        .modifier(ActivityListRowAccessibility(spoken: content.spoken, isContainer: action != nil))
     }
 
     private var verticalPadding: CGFloat {
@@ -287,6 +293,23 @@ struct ActivityListRow: View {
             .fixedSize()
     }
 
+    /// The words and the action on one line where both fit there whole; else the action under the words, which then wrap
+    /// between words only (never squeezed into a column narrower than a word, as a row of both would at 320 pt and xxxLarge).
+    private func besideOrUnder(_ action: Action) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: ActivityListRowSpec.spacing) {
+                text.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                actionButton(action)
+            }
+            VStack(alignment: .leading, spacing: ActivityListRowSpec.metaGap) {
+                text
+                actionButton(action)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// "Add sleep": `ryftLink` (callout, ink, underlined, 44 × 44), one line however large the text.
     private func actionButton(_ action: Action) -> some View {
         Button(action: action.perform) { action.title.fixedSize() }
@@ -316,12 +339,10 @@ private struct RowDisc: View {
     }
 }
 
-/// One element with the row's sentence (and Retry as its action); with a trailing action a container: the drawn words, then
-/// the action's button.
+/// One element with the row's sentence; with a trailing action a container: the drawn words, then the action's button.
 private struct ActivityListRowAccessibility: ViewModifier {
     let spoken: String
     let isContainer: Bool
-    let retry: (() -> Void)?
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -332,11 +353,6 @@ private struct ActivityListRowAccessibility: ViewModifier {
             content
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(verbatim: spoken))
-                .accessibilityActions {
-                    if let retry {
-                        Button(String(localized: "Retry", comment: "My Day: send a failed upload again."), action: retry)
-                    }
-                }
         }
     }
 }
