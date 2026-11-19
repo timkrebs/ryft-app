@@ -22,12 +22,12 @@ struct WidgetOrbitGauge: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
-    /// On a locked device and in the placeholder: the tracks only, no arcs or dots, and a constant number under the
-    /// redaction (the real one would show through by its width).
-    private var hidden: Bool { redaction.hidesValues }
+    /// On a locked device and in the placeholder: the tracks only, no arcs or dots. Locked, a constant number under the
+    /// box (the real one would show through by its width); the placeholder, the dash (`WidgetConcealment`).
+    private var concealment: WidgetConcealment { redaction.concealment }
 
     var body: some View {
-        OrbitGaugeDrawing(mode: hidden ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
+        OrbitGaugeDrawing(mode: concealment.hidesValues ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
             if showsNumber, size.dial >= OrbitGaugeGeometry.minDialForNumber {
                 centreText
                     .font(.system(size: pointSize, weight: weight))
@@ -48,7 +48,7 @@ struct WidgetOrbitGauge: View {
     }
 
     private var centre: ReadinessWidgetLook.Centre {
-        ReadinessWidgetLook.centre(mode, readiness: readiness, previousReadiness: previousReadiness, hidden: hidden)
+        ReadinessWidgetLook.centre(mode, readiness: readiness, previousReadiness: previousReadiness, concealment: concealment)
     }
 
     private var centreText: Text {

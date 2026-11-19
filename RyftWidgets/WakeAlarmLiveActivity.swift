@@ -85,12 +85,14 @@ struct SnoozeIslandLabel: View {
     }
 }
 
-/// Compact and minimal: `zzz` in `textSecondary`.
+/// Compact and minimal: `zzz` in `textSecondary`, at the default size (the regions are fixed); VoiceOver says
+/// "Snoozing".
 struct SnoozeGlyph: View {
     var body: some View {
         Image(systemName: "zzz")
             .foregroundStyle(WidgetInk.secondary.colour)
-            .dynamicTypeSize(...WorkoutActivityLook.largestType)
+            .dynamicTypeSize(...WorkoutActivityLook.glanceLargestType)
+            .accessibilityLabel(Text("Snoozing"))
     }
 }
 

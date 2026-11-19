@@ -30,8 +30,8 @@
   - The icon was the orbit mark, rendered from `RyftMarkGeometry`, with SVG twins in `design/`.
 - **PR 1 is tokens, type and icon only.** The components come in PR 2, the gauge in PR 3 and the screens in PRs 4 and 5
   (`brief.md` §7).
-- **The widget shares colour sets by name.** `Shared/OrbitGaugePalette.swift` names `SurfaceRaised`, `Accent`, `MetricSleep`,
-  `MetricStrain`, `Warning`, `Alert` and `TextTertiary`. `scripts/check-shared-types.py` fails unless each of them is in both catalogs
+- **The widget shares colour sets by name.** `Shared/OrbitGaugePalette.swift` names `TextPrimary`, `Signal`, `Recovery`,
+  `MetricSleep`, `MetricStrain` and `Alert`. `scripts/check-shared-types.py` fails unless each of them is in both catalogs
   with the same `Contents.json` (ADR 0010).
 
 ## Decision

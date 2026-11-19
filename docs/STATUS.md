@@ -48,6 +48,12 @@ but which thread decides is unmeasured, since the observations assert only on 27
 (`BackingData.swift:739`), as on `main`; #107 fixes it. Until T0.1 is measured and #107 is in, code and tests treat 18.6
 as 18.0.
 
+2026-11-19: the widget's Dynamic Type (Nocturne W, `Shared/WidgetLook.swift`). Above the default size the lock screen
+rectangle folds to three lines and the rest timer's lock screen card drops the session title and keeps the next set to
+one line; the caps that remain are where even that no longer fits: the small tile at AX1 (past it the caption takes the
+readiness number's place), the rectangle at xxLarge (72 pt high), the rest timer and snooze at AX4 (iOS's 160 pt for
+a Live Activity on the lock screen), and the island's compact and minimal glyphs at the default size (fixed regions).
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
