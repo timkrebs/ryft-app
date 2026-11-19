@@ -47,14 +47,30 @@ final class JournalSheetModel {
         var id: BehaviorCategory { category }
     }
 
-    private let store: JournalStore
+    /// What the sheet shows under the day strip (Nocturne PR 6 B §11.2). A day on this phone shows its rows (or, without a
+    /// habit to ask about, the way to choose some). A day that isn't: outlines while it is read, a line when the iPhone is
+    /// offline, and a failed read with Try again. Never the outlines for good (the user's offline-first rule, 2026-11-19).
+    enum Phase: Equatable, Sendable {
+        case loading, ready, noHabits, offline, failed
+    }
+
+    /// Profile → Journal's page opens on it (the no-habits link).
+    let store: JournalStore
     /// Up to 14 days back (`editable`); the sheet opens on yesterday.
     private(set) var day: String
     private(set) var groups: [Group] = []
     private(set) var editable = true
     private(set) var isSaving = false
     private(set) var error: String?
+    /// The failed save's status and request ID, for the message's Details (API.md → Errors).
+    private(set) var errorDetails: String?
     private(set) var saved = false
+    /// The day is on this phone (in memory or the SwiftData cache): its rows say what it holds.
+    private(set) var hasDay = false
+    /// A read of the day is on its way.
+    private(set) var isLoading = false
+    /// The last read of the day brought nothing back (offline is the caller's to tell apart: `phase(isOnline:)`).
+    private(set) var loadFailed = false
 
     static let defaultTime = "18:00"
     static let daysBack = 14
@@ -78,21 +94,41 @@ final class JournalSheetModel {
     }
 
     var readOnlyReason: String? {
-        editable ? nil : String(localized: "Days more than 14 days ago can't be changed.")
+        editable ? nil : String(localized: "This day can't be changed any more.",
+                                comment: "Journal sheet: the selected day is too far back to answer or change (lock glyph).")
+    }
+
+    /// The rows, or what stands in their place. `isOnline` is the iPhone's connection (`ConnectivityMonitor`).
+    func phase(isOnline: Bool) -> Phase {
+        if hasDay { return groups.isEmpty ? .noHabits : .ready }
+        if !isOnline { return .offline }
+        if isLoading { return .loading }
+        return loadFailed ? .failed : .loading
     }
 
     func select(_ day: String) async {
         self.day = day
         saved = false
         error = nil
+        errorDetails = nil
         rebuild()
-        await store.loadDay(day)
-        rebuild()
+        await loadDay()
     }
 
     func load() async {
         if store.behaviors.isEmpty { await store.load() }
-        await store.loadDay(day)
+        await loadDay()
+    }
+
+    /// The selected day from the platform (the cache first). A newer `select` while it's on its way owns the state after it.
+    private func loadDay() async {
+        let asked = day
+        isLoading = true
+        loadFailed = false
+        let found = await store.loadDay(asked)
+        guard asked == day else { return }
+        isLoading = false
+        loadFailed = found == nil
         rebuild()
     }
 
@@ -100,6 +136,7 @@ final class JournalSheetModel {
     /// in first-seen order, rows in the platform's order; values from the day.
     private func rebuild() {
         let journal = store.cachedDay(day)
+        hasDay = journal != nil
         editable = journal?.editable ?? Self.isEditable(day, yesterday: store.yesterday)
         let answered = Set(journal?.entries.map(\.behaviorId) ?? [])
         let shown = store.behaviors.filter { $0.enabled || answered.contains($0.id) }
@@ -143,6 +180,7 @@ final class JournalSheetModel {
         guard editable else { return }
         isSaving = true
         error = nil
+        errorDetails = nil
         defer { isSaving = false }
         do {
             try await store.save(day: day, entries: put.entries)
@@ -152,6 +190,7 @@ final class JournalSheetModel {
             return
         } catch {
             self.error = Self.message(for: error, rows: groups.flatMap(\.rows))
+            errorDetails = error.diagnosticDetails
         }
     }
 
