@@ -2061,6 +2061,14 @@ struct TrainViewModelTests {
         #expect(draft.exercise.bodyweightFactor == 1)
         #expect(!CustomExerciseDraft(name: "   ").canSave)
     }
+
+    /// Save is off for a name the platform refuses, so the sheet never hands on an exercise the outbox won't queue.
+    @Test func customExerciseNameCap() {
+        #expect(CustomExerciseDraft(name: String(repeating: "a", count: 80)).canSave)
+        #expect(!CustomExerciseDraft(name: String(repeating: "a", count: 81)).canSave)
+        #expect(CustomExerciseDraft(name: "  " + String(repeating: "a", count: 80) + "  ").canSave)
+        #expect(!CustomExerciseDraft(name: "Row", muscle: nil).canSave)
+    }
 }
 
 // MARK: - Onboarding (invite, consent, about you)

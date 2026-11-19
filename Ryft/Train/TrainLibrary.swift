@@ -28,7 +28,7 @@ final class TrainLibrary {
 
     /// The longest custom exercise name the platform takes (API.md: `name` 1–80 characters; it counts Unicode scalars
     /// of the trimmed name).
-    static let maxExerciseName = 80
+    nonisolated static let maxExerciseName = 80
 
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, outbox: @escaping @MainActor () -> TrainSyncService,
          exerciseWait: Duration = .seconds(10), restore: Bool = true) {
@@ -274,7 +274,7 @@ final class TrainLibrary {
     }
 
     /// Trimmed, not empty and at most `maxExerciseName` Unicode scalars, as the platform counts.
-    static func isValidName(_ name: String) -> Bool {
+    nonisolated static func isValidName(_ name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && trimmed.unicodeScalars.count <= maxExerciseName
     }
