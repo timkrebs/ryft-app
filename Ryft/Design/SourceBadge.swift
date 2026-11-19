@@ -1,44 +1,51 @@
+// Where a row came from (ui.md §2.3; Nocturne, docs/work/2026-11-16-nocturne/design-pr6-b-train.md §9.1 and S6, the `b-17` and
+// `b-18` drafts): a quiet outline capsule with the source's name, on a row's second meta line. Names only: no vendor's logo and,
+// since Nocturne, no glyph (the row's disc already shows the sport).
 import SwiftUI
 
-/// Where a row came from (ui.md §2.3): a quiet capsule with the source's glyph and name. Names only, never a
-/// vendor's logo; Apple's silhouettes only for the Apple Watch and the iPhone themselves (`Tracker.symbol`).
+/// The badge's numbers (B §9.1).
+enum SourceBadgeSpec {
+    /// At least 22 high (it grows with a wrapped name at large sizes), 8 at the sides.
+    nonisolated static let minHeight: CGFloat = 22, horizontalPadding: CGFloat = 8
+    /// Two lines' worth of padding when the name wraps (accessibility sizes).
+    nonisolated static let verticalPadding: CGFloat = 3
+    /// The outline: 1 pt ink at 12 %; at 35 % with Increase Contrast (the 3:1 of a boundary).
+    nonisolated static let outlineOpacity = 0.12, increasedContrastOpacity = 0.35
+    /// Between two badges, and between two lines of them.
+    nonisolated static let spacing: CGFloat = 6
+}
+
+/// An outline capsule, at least 22 high: the name in `axis` (11) `textTertiary` (4.54:1 on `surface`), 8 at the sides, a 1 pt
+/// outline at ink 12 %. No fill, so it reads the same on a tile, in a card and on the screen. One line, middle-truncated; from
+/// the accessibility sizes on up to two lines, never cut in the middle. The row it sits in speaks its sources.
 struct SourceBadge: View {
     /// The name as shown: a tracker's display name verbatim, or RYFT's own wording, already localized.
     let title: String
-    let glyph: String
 
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: glyph)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityHidden(true)
-            // One line, middle-truncated; from the accessibility sizes on up to two lines, never cut in the middle.
-            Text(verbatim: title)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
-                .truncationMode(typeSize.isAccessibilitySize ? .tail : .middle)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Theme.surfaceRaised, in: Capsule())
-        // With Increase Contrast an outline carries the capsule.
-        .overlay {
-            if contrast == .increased {
-                Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline)
+        Text(verbatim: title)
+            .font(.ryft(.axis))
+            .foregroundStyle(Theme.textTertiary)
+            .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+            .truncationMode(typeSize.isAccessibilitySize ? .tail : .middle)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, SourceBadgeSpec.horizontalPadding)
+            .padding(.vertical, SourceBadgeSpec.verticalPadding)
+            .frame(minHeight: SourceBadgeSpec.minHeight)
+            .overlay {
+                Capsule().strokeBorder(Theme.textPrimary.opacity(contrast == .increased ? SourceBadgeSpec.increasedContrastOpacity
+                                                                                          : SourceBadgeSpec.outlineOpacity),
+                                       lineWidth: Theme.Metrics.hairline)
             }
-        }
     }
 }
 
 extension SourceBadge {
     init(_ source: MyDayItem.Source) {
-        self.init(title: source.title, glyph: source.glyph)
+        self.init(title: source.title)
     }
 }
 
@@ -53,6 +60,8 @@ extension MyDayItem.Source {
         }
     }
 
+    /// The source's glyph (ui.md §2.3). The Nocturne badge draws the name only (B §9.1); the glyph stays the model's answer to
+    /// "what kind of source", for a view that shows one.
     var glyph: String {
         switch self {
         // Without GPS (an indoor run, yoga…) a neutral "recorded" mark: the row's icon already shows the sport.
@@ -66,21 +75,31 @@ extension MyDayItem.Source {
     }
 }
 
-/// One to a few badges side by side, 6 pt apart, wrapping to the next line where they don't fit (AX sizes,
-/// narrow rows). VoiceOver reads them as one: "Sources: Garmin Connect and RYFT, merged".
+/// Badges by name, side by side 6 apart, wrapping to the next line where they don't fit (AX sizes, narrow rows).
+/// `ActivityListRow` puts it on its second meta line and speaks the sources in the row's sentence.
+struct SourceBadgeRow: View {
+    let titles: [String]
+
+    var body: some View {
+        FlowLayout(spacing: SourceBadgeSpec.spacing, lineSpacing: SourceBadgeSpec.spacing) {
+            ForEach(Array(titles.enumerated()), id: \.offset) { _, title in
+                SourceBadge(title: title)
+            }
+        }
+    }
+}
+
+/// A row's sources on their own (the activity detail): the badges, read by VoiceOver as one element, "Sources: Garmin Connect
+/// and RYFT, merged".
 struct SourceBadges: View {
     let sources: [MyDayItem.Source]
     /// The platform merged the row's activity with a tracker's workout.
     var merged = false
 
     var body: some View {
-        FlowLayout(spacing: 6, lineSpacing: 6) {
-            ForEach(Array(sources.enumerated()), id: \.offset) { _, source in
-                SourceBadge(source)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Self.spoken(sources, merged: merged)))
+        SourceBadgeRow(titles: sources.map(\.title))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(Self.spoken(sources, merged: merged)))
     }
 
     /// "Source: Garmin Connect", "Sources: Garmin Connect and RYFT, merged".
@@ -155,14 +174,15 @@ struct FlowLayout: Layout {
     }
 }
 
-#Preview("Source badges", traits: .sizeThatFitsLayout) {
-    SchemePair {
+// MARK: - previews (dark only)
+
+private struct SourceBadgesPreviewList: View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SourceBadges(sources: [.tracker(name: "Garmin Connect", symbol: "watch.analog"), .ryftRecorded(indoor: false)],
                          merged: true)
-            SourceBadges(sources: [.tracker(name: "Tim's Apple Watch", symbol: "applewatch"), .train])
+            SourceBadges(sources: [.tracker(name: "Alex's Apple Watch", symbol: "applewatch"), .train])
             SourceBadges(sources: [.ryftManual])
-            SourceBadges(sources: [.ryftRecorded(indoor: true)])
             SourceBadges(sources: [.tracker(name: "Oura", symbol: "circle.circle")])
             SourceBadges(sources: [.tracker(name: MyDayAssembler.appleHealth, symbol: MyDayAssembler.appleHealthSymbol)])
         }
@@ -170,15 +190,11 @@ struct FlowLayout: Layout {
     }
 }
 
-#Preview("Source badges · AX3 · de", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 12) {
-            SourceBadges(sources: [.tracker(name: "Garmin Connect", symbol: "watch.analog"), .ryftRecorded(indoor: false)],
-                         merged: true)
-            SourceBadges(sources: [.ryftManual])
-        }
-        .frame(width: 240, alignment: .leading)
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
-    .environment(\.locale, Locale(identifier: "de"))
+#Preview("Source badges", traits: .sizeThatFitsLayout) {
+    DarkPreview { SourceBadgesPreviewList() }
+}
+
+#Preview("Source badges · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { SourceBadgesPreviewList().frame(width: 240, alignment: .leading) }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
