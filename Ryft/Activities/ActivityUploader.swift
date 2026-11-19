@@ -512,9 +512,13 @@ final class ActivityUploader {
         default:
             break
         }
-        let kind = FailureKind.of(error)
+        // `403 app_attest_required` is refused before routing (nothing stored) and kept: tried again like an outage.
+        let attestRefused = api?.status == 403 && api?.code == .appAttestRequired
+        let kind = attestRefused ? FailureKind.transient : FailureKind.of(error)
         let answered = api?.status.map { (200..<300).contains($0) } ?? false
-        if !answered, kind == .gate || kind == .signedOut || kind == .other || kind == .appTooOld { nothingStored() }
+        if !answered, attestRefused || kind == .gate || kind == .signedOut || kind == .other || kind == .appTooOld {
+            nothingStored()
+        }
         let attempt = UploadAttempt(at: env?.clock.now() ?? Date(), request: request, status: api?.status,
                                     code: api?.code?.rawValue, requestID: api?.requestID, kind: kind)
         switch kind {

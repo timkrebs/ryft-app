@@ -39,6 +39,7 @@ enum FocusedPreview {
     private final class HeldClock: AppClock {
         func now() -> Date { Date() }
         func sleep(for duration: Duration) async throws { try await Task.sleep(for: .seconds(3600)) }
+        func uptime() -> Duration { .zero }
     }
 
     static let lastTimeDate = DateComponents(calendar: .current, year: 2026, month: 11, day: 3, hour: 18).date ?? .now
