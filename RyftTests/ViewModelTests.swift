@@ -2004,16 +2004,16 @@ struct TrainViewModelTests {
     @Test func exerciseDetailKeepsTheLast90Days() async {
         let clock = TestClock(now: .now)
         let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: library(), clock: clock)
-        #expect(vm.emptyChartText == String(localized: "Loading…"))
+        #expect(vm.isLoading, "outline cards before the first read, not \"Loading…\"")
         await vm.load()
-        #expect(vm.loaded)
+        #expect(vm.loaded && !vm.isLoading)
         let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
         #expect(vm.points.allSatisfy { $0.day >= from })
         #expect(vm.hasTrend == (vm.points.count >= 2))
         #expect(vm.recentRows.count <= 10)
         // Moving the clock 200 days on empties the window.
         clock.advance(by: .seconds(200 * 86_400))
-        #expect(vm.points.isEmpty && vm.change == nil)
+        #expect(vm.points.isEmpty && vm.change == nil && vm.latest == nil)
     }
 
     @Test func planDetailFiltersByWeek() async {

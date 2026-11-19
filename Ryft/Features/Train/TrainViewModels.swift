@@ -23,8 +23,32 @@ final class TrainHistoryViewModel {
             let loads = sessions.compactMap(\.muscularTrimp)
             return loads.isEmpty ? nil : loads.reduce(0, +)
         }
-        var title: String { String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated)))") }
-        var summary: String { "\(sessions.count) · \(Fmt.volume(volume)) · " + String(localized: "load \(Fmt.load(load))") }
+
+        /// "Week of Nov 8".
+        func title(locale: Locale = .autoupdatingCurrent) -> String {
+            String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated).locale(locale)))")
+        }
+
+        /// "2 sessions · 12.2 t · load 126" (PR 6 B §7.1): the week's load summed, without decimals.
+        var summary: String {
+            StrainRows.join([Self.sessionCount(sessions.count), Fmt.volume(volume),
+                             String(localized: "load \(Self.loadText(load))")])
+        }
+
+        /// "2 sessions, 12,200 kilograms, muscular load 126" (VoiceOver).
+        func spokenSummary(locale: Locale = .autoupdatingCurrent) -> String {
+            [Self.sessionCount(sessions.count), HistorySpeech.kilograms(volume, locale: locale),
+             String(localized: "Muscular load \(Self.loadText(load))")].joined(separator: ", ")
+        }
+
+        static func sessionCount(_ n: Int) -> String {
+            String(localized: "\(n) sessions", comment: "History's week header: how many sessions that week (\"2 sessions\").")
+        }
+
+        /// The week's load: "126"; "–" without one.
+        static func loadText(_ load: Double?) -> String {
+            load.map { $0.formatted(.number.precision(.fractionLength(0))) } ?? Fmt.placeholder
+        }
     }
 
     init(library: TrainLibrary) {
@@ -39,6 +63,14 @@ final class TrainHistoryViewModel {
     }
 
     var isEmpty: Bool { sessions.isEmpty }
+
+    /// The first visit with nothing cached: outline rows, not a spinner.
+    var isLoading: Bool { !loaded && sessions.isEmpty }
+
+    /// The header's subtitle, "8 workouts"; nil while loading and when there are none.
+    var subtitle: String? {
+        sessions.isEmpty ? nil : String(localized: "\(sessions.count) workouts")
+    }
 
     /// Cached at once, then the platform's.
     func load() async {
@@ -69,6 +101,13 @@ final class ExerciseDetailViewModel {
         self.clock = clock
     }
 
+    /// A history already read (previews, tests): the page draws it as loaded.
+    convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock) {
+        self.init(exerciseID: exerciseID, library: library, clock: clock)
+        self.history = history
+        loaded = true
+    }
+
     var exercise: Exercise? { library.exercise(id: exerciseID) }
     var title: String { exercise?.name ?? fallbackName ?? "" }
 
@@ -78,36 +117,37 @@ final class ExerciseDetailViewModel {
         return (history?.e1rm ?? []).filter { $0.day >= from }
     }
 
-    var current: String { points.last.map { Fmt.kg($0.value) } ?? Fmt.placeholder }
+    /// The newest estimate in the window, the page's hero (PR 6 B §7.3); nil without one.
+    var latest: Double? { points.last?.value }
+
+    /// Now, by the app's clock: the chart's window ends here.
+    var now: Date { clock.now() }
 
     /// "Barbell · Chest · Triceps".
     var subtitle: String? {
         exercise.map { ([$0.kind.title] + $0.primaryMuscles.map(\.title)).joined(separator: " · ") }
     }
 
-    /// "+6.5 kg in 90 days".
-    var change: String? {
+    /// The change over the window, first estimate to the newest, in kg ("▲ 11.6 kg in 90 days"); nil with fewer than two.
+    var change: Double? {
         guard let first = points.first?.value, let last = points.last?.value, points.count > 1 else { return nil }
-        let delta = last - first
-        return String(localized: "\(delta >= 0 ? "+" : "−")\(Fmt.kg(abs(delta))) in 90 days")
+        return last - first
     }
 
     var bestE1RM: Double? { history?.prs.first { $0.kind == .e1rm }?.value }
     var records: [PersonalRecord] { history?.prs ?? [] }
 
-    /// The newest session against the one before.
-    var lastDelta: MetricDelta? {
+    /// The newest session against the one before, in kg ("▲ 2.9 kg vs last").
+    var lastChange: Double? {
         guard points.count >= 2 else { return nil }
-        return MetricDelta(current: points[points.count - 1].value, reference: points[points.count - 2].value)
+        return points[points.count - 1].value - points[points.count - 2].value
     }
 
     var hasTrend: Bool { points.count >= 2 }
-    var emptyChartText: String {
-        loaded ? String(localized: "Log this exercise twice to see a trend.") : String(localized: "Loading…")
-    }
-    var emptySetsText: String {
-        loaded ? String(localized: "No sets logged for this exercise yet.") : String(localized: "Loading…")
-    }
+    /// The first visit with nothing cached: outline cards, not "Loading…".
+    var isLoading: Bool { !loaded && history == nil }
+    var emptyChartText: String { String(localized: "Log this exercise twice to see a trend.") }
+    var emptySetsText: String { String(localized: "No sets logged for this exercise yet.") }
 
     /// One recent session: its day, the working sets, their best e1RM.
     struct RecentRow: Identifiable, Equatable {
@@ -124,7 +164,7 @@ final class ExerciseDetailViewModel {
         (history?.sessions ?? []).prefix(10).enumerated().map { i, entry in
             let working = entry.sets.filter { !$0.isWarmup }
             return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated)),
-                             sets: working.map(SetText.short).joined(separator: "  ·  "),
+                             sets: StrainRows.join(working.map(SetText.short)),
                              best: E1RM.best(of: working))
         }
     }
