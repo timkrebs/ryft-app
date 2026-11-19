@@ -287,7 +287,9 @@ struct LiveSessionShellHostedTests {
                 let check = try #require(w.pixel(at: CGPoint(x: row.maxX - 28, y: row.minY + 6)))
                 #expect(Self.isClose(check, Theme.surface), "\(name) ✓ \(check)")
             }
-            let doneGround = try #require(w.pixel(at: CGPoint(x: done.minX + 4, y: done.midY)))
+            // The row's own ground: its top middle, above the fields' 4 pt inset. Not its leading edge: the element starts about
+            // 7 pt left of the row's background, so a tint there went unseen.
+            let doneGround = try #require(w.pixel(at: CGPoint(x: done.midX, y: done.minY + 2)))
             #expect(Self.isClose(doneGround, Theme.surface, tolerance: Self.exact), "a done row has no tint: \(doneGround)")
         }
     }
