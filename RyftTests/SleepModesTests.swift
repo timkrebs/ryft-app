@@ -362,7 +362,7 @@ struct SleepBedtimeBoardTests {
         #expect(board.tiles.map(\.kind) == [.need, .timeInBed])
         #expect(board.tiles[0].value == Fmt.clock(minutes: plan.needMin) && board.tiles[0].unit == "h")
         #expect(board.tiles[1].value == Fmt.clock(minutes: plan.inBedMin))
-        #expect(board.tiles[1].notes == [SleepTile.Note(text: "\(plan.efficiency) %", ink: .tertiary)])
+        #expect(board.tiles[1].notes == [SleepTile.Note(text: "\(plan.efficiency)\u{00A0}%", ink: .tertiary)])
         let getBy = SleepBedtimeBoard(plan: plan, wake: wake, goal: .getBy, locale: enUS)
         #expect(getBy.tiles[1].value == Fmt.clock(minutes: Int((Double(plan.inBedMin) * 0.7).rounded())))
     }

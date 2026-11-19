@@ -2174,7 +2174,9 @@
       "comment" : "Heading over a setup card's steps: in the tracker's app, e.g. In Garmin Connect."
     },
     "In bed by" : {},
-    "In bed by %@ for %lld %% of your need: %@." : {},
+    "In bed by %@ for %lld %% of your need: %@." : {
+      "comment" : "The wind-down reminder: the bedtime, the share of the sleep need it gives, that sleep. The % sign is literal."
+    },
     "In bed by %@ for your full %@." : {},
     "In bed by · %lld %% of your need" : {
       "comment" : "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's sleep need. %lld: the percentage, e.g. 100. The % sign is literal."
