@@ -83,6 +83,8 @@
 	<true/>
 	<key>RyftAPIURL</key>
 	<string>$(RYFT_API_URL)</string>
+	<key>RyftIngestURL</key>
+	<string>$(RYFT_INGEST_URL)</string>
 	<key>RyftSupabasePublishableKey</key>
 	<string>$(RYFT_SUPABASE_PUBLISHABLE_KEY)</string>
 	<key>RyftSupabaseURL</key>

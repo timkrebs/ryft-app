@@ -9,14 +9,14 @@ enum LegalPage: String, Identifiable {
 
     var url: URL {
         switch self {
-        case .privacy: return URL(string: "https://ryftapp.de/privacy")!
-        case .terms: return URL(string: "https://ryftapp.de/terms")!
+        case .privacy: return URL(string: "https://ryftlab.de/privacy")!
+        case .terms: return URL(string: "https://ryftlab.de/terms")!
         }
     }
 
     /// Our own links in Markdown text are opened in-app too.
     init?(url: URL) {
-        guard url.host == "ryftapp.de" else { return nil }
+        guard url.host == "ryftlab.de" else { return nil }
         switch url.path {
         case "/privacy": self = .privacy
         case "/terms": self = .terms

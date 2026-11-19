@@ -1,4 +1,31 @@
-# Status — 2026-11-05
+# Status — 2026-11-14
+
+## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
+
+Plan: `docs/work/2026-11-14-domain-ryftlab/plan.md`.
+
+2026-11-15: The sync (`POST /v1/sync`) now goes to `RYFT_INGEST_URL` = `https://ingest.ryftlab.de` (platform D217), and every other route to `api.ryftlab.de`, with no fallback between them. A build without an ingest URL fails `PlatformConfigTests`. In Debug, an API override needs its ingest override (compose: `:8081` ingest, `:8082` api). Simulator-verified only.
+
+The domain moved from `ryftapp.de` to `ryftlab.de` as a hard cut: there's no fallback, and `ryftapp.de` isn't served anymore. That covers the API (`api.ryftlab.de`), the legal pages and support, `trackers.json` and universal links. The old name stays in the dated entry "Session 2026-10-23 → 26", in `docs/work/2026-10-*` and in `docs/work/2026-11-06-alpine/`. Only the host changed; `redirectURL` stays `ryft://auth/callback`, and Associated Domains stays off.
+
+- **Verified on the simulator:** build with 0 warnings; unit tests: every host, deep-link and fixture test passes.
+- **Pre-existing failures, also on `main`:** `FocusedRowInViewTests`, `FocusedPolishHostedTests`, `RestPillHostedTests` and one `ImportTimeResolverTests` case fail on this Mac's only simulator, "iPhone Duo".
+- **Not verified on a device:** no build has talked to `api.ryftlab.de` yet.
+- **Release:** a merge ships with that night's nightly to Internal. No version bump: the marketing version stays 1.0.0, and the build number is the archive time.
+- **Your steps:**
+  - Supabase → Authentication → URL Configuration:
+    - move the Site URL to ryftlab.de;
+    - **delete every Redirect URL on the old domain**;
+    - keep `ryft://auth/callback`.
+    A leftover old-domain redirect would let whoever holds that domain later capture a reset session.
+  - Keep the old domain registered at least until the builds already out expire (about 2027-01-30): they still call its `api.` host with tokens and health data.
+    - Give it no `api.` record, a null MX and DMARC `p=reject`.
+    - Expire those builds in App Store Connect once the new one ships.
+  - App Store Connect: the TestFlight Test Information and App Information URLs.
+  - The demo account: the docs name `review@ryftlab.de`, which `seed_demo.sh` doesn't seed yet. Fill App Store Connect only after it does. Delete or move every Supabase account on an old-domain address.
+- **Platform:**
+  - Push `ryft.url`, `/v1/config` `privacy_policy_url` and the `trackers.json` help links on ryftlab.de: the app now ignores other hosts.
+  - The move to GCP changes the processors named in the privacy policy (`docs/APP_STORE.md` still says AWS eu-central-1).
 
 English only (`chore/english-only`): the app has no German, the catalogs carry no `de`, and tracker copy and the German UI test follow suit; open for the platform: `de` tracker text and the `Accept-Language` header.
 
@@ -45,8 +72,15 @@ reproduce: an insert lands in the older and the newer container, and the account
 isn't settled: the invariant the app relies on holds (made and awaited off main, a model actor's jobs run off main),
 but which thread decides is unmeasured, since the observations assert only on 27. The 18.0 trap shows in another form:
 `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` traps with "Never access a full future backing data"
-(`BackingData.swift:739`), as on `main`; #107 fixes it. Until T0.1 is measured and #107 is in, code and tests treat 18.6
-as 18.0.
+(`BackingData.swift:739`), as on `main` then. Since #107 that probe reads relationships only on 27, and the wipe and the
+demo's exit release what holds their rows (2026-11-19, below). Until T0.1 is measured, code and tests treat 18.6 as
+18.0.
+
+2026-11-19: the sign-out wipe's W2 and W3 (#107, ADR 0020; it includes #106), with `main` merged in: an owed wipe
+finishes at the next start before the store opens, and no other account is signed in over it. The wipe suites pass
+on 18.6 and 27.2. On 18.6 the wipe's release of the open workout is a precaution: reading a deleted row's relationship
+traps there, but the hosted screen never did (only on 18.0). W4a and W7 come before the External build, and C2 goes
+into force with it (Sign-out wipe, below).
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
@@ -66,23 +100,56 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 - **Before the flag goes on:** a run on iOS 18.6 (the oldest supported runtime, installed), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
 - **Open:** List shows a bodyweight row's added-load ghost but ✓ doesn't log it, unlike Focused (product decision). `topFade` leaves a small fragment of a cut line at 390 AX3 (predates #99, in `review.md`). The performance follow-ups are in `review.md`.
 
-## Sign-out wipe
+## Sign-out wipe (ADR 0020)
 
-Recovery design, 8 tickets, not built: `docs/work/2026-11-05-wipe-recovery/design.md`. It waits on the user's answers in its §8.
+Design, re-baseline, reviews and the C2 note: `docs/work/2026-11-05-wipe-recovery/`. The user's answers (U1–U3) are in
+the design's §8.
 
-`TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
+**Built:** W1 (#103) writes a wipe down before it starts (`WipeLedger`). W2 and W3 are #107 (it includes #106; one
+squash commit, so no build has W2 without W3):
+- an owed wipe finishes before the store opens: at launch `AuthService` resolves the ledger, and `TrainStore.shared`
+  replaces the store's files (`StoreReset`) before its first container, unless an expiry's parked rows are within 30
+  days; the first frame and the nightly compaction retry;
+- no session is published over it: another account's sign-in is held after one failed attempt ("Close RYFT and open
+  it again to continue", on Welcome and Log in), and once a pass was refused nothing in that process ends the debt;
+- `auth.lastUserID` only says whose data the store holds, and `AccountScope` follows the published session;
+- the wipe's own turn lets go of the open workout (`TrainCoordinator.releaseRows`), and the demo's discard does the
+  same: on iOS 18 and 26 reading a deleted row's relationship can trap (known issues, below); a workout still opening
+  from the start sheet is dropped by the wipe, the discard and an account change, never presented afterwards.
 
-- **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
-- **Before the next External build:** ~~run `TrainStoreWipeTests` once on iOS 18.6~~: done 2026-11-18. 24 of its 25 tests pass there, a healthy store's wipe among them; the one failure is the held-row trap that #107 fixes (top entry).
-- **Recovery ticket, not started:**
-  - one stored id can't name two owners, and a second failure overwrites it;
-  - there's no launch-time retry for "kept id, nobody signed in";
-  - when parking can't read the activities, chunks stay outside the 30-day limit;
-  - a refused `CachedDay` delete can put the leaving account's readiness back on the lock screen;
-  - a sign-in over a failed wipe reads the old account's rows until the next launch;
-  - the deletion notice can claim more than happened;
-  - a kill mid-wipe, the Live Activity left up, and never-saved rows in other tables;
-  - WAL and backup residue.
+`TrainStore.wipe` deletes session rows object by object and reports every step. 44,500 rows take 3.4 s in Debug, on the
+main thread.
+
+- **Verified:** simulator only, 2026-11-19, `-parallel-testing-enabled NO`, on the final head of #107.
+  - iOS 18.6 (iPhone 16 Pro): the wipe, ledger, hold, account-scope, read-model wipe and demo-exit suites, 268 tests
+    in 14 suites. iOS 27.2: the same and the auth, Train sync, session and store suites, 708 tests in 41 suites. UI:
+    `DemoExitUITests` on 27.2. The reviewer walkthrough, the only UI test that signs out, skips without its
+    credentials.
+  - On 18.6 the hosted screens draw without trapping with or without the release (mutants that only stop the workout
+    fail at `isReleased` and at the released screen, never with a trap), so there it's a precaution.
+  - The real app on 18.6, a planted `.user` entry with an orphan copy, Demo data off and a stale id on the demo list:
+    4 files replaced in 2 ms before the first container; the orphan, the entry, the owner and the stale id gone; the
+    app still running.
+- **Before the External build:** W4a and W7, each its own PR from `main`.
+  - W4a: nothing written to the widget while a wipe is owed, gated at `Repository.publishWidget` /
+    `ReadinessSnapshot.publish`. Its scope is every caller: `onWipe` (`AppState.wiped`), the demo's exit
+    (`ProfileViewModel.endDemo`, which during a debt publishes from the account's store), the repository's committed
+    batches, `todayStatus` and `tonightBedtime`, the scoring ledger (`SyncCoordinator`) and the widget setup watch
+    (`ScreenModels`).
+  - W7: a scrub after a no-parking wipe; `Train.store` and the ledger out of device backups.
+  - C2's wipe sentences depend on W2, W3, W4a and W7 (`c2-brief.md`), so C2 goes into force with the External build
+    that carries all four.
+- **Needs you (U5, on a device):** kill RYFT during a sign-out with a workout live, reopen: nothing of it on the lock
+  screen; a sign-out on a really full disk; a held sign-in, then close and reopen: the account is in; a backup restore
+  after a sign-out holds no `Train.store` (after W7); deleting the app removes the App Group container. Once by hand: a
+  held recovery link shows "Set new password" at the launch that lets its account in.
+- **Later:** W4b (the Live Activity, delivered notifications and the push registration during a hold), W5 (the notice
+  says what's left), W6 (rows never saved, before A3b), W9 (a deletion written down before the `DELETE`), W10 (a held
+  Sign in with Apple keeps its authorization code), W11 (no demo over an owed wipe), W12 only if needed.
+- **Known:** files that never go keep a sign-in held at every launch, and the copy's "close and open" doesn't help
+  there (deleting the app should, unverified); a full disk can lose the debt; with Demo data on over an owed wipe, the
+  demo's Train shows the leaving account's sessions (W11); after a wipe the demo's list keeps the ids of sessions the
+  wipe took until the demo's next exit or launch sweep prunes them (only Profile's VoiceOver hint reads it).
 
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 
@@ -552,8 +619,8 @@ Garmin Connect after 08:00).
    - the brief `CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md` plus `API_REQUESTS.md` → Tracker setup (§1 corrected: Garmin has
      resting HR);
    - `User.trackers`;
-   - `trackers.json` on ryftapp.de.
-2. **ryftapp.de/privacy:** problem reports include tracker ids and Check sync result codes; the daily catalog download (no
+   - `trackers.json` on ryftlab.de.
+2. **ryftlab.de/privacy:** problem reports include tracker ids and Check sync result codes; the daily catalog download (no
    account data); the tracker choice stays on the phone; vendor guides open vendor sites.
 3. **Turn `devices.setup` on** only after the platform deploy, the morning device check, and the TestFlight notes below.
 
@@ -730,7 +797,7 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
 - `NSHealthUpdateUsageDescription` (en + de) now says what's true; `docs/APP_STORE_METADATA.md`
   (both descriptions and the App Review notes) too. `PrivacyInfo.xcprivacy` unchanged (Health data
   was already declared; writing is not collection).
-- **Your step:** the privacy policy at ryftapp.de/privacy needs the same line (RYFT may write
+- **Your step:** the privacy policy at ryftlab.de/privacy needs the same line (RYFT may write
   strength workouts to Apple Health, opt-in).
 - **On your iPhone:** turn it on after a workout; the workout appears in Fitness / Health with
   RYFT as its source; the next sync doesn't list it twice on Strain. With a watch strength
@@ -1010,7 +1077,7 @@ examples), strict build, `make lint`, `make style`. Screens captured in the simu
   Apple" (without it the app says linking isn't switched on yet).
 - Once this is on TestFlight: both gates `on` on the platform (its `STATUS.md` →
   Accounts and sync, step 6).
-- `ryftapp.de/support` is named in the account-hint sheet; it has to exist.
+- `ryftlab.de/support` is named in the account-hint sheet; it has to exist.
 - ~~`Ryft/` and `RyftTests/` to synchronized folders~~ — done 2026-10-23 (#39).
 - `Package.resolved` on `main` doesn't match the package requirements (dependabot's
   swift-crypto 5.0.1; the resolver picks 4.5.2 and adds swift-issue-reporting). CI
@@ -1093,7 +1160,7 @@ error. Against compose (or in demo mode) all three show up.
 
 ### Universal links
 
-No `associated-domains` entitlement until `ryftapp.de` hosts an AASA with the app's paths (an empty array blocked launching; `make check-entitlements` now guards it). The
+No `associated-domains` entitlement until `ryftlab.de` hosts an AASA with the app's paths (an empty array blocked launching; `make check-entitlements` now guards it). The
 request is in `docs/API_REQUESTS.md`, with app ID `M77SKHKG63.dev.timkrebs.ryft` and the
 paths. `ryft://` links and notification taps work now.
 
@@ -1132,7 +1199,7 @@ for me.
 | Every view model and state machine tested | ✅ 318 unit tests, all green in Xcode |
 | Offline history works | ✅ in tests (`RepositoryOfflineTests`, SwiftData read models); ⏳ device check: airplane mode, relaunch, scroll 90 days |
 | Sandbox push arrives | ⏳ capability and registration done; device check open (Platform wiring → Device verification) |
-| A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftapp.de` and the platform's AASA paths |
+| A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftlab.de` and the platform's AASA paths |
 | Flags toggle without a rebuild | ✅ observation test; ⏳ device check: flip a flag on the platform, return to the app |
 | CI green, one nightly TestFlight build | ⏳ workflows written, not yet run: no GitHub remote push from here, and the ASC secrets and paid team are missing (`docs/CI.md`) |
 | Docs: ARCHITECTURE.md, CI.md, STATUS.md | ✅ |
@@ -1237,7 +1304,7 @@ no open *fix* rows.
 - **Release hygiene** (`9213d79`):
   - `ITSAppUsesNonExemptEncryption = NO`; background modes `fetch` only.
   - Graphite launch screen; no Mac or Vision Pro.
-  - Associated Domains `applinks:ryftapp.de`, with the universal-link auth callback.
+  - Associated Domains `applinks:ryftlab.de`, with the universal-link auth callback.
   - Version 1.0.0 with a timestamp build number.
   - `make archive` with `scripts/ExportOptions.plist`, and a Licences screen.
 - **Accessibility** (`89e3d9a`):
@@ -1269,7 +1336,7 @@ Only the account holder can do these; the full list is in `docs/APP_STORE.md` §
   `TEST_RUNNER_RYFT_DEMO_PASSWORD`.
 - **Simulator only so far**: HealthKit permission flow, Instruments memory peak on the first
   90-day sync, Network Link Conditioner, one iPad run (compatibility mode).
-- **Website**: `/privacy`, `/terms` and `/support` on ryftapp.de, and the AASA file for
+- **Website**: `/privacy`, `/terms` and `/support` on ryftlab.de, and the AASA file for
   `/auth/*`.
 - **App Store Connect**: age rating, App Privacy, Accessibility Nutrition Labels, DSA trader
   status, review notes.
@@ -1503,7 +1570,7 @@ contract points are in `docs/API_REQUESTS.md`.
   - **Log out and deletion** clear the session, `ResponseCache`, HealthKit anchors and
     per-user defaults. A different account on the phone also starts from scratch.
 - **Configuration**: `Config/Production.xcconfig` (committed) carries `RYFT_API_URL`
-  (`https://api.ryftapp.de`), `RYFT_SUPABASE_URL` and `RYFT_SUPABASE_PUBLISHABLE_KEY`,
+  (`https://api.ryftlab.de`), `RYFT_SUPABASE_URL` and `RYFT_SUPABASE_PUBLISHABLE_KEY`,
   exposed via Info.plist. Per-user server fields are gone. A missing value shows an in-app
   message.
   - Debug-only **Profile → Developer**: API/ingest URL overrides, API key mode for
@@ -1551,8 +1618,8 @@ contract points are in `docs/API_REQUESTS.md`.
 - **Release configuration → `Config/Production.xcconfig`.** Set it in Xcode (Project → Info
   → Configurations); per `CLAUDE.md` the project file isn't edited by hand. Until then,
   Release uses the git-ignored `Config/Release.xcconfig`, which includes it.
-- **Legal pages.** The consent line links `https://ryftapp.de/terms` and
-  `https://ryftapp.de/privacy`. Both must exist before release.
+- **Legal pages.** The consent line links `https://ryftlab.de/terms` and
+  `https://ryftlab.de/privacy`. Both must exist before release.
 
 ## Open
 
@@ -1596,12 +1663,14 @@ contract points are in `docs/API_REQUESTS.md`.
   demo's workouts starts with that build. Its first launch with protected data seeds it only with nobody signed in
   (every stored session is then the demo's, and with Demo data off that launch discards them); signed in, the account's
   sessions are there too and can't be told apart, so older demo workouts stay with the account (design §6.9).
-- **iOS 18.0: a row still held after a Train wipe can trap** ("SwiftData/BackingData.swift:296: Fatal error: Context
-  is missing for … LocalSession"). `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` ends the test
-  process on 18.0 (measured 2026-11-18, on P1b and on its base `72750f4` alike); 17.0 and 27.2 pass, 26.0 not run. In the
-  app it's a live workout's controller or a sheet reading a session row after an account change wiped it, before the
-  account-change handler closes them. Not P1b's. With 18.6 the minimum it needs its own look, on 18.6 (unmeasured
-  there): the read that traps, and whether the handler can close the screens before the wipe.
+- **iOS 18 and 26: reading a relationship of a deleted, saved Train row can trap.** The probe
+  (`TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack`) traps on 18.0 ("Context is missing"), 18.6 and
+  26.0 ("Never access a full future backing data"), so its relationship reads run only on 27. The workout's screen,
+  hosted through the wipe with a rest running, trapped only on 18.0, which is no longer supported. Since #107 the wipe
+  and the demo's exit release the open workout in their own turn and its screen draws none of the rows; on 18.6 that is
+  a precaution, measured only as `isReleased` (`anOpenWorkoutDrawsNoDeletedRow`,
+  `anOpenDemoWorkoutDrawsNoDeletedRowAtTheExit`, 2026-11-19). A new screen or sheet that holds Train rows releases them
+  the same way (ADR 0020, decision 7).
 - Satoshi isn't committed because of its licence (see README). Fresh clones render in SF
   Pro Rounded until `scripts/fetch-fonts.sh` runs.
 - Welcome and the auth screens are always dark (Graphite, as on the board), also in light

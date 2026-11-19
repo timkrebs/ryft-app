@@ -166,7 +166,8 @@ final class TrainSyncService {
         holds = []
         lastCompletion = nil
         lastError = nil
-        refreshCount()
+        // As in `init`: a launch wipe calls this while `AppEnvironment.live` is being built, and the default owner reads it.
+        Task { [weak self] in self?.refreshCount() }
     }
 
     /// The replay and the 2 s wait stop, and the generation moves: an answer in flight is dropped before it touches a

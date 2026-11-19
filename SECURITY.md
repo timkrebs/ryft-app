@@ -6,7 +6,7 @@ Please report anything that could expose it privately, never in a public issue.
 ## Reporting
 
 - Use GitHub's **private vulnerability reporting**: the repository's Security tab →
-  Report a vulnerability. Or email `security@ryftapp.de`.
+  Report a vulnerability. Or email `support@ryftlab.de`.
 - Include what you found, how to reproduce it, and which build (Profile → About shows
   the version and build).
 - You'll get an answer within 72 hours. Please give us time to fix the issue before
@@ -16,7 +16,7 @@ Please report anything that could expose it privately, never in a public issue.
 
 - This app (iOS), including how it stores data on the device (SwiftData, Keychain) and
   talks to the platform.
-- The platform (`api.ryftapp.de`) has its own repository; reports about it are welcome
+- The platform (`api.ryftlab.de`) has its own repository; reports about it are welcome
   through the same channels.
 
 ## What is public on purpose

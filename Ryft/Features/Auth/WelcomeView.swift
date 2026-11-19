@@ -98,7 +98,7 @@ struct WelcomeView: View {
             }
             .disabled(!auth.isConfigured)
             AuthErrorMessage()
-            Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftapp.de/privacy)")
+            Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftlab.de/privacy)")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .tint(Theme.textSecondary)
@@ -185,6 +185,32 @@ private struct ValueLine: View {
         .environment(auth)
         .environment(Settings.shared)
         .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
+        .preferredColorScheme(.light)
+}
+
+/// A sign-in held over an owed wipe: the message under the ways in, derived from the hold, so `onAppear` doesn't clear it.
+#Preview("Welcome · sign-in held") {
+    WelcomeView()
+        .environment(AuthService.previewHeld())
+        .environment(Settings.shared)
+}
+
+/// The most it shows: an expiry's notice and its parked rows, then another account's sign-in held over them, at AX3.
+/// The scrolling child.
+#Preview("Welcome · sign-in held · parked · AX3") {
+    let auth = AuthService.previewHeld()
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
+        .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Welcome · sign-in held · light system") {
+    WelcomeView()
+        .environment(AuthService.previewHeld())
+        .environment(Settings.shared)
         .preferredColorScheme(.light)
 }
 

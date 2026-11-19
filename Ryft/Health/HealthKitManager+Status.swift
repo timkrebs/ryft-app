@@ -26,7 +26,7 @@ extension HealthKitManager {
 // own, because `Ryft/` is a classic group (ADR 0002 → follow-ups). The bundled copy is the generated
 // region at the end (`make trackers` from `Content/trackers.json`).
 
-/// trackers.json, validated (§2.3). Bundled (the generated literal), or the newest valid copy from ryftapp.de.
+/// trackers.json, validated (§2.3). Bundled (the generated literal), or the newest valid copy from ryftlab.de.
 struct TrackerCatalog: Equatable, Sendable {
     let version: String
     /// Picker order.
@@ -277,7 +277,7 @@ enum CatalogError: Error, Equatable {
 }
 
 extension AppEnvironment {
-    /// The catalog every screen reads: the bundled copy, or the newest valid one from ryftapp.de.
+    /// The catalog every screen reads: the bundled copy, or the newest valid one from ryftlab.de.
     var trackerCatalog: TrackerCatalog { catalogStore.current }
 }
 
@@ -375,7 +375,7 @@ private struct CatalogValidator {
     ]
     /// On a shared host, the vendor's own part of it.
     static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/answer/"]] // not /googlehealth/thread/: user posts
-    static let anyHelpHost = "ryftapp.de"
+    static let anyHelpHost = "ryftlab.de"
     /// On RYFT's own host, content pages only: never the universal-link routes (`/auth/…`, `/invite/…`).
     static let anyHelpPaths = ["/setup/", "/help/"]
 

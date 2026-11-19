@@ -41,7 +41,7 @@ struct AccountHintSheet: View {
                     .accessibilityIdentifier("hint.useOther")
                 PrimaryButton(title: "Continue with this one", style: .secondary) { keep() }
                     .accessibilityIdentifier("hint.keep")
-                Text("Data in both accounts? Support can merge them: ryftapp.de/support")
+                Text("Data in both accounts? Support can merge them: ryftlab.de/support")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

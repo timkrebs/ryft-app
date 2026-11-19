@@ -27,8 +27,8 @@ struct CreateAccountView: View {
             PrimaryButton(title: "Create account", busy: auth.isWorking) { await submit() }
                 .disabled(!isValid)
                 .padding(.top, 4)
-            // Links must be literal for Markdown; the pages have to exist on ryftapp.de (STATUS.md).
-            Text("By creating an account you agree to the [Terms](https://ryftapp.de/terms) and the [Privacy Policy](https://ryftapp.de/privacy).")
+            // Links must be literal for Markdown; the pages have to exist on ryftlab.de (STATUS.md).
+            Text("By creating an account you agree to the [Terms](https://ryftlab.de/terms) and the [Privacy Policy](https://ryftlab.de/privacy).")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .tint(Theme.textSecondary)

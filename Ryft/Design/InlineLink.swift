@@ -26,7 +26,7 @@ enum InlineLink {
 }
 
 extension Text {
-    /// Running text with Markdown links (`"… the [Privacy Policy](https://ryftapp.de/privacy)."`), looked up in the string
+    /// Running text with Markdown links (`"… the [Privacy Policy](https://ryftlab.de/privacy)."`), looked up in the string
     /// catalog. The links are `textPrimary`, underlined at 50 %; the other words take the caller's font and colour. A tap goes
     /// through the environment's `openURL` (so `safariSheet` keeps them in the app), and VoiceOver's Links rotor reaches each.
     init(inlineLinks resource: LocalizedStringResource) {

@@ -2,6 +2,7 @@
 
 - Status: proposed (2026-10-22, tracker setup, `docs/work/2026-10-22-tracker-setup/design.md` §2)
 - Amended: 2026-10-31. Rule 4's scheme clause is amended by 0012 (`0012-tracker-app-schemes-compiled.md`).
+- Amended: 2026-11-14. The host is `ryftlab.de` (was `ryftapp.de`, no longer served; a hard cut, no fallback).
 - Deciders: ios-lead, on ios-architect's proposal
 - Applies to: `Content/trackers.json`, `scripts/trackers.py`, `Makefile`, `Ryft/Health/HealthKitManager+Status.swift`,
   `Ryft/Environment/Seams.swift`, `Ryft/Environment/AppEnvironment.swift`
@@ -24,7 +25,7 @@ Oura, … Other, Just my iPhone) it holds:
 **What constrains it:**
 - **Vendor facts change.** Research on 2026-10-22 corrected the brief on Garmin (no HRV, no resting HR,
   foreground-only), Fitbit (now writes natively) and the iOS permission path. Guides must be fixable without an app
-  release, so the latest copy comes from `https://ryftapp.de/trackers.json` (served by `plattform/web`).
+  release, so the latest copy comes from `https://ryftlab.de/trackers.json` (served by `plattform/web`).
 - **The app needs a copy that always works:** offline, on first launch, in previews, unit tests and demo mode.
 - **`Ryft/` is a classic Xcode group.** A new file there, a JSON resource included, needs a pbxproj change that only
   the user can make in Xcode.
@@ -57,7 +58,7 @@ Oura, … Other, Just my iPhone) it holds:
      passes it.
 3. **The remote fetch is a seam of its own, outside the platform's read pipeline.**
    - `ContentSource` (`WebContentSource` live, `MockContentSource` for tests, previews and demo) fetches
-     `https://ryftapp.de/trackers.json`:
+     `https://ryftlab.de/trackers.json`:
      - with no auth and no cookies;
      - with an ephemeral session;
      - with same-host redirects only;
@@ -77,7 +78,7 @@ Oura, … Other, Just my iPhone) it holds:
      Markdown, `LocalizedStringKey` or HTML.
    - **Links:**
      - The only navigable URL is `help_url`: `https`, no user info, no port, and the host on a **compiled** allowlist
-       for that tracker id, or `ryftapp.de`. Anything else is dropped and the text kept.
+       for that tracker id, or `ryftlab.de`. Anything else is dropped and the text kept.
      - App Store links are built from the numeric `app_store_id` (`https://apps.apple.com/app/id<n>`).
      - No URL schemes, no `canOpenURL`, no `LSApplicationQueriesSchemes`.
    - **Identity:** `com.apple.` bundle IDs and prefixes only for `apple_watch` and `iphone`; a bundle ID belongs to one
