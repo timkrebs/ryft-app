@@ -1343,8 +1343,20 @@ enum APIErrorCode: String, Codable, CaseIterable, Sendable {
     case importInProgress = "import_in_progress"
     /// `403` on `POST /v1/train/import` when the flag `train.import` is off for the account: hide the import. Not a gate.
     case importNotEnabled = "import_not_enabled"
+    /// `403` on every route the App Attest check covers: `APIClient` gets a new app token and sends the request again
+    /// once. Not a gate: a refused write stays queued, and no HealthKit anchor is committed for a refused page.
+    case appAttestRequired = "app_attest_required"
+    /// `422` on `POST /v1/app-attest/keys` and `/token`: the challenge is unknown, used up, expired or another
+    /// account's. A new challenge, then the same step again, once.
+    case appAttestChallengeInvalid = "app_attest_challenge_invalid"
+    /// `422` on `POST /v1/app-attest/keys` and `/token`: the attestation or the assertion fails a check. A new key,
+    /// once; refused again, no attestation until the pause ends.
+    case appAttestInvalid = "app_attest_invalid"
+    /// `404` on `POST /v1/app-attest/token` only: the key isn't the account's (any more). A new key, then a token.
+    case appAttestKeyUnknown = "app_attest_key_unknown"
 
-    /// The two beta gates (`X-RYFT-Gate`, `SyncStatus.gate`, the onboarding screens). The import codes are not gates.
+    /// The two beta gates (`X-RYFT-Gate`, `SyncStatus.gate`, the onboarding screens). The import and App Attest codes
+    /// are not gates.
     var isGate: Bool { self == .inviteRequired || self == .consentRequired }
 }
 
@@ -1382,6 +1394,51 @@ struct AccountDeleted: Codable, Equatable {
 /// `POST /v1/me/apple-authorization`: the Sign in with Apple authorization code.
 struct AppleAuthorization: Codable {
     let code: String
+}
+
+// MARK: - App Attest
+//
+// API.md → Conventions → App Attest (D245; not served yet: `404` until the server ships it, `501` until it is set
+// up). Every value here is a secret or an identifier of the install: never logged, recorded or shown (`AppAttestor`).
+
+/// `POST /v1/app-attest/challenge` (no body).
+struct AppAttestChallenge: Codable {
+    /// Opaque; `clientDataHash` is the SHA-256 of its UTF-8 bytes. Sent back as is, never decoded.
+    let challenge: String
+    /// 5 minutes; used at once, never compared with the device's clock.
+    let expiresAt: Date
+}
+
+/// `POST /v1/app-attest/keys`.
+struct AppAttestKeyPost: Encodable {
+    /// As `DCAppAttestService.generateKey` returned it: standard base64, 44 characters.
+    let keyId: String
+    /// `attestKey`'s `Data`, `.base64EncodedString()`.
+    let attestation: String
+    let challenge: String
+}
+
+/// `201` of `POST /v1/app-attest/keys`.
+struct AppAttestKey: Codable {
+    let keyId: String
+}
+
+/// `POST /v1/app-attest/token`.
+struct AppAttestTokenPost: Encodable {
+    let keyId: String
+    /// A new one for every call.
+    let challenge: String
+    /// `generateAssertion`'s `Data`, `.base64EncodedString()`.
+    let assertion: String
+}
+
+/// `200` of `POST /v1/app-attest/token`.
+struct AppAttestToken: Codable {
+    /// Opaque: the `X-RYFT-App-Token` header. Never parsed, logged or shown.
+    let token: String
+    let expiresAt: Date
+    /// 3600. The next token when under 300 s are left, on the app's own clock.
+    let ttlSec: Int
 }
 
 // MARK: - Train
