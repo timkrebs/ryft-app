@@ -336,7 +336,9 @@ struct PlannedNight: Codable, Equatable, Sendable {
 /// Tonight's bedtime from the schedule and `GET /v1/sleep/plan`, the reminder before it and
 /// the wake alarm. Re-asks after syncs that touch today and in the evening refresh; moves the
 /// reminders only when the bedtime moved by 10 minutes or more. Behind `sleep.planner`: with
-/// the flag off, signed out or on another account, nothing of it stays on the phone.
+/// the flag off, signed out or on another account, nothing of it stays on the phone. Demo data
+/// plans, edits and turns off a schedule of its own, in memory only, and sets no reminder or
+/// alarm: the account's go on as they were (`keepsTheAccounts`).
 ///
 /// A change is saved on this iPhone at once (`commit`); what follows from it (the reminders, the alarms, tonight's plan) runs
 /// in passes, one at a time, each with the schedule as it is when it starts (`refresh`). A pass stops at its next step once
@@ -412,10 +414,17 @@ final class BedtimePlanner {
     /// Demo data's last plan: in memory only, never in the account's store (`AppEnvironment.accountDocuments`), so neither
     /// side plans, reminds or shows from the other's.
     @ObservationIgnored private var demoCached: Cached?
+    /// Demo data's schedule and planned nights: in memory only, gone with the side (`forget`), never the account's (`shelf`).
+    @ObservationIgnored private var demoSchedule: SleepSchedule?
+    @ObservationIgnored private var demoRecords: [String: PlannedNight] = [:]
+    /// Whose reminders and alarms iOS holds: the account signed in when they were last taken away (or at launch). Demo data
+    /// sets none and leaves these ringing, until that account isn't the one signed in any more (`keepsTheAccounts`).
+    @ObservationIgnored private var systemAccount: String?
 
     init(state: AppState, alarms: WakeAlarms? = nil) {
         self.state = state
         self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier)
+        systemAccount = state.env.auth.accountID
         load()
     }
 
@@ -467,12 +476,10 @@ final class BedtimePlanner {
         return hour >= 17 || (hour < 5 && (bedtime ?? .distantPast) > now)
     }
 
-    /// This account's schedule, records and last plan.
+    /// This side's schedule, records and last plan.
     private func load() {
-        let account = env.auth.accountID
-        schedule = SleepSchedule.load(account: account, defaults: env.defaults)
-        records = env.defaults.data(forKey: Self.recordsKey(account))
-            .flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) } ?? [:]
+        schedule = savedSchedule()
+        records = savedRecords()
         plan = nil
         asOf = nil
         problem = nil
@@ -482,29 +489,98 @@ final class BedtimePlanner {
         if let schedule { adoptCached(for: schedule.nextWake(after: now)) }
     }
 
-    /// Signed out, another account signed in, or the Demo data switch: the previous account's (or side's) reminders, alarms,
-    /// plan and widget bedtime go (and a change it was editing); this one's come back.
-    func accountChanged() async {
+    /// Signed out, another account, a wipe or the Demo data switch, at once (an account-state forgetter, `ScreenModels`):
+    /// the previous account's (or side's) plan, an answer on its way, a change it was editing and the widget's bedtime go,
+    /// and this side's schedule shows. Demo data's schedule, nights and plan go with the side: turned on again, it starts
+    /// afresh. What was scheduled on iOS goes with the next pass (`refresh`), and demo data's side keeps the account's.
+    func forget() {
         generation += 1
         asking?.cancel()
         editor.discard()
-        // Demo data's plan goes with the side; turned on again, it plans afresh.
         demoCached = nil
+        demoSchedule = nil
+        demoRecords = [:]
         load()
         needsTeardown = true
+        state.repository.tonightBedtime = nil
+    }
+
+    /// `forget`, then this side's pass: its plan, and the account's reminders and alarms (RyftApp, at a sign-in or another
+    /// account).
+    func accountChanged() async {
+        forget()
         await refresh()
     }
 
-    /// Everything this phone scheduled: the reminders, the alarms, the widget's bedtime.
+    /// Demo data is shown, and iOS holds the signed-in account's reminders and alarms: they stay as they are (Demo data
+    /// sets, moves and takes away none). Once that account signs out, or another signs in, they go on either side.
+    private var keepsTheAccounts: Bool { env.isDemo && systemAccount == env.auth.accountID }
+
+    /// Everything this phone scheduled: the reminders, the alarms (but not the account's while demo data is shown,
+    /// `keepsTheAccounts`), the widget's bedtime.
     private func teardown() async {
-        await cancelReminders()
-        await alarms.cancelAll()
-        alarmsSet = nil
-        alarmsKnown = true
+        if !keepsTheAccounts {
+            await removeReminders()
+            await alarms.cancelAll()
+            alarmsSet = nil
+            alarmsKnown = true
+            tornDown = true
+            systemAccount = env.auth.accountID
+        }
         scheduledBedtime = nil
         remindersWaiting = false
         state.repository.tonightBedtime = nil
-        tornDown = true
+    }
+
+    // MARK: the side's schedule
+
+    /// Where the side's schedule and planned nights are kept: the account's on this iPhone under its ID, demo data's in
+    /// memory only. Every read and write goes through it, so neither side reads, changes or removes the other's.
+    private enum Shelf {
+        case account(String?)
+        case demo
+    }
+
+    private var shelf: Shelf { env.isDemo ? .demo : .account(env.auth.accountID) }
+
+    private func savedSchedule() -> SleepSchedule? {
+        switch shelf {
+        case .demo: return demoSchedule
+        case .account(let id): return SleepSchedule.load(account: id, defaults: env.defaults)
+        }
+    }
+
+    /// `nil`: turned off.
+    private func save(_ schedule: SleepSchedule?) {
+        switch shelf {
+        case .demo:
+            demoSchedule = schedule
+        case .account(let id):
+            if let schedule {
+                schedule.save(account: id, defaults: env.defaults)
+            } else {
+                SleepSchedule.remove(account: id, defaults: env.defaults)
+            }
+        }
+    }
+
+    private func savedRecords() -> [String: PlannedNight] {
+        switch shelf {
+        case .demo:
+            return demoRecords
+        case .account(let id):
+            return env.defaults.data(forKey: Self.recordsKey(id))
+                .flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) } ?? [:]
+        }
+    }
+
+    private func saveRecords() {
+        switch shelf {
+        case .demo:
+            demoRecords = records
+        case .account(let id):
+            if let data = try? JSONEncoder().encode(records) { env.defaults.set(data, forKey: Self.recordsKey(id)) }
+        }
     }
 
     /// The sign-out wipe: every account's schedule and records on this phone.
@@ -526,8 +602,7 @@ final class BedtimePlanner {
         guard owner == self.owner else { return false }
         generation += 1
         schedule = new
-        let account = env.auth.accountID
-        if let new { new.save(account: account, defaults: env.defaults) } else { SleepSchedule.remove(account: account, defaults: env.defaults) }
+        save(new)
         scheduledBedtime = nil   // the goal or the wind-down may have moved it
         changed = true
         if new?.alarmOn == true { alarmProblem = nil }
@@ -767,13 +842,21 @@ final class BedtimePlanner {
         remindersWaiting = false
     }
 
+    /// The reminders go; with demo data shown, none does (they're the account's, and Demo data sets none).
     private func cancelReminders() async {
+        guard !env.isDemo else { return }
+        await removeReminders()
+    }
+
+    private func removeReminders() async {
         let pending = await env.notifier.pendingIDs().filter { $0.hasPrefix(Self.reminderPrefix) }
         env.notifier.removePending(ids: pending)
     }
 
     /// The reminders go and `schedule`'s are set (`reminders`). Stops when the schedule or the account changes meanwhile.
+    /// Demo data's plan sets none, and the account's stay.
     private func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan) async {
+        guard !env.isDemo else { return }
         let gen = generation, owner = self.owner
         await cancelReminders()
         for request in Self.reminders(schedule: schedule, plan: plan, now: now) {
@@ -816,8 +899,10 @@ final class BedtimePlanner {
     /// restore, a new iPhone or an iOS update leaves `alarmOn` without alarms). When iOS doesn't
     /// allow them (any more), the alarm turns off and `alarmProblem` says why. For a pass that a
     /// change overtook nothing more happens (the next pass compares with `alarmsSet`); alarms set
-    /// for an account that has gone meanwhile are taken away again.
+    /// for an account that has gone meanwhile are taken away again. Demo data's wake times set none, and the account's
+    /// alarms stay as they are (Demo data off sets them again).
     private func syncAlarms(gen: Int, owner: Owner) async {
+        guard !env.isDemo else { return }
         func current() -> Bool { gen == generation && owner == self.owner }
         let want = isEnabled && state.hasDataSource && schedule?.alarmOn == true ? schedule?.wake : nil
         if alarmsKnown, alarmsSet == want { return }
@@ -832,7 +917,8 @@ final class BedtimePlanner {
                 return
             }
             try await alarms.schedule(want)
-            if owner != self.owner {
+            // Demo data turned on meanwhile keeps them: they're still the account's (`keepsTheAccounts`).
+            if owner != self.owner, !keepsTheAccounts {
                 await alarms.cancelAll()
                 // Taken away again: the next pass doesn't know what is set.
                 alarmsKnown = false
@@ -848,7 +934,7 @@ final class BedtimePlanner {
             guard var off = schedule, current() else { return }
             off.alarmOn = false
             schedule = off
-            off.save(account: env.auth.accountID, defaults: env.defaults)
+            save(off)
         }
     }
 
@@ -863,7 +949,7 @@ final class BedtimePlanner {
         if let kept = records[day], kept.bed <= now || kept == night { return }
         records[day] = night
         if records.count > 14 { for k in records.keys.sorted().dropLast(14) { records[k] = nil } }
-        if let data = try? JSONEncoder().encode(records) { env.defaults.set(data, forKey: Self.recordsKey(env.auth.accountID)) }
+        saveRecords()
     }
 
     /// What the schedule planned for the night ending on `day`.

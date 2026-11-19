@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import Ryft
 
 // PR 6 C's fix round 2 (6c8): demo data's plans are never the account's (review 2, item 1: Tonight's `BedtimePlanner` and
@@ -9,7 +10,7 @@ import Testing
 /// An account beside a switchable Demo data (`settings.demoMode`), each side with its own platform, at 17:42. Demo data
 /// plans another night (its bedtimes 45 minutes earlier), so the two plans never look alike.
 @MainActor
-private func sideGraph() -> (AppState, live: MockPlatformAPI, demo: MockPlatformAPI) {
+private func sideGraph(auth: AuthService? = nil) -> (AppState, live: MockPlatformAPI, demo: MockPlatformAPI) {
     let clock = TestClock()
     clock.set(Calendar.current.date(bySettingHour: 17, minute: 42, second: 0, of: clock.now()) ?? clock.now())
     let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
@@ -28,7 +29,7 @@ private func sideGraph() -> (AppState, live: MockPlatformAPI, demo: MockPlatform
     // In the simulator a fresh install starts in demo data: this graph starts on the account.
     settings.demoMode = false
     let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: live, demoAPI: demo,
-                             auth: .preview(), persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(),
+                             auth: auth ?? .preview(), persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(),
                              flags: StaticFlags([.sleepPlanner: true]), connectivity: .preview(online: true),
                              defaults: defaults, demoOverride: nil)
     env.reads.random = { $0.lowerBound }
@@ -57,15 +58,16 @@ struct PlannerDemoSideTests {
         let kept = state.env.persistence.document(BedtimePlanner.Cached.self, key: BedtimePlanner.cacheKey)
         #expect(kept?.plan == mine, "the account's plan, kept")
 
+        switchDemo(state, on: true)
+        await planner.accountChanged()
+        #expect(planner.schedule == nil && planner.plan == nil, "demo data sets up Bedtime & wake of its own")
         let hold = RequestHold()
         demo.beforePlan = { _ in await hold.wait() }
-        switchDemo(state, on: true)
-        // As RyftApp does when the switch turns.
-        let switching = Task { await planner.accountChanged() }
+        let planning = Task { await planner.update(.default) }
         #expect(await eventually { hold.waiting == 1 })
         #expect(planner.plan == nil && planner.bedtime == nil, "nothing of the account's while demo data plans")
         hold.release()
-        await switching.value
+        await planning.value
         let demos = try #require(planner.plan)
         #expect(demos != mine && planner.asOf == nil, "demo data's own plan")
         #expect(state.env.persistence.document(BedtimePlanner.Cached.self, key: BedtimePlanner.cacheKey) == kept,
@@ -107,6 +109,187 @@ struct PlannerDemoSideTests {
         #expect(planner.plan == mine && planner.asOf == kept?.fetchedAt, "the account's own, as kept")
         await planner.load()
         #expect(planner.plan == mine, "offline: still the account's")
+    }
+}
+
+// MARK: - round 3 (6c8): Bedtime & wake follows the side, and so does everything held across the switch
+
+/// The app's models on `state` (the account-state forgetters as `ScreenModels` connects them).
+@MainActor
+private func appScreens(_ state: AppState) -> ScreenModels {
+    let sync = SyncService(env: state.env)
+    return ScreenModels(state: state, sync: sync,
+                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
+                        store: TrainPreview.store, library: TrainPreview.library)
+}
+
+/// Tonight's planner as the app connects it (it forgets with the reset, `ScreenModels`), with alarms the test reads.
+@MainActor
+private func appPlanner(_ state: AppState, alarms: WakeAlarms? = nil) -> BedtimePlanner {
+    let planner = BedtimePlanner(state: state, alarms: alarms ?? MockWakeAlarms())
+    state.forgetsAccountState { [weak planner] in planner?.forget() }
+    return planner
+}
+
+/// The switch, and RyftApp's refresh after it.
+@MainActor
+private func turnDemo(_ state: AppState, _ planner: BedtimePlanner, on: Bool) async {
+    switchDemo(state, on: on)
+    await planner.refresh()
+}
+
+/// What Bedtime & wake keeps for `account` on this iPhone: its schedule and planned nights, as stored.
+@MainActor
+private func kept(_ state: AppState, account: String?) -> (schedule: Data?, nights: Data?) {
+    (state.env.defaults.data(forKey: SleepSchedule.key(account)),
+     state.env.defaults.data(forKey: "sleep.planned.\(account ?? "signed-out")"))
+}
+
+@MainActor
+private func windDowns(_ notifier: MockNotifier) -> [UNNotificationRequest] {
+    notifier.requests.filter { $0.identifier.hasPrefix(BedtimePlanner.reminderPrefix) }
+}
+
+@MainActor
+struct BedtimeDemoSideTests {
+    @Test("A: demo data edits Bedtime & wake, turns its alarm off and turns it off: the account's schedule, nights, reminders and alarms stay",
+          .timeLimit(.minutes(1)))
+    func demoNeverTouchesTheAccounts() async throws {
+        let (state, _, _) = sideGraph()
+        let account = state.env.auth.accountID
+        let notifier = try #require(state.env.notifier as? MockNotifier)
+        let alarms = MockWakeAlarms()
+        let planner = appPlanner(state, alarms: alarms)
+        var mine = SleepSchedule.default
+        mine.reminderOn = true
+        mine.alarmOn = true
+        await planner.update(mine)
+        let before = kept(state, account: account)
+        #expect(before.schedule != nil && before.nights != nil, "the account's schedule and tonight, kept")
+        #expect(alarms.scheduled == mine.wake && !windDowns(notifier).isEmpty, "its alarm and wind-down, set")
+        let set = (alarms.schedulings, alarms.cancellations)
+        let requests = notifier.requests
+
+        await turnDemo(state, planner, on: true)
+        #expect(planner.schedule == nil && planner.plan == nil, "demo data has none of the account's")
+        var demos = SleepSchedule.default
+        demos.goal = .perform
+        demos.reminderOn = true
+        demos.alarmOn = true
+        demos.setWeekdays("05:45")
+        await planner.update(demos)
+        #expect(planner.schedule == demos && planner.plan != nil, "demo data's own, planned")
+        demos.alarmOn = false
+        await planner.update(demos)
+        await planner.editor.turnOff()
+        #expect(planner.schedule == nil, "turned off, on demo data's side")
+        let during = kept(state, account: account)
+        #expect(during.schedule == before.schedule && during.nights == before.nights, "the account's schedule and nights, untouched")
+        #expect(SleepSchedule.load(account: account, defaults: state.env.defaults) == mine)
+        #expect(alarms.schedulings == set.0 && alarms.cancellations == set.1 && alarms.scheduled == mine.wake,
+                "no alarm set or taken away: the account's rings on")
+        #expect(notifier.requests.count == requests.count && zip(notifier.requests, requests).allSatisfy { $0 === $1 },
+                "no reminder added or removed: the account's wind-down stays")
+
+        await turnDemo(state, planner, on: false)
+        #expect(planner.schedule == mine && planner.plan != nil, "the account's own again")
+        #expect(kept(state, account: account).schedule == before.schedule)
+        #expect(alarms.scheduled == mine.wake && !windDowns(notifier).isEmpty, "its alarm and wind-down, set again")
+    }
+
+    @Test("A: signed out with demo data shown: the account's reminders and alarms go, as they do on the account",
+          .timeLimit(.minutes(1)))
+    func aSignOutInDemoTakesTheAccountsAway() async throws {
+        // An auth service of its own: the preview's shares its defaults with every other preview graph.
+        let auth = AuthService(client: MockAuthClient(session: .preview()),
+                               defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
+                               wipeLocalData: { _ in true },
+                               deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               postAppleAuthorization: { _ in })
+        let (state, _, _) = sideGraph(auth: auth)
+        let notifier = try #require(state.env.notifier as? MockNotifier)
+        let alarms = MockWakeAlarms()
+        let planner = appPlanner(state, alarms: alarms)
+        var mine = SleepSchedule.default
+        mine.reminderOn = true
+        mine.alarmOn = true
+        await planner.update(mine)
+        await turnDemo(state, planner, on: true)
+        #expect(alarms.scheduled == mine.wake && !windDowns(notifier).isEmpty, "the account's, ringing on")
+
+        await auth.signOut()
+        #expect(auth.accountID == nil)
+        // As RyftApp does at an account change.
+        await planner.accountChanged()
+        #expect(alarms.scheduled == nil && windDowns(notifier).isEmpty, "nothing of the account's once it signed out")
+    }
+
+    @Test("1: Tonight forgets with the reset itself: the switch shows the side's schedule and plan at once, and the widget's bedtime goes")
+    func tonightForgetsWithTheReset() async throws {
+        let (state, _, _) = sideGraph()
+        let account = state.env.auth.accountID, now = state.env.clock.now()
+        // The account's Bedtime & wake and tonight's plan, kept on this iPhone at launch.
+        SleepSchedule.default.save(account: account, defaults: state.env.defaults)
+        let wake = SleepSchedule.default.nextWake(after: now)
+        let plan = MockJournal.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake), now: now)
+        state.env.persistence.saveDocument(BedtimePlanner.Cached(plan: plan, fetchedAt: now), key: BedtimePlanner.cacheKey, at: now)
+        let screens = appScreens(state)
+        let tonight = screens.bedtime
+        let mine = try #require(tonight.plan)
+        #expect(tonight.schedule == .default)
+        state.repository.tonightBedtime = tonight.bedtime
+
+        // The reset alone (RyftApp's refresh comes after it): nothing of the account's is left to show.
+        switchDemo(state, on: true)
+        #expect(tonight.schedule == nil && tonight.plan == nil && tonight.bedtime == nil, "demo data's: none set up")
+        #expect(state.repository.tonightBedtime == nil, "the widget's bedtime went with it")
+
+        switchDemo(state, on: false)
+        #expect(tonight.schedule == .default && tonight.plan == mine, "the account's own, as kept")
+        withExtendedLifetime(screens) {}
+    }
+
+    @Test("2: Tonight's plan held across the switch, both ways: the account's never shows in demo data, demo data's never lands in the account's",
+          .timeLimit(.minutes(1)))
+    func heldTonightAnswersStayOnTheirSide() async throws {
+        let (state, live, demo) = sideGraph()
+        let account = state.env.auth.accountID
+        let planner = appPlanner(state)
+        await planner.update(.default)
+        let mine = try #require(planner.plan)
+        let night = DayFormat.string(from: mine.wake)
+
+        // The account's answer held; demo data on before it lands.
+        let accountHold = RequestHold()
+        live.beforePlan = { _ in await accountHold.wait() }
+        let asking = Task { await planner.refresh() }
+        #expect(await eventually { accountHold.waiting == 1 })
+        switchDemo(state, on: true)
+        accountHold.release()
+        await asking.value
+        await planner.refresh()
+        #expect(planner.schedule == nil && planner.plan == nil && planner.bedtime == nil, "nothing of the account's in demo data")
+        #expect(planner.planned(nightEnding: night) == nil && state.repository.tonightBedtime == nil)
+        live.beforePlan = nil
+
+        // Demo data's own, then its answer held; demo data off before it lands.
+        await planner.update(.default)
+        let demos = try #require(planner.plan)
+        #expect(demos != mine)
+        let before = kept(state, account: account)
+        let cached = state.env.persistence.document(BedtimePlanner.Cached.self, key: BedtimePlanner.cacheKey)
+        let demoHold = RequestHold()
+        demo.beforePlan = { _ in await demoHold.wait() }
+        let demoAsking = Task { await planner.refresh() }
+        #expect(await eventually { demoHold.waiting == 1 })
+        switchDemo(state, on: false)
+        demoHold.release()
+        await demoAsking.value
+        let after = kept(state, account: account)
+        #expect(after.schedule == before.schedule && after.nights == before.nights, "the account's schedule and nights, as they were")
+        #expect(state.env.persistence.document(BedtimePlanner.Cached.self, key: BedtimePlanner.cacheKey) == cached,
+                "the account's plan on disk, as it was")
+        #expect(planner.plan == mine && planner.planned(nightEnding: night)?.bed == planner.bedtime, "the account's own shows")
     }
 }
 

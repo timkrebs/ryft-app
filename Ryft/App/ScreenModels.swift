@@ -83,6 +83,9 @@ final class ScreenModels {
         sleep = SleepViewModel(state: state)
         // Sleep → Bedtime's plan is the account's, or demo data's: the other side's goes with the account-state forgetters.
         state.forgetsAccountState { [weak sleep] in sleep?.planner.accountChanged() }
+        // So do Tonight's plan, schedule and planned nights (Bedtime & wake), at once; RyftApp then asks for this side's.
+        bedtime = BedtimePlanner(state: state)
+        state.forgetsAccountState { [weak bedtime] in bedtime?.forget() }
         strain = StrainViewModel(state: state, store: store)
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
@@ -111,7 +114,6 @@ final class ScreenModels {
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads
-        bedtime = BedtimePlanner(state: state)
     }
 
     /// A path's data gate changed (RootView forwards each). When it opens, that path's queue goes: the activity
