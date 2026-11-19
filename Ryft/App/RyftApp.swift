@@ -330,7 +330,7 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.featureFlags?.refresh()
-                    // ryftapp.de's tracker catalog once a day (behind `devices.setup`, never in demo mode).
+                    // ryftlab.de's tracker catalog once a day (behind `devices.setup`, never in demo mode).
                     await env.catalogStore.refreshIfDue()
                 }
                 Task(priority: .utility) {

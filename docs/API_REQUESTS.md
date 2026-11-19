@@ -340,7 +340,7 @@ for the platform; nothing here is sent before the platform says it takes it.
 
 ## Universal links: the AASA (open, 2026-10-20)
 
-1. **`applinks` for the app's paths.** `https://ryftapp.de/.well-known/apple-app-site-association`
+1. **`applinks` for the app's paths.** `https://ryftlab.de/.well-known/apple-app-site-association`
    lists `applinks` only for `/auth/*` (OPERATIONS.md → Apex site). The app parses
    these paths with one `AppRoute` parser, for links, push `ryft.url`s and insights:
    - `/day/*`
@@ -362,7 +362,7 @@ for the platform; nothing here is sent before the platform says it takes it.
    **Until then:** the app has no `associated-domains` entitlement at all; an empty array made iOS refuse to launch it.
    `https://` links open in Safari. `ryft://…` links and notification taps (the app
    reads `ryft.url` itself) work today. Once the AASA is live, the app adds
-   `applinks:ryftapp.de` in Xcode (Signing & Capabilities); no code change is needed.
+   `applinks:ryftlab.de` in Xcode (Signing & Capabilities); no code change is needed.
 
 ## Bedtime & wake (open, 2026-10-21)
 
@@ -433,7 +433,7 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
 2. **`User.trackers: [string]` via `PATCH /v1/me`:** what the user says they wear, the ids from `trackers.json`
    (`apple_watch`, `garmin`, `oura`, …, `other`, `iphone`), validated against a closed set. Shown in
    `GET /v1/admin/users` and `beta_report.sh`. The app stores the choice locally until this exists.
-3. **Serve `https://ryftapp.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
+3. **Serve `https://ryftlab.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.

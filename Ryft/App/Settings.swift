@@ -1,5 +1,5 @@
-// Persisted app settings in UserDefaults. The platform URL is baked into the
-// build (Config/Production.xcconfig → Info.plist → `apiURL`); who the caller
+// Persisted app settings in UserDefaults. The platform's two URLs are baked into the
+// build (Config/Production.xcconfig → Info.plist → `apiURL`, `ingestURL`); who the caller
 // is lives in AuthService (the Supabase SDK keeps the session in the
 // Keychain). The app stores no tokens itself, except the Debug-only developer
 // API key. `deviceId` is minted once per install and sent with every sync so
@@ -51,11 +51,13 @@ final class Settings {
     #if DEBUG
     // Profile → Developer. None of this is compiled into Release.
 
-    /// Replaces the built-in API URL, e.g. `http://192.168.1.20:8082` for compose.
+    /// Replaces the built-in API URL, e.g. `http://192.168.1.20:8082` for compose. Comes as a pair with
+    /// `devIngestURLOverride`: set alone, the sync has no host (`ingestURL`).
     var devAPIURLOverride: String {
         didSet { defaults.set(devAPIURLOverride, forKey: "dev.apiURL") }
     }
-    /// Compose serves ingest on its own port (`:8081`); behind the Ingress it's the API host.
+    /// Replaces the built-in ingest URL (`POST /v1/sync`), e.g. `http://192.168.1.20:8081` for compose.
+    /// Needed with an API override; against a single-host stack, the same URL goes in both.
     var devIngestURLOverride: String {
         didSet { defaults.set(devIngestURLOverride, forKey: "dev.ingestURL") }
     }
@@ -78,7 +80,7 @@ final class Settings {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         // The shared API key and the per-user server fields are gone (Supabase
-        // Auth, one production host); drop them once.
+        // Auth, hosts from the build); drop them once.
         if !defaults.bool(forKey: "migrated.apiKeyRemoved") {
             Keychain.set(nil, for: "ryft.apiKey")
             defaults.removeObject(forKey: "apiURL")
@@ -121,12 +123,15 @@ final class Settings {
         return PlatformConfig.apiURL
     }
 
-    /// One host serves `/v1/sync` and the API (Debug: or the compose ingest override).
+    /// The host of `POST /v1/sync`: `RYFT_INGEST_URL` from the build, never the API host. Debug: the ingest
+    /// override; with an API override but none for ingest, `nil` (the sync fails `notConfigured`), so a compose
+    /// stack's dev bearer never reaches production ingest.
     var ingestURL: URL? {
         #if DEBUG
         if let url = Self.url(devIngestURLOverride) { return url }
+        if Self.url(devAPIURLOverride) != nil { return nil }
         #endif
-        return apiURL
+        return PlatformConfig.ingestURL
     }
 
     /// A platform URL is set. Whether there is a caller is `AuthService.isSignedIn`.

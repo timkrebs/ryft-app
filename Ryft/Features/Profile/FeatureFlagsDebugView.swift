@@ -62,7 +62,7 @@ struct FeatureFlagsDebugView: View {
         }
     }
 
-    /// The tracker catalog (`devices.setup`): which copy shows, when ryftapp.de was asked, why it was refused.
+    /// The tracker catalog (`devices.setup`): which copy shows, when ryftlab.de was asked, why it was refused.
     private var catalog: some View {
         let store = env.catalogStore
         return Card {

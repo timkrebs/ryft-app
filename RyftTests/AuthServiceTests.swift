@@ -189,14 +189,14 @@ struct AuthServiceTests {
         let client = MockAuthClient()
         let auth = make(client)
         #expect(await auth.handle(URL(string: "https://example.com/auth/callback?code=1")!) == false)
-        #expect(await auth.handle(URL(string: "https://ryftapp.de/privacy")!) == false)
+        #expect(await auth.handle(URL(string: "https://ryftlab.de/privacy")!) == false)
         #expect(client.openedLinks.isEmpty)
     }
 
     @Test func universalLinkCallbackIsHandled() async {
         let client = MockAuthClient()
         let auth = make(client)
-        #expect(await auth.handle(URL(string: "https://ryftapp.de/auth/callback?code=1")!))
+        #expect(await auth.handle(URL(string: "https://ryftlab.de/auth/callback?code=1")!))
         #expect(client.openedLinks.count == 1)
     }
 

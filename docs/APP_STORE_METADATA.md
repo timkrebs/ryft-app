@@ -79,8 +79,8 @@ An iPhone and any watch or ring that writes heart rate and sleep to Apple Health
 
 RYFT is a wellness app. It does not diagnose, treat or prevent any disease and is not a medical device. Talk to a doctor about health concerns.
 
-Privacy policy: https://ryftapp.de/privacy
-Terms of use: https://ryftapp.de/terms
+Privacy policy: https://ryftlab.de/privacy
+Terms of use: https://ryftlab.de/terms
 ```
 
 **de:**
@@ -116,17 +116,17 @@ Ein iPhone und eine Uhr oder einen Ring, die Herzfrequenz und Schlaf in Apple He
 
 RYFT ist eine Wellness-App. Sie diagnostiziert, behandelt oder verhindert keine Krankheiten und ist kein Medizinprodukt. Sprich bei gesundheitlichen Fragen mit einer Ärztin oder einem Arzt.
 
-Datenschutz: https://ryftapp.de/de/privacy
-Nutzungsbedingungen: https://ryftapp.de/de/terms
+Datenschutz: https://ryftlab.de/de/privacy
+Nutzungsbedingungen: https://ryftlab.de/de/terms
 ```
 
 ### URLs and other version fields
 
 | Field | Value |
 | --- | --- |
-| Support URL (required) | `https://ryftapp.de/support` (de: `https://ryftapp.de/de/support`) — must load, list a contact and how to delete the account |
-| Marketing URL (optional) | `https://ryftapp.de` |
-| Privacy Policy URL (required, App Privacy) | `https://ryftapp.de/privacy` — must be **published** (not the draft banner) before submission |
+| Support URL (required) | `https://ryftlab.de/support` (de: `https://ryftlab.de/de/support`) — must load, list a contact and how to delete the account |
+| Marketing URL (optional) | `https://ryftlab.de` |
+| Privacy Policy URL (required, App Privacy) | `https://ryftlab.de/privacy` — must be **published** (not the draft banner) before submission |
 | Copyright | `2026 Tim Krebs` |
 | What's New | not required for 1.0; from 1.0.1 on from `CHANGELOG.md` |
 | Version | `1.0.0` (from `VERSION`); build number from `scripts/build-number.sh` |
@@ -172,7 +172,7 @@ launch time, hang rate or energy use.
 | Field | Value |
 | --- | --- |
 | Contact | Tim Krebs · timkrebs9@gmail.com · phone in `+49 …` format |
-| Sign-in required | Yes — demo account `review@ryftapp.de`, password from Vault (`OPERATIONS.md` → demo account). Run the platform's `seed_demo.sh` right before submitting; the account must not expire and must pass the invite and consent gates without help. |
+| Sign-in required | Yes — demo account `review@ryftlab.de`, password from Vault (`OPERATIONS.md` → demo account). Run the platform's `seed_demo.sh` right before submitting; the account must not expire and must pass the invite and consent gates without help. |
 | Notes (≤ 4000 bytes) | below |
 
 ```
@@ -209,7 +209,7 @@ Push notifications are optional and only asked for after the first successful sy
 
 ## 7. Before you press "Submit for Review"
 
-- [ ] Privacy policy, terms, support and Impressum published on ryftapp.de (no draft banner).
+- [ ] Privacy policy, terms, support and Impressum published on ryftlab.de (no draft banner).
 - [ ] Trader status declared; age rating questionnaire done.
 - [ ] Demo account seeded and tested on a clean device; gates passable.
 - [ ] Screenshots uploaded for en and de (6.9").
