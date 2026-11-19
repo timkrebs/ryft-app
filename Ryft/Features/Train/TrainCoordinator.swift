@@ -251,8 +251,9 @@ final class TrainCoordinator {
         let ids = Set(sync.demoSessionIDs)
         guard let sessions = try? sync.fetchDemoSessions() else { return false }
         if let live, ids.contains(live.session.id) {
-            // Tickers, the advance and the undo first: nothing of it runs on a deleted row.
-            live.stop()
+            // Tickers, the advance and the undo first: nothing of it runs on a deleted row. Released, as by the wipe
+            // (`releaseRows`): the cover may still be on its way out, and its screen draws none of the rows that go.
+            live.release()
             self.live = nil
         }
         if let active, ids.contains(active.id) {

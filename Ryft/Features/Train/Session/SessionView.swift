@@ -107,8 +107,8 @@ struct SessionView: View {
     }
 
     var body: some View {
-        // The wipe took this workout's rows (`TrainCoordinator.releaseRows`), and the cover may still be on its way
-        // out: none of them is read again.
+        // The wipe or the demo's discard took this workout's rows (`SessionController.release`), and the cover may
+        // still be on its way out: none of them is read again.
         if controller.isReleased {
             Theme.background.ignoresSafeArea()
         } else {
