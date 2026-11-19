@@ -199,8 +199,10 @@ enum MockTrainImport {
     static let createdAt = Date(timeIntervalSince1970: 1_792_400_000)
     static let planID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0x40, 0, 0x80, 0, 0, 0, 0, 0, 0, 1))
 
+    /// `planLeftAsIs`: the plan was answered `newer_on_server` (changed in the app since), so it counts as left as it is.
     static func status(_ phase: ImportJobStatus.Phase, sessions done: Int = 8, of total: Int = 12,
-                       rejected: Int = 0, leftAsIs: Int = 0, items: [ImportItemSummary]? = nil) -> ImportJobStatus {
+                       rejected: Int = 0, leftAsIs: Int = 0, planLeftAsIs: Bool = false,
+                       items: [ImportItemSummary]? = nil) -> ImportJobStatus {
         let rows = items ?? (0..<rejected).map { index in
             ImportItemSummary(id: UUID(), kind: .session, title: "Upper", date: createdAt.addingTimeInterval(Double(-index) * 86_400),
                               reason: "exercise not found", requestID: "01JB7Z3Q8M", blocked: false, code: "unknown_exercise")
@@ -209,10 +211,11 @@ enum MockTrainImport {
             phase: phase, createdAt: createdAt, source: .alphaProgression, timeZoneID: "Europe/Berlin",
             exercises: ImportItemCounts(total: 1, done: 1), plans: ImportItemCounts(total: 1, done: 1),
             sessions: ImportItemCounts(total: total, done: done, rejected: rows.count), setsDone: max(0, done - leftAsIs) * 3,
-            planSummaries: [ImportPlanSummary(id: planID, name: "Upper/Lower", weeks: 6, daysPerWeek: 4, state: .done)],
+            planSummaries: [ImportPlanSummary(id: planID, name: "Upper/Lower", weeks: 6, daysPerWeek: 4, state: .done,
+                                              result: planLeftAsIs ? ImportPlanSummary.newerOnServer : "created")],
             skipped: ImportSkipCounts(alreadyImported: 2, skippedSets: 3), rejected: rows, duplicatesFound: [],
             lastFailure: nil, planIDs: [planID], enrolledPlanID: nil, resultSeen: false,
-            leftAsIs: leftAsIs, leftAsIsSessions: leftAsIs)
+            leftAsIs: leftAsIs + (planLeftAsIs ? 1 : 0), leftAsIsSessions: leftAsIs)
     }
 
     /// One refused item per code the platform answers, with a request ID and a message (Details).
@@ -228,6 +231,8 @@ enum MockTrainImport {
 
     static let mixedRejections = status(.finished, sessions: 9, of: 16, items: Array(rejectionSamples.prefix(4)))
     static let leftAsIsDone = status(.finished, sessions: 12, of: 12, leftAsIs: 3)
+    /// The plan changed in the app since: left as it is, so no plan was imported.
+    static let planLeftAsIsDone = status(.finished, sessions: 12, of: 12, planLeftAsIs: true)
 
     static let uploading = status(.uploading)
     static let done = status(.finished, sessions: 12, of: 12)

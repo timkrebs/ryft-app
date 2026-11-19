@@ -245,10 +245,11 @@ struct ImportResultView: View {
                            comment: "Training import I3: after history was imported.") : nil) {
             // c-23d's order: what was imported, what was already there, what was skipped.
             GroupedRow.value(Text("Workouts imported"), value: Text(verbatim: "\(job.sessionsImported)"))
-            if job.plans.total > 0 {
-                let names = job.planSummaries.filter { $0.state == .done }.map(ImportResultText.plan)
+            // Only plans written: one left as it is in RYFT (changed there since) counts under "Left as it is in RYFT".
+            if job.plansImported > 0 {
+                let names = job.planSummaries.filter(\.isImported).map(ImportResultText.plan)
                 GroupedRow.value(Text("Plans imported", comment: "Training import I3: the count of plans imported."),
-                                 value: Text(verbatim: "\(job.plans.done)"),
+                                 value: Text(verbatim: "\(job.plansImported)"),
                                  detail: names.isEmpty ? nil : Text(verbatim: names.joined(separator: "\n")))
             }
             if job.skipped.alreadyImported > 0 {
@@ -508,6 +509,11 @@ enum ImportResultText {
 
 #Preview("Step 6 · left as it is") {
     NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.leftAsIsDone))) }
+        .previewEnvironment()
+}
+
+#Preview("Step 6 · the plan left as it is") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.planLeftAsIsDone))) }
         .previewEnvironment()
 }
 

@@ -295,9 +295,24 @@ struct ImportNocturneTests {
             #expect(nodes.contains { $0.label == "Done" && $0.traits.contains(.header) })
             let workouts = try #require(nodes.first { $0.label == "Workouts imported" })
             #expect(workouts.value == "\(MockTrainImport.leftAsIsDone.sessionsImported)", "\(workouts.value ?? "nil")")
+            let plans = try #require(nodes.first { $0.label == "Plans imported" }, "the plan was written")
+            #expect(plans.value == "1, Upper/Lower · 6 weeks", "\(plans.value ?? "nil")")
             let left = try #require(nodes.first { $0.label == "Left as it is in RYFT" })
             #expect(left.value?.hasPrefix("3") == true, "\(left.value ?? "nil")")
             #expect(nodes.contains { $0.label.hasPrefix("Past strain on these days is being recalculated") })
+        }
+        // The plan changed in RYFT since (`newer_on_server`): not imported, so no Plans imported row; it's left as it is.
+        let job = MockTrainImport.planLeftAsIsDone
+        #expect(job.plansImported == 0 && job.planSummaries.allSatisfy { !$0.isImported })
+        try await host("6-done-plan-left") { w in
+            let nodes = w.nodes()
+            #expect(!nodes.contains { $0.label == "Plans imported" }, "no plan was imported")
+            #expect(!nodes.contains { $0.label.contains("Upper/Lower") || ($0.value ?? "").contains("Upper/Lower") })
+            let left = try #require(nodes.first { $0.label == "Left as it is in RYFT" })
+            #expect(left.value?.hasPrefix("1") == true, "\(left.value ?? "nil")")
+            let result = try #require(nodes.first { $0.identifier == "import.result" })
+            #expect(result.label.hasPrefix("Imported 12 workouts"), "\(result.label)")
+            #expect(!result.label.contains("plan"), "\(result.label)")
         }
     }
 
