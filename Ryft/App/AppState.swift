@@ -372,6 +372,9 @@ final class AppState {
         env.reads.reset()
         repository.reset()
         lastNight = nil
+        // The body-setting editors' words and the value on its way are the account's, or demo data's: on the other side of
+        // the switch they go, and nothing waits for an answer meant for this side (C3 review 2, item 1).
+        for forget in accountStateForgetters { forget() }
         // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
         // and so does an upload of them (or of the account's) in flight.
         env.uploader.accountChanged()
@@ -466,7 +469,13 @@ final class AppState {
     /// meanwhile may have overtaken: `false` then, and the caller doesn't say it saved.
     @discardableResult
     func patchUser(_ patch: UserPatch) async throws -> Bool {
-        let change = repository.userChange()
+        try await patchUser(patch, begun: repository.userChange(), via: source)
+    }
+
+    /// The same, begun at `change` and sent to `source`, both taken by the caller in the step the change began: one that
+    /// sends it from a task of its own (`BodySettingsEditor`) sends it for that moment's account and platform, not the
+    /// task's first turn's (the Demo data switch can come in between).
+    func patchUser(_ patch: UserPatch, begun change: Repository.UserChange, via source: PlatformAPI) async throws -> Bool {
         let patched = try await source.patchMe(patch)
         return !(await repository.store(user: patched, asOf: change).committed()).dropped
     }

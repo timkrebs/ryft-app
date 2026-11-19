@@ -26,6 +26,8 @@ final class NotificationSettingsViewModel {
     private var confirmed: NotificationPrefs
     /// The last save handed on: the next one waits for it.
     private var lastSave: Task<Void, Never>?
+    /// RYFT asked again after a change that may have saved, while it's out (`askAgain`; tests await it).
+    private(set) var asking: Task<Void, Never>?
 
     /// A change is on its way: every switch and time chip waits for it.
     var saving: Bool { inFlight > 0 }
@@ -154,15 +156,14 @@ final class NotificationSettingsViewModel {
         let before = lastSave
         let turn = Task { @MainActor in
             await before?.value
-            await self.send(patch, showing: optimistic, mine: mine, binding: binding)
+            await self.send(patch, mine: mine, binding: binding)
         }
         lastSave = turn
         await withTaskCancellationHandler { await turn.value } onCancel: { turn.cancel() }
     }
 
     /// One `PATCH`, once the saves before it are done.
-    private func send(_ patch: NotificationPatch, showing optimistic: NotificationPrefs, mine: Int,
-                      binding: AccountBinding) async {
+    private func send(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
         do {
             let saved = try await state.env.api.patchNotifications(patch)
             guard binding.isCurrent(in: state.env) else { return }
@@ -182,14 +183,26 @@ final class NotificationSettingsViewModel {
             let failed = NotificationSettingsFailure(error, quietHours: patch.quietHours != nil)
             failure = failed
             guard failed.kind.rereads, state.isDemo || state.env.connectivity.isOnline else { return }
-            // It may have saved (no answer), or RYFT had a problem (5xx): the page shows what RYFT holds, asked again.
-            try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
-            guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
-            confirmed = held
-            prefs = held
-            // It did save: nothing to say.
-            if held == optimistic { failure = nil }
+            // It may have saved (no answer), or RYFT had a problem (5xx): the page shows what RYFT holds, asked again outside
+            // this turn, so the switches don't wait for the question (and the next save doesn't either).
+            asking = Task { await self.askAgain(patch, mine: mine, binding: binding) }
         }
+    }
+
+    /// `GET /v1/me` after a change that may have saved. Only an answer counts: when the question fails the page stays as it
+    /// went back. Only while the change is the latest; and only the change's own key decides whether it did save (another
+    /// device may have changed the rest meanwhile).
+    private func askAgain(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
+        do {
+            try await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
+        } catch {
+            return
+        }
+        guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
+        confirmed = held
+        prefs = held
+        // It did save: nothing to say.
+        if patch.isHeld(by: held) { failure = nil }
     }
 
     // MARK: "HH:MM" ⇄ Date (today, local)
@@ -203,6 +216,15 @@ final class NotificationSettingsViewModel {
     static func string(_ date: Date, calendar: Calendar = .current) -> String {
         let c = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+}
+
+private extension NotificationPatch {
+    /// `prefs` hold what this patch changes: its categories and its quiet hours, nothing else.
+    func isHeld(by prefs: NotificationPrefs) -> Bool {
+        let categoriesHeld = (categories ?? [:]).allSatisfy { (prefs.categories[$0.key] ?? true) == $0.value }
+        guard let quietHours else { return categoriesHeld }
+        return categoriesHeld && quietHours == prefs.quietHours
     }
 }
 

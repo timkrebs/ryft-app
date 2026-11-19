@@ -5,12 +5,13 @@ import Foundation
 /// - `offline`: nothing was sent. The iPhone had no network path (`notConnectedToInternet`, `dataNotAllowed`,
 ///   `internationalRoamingOff`), or the caller's check before sending found none. Nothing changed.
 /// - `noAnswer`: it was sent, and no readable answer came back (a timeout, a dropped connection, any other transport failure,
-///   a `408`). It may have saved, so the caller asks the platform again (`rereads`).
+///   a `408`, a `2xx` this build can't read). It may have saved, so the caller asks the platform again (`rereads`).
 /// - `serverError`: RYFT answered with a `5xx` (not `501`). It's back as it was; the caller asks again all the same.
-/// - `refused`: RYFT answered no (`4xx`, `429`, `501`, signed out). Nothing changed.
+/// - `busy`: RYFT answered `429` (too many requests). Nothing changed; a minute later it may.
+/// - `refused`: RYFT answered no (`4xx`, `501`, signed out). Nothing changed.
 /// A `422` names its own field in the caller's words before it gets here.
 enum SettingsWriteFailure: Equatable {
-    case offline, noAnswer, serverError, refused
+    case offline, noAnswer, serverError, busy, refused
 
     init(_ error: Error) {
         if let api = error as? APIError {
@@ -19,7 +20,10 @@ enum SettingsWriteFailure: Equatable {
                 self = Self.sentNothing(inner) ? .offline : .noAnswer
             case .http(let status, _, _, _, _):
                 switch status {
+                // RYFT took it and answered, in words this build can't read (`APIClient.decode`): it may have saved.
+                case 200..<300: self = .noAnswer
                 case 408: self = .noAnswer
+                case 429: self = .busy
                 case 501: self = .refused
                 case 500...599: self = .serverError
                 default: self = .refused
@@ -56,9 +60,12 @@ enum SettingsWriteFailure: Equatable {
         case .serverError:
             return String(localized: "RYFT had a problem saving this, so it's back as it was. Try again in a moment.",
                           comment: "Settings (Notifications, the body-setting editors): RYFT answered with a server error (5xx); the value went back.")
+        case .busy:
+            return String(localized: "RYFT is busy right now, so this wasn't saved. Try again in a minute.",
+                          comment: "Settings (Notifications, the body-setting editors): RYFT answered 429, too many requests; the value went back.")
         case .refused:
             return String(localized: "RYFT couldn't save this change, so it's back as it was.",
-                          comment: "Settings (Notifications, the body-setting editors): RYFT refused the change (409, 403, 429 …); it went back.")
+                          comment: "Settings (Notifications, the body-setting editors): RYFT refused the change (409, 403 …); it went back.")
         }
     }
 }
