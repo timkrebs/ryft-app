@@ -40,3 +40,4 @@
 - [Form reads + whole saves](review-checks-form-reads-and-saves.md) — banner retry skips commit gate, post-await saves after day switch, reads rebuilding over edits
 - [Autosave editors](review-checks-autosave-editors.md) — save chains awaiting the network, stale drafts in other tabs, async Turn off, conditional push hosts
 - [Setting editors](review-checks-setting-editors.md) — waitsForConnectivity hangs, failure-time offline, page-local busy, account-blind editors, off-grid steps
+- [Widget surfaces + Live Activities](review-checks-widget-surfaces.md) — privacySensitive escapes placeholder (probed), per-device accessory sizes, test-only models, Volt scope, ages
