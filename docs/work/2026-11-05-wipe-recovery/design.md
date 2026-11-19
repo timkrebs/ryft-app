@@ -1,6 +1,9 @@
 # Sign-out wipe recovery: what happens when a wipe fails or the app dies during one
 
-**Status:** decided; W1 to W3 built. U1 to U3 are answered in §8; U4 and U5 stay open.
+**Status:** decided; W1 built (#103), W2 and W3 built in #107 (with `main` merged in on 2026-11-18). The ADR is 0020
+(`docs/adr/0020-an-account-wipe-is-a-debt-and-no-session-is-published-over-it.md`); §9's draft is superseded by it. U1
+to U3 are answered in §8. U4 is replaced by the 18.6 run (ADR 0021); U5 stays open. W4a and W7 are next, before the
+External build; the C2 sentences and what each depends on are in `c2-brief.md`.
 
 Follow-up to #93 (`train: a sign-out deletes session rows one by one`). Designed against `fix/train-wipe-objects`, head
 `a669d5b`, not `main`. Values are synthetic. Line numbers are that commit's.

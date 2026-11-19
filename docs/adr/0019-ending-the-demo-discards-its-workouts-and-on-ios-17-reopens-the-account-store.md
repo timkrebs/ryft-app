@@ -10,6 +10,9 @@
   the row is saved; the discard fails closed (a store that can't be read leaves Demo data on, and Profile says so) and
   also takes the listed ids from Train's cached history list and exercise histories, starts the demo's platform over and
   clears the demo's sync status and bedtime from the widget. A listed session's ops are only ever the demo's.
+- **Amended 2026-11-18 by ADR 0020 (#107):** the discard releases the demo's open workout as the account wipe does
+  (`SessionController.release()`), so its screen draws none of the deleted rows while the cover goes; on iOS 18 and 26
+  reading one is a fatal error. A reopen of the account's store, if one is ever built, never replaces its files.
 - Deciders: the user (the demo's workouts are discarded after a confirmation, 2026-11-17); ios-lead (the reopen is iOS 17
   only); proposed by ios-architect; sync-engineer builds it
 - Amends: ADR 0018. The account's `ModelContainer` is no longer one instance for the life of the process: on iOS 17 it

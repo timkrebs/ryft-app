@@ -270,6 +270,18 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   waits for a save. The first write after a wipe gets a new writer, so no context keeps a
   deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
   `StoreID`, which is never reused.
+- **A wipe that doesn't finish is a debt** (ADR 0020, `docs/work/2026-11-05-wipe-recovery/design.md`):
+  - The sign-out writes an entry to `WipeLedger` (a file in Application Support) before its first destructive step,
+    and a wipe that returns false leaves it. `auth.lastUserID` (`AccountScope`) only says whose data the store holds,
+    and follows the published session.
+  - At the next launch `AuthService.init` resolves the entry before anything opens the store, and `TrainStore.shared`'s
+    initializer replaces the store's files (`StoreReset`) before its first container exists, so no writer or read
+    context can hold them. A session expiry's parked rows within 30 days keep the object wipe instead, after the first
+    frame. The compaction retries too.
+  - No session is published over an entry (`AuthService.clearTheWay`): another account's sign-in makes one attempt and
+    is held if it fails, and Welcome says so. Once a pass was refused, nothing in that process ends the debt.
+  - The wipe's own turn lets go of what holds Train rows (`TrainCoordinator.releaseRows`, `SessionController.release`):
+    on iOS 18 and 26 reading a deleted row's relationship is a fatal error. The demo's discard does the same.
 - Demo data goes to a separate in-memory store, so it never mixes with an account's. The
   Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
   one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer
@@ -286,8 +298,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   computed from the list and the store, never stored); cancel changes nothing, and a store that can't be read shows an
   error under the switch instead of the dialog or the exit. `ProfileViewModel.endDemo()` then runs
   one main-actor step with no `await` up to the refresh:
-  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes and its Live Activity ends
-     (checked against the list), every listed session goes with its ops and from Train's cached history list and
+  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes (released, as by the wipe)
+     and its Live Activity ends (checked against the list), every listed session goes with its ops and from Train's cached history list and
      exercise histories (sessions, records, chart points), and nothing is sent (not even a `DELETE`). The list keeps only ids a fresh context still finds; a store in memory in
      place of its file drops only what it deleted. If the store can't be read nothing changes, Demo data stays on and Profile says so.
      An account's workout is never on the list, even if it went on during the demo.

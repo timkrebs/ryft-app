@@ -48,6 +48,11 @@ but which thread decides is unmeasured, since the observations assert only on 27
 (`BackingData.swift:739`), as on `main`; #107 fixes it. Until T0.1 is measured and #107 is in, code and tests treat 18.6
 as 18.0.
 
+2026-11-19: the sign-out wipe's W2 and W3 (#107, ADR 0020; it includes #106), with `main` merged in: an owed wipe
+finishes at the next start before the store opens, and no other account is signed in over it. The 18.6 run passes
+with the held-row trap fixed. W4a and W7 come before the External build, and C2 goes into force with it (Sign-out
+wipe, below).
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
@@ -66,23 +71,44 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 - **Before the flag goes on:** a run on iOS 18.6 (the oldest supported runtime, installed), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
 - **Open:** List shows a bodyweight row's added-load ghost but ✓ doesn't log it, unlike Focused (product decision). `topFade` leaves a small fragment of a cut line at 390 AX3 (predates #99, in `review.md`). The performance follow-ups are in `review.md`.
 
-## Sign-out wipe
+## Sign-out wipe (ADR 0020)
 
-Recovery design, 8 tickets, not built: `docs/work/2026-11-05-wipe-recovery/design.md`. It waits on the user's answers in its §8.
+Design, re-baseline, reviews and the C2 note: `docs/work/2026-11-05-wipe-recovery/`. The user's answers (U1–U3) are in
+the design's §8.
 
-`TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
+**Built:** W1 (#103) writes a wipe down before it starts (`WipeLedger`). W2 and W3 are #107 (it includes #106; one
+squash commit, so no build has W2 without W3):
+- an owed wipe finishes before the store opens: at launch `AuthService` resolves the ledger, and `TrainStore.shared`
+  replaces the store's files (`StoreReset`) before its first container, unless an expiry's parked rows are within 30
+  days; the first frame and the nightly compaction retry;
+- no session is published over it: another account's sign-in is held after one failed attempt ("Close RYFT and open
+  it again to continue", on Welcome and Log in), and once a pass was refused nothing in that process ends the debt;
+- `auth.lastUserID` only says whose data the store holds, and `AccountScope` follows the published session;
+- the wipe's own turn lets go of the open workout (`TrainCoordinator.releaseRows`), which fixes the iOS 18/26 trap
+  below; the demo's discard does the same.
 
-- **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
-- **Before the next External build:** ~~run `TrainStoreWipeTests` once on iOS 18.6~~: done 2026-11-18. 24 of its 25 tests pass there, a healthy store's wipe among them; the one failure is the held-row trap that #107 fixes (top entry).
-- **Recovery ticket, not started:**
-  - one stored id can't name two owners, and a second failure overwrites it;
-  - there's no launch-time retry for "kept id, nobody signed in";
-  - when parking can't read the activities, chunks stay outside the 30-day limit;
-  - a refused `CachedDay` delete can put the leaving account's readiness back on the lock screen;
-  - a sign-in over a failed wipe reads the old account's rows until the next launch;
-  - the deletion notice can claim more than happened;
-  - a kill mid-wipe, the Live Activity left up, and never-saved rows in other tables;
-  - WAL and backup residue.
+`TrainStore.wipe` deletes session rows object by object and reports every step. 44,500 rows take 3.4 s in Debug, on the
+main thread.
+
+- **Verified:** simulator only, 2026-11-19, `-parallel-testing-enabled NO`. iOS 27.2: the wipe, ledger, hold, auth,
+  Train sync, session, demo-exit, consent, read-model and store suites, 537 tests in 47 suites. iOS 18.6 (iPhone 16
+  Pro): the wipe, ledger, hold, read-model, consent and demo-exit suites, 380 tests in 26 suites. The held-row trap is
+  gone on 18.6. UI: `DemoExitUITests` and `StoreSmokeUITests` on 27.2 (the reviewer walkthrough, the only UI test that
+  signs out, skips without its credentials).
+- **Before the External build:** W4a (nothing written to the widget while a wipe is owed) and W7 (a scrub after a
+  no-parking wipe; `Train.store` and the ledger out of device backups), each its own PR from `main`. C2's wipe sentences
+  depend on W2, W3, W4a and W7 (`c2-brief.md`), so C2 goes into force with the External build that carries all four.
+- **Needs you (U5, on a device):** kill RYFT during a sign-out with a workout live, reopen: nothing of it on the lock
+  screen; a sign-out on a really full disk; a held sign-in, then close and reopen: the account is in; a backup restore
+  after a sign-out holds no `Train.store` (after W7); deleting the app removes the App Group container. Once by hand: a
+  held recovery link shows "Set new password" at the launch that lets its account in.
+- **Later:** W4b (the Live Activity, delivered notifications and the push registration during a hold), W5 (the notice
+  says what's left), W6 (rows never saved, before A3b), W9 (a deletion written down before the `DELETE`), W10 (a held
+  Sign in with Apple keeps its authorization code), W11 (no demo over an owed wipe), W12 only if needed.
+- **Known:** files that never go keep a sign-in held at every launch, and the copy's "close and open" doesn't help
+  there (deleting the app should, unverified); a full disk can lose the debt; with Demo data on over an owed wipe, the
+  demo's Train shows the leaving account's sessions (W11); after a wipe the demo's list keeps the ids of sessions the
+  wipe took until the demo's next exit or launch sweep prunes them (only Profile's VoiceOver hint reads it).
 
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 
@@ -1596,12 +1622,10 @@ contract points are in `docs/API_REQUESTS.md`.
   demo's workouts starts with that build. Its first launch with protected data seeds it only with nobody signed in
   (every stored session is then the demo's, and with Demo data off that launch discards them); signed in, the account's
   sessions are there too and can't be told apart, so older demo workouts stay with the account (design §6.9).
-- **iOS 18.0: a row still held after a Train wipe can trap** ("SwiftData/BackingData.swift:296: Fatal error: Context
-  is missing for … LocalSession"). `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` ends the test
-  process on 18.0 (measured 2026-11-18, on P1b and on its base `72750f4` alike); 17.0 and 27.2 pass, 26.0 not run. In the
-  app it's a live workout's controller or a sheet reading a session row after an account change wiped it, before the
-  account-change handler closes them. Not P1b's. With 18.6 the minimum it needs its own look, on 18.6 (unmeasured
-  there): the read that traps, and whether the handler can close the screens before the wipe.
+- ~~**iOS 18.0: a row still held after a Train wipe can trap**~~: fixed by #107. The wipe's own turn releases the open
+  workout (`TrainCoordinator.releaseRows`) and its screen draws none of the rows; the demo's discard does the same. On
+  18.6 and 26.0 the trap reads "Never access a full future backing data". `aRowStillHeldStaysUsableAndNothingComesBack`,
+  `anOpenWorkoutDrawsNoDeletedRow` and `anOpenDemoWorkoutDrawsNoDeletedRowAtTheExit` pass on 18.6 and 27.2 (2026-11-19).
 - Satoshi isn't committed because of its licence (see README). Fresh clones render in SF
   Pro Rounded until `scripts/fetch-fonts.sh` runs.
 - Welcome and the auth screens are always dark (Graphite, as on the board), also in light
