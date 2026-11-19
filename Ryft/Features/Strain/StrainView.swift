@@ -256,9 +256,10 @@ enum StrainPreview {
         }
     }
 
-    static func prior(_ day: Date) -> [Double] {
-        (1...7).compactMap { offset in
-            MockData.history.first { $0.day == DayFormat.string(from: DayFormat.shift(day, days: -offset)) }?.strain
+    static func prior(_ day: Date) -> [TrendPoint] {
+        (1..<MetricDelta.windowDays).map { offset in
+            let key = DayFormat.string(from: DayFormat.shift(day, days: -offset))
+            return TrendPoint(day: key, value: MockData.history.first { $0.day == key }?.strain)
         }
     }
 

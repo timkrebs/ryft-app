@@ -10,7 +10,7 @@ import Foundation
 struct StrainHero: Equatable {
     /// The strain; nil: the unlit numeral and no needle.
     let strain: Double?
-    /// Against the 7 days before (a day only), shown with 3 or more prior days.
+    /// "vs 7 d" (a day only): Today's rule, `MetricDelta.vsSevenDayMean` (`delta(_:day:prior:)`).
     var delta: MetricDelta?
     /// "Cardio 9.2 · Strength 4.1" (a day with a strength session).
     var split: String?
@@ -55,8 +55,8 @@ struct StrainHero: Equatable {
         return parts.joined(separator: ", ")
     }
 
-    /// "vs 7 d" after the delta.
-    static var deltaReference: String { String(localized: "vs 7 d") }
+    /// "vs 7 d" after the delta (`DeltaLabel.sevenDayReference`, as Today, Sleep and Insights).
+    static var deltaReference: String { DeltaLabel.sevenDayReference }
 
     /// The ruler's labels: "0", "moderate 10–14", "21".
     static var rulerLabels: [String] {
@@ -73,13 +73,12 @@ struct StrainHero: Equatable {
         return String(format: format, Fmt.strain(strain), band.spoken)
     }
 
-    /// The delta under the caption needs this many of the 7 prior days (D5-4).
-    nonisolated static let minPriorDays = 3
-
-    /// The 7-day change, kept only with `minPriorDays` or more prior days.
-    static func delta(_ strain: Double?, prior: [Double]) -> MetricDelta? {
-        guard prior.count >= minPriorDays else { return nil }
-        return .against(strain, prior: prior)
+    /// "vs 7 d" for the strain of `day` ("yyyy-MM-dd"): Today's rule (`MetricDelta.vsSevenDayMean`), so Strain and Insights'
+    /// strain card agree. Against the mean of `prior`'s strains (the 6 days before it, those cached; one is enough); none
+    /// without a strain of the day's own.
+    static func delta(_ strain: Double?, day: String, prior: [TrendPoint]) -> MetricDelta? {
+        guard let strain else { return nil }
+        return .vsSevenDayMean(prior.filter { $0.day < day } + [TrendPoint(day: day, value: strain)])
     }
 }
 
@@ -240,10 +239,10 @@ struct StrainBoard: Equatable {
     /// - Parameters:
     ///   - detail: the day as cached; nil while it loads or after a failure.
     ///   - score: the day's score (the detail's, else the cached history's: the numeral may show before the detail).
-    ///   - prior: the strains of the seven days before, those that exist.
+    ///   - prior: the strains of the 6 days before, by day ("vs 7 d"'s window, `StrainHero.delta`).
     ///   - isLoading: nothing cached and the day's load hasn't answered yet.
     ///   - scoring: how final the day's numbers are.
-    init(detail: DayDetail?, score: DailyScore?, prior: [Double], split: String?, isLoading: Bool,
+    init(detail: DayDetail?, score: DailyScore?, prior: [TrendPoint], split: String?, isLoading: Bool,
          failure: SleepLoadFailure?, scoring: DayScoring = .final) {
         self.scoring = scoring
         if detail != nil {
@@ -256,7 +255,8 @@ struct StrainBoard: Equatable {
             look = .loaded
         }
         let strain = score?.strain
-        hero = StrainHero(strain: strain, delta: StrainHero.delta(strain, prior: prior), split: strain == nil ? nil : split,
+        hero = StrainHero(strain: strain, delta: StrainHero.delta(strain, day: score?.day ?? "", prior: prior),
+                          split: strain == nil ? nil : split,
                           missingCaption: look == .loaded ? Self.noStrainCaption(scoring) : nil)
         zones = StrainZones(minutes: detail?.strain?.zoneMin.map(Double.init), trimp: detail?.strain?.trimp)
         steps = detail?.strain?.steps ?? score?.steps

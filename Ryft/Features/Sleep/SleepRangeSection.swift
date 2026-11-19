@@ -79,8 +79,8 @@ struct SleepRangeBoard: Equatable {
     let numeralLabel: String?
     /// "Average · last 7 nights", "Average · 4 nights", "Loading…"; empty keeps the line.
     let caption: String
-    /// The newest night against the mean of the six before it in the seven that end on it (F6, Today's and Insights' rule:
-    /// the same in Week and Month), in the sleep colour when it is longer.
+    /// The newest night against the mean of the others in the seven that end on it (F6, `MetricDelta.vsSevenDayMean`: Today's
+    /// and Insights' rule, the same in Week and Month), in the sleep colour when it is longer.
     let delta: MetricDelta?
     /// Which night the delta is: "Last night" when it ended this morning, else its weekday ("Mon"; "Mon, Nov 9" beyond a
     /// week); and as VoiceOver says it ("Monday").
@@ -134,7 +134,7 @@ struct SleepRangeBoard: Equatable {
                    comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\".")
         }
         let newest = Self.newestNight(summary.totals)
-        delta = Self.delta(summary.totals)
+        delta = .vsSevenDayMean(summary.totals)
         let lead = newest.map { Self.lead(night: $0.date, today: today, locale: locale, calendar: calendar) }
         deltaLead = lead?.shown ?? ""
         spokenDeltaLead = lead?.spoken ?? ""
@@ -161,15 +161,6 @@ struct SleepRangeBoard: Equatable {
     /// The newest night with a time asleep.
     private static func newestNight(_ totals: [TrendPoint]) -> TrendPoint? {
         totals.filter { $0.value != nil }.max { $0.day < $1.day }
-    }
-
-    /// Today's and Insights' rule (`TrendCardContent.delta`): the newest night against the mean of the nights before it among
-    /// the seven that end on it, so Month (30 nights) says what Week says.
-    static func delta(_ totals: [TrendPoint]) -> MetricDelta? {
-        let valued = totals.filter { $0.value != nil }.sorted { $0.day < $1.day }
-        guard let last = valued.last else { return nil }
-        let from = DayFormat.string(from: DayFormat.shift(last.date, days: -(SleepBoard.weekNights - 1)))
-        return .vsSevenDayMean(valued.filter { $0.day >= from })
     }
 
     /// "Last night" for the night that ended this morning, else its weekday ("Mon"), with its date beyond a week ("Mon, Nov

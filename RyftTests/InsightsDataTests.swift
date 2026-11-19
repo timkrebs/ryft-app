@@ -313,6 +313,30 @@ struct InsightsDataTests {
         #expect(captions.first == "▲\(DeltaLabel.noBreakSpace)+12")
     }
 
+    @Test("S3 (T5.7): Strain and Insights' strain card give the same \"vs 7 d\" for the same day; 2 prior days are enough",
+          .timeLimit(.minutes(1)), arguments: [
+              // Two days before: both show a change (Strain once needed 3).
+              ([0: 13.0, 1: 10, 2: 10], MetricDelta(current: 13, reference: 10)),
+              // Days 1, 2 and 6 back count; 7 back (90) is outside the window, for both.
+              ([0: 15.0, 1: 10, 2: 12, 6: 11, 7: 90], MetricDelta(current: 15, reference: 11)),
+          ])
+    func strainAgreesWithInsights(_ row: (strains: [Int: Double], expected: MetricDelta)) async throws {
+        let (vm, state, _) = Self.scripted([.strain: row.strains])
+        vm.range = .month
+        await vm.load()
+        let insights = try #require(vm.card(.strain).delta, "Insights' strain card")
+        // Strain reads the same days from the cached scores.
+        let today = Calendar.current.startOfDay(for: state.env.clock.now())
+        state.history = row.strains.map { back, strain in
+            DailyScore(day: DayFormat.string(from: DayFormat.shift(today, days: -back)), strain: strain)
+        }
+        let strain = StrainViewModel(state: state, store: TrainStore(inMemory: true))
+        #expect(insights == row.expected)
+        #expect(strain.strainDelta == insights)
+        #expect(strain.board.hero.delta == insights)
+        #expect(DeltaLabel.text(insights, spec: .strain) == DeltaLabel.text(try #require(strain.board.hero.delta), spec: .strain))
+    }
+
     @Test("S2, S4: in 7 D the band comes from the 30-day series (7 and 8 days back count), the change doesn't (they don't)", .timeLimit(.minutes(1)))
     func weekBandAndDelta() async {
         // The newest 56; six days of 50; 40 seven days back, 60 eight back: 8 values before the newest, mean 50, SD 5.

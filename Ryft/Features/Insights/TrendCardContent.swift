@@ -77,7 +77,8 @@ struct TrendCardContent: Identifiable, Equatable {
     let values: [Double?]
     /// The newest value in the range.
     let latest: Double?
-    /// The newest value against the mean of the days before it in the 7 that end on its day (Today's rule).
+    /// "vs 7 d" (`MetricDelta.vsSevenDayMean`, Today's rule): the newest value against the mean of the others in the 7 days
+    /// that end on its day.
     let delta: MetricDelta?
     /// The usual range behind the line: mean ± 1 SD of the 30-day series before its newest value (banded metrics only).
     let band: ClosedRange<Double>?
@@ -98,10 +99,7 @@ struct TrendCardContent: Identifiable, Equatable {
 
     var title: String { metric.title }
     var spec: MetricSpec { metric.spec }
-    var hasData: Bool { latest != nil }
 
-    /// The change's window: the newest day and the 6 before it, as in Today's 7-day series.
-    static let deltaDays = 7
     /// The usual range needs this many values before the newest one in the 30-day series.
     static let minimumBandValues = 7
 
@@ -136,20 +134,10 @@ struct TrendCardContent: Identifiable, Equatable {
         let isPending = series == nil && isLoading
         return TrendCardContent(
             metric: metric, style: TrendCardStyle(metric), days: range.days, values: values, latest: latest?.value,
-            delta: Self.delta(series?.points ?? []), band: usual.band, isPending: isPending, isLoaded: series != nil,
+            delta: .vsSevenDayMean(series?.points ?? []), band: usual.band, isPending: isPending, isLoaded: series != nil,
             note: Self.note(metric, series: series, latest: latest, usual: usual, isPending: isPending, isStale: isStale),
             points: series?.points ?? [], end: end, baseline: metric.hasBaseline ? series?.baseline : nil,
             avg: series?.avg, min: series?.min, max: series?.max)
-    }
-
-    /// Today's rule (`MetricDelta.vsSevenDayMean`) over the 7 days that end on the newest value's day: that value against
-    /// the mean of the others (one at least). Every range's points are daily (API.md, `GET /v1/trends`: one per scored
-    /// day), so the range's own series holds those days, and 7 D, 30 D, 90 D and Today's caption agree.
-    static func delta(_ points: [TrendPoint]) -> MetricDelta? {
-        let valued = points.filter { $0.value != nil }.sorted { $0.day < $1.day }
-        guard let last = valued.last else { return nil }
-        let from = DayFormat.string(from: DayFormat.shift(last.date, days: -(deltaDays - 1)))
-        return .vsSevenDayMean(valued.filter { $0.day >= from })
     }
 
     /// Mean ± 1 SD (the window's own spread) of the 30-day series' values before its newest one, with at least 7 of them;

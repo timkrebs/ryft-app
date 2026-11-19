@@ -153,20 +153,26 @@ struct StrainScreenDecisionTests {
         #expect(StrainHero(strain: nil).rulerValue == String(localized: "No data"))
     }
 
-    @Test func theDeltaNeedsThreePriorDays() {
-        #expect(StrainHero.delta(12, prior: [10, 11]) == nil)
-        #expect(StrainHero.delta(12, prior: [10, 11, 12]) == MetricDelta(current: 12, reference: 11))
-        #expect(StrainHero.delta(nil, prior: [10, 11, 12]) == nil)
+    /// S3 (T5.7): Today's "vs 7 d" rule (`MetricDelta.vsSevenDayMean`), not "3 of the 7 before": one of the 6 days before is
+    /// enough, the 7th day back is out, and a day without a strain of its own has none.
+    @Test("Strain's \"vs 7 d\" is Today's rule: one prior day is enough, the 7th day back doesn't count")
+    func theDeltaIsTodaysRule() {
+        let key = { (offset: Int) in DayFormat.string(from: DayFormat.shift(testNow, days: offset)) }
+        let point = { (offset: Int, value: Double?) in TrendPoint(day: key(offset), value: value) }
+        #expect(StrainHero.delta(12, day: key(0), prior: []) == nil)
+        #expect(StrainHero.delta(12, day: key(0), prior: [point(-1, 10)]) == MetricDelta(current: 12, reference: 10))
+        #expect(StrainHero.delta(nil, day: key(0), prior: [point(-1, 10), point(-2, 11)]) == nil)
+        // 6 days back counts, 7 back doesn't; days without a strain and days after the shown one are left out.
+        #expect(StrainHero.delta(12, day: key(0), prior: [point(-6, 9), point(-7, 30), point(-3, nil), point(1, 50)])
+                == MetricDelta(current: 12, reference: 9))
 
-        let day = { (offset: Int) in DayFormat.string(from: DayFormat.shift(testNow, days: offset)) }
-        let two = model(history: [DailyScore(day: day(-1), strain: 10), DailyScore(day: day(-2), strain: 10),
-                                  DailyScore(day: day(0), strain: 13)]).0
-        #expect(two.strainDelta == nil)
-        #expect(two.board.hero.delta == nil)
-        let three = model(history: (1...3).map { DailyScore(day: day(-$0), strain: 10) } + [DailyScore(day: day(0), strain: 13)]).0
-        #expect(three.strainDelta == MetricDelta(current: 13, reference: 10))
-        #expect(three.board.hero.delta == three.strainDelta)
-        #expect(three.board.hero.numeralValue.contains("versus 7 days"))
+        let two = model(history: [DailyScore(day: key(-1), strain: 10), DailyScore(day: key(-2), strain: 10),
+                                  DailyScore(day: key(0), strain: 13)]).0
+        #expect(two.strainDelta == MetricDelta(current: 13, reference: 10), "two prior days show one")
+        #expect(two.board.hero.delta == two.strainDelta)
+        #expect(two.board.hero.numeralValue.contains("versus 7 days"))
+        let none = model(history: [DailyScore(day: key(-7), strain: 10), DailyScore(day: key(0), strain: 13)]).0
+        #expect(none.strainDelta == nil && none.board.hero.delta == nil, "only a day outside the window")
     }
 
     @Test func theSplitOnlyWithAStrengthSession() {

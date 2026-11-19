@@ -1695,7 +1695,7 @@ Selecting a day cross-fades the numeral (250 ms; none under Reduce Motion) as Sl
 |---|---|
 | Title + date sub-line | Header title; the date is in the strip's selection (and "Yesterday" etc. in the announcement and VoiceOver); `model.title` stays as the header's spoken value |
 | `DateStrip` rings | `DayStrip` (no ring; the day's strain is in the numeral when selected and in the cell's spoken label) |
-| `MetricGauge` ring + delta vs the prior 7 days | The numeral and the ruler. **The delta `model.strainDelta` is not on the board**; it stays as the VoiceOver value and as a caption line "▲ +1.2 vs 7 d" (`DeltaLabel`, strain is neutral polarity so `textSecondary`) after the caption, same row, when there are 3 or more prior days (**D5-4**) |
+| `MetricGauge` ring + delta vs the prior 7 days | The numeral and the ruler. **The delta `model.strainDelta` is not on the board**; it stays as the VoiceOver value and as a caption line "▲ +1.2 vs 7 d" (`DeltaLabel`, strain is neutral polarity so `textSecondary`) after the caption, same row (**D5-4**; since T5.7 Today's "vs 7 d" rule, `MetricDelta.vsSevenDayMean`: one of the 6 days before is enough) |
 | Split text | row 5 |
 | Steps, Active kcal `MetricTile`s (teal icons) | row 8 (no icons: the colour is the legend); `MetricTile` is deleted (its only caller) |
 | `ZoneBar` (five hues, HRR ranges, legend) | The zones tile; `ZoneBar`, `Theme.zones` and `MetricGauge` (only user: `StrainView`) are deleted. The HRR ranges ("50–60 %" …) move to each row's spoken label and a footnote line under the tile |
@@ -2210,7 +2210,7 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-1 | Pill buttons 52; the app's `PrimaryButton` 44 | Every button row is 52 pt (+8) | L27: one button, the board's size |
 | D5-2 | Strain has no day selection | A 44 pt `DayStrip` under the header (+56 against the board) | Today's week strip is the only way to see an earlier day; Sleep has the same kind of step |
 | D5-3 | Tab bar 76 | 78 on a phone with an indicator (content 44, not 42) | An item must be a 44 pt target on a phone without an indicator |
-| D5-4 | No delta on Strain | "▲ +1.2 vs 7 d" after the caption with 3 or more prior days | `strainDelta` exists today; the numbers-first rule keeps the baseline |
+| D5-4 | No delta on Strain | "▲ +1.2 vs 7 d" after the caption, by Today's rule (`MetricDelta.vsSevenDayMean`, one of the 6 days before is enough; T5.7, was 3 or more of the 7 before) | `strainDelta` exists today; the numbers-first rule keeps the baseline; one rule for "vs 7 d" everywhere (T5.3) |
 | D5-5 | Insights header has no disclaimer | The wellness sentence is the page's last line | Guideline 1.4.1 content stays on the screen; the header has no room |
 | D5-6 | Tile "An idea" | "Insight", only for `info` insights; notice and warn are neutral cards above | The rules produce observations; teal is not a warning's colour (R-N4) |
 | D5-7 | Glow text at 0.78 / 0.62 / 0.55 | Full `textPrimary` and the label rule (78 %, 100 % in recovery) | 4.5:1 in the core: the board's 62 % is 4.09 (zones) and 3.47 (idea) |
