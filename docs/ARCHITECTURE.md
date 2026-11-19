@@ -281,7 +281,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   - No session is published over an entry (`AuthService.clearTheWay`): another account's sign-in makes one attempt and
     is held if it fails, and Welcome says so. Once a pass was refused, nothing in that process ends the debt.
   - The wipe's own turn lets go of what holds Train rows (`TrainCoordinator.releaseRows`, `SessionController.release`):
-    on iOS 18 and 26 reading a deleted row's relationship is a fatal error. The demo's discard does the same.
+    on iOS 18 and 26 reading a deleted row's relationship can be a fatal error. The demo's discard does the same, and
+    both, and an account change, drop a workout still opening from the start sheet (`TrainCoordinator.open`).
 - Demo data goes to a separate in-memory store, so it never mixes with an account's. The
   Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
   one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer

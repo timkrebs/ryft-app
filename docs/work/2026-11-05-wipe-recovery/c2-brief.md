@@ -35,12 +35,18 @@ mentioned, because External testers only ever get builds with W7. Placement is a
 
 | # | Depends on | Without it |
 |---|---|---|
-| 1 | **W2** (an owed wipe finishes at the next start, before the store opens), **W3** (no other account is signed in over it), **W4a** (nothing of the leaving account is written to the widget while the wipe is owed) | A failed wipe isn't finished by itself (W2), a second account could read the first one's data (W3), or the leaving account's readiness can come back on the lock screen after a refused wipe (W4a) |
+| 1 | **W2** (an owed wipe finishes at the next start, before the store opens), **W3** (no other account is signed in over it), **W4a** (nothing of the leaving account is written to the widget while the wipe is owed) | A failed wipe isn't finished by itself (W2), a second account could read the first one's data (W3), or the leaving account's readiness can come back on the lock screen after a refused wipe, or from the demo's exit during one (W4a) |
 | 2 | Nothing new: parking since #93's base. That deleting the app removes the App Group container is assumed (U5, a device check) | — |
 | 3 | Parking, and W2's 30-day limit counted from the first attempt (`since`) | — |
 | 4 | **W7**: the scrub, which replaces the files at the next start signed out, for its first clause; and the backup exclusion of `Train.store` and the ledger, which is why the sentence can stay silent on backups | The first clause is false, and a device backup can keep a copy the text doesn't mention |
 
 **W2 and W3** are in #107. **W4a** and **W7** are separate PRs from `main`, after #107; neither is started.
+
+W4a's scope, for sentence 1: no widget write while a wipe is owed, gated where every write passes
+(`Repository.publishWidget` / `ReadinessSnapshot.publish`). The callers are `onWipe` (`AppState.wiped`), the demo's
+exit (`ProfileViewModel.endDemo`, which during a debt publishes from the account's store), the repository's committed
+batches, `todayStatus` and `tonightBedtime`, the scoring ledger (`SyncCoordinator`) and the widget setup watch
+(`ScreenModels`).
 
 ## Timing
 

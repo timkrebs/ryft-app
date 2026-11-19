@@ -45,13 +45,15 @@ reproduce: an insert lands in the older and the newer container, and the account
 isn't settled: the invariant the app relies on holds (made and awaited off main, a model actor's jobs run off main),
 but which thread decides is unmeasured, since the observations assert only on 27. The 18.0 trap shows in another form:
 `TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack` traps with "Never access a full future backing data"
-(`BackingData.swift:739`), as on `main`; #107 fixes it. Until T0.1 is measured and #107 is in, code and tests treat 18.6
-as 18.0.
+(`BackingData.swift:739`), as on `main` then. Since #107 that probe reads relationships only on 27, and the wipe and the
+demo's exit release what holds their rows (2026-11-19, below). Until T0.1 is measured, code and tests treat 18.6 as
+18.0.
 
 2026-11-19: the sign-out wipe's W2 and W3 (#107, ADR 0020; it includes #106), with `main` merged in: an owed wipe
-finishes at the next start before the store opens, and no other account is signed in over it. The 18.6 run passes
-with the held-row trap fixed. W4a and W7 come before the External build, and C2 goes into force with it (Sign-out
-wipe, below).
+finishes at the next start before the store opens, and no other account is signed in over it. The wipe suites pass
+on 18.6 and 27.2. On 18.6 the wipe's release of the open workout is a precaution: reading a deleted row's relationship
+traps there, but the hosted screen never did (only on 18.0). W4a and W7 come before the External build, and C2 goes
+into force with it (Sign-out wipe, below).
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
@@ -84,20 +86,32 @@ squash commit, so no build has W2 without W3):
 - no session is published over it: another account's sign-in is held after one failed attempt ("Close RYFT and open
   it again to continue", on Welcome and Log in), and once a pass was refused nothing in that process ends the debt;
 - `auth.lastUserID` only says whose data the store holds, and `AccountScope` follows the published session;
-- the wipe's own turn lets go of the open workout (`TrainCoordinator.releaseRows`), which fixes the iOS 18/26 trap
-  below; the demo's discard does the same.
+- the wipe's own turn lets go of the open workout (`TrainCoordinator.releaseRows`), and the demo's discard does the
+  same: on iOS 18 and 26 reading a deleted row's relationship can trap (known issues, below); a workout still opening
+  from the start sheet is dropped by the wipe, the discard and an account change, never presented afterwards.
 
 `TrainStore.wipe` deletes session rows object by object and reports every step. 44,500 rows take 3.4 s in Debug, on the
 main thread.
 
-- **Verified:** simulator only, 2026-11-19, `-parallel-testing-enabled NO`. iOS 27.2: the wipe, ledger, hold, auth,
-  Train sync, session, demo-exit, consent, read-model and store suites, 537 tests in 47 suites. iOS 18.6 (iPhone 16
-  Pro): the wipe, ledger, hold, read-model, consent and demo-exit suites, 380 tests in 26 suites. The held-row trap is
-  gone on 18.6. UI: `DemoExitUITests` and `StoreSmokeUITests` on 27.2 (the reviewer walkthrough, the only UI test that
-  signs out, skips without its credentials).
-- **Before the External build:** W4a (nothing written to the widget while a wipe is owed) and W7 (a scrub after a
-  no-parking wipe; `Train.store` and the ledger out of device backups), each its own PR from `main`. C2's wipe sentences
-  depend on W2, W3, W4a and W7 (`c2-brief.md`), so C2 goes into force with the External build that carries all four.
+- **Verified:** simulator only, 2026-11-19, `-parallel-testing-enabled NO`, on the final head of #107.
+  - iOS 18.6 (iPhone 16 Pro): the wipe, ledger, hold, account-scope, read-model wipe and demo-exit suites, 268 tests
+    in 14 suites. iOS 27.2: the same and the auth, Train sync, session and store suites, 708 tests in 41 suites. UI:
+    `DemoExitUITests` on 27.2. The reviewer walkthrough, the only UI test that signs out, skips without its
+    credentials.
+  - On 18.6 the hosted screens draw without trapping with or without the release (mutants that only stop the workout
+    fail at `isReleased` and at the released screen, never with a trap), so there it's a precaution.
+  - The real app on 18.6, a planted `.user` entry with an orphan copy, Demo data off and a stale id on the demo list:
+    4 files replaced in 2 ms before the first container; the orphan, the entry, the owner and the stale id gone; the
+    app still running.
+- **Before the External build:** W4a and W7, each its own PR from `main`.
+  - W4a: nothing written to the widget while a wipe is owed, gated at `Repository.publishWidget` /
+    `ReadinessSnapshot.publish`. Its scope is every caller: `onWipe` (`AppState.wiped`), the demo's exit
+    (`ProfileViewModel.endDemo`, which during a debt publishes from the account's store), the repository's committed
+    batches, `todayStatus` and `tonightBedtime`, the scoring ledger (`SyncCoordinator`) and the widget setup watch
+    (`ScreenModels`).
+  - W7: a scrub after a no-parking wipe; `Train.store` and the ledger out of device backups.
+  - C2's wipe sentences depend on W2, W3, W4a and W7 (`c2-brief.md`), so C2 goes into force with the External build
+    that carries all four.
 - **Needs you (U5, on a device):** kill RYFT during a sign-out with a workout live, reopen: nothing of it on the lock
   screen; a sign-out on a really full disk; a held sign-in, then close and reopen: the account is in; a backup restore
   after a sign-out holds no `Train.store` (after W7); deleting the app removes the App Group container. Once by hand: a
@@ -1622,10 +1636,14 @@ contract points are in `docs/API_REQUESTS.md`.
   demo's workouts starts with that build. Its first launch with protected data seeds it only with nobody signed in
   (every stored session is then the demo's, and with Demo data off that launch discards them); signed in, the account's
   sessions are there too and can't be told apart, so older demo workouts stay with the account (design §6.9).
-- ~~**iOS 18.0: a row still held after a Train wipe can trap**~~: fixed by #107. The wipe's own turn releases the open
-  workout (`TrainCoordinator.releaseRows`) and its screen draws none of the rows; the demo's discard does the same. On
-  18.6 and 26.0 the trap reads "Never access a full future backing data". `aRowStillHeldStaysUsableAndNothingComesBack`,
-  `anOpenWorkoutDrawsNoDeletedRow` and `anOpenDemoWorkoutDrawsNoDeletedRowAtTheExit` pass on 18.6 and 27.2 (2026-11-19).
+- **iOS 18 and 26: reading a relationship of a deleted, saved Train row can trap.** The probe
+  (`TrainStoreWipeTests/aRowStillHeldStaysUsableAndNothingComesBack`) traps on 18.0 ("Context is missing"), 18.6 and
+  26.0 ("Never access a full future backing data"), so its relationship reads run only on 27. The workout's screen,
+  hosted through the wipe with a rest running, trapped only on 18.0, which is no longer supported. Since #107 the wipe
+  and the demo's exit release the open workout in their own turn and its screen draws none of the rows; on 18.6 that is
+  a precaution, measured only as `isReleased` (`anOpenWorkoutDrawsNoDeletedRow`,
+  `anOpenDemoWorkoutDrawsNoDeletedRowAtTheExit`, 2026-11-19). A new screen or sheet that holds Train rows releases them
+  the same way (ADR 0020, decision 7).
 - Satoshi isn't committed because of its licence (see README). Fresh clones render in SF
   Pro Rounded until `scripts/fetch-fonts.sh` runs.
 - Welcome and the auth screens are always dark (Graphite, as on the board), also in light

@@ -1,6 +1,6 @@
 # 0020 — An account wipe is a debt written down first, finished before the store opens, and no session is published over it
 
-- Status: proposed (2026-11-18), for the lead to accept with #107. Designed in
+- Status: accepted (2026-11-19, ios-lead, with #107). Designed in
   `docs/work/2026-11-05-wipe-recovery/design.md` (§9 was this draft, numbered 0016 before Nocturne took that number),
   re-baselined in `rebaseline-2026-11-18.md`, reviewed in `review-w2.md` and `review-w3.md`.
 - Built: W1 in #103 (the ledger), W2 and W3 in #107 (the launch's store step and the hold; #106 is included), in one
@@ -15,7 +15,8 @@
   `apply`, `publish`, `clearTheWay`, `hold`, `settled`, `resumeOwedWipe`, `finishOwedWipe`, `storeStep`);
   `Ryft/Persistence/StoreReset.swift` (`StoreReset`, `WipeResume`); `Ryft/Train/Model/TrainStore.swift` (`shared`,
   `init(opening:…)`, `wipe`); `Ryft/App/RyftApp.swift` (the first-frame task and the compaction);
-  `Ryft/Features/Train/TrainCoordinator.swift` (`releaseRows`, `discardDemoWorkouts`), `SessionController.release` and
+  `Ryft/Features/Train/TrainCoordinator.swift` (`open`, `releaseRows`, `accountChanged`, `discardDemoWorkouts`),
+  `SessionController.release` and
   `SessionView`; `AccountScope`; and every future table, lock-screen surface or screen that holds Train rows
 
 ## Context
@@ -32,11 +33,14 @@
   this is" to the HealthKit anchors and the export choice. One id can't say both, a second failure overwrote it, and
   the retry at the next sign-in took that account's unsent work.
 - **A live store's bytes outlast a wipe:** deleted values stay in the WAL and free pages, and history keeps row counts.
-- **On iOS 18 and 26, reading a relationship of a deleted, saved row is a fatal error,** whatever was read before the
-  delete: 18.0 says "Context is missing", 18.6 and 26.0 "Never access a full future backing data" (26.0 in one run of
-  two). 27 answers. Until the account-change handler ran, a runloop after the wipe, the live workout's screen and the
-  in-progress banner held such rows, and the rest bar reads the next set twice a second. The minimum is iOS 18.6
-  (ADR 0021).
+- **On iOS 18 and 26, reading a relationship of a deleted, saved row can be a fatal error,** whatever was read before
+  the delete. The probe in `TrainStoreWipeTests` traps on 18.0 ("Context is missing"), 18.6 and 26.0 ("Never access a
+  full future backing data"; 26.0 in one run of two), so its relationship reads run only on 27, which answers them.
+  The workout's screen hosted through the wipe with a rest running trapped only on 18.0, no longer supported; on 18.6 it
+  drew without trapping. Until the account-change handler ran, a runloop after the wipe, the live workout's screen and
+  the in-progress banner held such rows, and the rest bar reads the next set twice a second. The minimum is iOS 18.6
+  (ADR 0021), so on what's supported the release below is a precaution against a read the screens may make, not the
+  fix of a trap seen there.
 
 ## Decision
 
@@ -49,8 +53,14 @@
    - The entry goes only:
      - when a pass returned true, the launch's replace left no files, an interrupted sign-out's `client.signOut()` has
        run, and no pass in this process was refused;
-     - or by `.forget` at launch: its account was published over it (`publishedOver`) and is stored, a W1 build's
-       entry over its own account's session (unless it's a deletion's), or a scrub with any session.
+     - by `.forget` at launch: its account was published over it (`publishedOver`) and is stored, a W1 build's
+       entry over its own account's session (unless it's a deletion's), or a scrub with any session;
+     - by `clearTheWay`'s in-process forget, the same `publishedOver` case for a launch that couldn't read the session
+       or the entry: its account signs in with no other owner stored, and no pass in this process was refused;
+     - as a scrub, which owes nothing but file residue: any sign-in clears it (`clearTheWay`), and so do the first frame
+       and the compaction once the launch's replace left no files (`finishOwedWipe`). Dormant until W7 writes scrubs;
+     - or as a file only, when the disk won't take the `publishedOver` mark (`removeFile()`, decision 4): this process
+       keeps the entry, and the next launch has none.
 2. **`auth.lastUserID` only says whose data the store holds.** The debt is the ledger's. A failed wipe doesn't write the
    id back, and `AccountScope` follows the published session, so anchors and the outbox never read another account's
    id.
@@ -83,15 +93,21 @@
    in the context that a batch delete doesn't see, and a later pass's save answers true and writes them. Only a later
    launch's replace or fresh context is proof. So the copy asks for a relaunch, and every route in the process
    (the SDK's events, a sign-in, the first frame, the compaction) holds without trying again.
-6. **The retry runs at launch, after the first frame and in the nightly compaction,** once per process, and never over a
-   session, published or stored, except the one an interrupted sign-out is ending. A stored session that the launch
-   couldn't read goes through the launch table at the next launch.
+6. **The retry runs at launch, after the first frame and in the nightly compaction,** once per process.
+   - The first frame's and the compaction's never run over a session, published or stored, except the one an
+     interrupted sign-out is ending. A stored session that the launch couldn't read goes through the launch table at the
+     next launch.
+   - The launch's runs before anything is published, also with another account's session stored (`.wipeNow`): that
+     account is published only if the entry is gone afterwards, and held otherwise (decision 4).
 7. **Code that deletes Train rows lets go of what holds them in the same turn.**
    - The wipe's store step clears the widget's readiness file, stops Train's replay, wipes the offline library and calls
      `TrainCoordinator.releaseRows()`. That releases the open workout (`SessionController.release()`: stopped for good,
      and `SessionView` then draws none of its rows) and the in-progress banner's session, before anything draws again.
      The account-change handler still follows.
    - The demo's discard (ADR 0019) releases its open workout the same way.
+   - A workout still opening (`TrainCoordinator.open` waits for the start sheet to go before it presents) is dropped by
+     the wipe and the discard, released, and by an account change, stopped: it's never presented afterwards, so nothing
+     can be logged in it and queued for the next account. The wait is on the injected clock.
    - A launch wipe has nothing open: `TrainCoordinator.existing` keeps it from building the coordinator.
 8. **Nothing infers a debt from a missing session.** Before the first unlock a Keychain miss looks the same, and would
    wipe a signed-in user.
@@ -120,8 +136,14 @@
   the app should (unverified, U5).
 
 **Not built here, and needed before the External build:**
-- **W4a:** nothing writes the widget while a debt exists (the design's I5). Until then a refused `CachedDay` delete can
-  put the leaving account's readiness back on the lock screen through `onWipe`.
+- **W4a:** nothing writes the widget while a debt exists (the design's I5), gated where every write passes,
+  `Repository.publishWidget` / `ReadinessSnapshot.publish`. Its scope is every caller:
+  - `onWipe` (`AppState.wiped`): a refused `CachedDay` delete can put the leaving account's readiness back on the lock
+    screen;
+  - the demo's exit (`ProfileViewModel.endDemo`): during a debt it publishes from the account's store;
+  - the repository's own: a committed batch that publishes (`committed`), `todayStatus` and `tonightBedtime` changing
+    (the sync status, Bedtime & wake, the account's and the demo's resets);
+  - the scoring ledger (`SyncCoordinator`'s `ledgerChanged`) and the widget setup watch (`ScreenModels`).
 - **W7:** after a true no-parking wipe the entry stays as a scrub, so the next launch signed out replaces the files;
   `Train.store` and the ledger leave device backups (U2). Until then, the WAL and free pages keep deleted values after
   an in-process wipe.
@@ -143,10 +165,17 @@ reads the account's store, so a refused wipe's sessions show in it).
 - Code that deletes Train rows a screen may hold releases them in the same turn (decision 7).
 - An account column on the read models would make decision 4 removable. It isn't planned.
 
-**Measured** (2026-11-19, simulator, `-parallel-testing-enabled NO`): the wipe, ledger, hold, read-model, consent and
-demo-exit suites pass on the iPhone 16 Pro at iOS 18.6 (380 tests in 26 suites), the held-row trap's tests included;
-with the auth, Train sync, session and store suites added, 537 tests in 47 suites pass on iOS 27.2. A mutant that stops
-the demo's open workout instead of releasing it fails both of its tests on 18.6.
+**Measured** (2026-11-19, simulator, `-parallel-testing-enabled NO`):
+- iOS 18.6 (iPhone 16 Pro): the wipe, ledger, hold, account-scope, read-model wipe and demo-exit suites, 268 tests in
+  14 suites, pass. iOS 27.2: those and the auth, Train sync, session and store suites, 708 tests in 41 suites, pass.
+- On 18.6 the relationship reads of the probe are skipped, because they trap. A mutant that only stops the demo's open
+  workout, and one that only stops a workout still opening, fail at `isReleased` and at the released screen never
+  being drawn, not with a trap: on 18.6 the release is a precaution.
+- A mutant that presents a workout still opening whatever came in its wait fails for the wipe, the demo's exit and an
+  account change.
+- The real app on 18.6 with a planted `.user` entry, an orphan copy, Demo data off and a stale id on the demo list: the
+  store's 4 files replaced in 2 ms before the first container, the orphan, the entry, the owner and the stale id gone,
+  and the app still running.
 
 ## Alternatives
 
