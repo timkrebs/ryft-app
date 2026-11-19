@@ -33,7 +33,9 @@ struct SleepNeedBreakdown: Equatable {
         var spoken: String {
             let amount = Fmt.spokenDuration(minutes: minutes)
             switch kind {
-            case .base: return "\(title), \(amount)"
+            case .base:
+                return String(localized: "\(title), \(amount)",
+                              comment: "VoiceOver: the night's baseline, \"Baseline, 7 hours 30 minutes\". 1: the term, 2: the time.")
             case .strain, .debt:
                 return String(localized: "\(title), plus \(amount)",
                               comment: "VoiceOver: a top-up of the night's sleep need, e.g. \"Strain, plus 20 minutes\". 1: the term, 2: the time.")
@@ -57,6 +59,10 @@ struct SleepNeedBreakdown: Equatable {
 
     func minutes(_ kind: Term.Kind) -> Int { terms.first { $0.kind == kind }?.minutes ?? 0 }
 
+    /// The tile's one scale: the total, or, with a nap credit, what the night added up to before it (base + strain + debt),
+    /// so the baseline's row never runs past the scale's end.
+    var scaleMax: Int { max(total, minutes(.base) + minutes(.strain) + minutes(.debt), 1) }
+
     /// "You needed 8:18: 7:30 baseline, +0:20 for yesterday's strain, +0:28 of debt."
     var sentence: String { sentence(Fmt.clock(minutes:)) }
 
@@ -79,8 +85,8 @@ struct SleepNeedBreakdown: Equatable {
 /// The sleep need sheet's tile (Nocturne, PR 6 C §4.12, D6C-13): one sleep glow tile (`hypnogram` kind: 168 high at least,
 /// radius 28), "How it adds up" and the total on its head row, 14 below it one tick row per term, 9 apart, all on one scale
 /// (the total lights 30 ticks), in ink: one tile, one colour, the legend in words. The rows keep one tick column, or all
-/// stack (PR 5's one-column rule, `ZoneBlock`). VoiceOver: the tile is a container; the head row is one element, and each
-/// term's ticks are one value ("Strain, plus 20 minutes").
+/// stack (PR 5's one-column rule, `ZoneBlock`). VoiceOver: the head row is one element and names the tile once ("How it
+/// adds up", a header); each term's ticks are one value after it ("Strain, plus 20 minutes").
 struct SleepNeedBar: View {
     let need: SleepNeed
     /// Previews and tests; `nil` follows the system.
@@ -100,8 +106,9 @@ struct SleepNeedBar: View {
                               ZoneBlock.Zone(label: Text(verbatim: term.title), minutes: Double(term.minutes),
                                              value: Text(verbatim: term.signed), accessibilityLabel: Text(verbatim: term.spoken))
                           },
-                          scaleMax: Double(max(b.total, 1)),
-                          accessibilityLabel: Self.title)
+                          scaleMax: Double(b.scaleMax),
+                          // The head row above already says "How it adds up": the block's container goes unnamed.
+                          accessibilityLabel: Text(verbatim: ""))
             }
         }
         .accessibilityIdentifier("sleepNeed.tile")

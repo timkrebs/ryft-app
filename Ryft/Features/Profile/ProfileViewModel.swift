@@ -804,25 +804,46 @@ final class SyncDetailsModel {
 
 /// The settings the platform scores against that the user may set: baseline sleep need,
 /// maximum heart rate and birth year. Onboarding, the Sleep tab and Profile edit them
-/// through one sheet each. A change saves at once (`PATCH /v1/me`): it shows right away,
-/// and a refusal shows in the sheet while the value goes back. Past days keep their scores
-/// until "Rescore the last 90 days" (`POST /v1/recompute`).
+/// through one sheet each. A change saves at once (`PATCH /v1/me`). The editor's page shows
+/// the value on its way; every other row shows the saved value, or "Saving…" while a change
+/// of it is out. A failure says in words what happened while the value goes back, and
+/// nothing reads as saved that the account doesn't hold. Past days keep their scores until
+/// "Rescore the last 90 days" (`POST /v1/recompute`).
 @MainActor
 @Observable
 final class BodySettingsEditor {
     private let state: AppState
 
-    /// Shown while its `PATCH` is out.
-    private(set) var pendingSleepBase: Int?
-    private(set) var pendingMaxHR: Int?
-    private(set) var saving = false
-    /// The last save's refusal, for the form; cleared when a form opens.
+    /// A `PATCH /v1/me` on its way: which, so every page and row that shows the setting says so, and a page opened meanwhile
+    /// shows it too.
+    enum Write: Equatable {
+        /// A value of the user's own (`sleep_base_min`, `max_hr`).
+        case value(BodySetting, Int)
+        /// Back to RYFT's value (`sleep_base_manual` / `max_hr_manual: false`).
+        case estimate(BodySetting)
+        case birthYear(Int)
+
+        var setting: BodySetting? {
+            switch self {
+            case .value(let setting, _), .estimate(let setting): return setting
+            case .birthYear: return nil
+            }
+        }
+    }
+
+    private(set) var writing: Write?
+    /// The last save's failure, for the page; cleared when a page opens with nothing in flight.
     private(set) var error: String?
     private(set) var errorDetails: String?
+    /// The setting `error` is about.
+    private(set) var errorSetting: BodySetting?
+    /// `error` arrived while no editor page was open (the page went while its save was out): Profile's About you, and the
+    /// need sheet for the baseline, show it where the user is.
+    private(set) var errorMissed = false
     /// A birth year Profile's picker couldn't save (it has no form to say so in).
     private(set) var birthYearError: String?
     private(set) var birthYearErrorDetails: String?
-    /// A change was saved since the form opened: past days keep their scores until rescored.
+    /// A change was saved since the form opened, and the account holds it: past days keep their scores until rescored.
     private(set) var savedChange = false
     private(set) var rescoring = false
     private(set) var rescoreStatus: String?
@@ -830,7 +851,18 @@ final class BodySettingsEditor {
     private(set) var rescoreDetails: String?
     /// The last rescore failed: `rescoreStatus` says why (offline it has no `rescoreDetails`).
     private(set) var rescoreFailed = false
+    /// The last rescore went through and its scores came back: the page's row waits for the next saved change.
+    private(set) var rescored = false
 
+    /// Editor pages on screen (`pageAppeared`, `pageDisappeared`).
+    private var openPages = 0
+    /// Writes started, never reset: a re-read speaks only while its write is the latest.
+    private var writes = 0
+    /// Bumped when the account's state is forgotten: a write begun before leaves the words alone.
+    private var generation = 0
+
+    /// A `PATCH` is out.
+    var saving: Bool { writing != nil }
     /// One thing at a time: a save during a rescore would be reported as rescored.
     var isBusy: Bool { saving || rescoring }
 
@@ -844,6 +876,8 @@ final class BodySettingsEditor {
 
     init(state: AppState) {
         self.state = state
+        // A sign-out, another account or a wipe: nothing of the previous account's stays (its words, its value on its way).
+        state.forgetsAccountState { [weak self] in self?.forgetAccount() }
     }
 
     private var env: AppEnvironment { state.env }
@@ -851,24 +885,85 @@ final class BodySettingsEditor {
     var canSave: Bool { state.hasDataSource }
     /// The account is here (cached or fetched): the values are the saved ones, not the defaults.
     var isLoaded: Bool { user != nil }
-    /// What the editors say offline (a change can't be sent).
-    var isOnline: Bool { env.connectivity.isOnline }
+    /// A change can be sent: demo data always, an account while the iPhone has a network path (`SleepViewModel.isOnline`).
+    var isOnline: Bool { state.isDemo || env.connectivity.isOnline }
 
-    /// A form opens: a fresh start, no earlier refusal or note.
+    /// A form opens: a fresh start, no earlier refusal or note, unless a write is still out (then the page shows it, and
+    /// its answer).
     func begin() {
+        guard !isBusy else { return }
+        clearWords()
+    }
+
+    /// An editor page appeared (`begin`), or went: a failure that arrives with none open is shown where the user is.
+    func pageAppeared() {
+        openPages += 1
+        errorMissed = false
+        begin()
+    }
+
+    func pageDisappeared() {
+        openPages = max(0, openPages - 1)
+    }
+
+    /// The previous account's words and its value on its way go (`AppState.forgetActivityState`): an answer for it that
+    /// arrives later changes nothing here.
+    func forgetAccount() {
+        generation += 1
+        writing = nil
+        rescoring = false
+        clearWords()
+        birthYearError = nil
+        birthYearErrorDetails = nil
+    }
+
+    private func clearWords() {
         error = nil
         errorDetails = nil
+        errorSetting = nil
+        errorMissed = false
         savedChange = false
         rescoreStatus = nil
         rescoreDetails = nil
         rescoreFailed = false
+        rescored = false
+    }
+
+    // MARK: what's on its way
+
+    /// The value on its way for `setting`: only the editor's page shows it.
+    func pending(_ setting: BodySetting) -> Int? {
+        if case .value(setting, let value)? = writing { return value }
+        return nil
+    }
+
+    var pendingSleepBase: Int? { pending(.sleepBase) }
+    var pendingMaxHR: Int? { pending(.maxHR) }
+
+    /// A change of `setting` (a value or going back to RYFT's) is out.
+    func isWriting(_ setting: BodySetting) -> Bool { writing?.setting == setting }
+
+    /// A row that opens the editor (Profile, onboarding's About you, the need sheet): "Saving…" while a change of the setting
+    /// is out, else the saved value as the row writes it. The value on its way is the editor page's alone.
+    func rowValue(_ setting: BodySetting, saved: String) -> String { isWriting(setting) ? Self.savingWord : saved }
+
+    /// The row's second line: where the saved value comes from; nothing while a change of it is out.
+    func rowDetail(_ setting: BodySetting) -> String? {
+        guard !isWriting(setting) else { return nil }
+        return setting == .sleepBase ? sleepBaseSourceText : maxHRSourceText
+    }
+
+    static var savingWord: String {
+        String(localized: "Saving…",
+               comment: "Body setting editors and the rows that open them (Profile, About you, Sleep need): a change on its way.")
     }
 
     // MARK: baseline sleep need
 
-    var sleepBase: Int { pendingSleepBase ?? user?.sleepBaseMin ?? Self.defaultSleepBase }
+    /// The saved baseline (the default while the account isn't here).
+    var sleepBase: Int { user?.sleepBaseMin ?? Self.defaultSleepBase }
     var sleepBaseText: String { Fmt.duration(minutes: sleepBase) }
-    var sleepBaseSource: SleepBaseSource? { pendingSleepBase != nil ? .manual : user?.sleepBaseSource }
+    var sleepBaseSource: SleepBaseSource? { user?.sleepBaseSource }
 
     /// Where the value comes from, beside it: "Learned · updated Mon", "Set by you · learned
     /// 7h 35m", "Default".
@@ -889,27 +984,35 @@ final class BodySettingsEditor {
     /// Set by hand: offer going back (to the learned estimate, or the default without one).
     var canUseLearnedBase: Bool { sleepBaseSource == .manual }
     var usesLearnedTitle: String {
-        sleepBaseLearned == nil ? String(localized: "Use the default")
+        sleepBaseLearned == nil ? Self.useDefaultTitle
             : String(localized: "Use RYFT's estimate",
                      comment: "Baseline sleep need editor: the row that goes back from your own baseline to the one RYFT learned from your nights.")
     }
     /// What RYFT learned from the nights, minutes; the "Use RYFT's estimate" row shows it.
     var sleepBaseLearned: Int? { user?.sleepBaseLearnedMin }
 
+    /// The "Use …" row when RYFT has nothing of its own to go back to.
+    static var useDefaultTitle: String {
+        String(localized: "Use the default",
+               comment: "Body setting editors: the row that goes back to RYFT's default (no learned baseline yet; no birth year for a heart-rate estimate).")
+    }
+
     /// `PATCH /v1/me {sleep_base_min}`: the baseline becomes yours (`manual`), learning stops.
     @discardableResult
     func setSleepBase(_ minutes: Int) async -> Bool {
         let value = min(max(minutes, Self.sleepBaseRange.lowerBound), Self.sleepBaseRange.upperBound)
-        pendingSleepBase = value
-        defer { pendingSleepBase = nil }
-        return await save(UserPatch(sleepBaseMin: value),
-                          refused: String(localized: "RYFT takes a baseline between 4 and 12 hours."))
+        return await save(UserPatch(sleepBaseMin: value), as: .value(.sleepBase, value),
+                          refused: String(localized: "RYFT takes a baseline between 4 and 12 hours.")) {
+            $0.sleepBaseMin == value && $0.sleepBaseSource == .manual
+        }
     }
 
     /// `PATCH /v1/me {sleep_base_manual: false}`: back to the learned estimate (or the default).
     @discardableResult
     func useLearnedSleepBase() async -> Bool {
-        await save(UserPatch(sleepBaseManual: false), refused: Self.notTaken)
+        await save(UserPatch(sleepBaseManual: false), as: .estimate(.sleepBase), refused: Self.notTaken) {
+            $0.sleepBaseSource != .manual
+        }
     }
 
     /// A refusal of a change without a range to name.
@@ -917,13 +1020,13 @@ final class BodySettingsEditor {
 
     // MARK: maximum heart rate
 
-    var maxHR: Int { pendingMaxHR ?? user?.maxHr ?? Self.defaultMaxHR }
+    /// The saved maximum (the default while the account isn't here).
+    var maxHR: Int { user?.maxHr ?? Self.defaultMaxHR }
     var maxHRText: String { "\(maxHR) bpm" }
 
     /// "Estimated from your age (born 1990)", "Set by you", "Default · add your birth year".
     var maxHRSourceText: String? {
         guard let u = user else { return nil }
-        if pendingMaxHR != nil { return String(localized: "Set by you") }
         switch u.maxHrSource {
         case .estimated:
             return u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
@@ -934,22 +1037,27 @@ final class BodySettingsEditor {
     }
 
     /// Set by hand: offer the estimate again (or the default without a birth year).
-    var canUseMaxHREstimate: Bool { pendingMaxHR != nil || user?.maxHrSource == .manual }
+    var canUseMaxHREstimate: Bool { user?.maxHrSource == .manual }
+    var usesMaxHREstimateTitle: String {
+        birthYear == nil ? Self.useDefaultTitle
+            : String(localized: "Use the estimate",
+                     comment: "Maximum heart rate editor: the row that goes back from your own value to RYFT's estimate from your age.")
+    }
 
     /// `PATCH /v1/me {max_hr}`: yours from now on (`manual`).
     @discardableResult
     func setMaxHR(_ bpm: Int) async -> Bool {
         let value = min(max(bpm, Self.maxHRRange.lowerBound), Self.maxHRRange.upperBound)
-        pendingMaxHR = value
-        defer { pendingMaxHR = nil }
-        return await save(UserPatch(maxHr: value),
-                          refused: String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm."))
+        return await save(UserPatch(maxHr: value), as: .value(.maxHR, value),
+                          refused: String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm.")) {
+            $0.maxHr == value && $0.maxHrSource == .manual
+        }
     }
 
     /// `PATCH /v1/me {max_hr_manual: false}`.
     @discardableResult
     func useMaxHREstimate() async -> Bool {
-        await save(UserPatch(maxHrManual: false), refused: Self.notTaken)
+        await save(UserPatch(maxHrManual: false), as: .estimate(.maxHR), refused: Self.notTaken) { $0.maxHrSource != .manual }
     }
 
     // MARK: birth year
@@ -971,69 +1079,161 @@ final class BodySettingsEditor {
     /// failure stays beside the picker (`birthYearError`).
     @discardableResult
     func setBirthYear(_ year: Int) async -> Bool {
-        birthYearError = nil
-        birthYearErrorDetails = nil
-        let saved = await save(UserPatch(birthYear: year), refused: Self.notTaken)
-        if !saved {
-            birthYearError = error
-            birthYearErrorDetails = errorDetails
-            error = nil
-            errorDetails = nil
-        }
-        return saved
+        await save(UserPatch(birthYear: year), as: .birthYear(year), refused: Self.notTaken) { $0.birthYear == year }
     }
 
     // MARK: rescoring
 
-    /// Rescores the last 90 days with the settings as they are, waits for scoring and reloads.
+    /// Rescores the last 90 days with the settings as they are (`POST /v1/recompute`), waits for scoring and reloads.
+    /// Offline nothing is sent. After the `202` the status stays "Rescoring — scores update in a few seconds." unless the
+    /// reload ran and brought scores back: only then does it say they're rescored.
     func rescore() async {
         guard !isBusy else { return }
-        rescoring = true
         rescoreDetails = nil
         rescoreFailed = false
-        defer { rescoring = false }
+        rescored = false
+        guard isOnline else {
+            failRescore(.offline, details: nil)
+            return
+        }
+        let owner = Owner(env, generation: generation)
+        rescoring = true
+        defer { if owns(owner) { rescoring = false } }
         let now = env.clock.now()
         do {
             try await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
+            guard owns(owner) else { return }
             rescoreStatus = String(localized: "Rescoring — scores update in a few seconds.")
+            let accepted = env.clock.now()
             try? await env.clock.sleep(for: SyncService.rescoreDelay)
+            guard owns(owner) else { return }
             await state.refresh(force: true)
+            guard owns(owner) else { return }
+            // Seen, not assumed: scores fetched after the platform took the rescore (offline the reload doesn't run).
+            let todayKey = DayFormat.string(from: env.clock.now())
+            guard let fetched = state.repository.newestPastScoreFetchedAt(before: todayKey), fetched >= accepted else { return }
             rescoreStatus = String(localized: "The last 90 days are rescored with your settings.")
+            rescored = true
             savedChange = false
         } catch where error.isCancellation {
             return
         } catch {
-            let failure = BodySettingsFailure(rescore: error, online: isOnline)
-            rescoreStatus = failure.message
-            rescoreDetails = failure.details
-            rescoreFailed = true
+            guard owns(owner) else { return }
+            failRescore(SettingsWriteFailure(error), details: error.diagnosticDetails)
         }
     }
 
-    /// One `PATCH`: `true` when the platform took it. A refusal (`422`) says `refused` in the
-    /// form; anything else says in words what happened (`BodySettingsFailure`). Details keep the request ID.
-    private func save(_ patch: UserPatch, refused: String) async -> Bool {
+    private func failRescore(_ kind: SettingsWriteFailure, details: String?) {
+        let failure = BodySettingsFailure(rescore: kind, details: details)
+        rescoreStatus = failure.message
+        rescoreDetails = failure.details
+        rescoreFailed = true
+    }
+
+    // MARK: saving
+
+    /// Whose answer a write waits for: the account then, and no forgetting since.
+    private struct Owner {
+        let binding: AccountBinding
+        let generation: Int
+
+        @MainActor
+        init(_ env: AppEnvironment, generation: Int) {
+            binding = AccountBinding(env)
+            self.generation = generation
+        }
+    }
+
+    private func owns(_ owner: Owner) -> Bool { owner.generation == generation && owner.binding.isCurrent(in: env) }
+
+    /// One `PATCH /v1/me`: `true` once the account holds the change.
+    /// - Offline nothing is sent, and it says so at once.
+    /// - A refusal (`422`) says `refused`; anything else says in words what happened (`SettingsWriteFailure`).
+    /// - When the change may have gone through (no answer, a `5xx`, an answer the store dropped) RYFT is asked again: if the
+    ///   account then holds it (`holds`), it's "Saved." after all.
+    /// - An answer for an account that's gone (a sign-out, another account, a wipe) changes nothing here.
+    private func save(_ patch: UserPatch, as write: Write, refused: String, holds: (User) -> Bool) async -> Bool {
         guard !isBusy else { return false }
-        saving = true
-        error = nil
-        errorDetails = nil
-        defer { saving = false }
+        clearSaveWords(for: write)
+        guard isOnline else {
+            fail(write, message: SettingsWriteFailure.offline.saveMessage, details: nil)
+            return false
+        }
+        let owner = Owner(env, generation: generation)
+        writes += 1
+        let mine = writes
+        writing = write
         do {
-            try await state.patchUser(patch)
-            savedChange = true
-            rescoreStatus = nil
+            let stored = try await state.patchUser(patch)
+            guard owns(owner) else { return false }
+            writing = nil
+            guard stored else {
+                // The store dropped the answer (a change of the user begun meanwhile came first): never "Saved." on its
+                // word; RYFT is asked what it holds.
+                return await reread(write, owner: owner, mine: mine, holds: holds)
+            }
+            saved()
             return true
-        } catch let e as APIError where e.isFieldError {
-            error = refused
-            errorDetails = e.diagnosticDetails
         } catch where error.isCancellation {
+            if owns(owner) { writing = nil }
+            return false
+        } catch let e as APIError where e.isFieldError {
+            guard owns(owner) else { return false }
+            writing = nil
+            fail(write, message: refused, details: e.diagnosticDetails)
             return false
         } catch {
-            let failure = BodySettingsFailure(save: error, online: isOnline)
-            self.error = failure.message
-            errorDetails = failure.details
+            guard owns(owner) else { return false }
+            writing = nil
+            let failure = BodySettingsFailure(save: error)
+            fail(write, message: failure.message, details: failure.details)
+            guard failure.kind.rereads else { return false }
+            return await reread(write, owner: owner, mine: mine, holds: holds)
         }
-        return false
+    }
+
+    /// `GET /v1/me`, asked now: the page shows what RYFT holds. Holding the change, the words become "Saved.". Only online:
+    /// offline the question would wait for the network, and the words already say what's known.
+    private func reread(_ write: Write, owner: Owner, mine: Int, holds: (User) -> Bool) async -> Bool {
+        guard isOnline else { return false }
+        try? await state.repository.refreshUser(mode: .changed(since: env.clock.now()))
+        guard owns(owner), mine == writes, !saving, let user, holds(user) else { return false }
+        clearSaveWords(for: write)
+        saved()
+        return true
+    }
+
+    private func clearSaveWords(for write: Write) {
+        savedChange = false
+        if case .birthYear = write {
+            birthYearError = nil
+            birthYearErrorDetails = nil
+        } else {
+            error = nil
+            errorDetails = nil
+            errorSetting = nil
+            errorMissed = false
+        }
+    }
+
+    private func saved() {
+        savedChange = true
+        rescoreStatus = nil
+        rescoreDetails = nil
+        rescoreFailed = false
+        rescored = false
+    }
+
+    private func fail(_ write: Write, message: String, details: String?) {
+        if case .birthYear = write {
+            birthYearError = message
+            birthYearErrorDetails = details
+        } else {
+            error = message
+            errorDetails = details
+            errorSetting = write.setting
+            errorMissed = openPages == 0
+        }
     }
 }
 

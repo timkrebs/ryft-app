@@ -285,14 +285,15 @@ struct AboutYouView: View {
                 let editor = model.bodySettings
                 VStack(alignment: .leading, spacing: 14) {
                     AboutYouValue {
-                        SettingRow(title: "Maximum heart rate", value: editor.maxHRText, detail: editor.maxHRSourceText) {
+                        SettingRow(title: "Maximum heart rate", value: editor.rowValue(.maxHR, saved: editor.maxHRText),
+                                   detail: editor.rowDetail(.maxHR)) {
                             editing = .maxHR
                         }
                         .accessibilityIdentifier("aboutYou.maxHR")
                     }
                     AboutYouValue {
-                        SettingRow(title: "Baseline sleep need", value: editor.sleepBaseText,
-                                   detail: editor.sleepBaseSourceText) {
+                        SettingRow(title: "Baseline sleep need", value: editor.rowValue(.sleepBase, saved: editor.sleepBaseText),
+                                   detail: editor.rowDetail(.sleepBase)) {
                             editing = .sleepBase
                         }
                         .accessibilityIdentifier("aboutYou.sleepBase")
@@ -321,7 +322,8 @@ struct AboutYouView: View {
                 LaterButton(title: "Skip") { model.finishAboutYou() }
             }
         }
-        .bodySettingSheet($editing, editor: model.bodySettings)
+        // No past days to rescore yet: the editors offer none.
+        .bodySettingSheet($editing, editor: model.bodySettings, rescores: false)
     }
 }
 

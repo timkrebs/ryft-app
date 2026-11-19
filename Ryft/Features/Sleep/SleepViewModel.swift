@@ -631,7 +631,7 @@ struct SleepNightSummary: Equatable {
             String(localized: "\(Int((Double(a) / Double(max(n, 1)) * 100).rounded()))% of need")
         } }
         nap = score?.napMin.flatMap { $0 > 0 ? String(localized: "Nap · \(Fmt.duration(minutes: $0))") : nil }
-        needBreakdown = sleep.need.map(SleepNeedBreakdown.init)
+        needBreakdown = sleep.needBreakdown(score: score).map(SleepNeedBreakdown.init)
     }
 }
 
