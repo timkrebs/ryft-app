@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 /// Profile → Notifications. Wrapper builds the model from the screen models.
 struct NotificationSettingsView: View {
@@ -11,68 +12,45 @@ struct NotificationSettingsView: View {
     }
 }
 
+/// Profile → Notifications in Nocturne (PR 6 C §4.7): what RYFT may tell the user, and when not to.
+///
+/// - Rolling out (`push.enabled` off for the account): a notice and the four categories as rows to read, no switch that
+///   looks on while nothing can be sent.
+/// - Otherwise "Notify me about" (a switch per category, its sentence under the title) and "Quiet hours" (a switch, then
+///   From and Until as time chips while it's on). The values are the account's as last loaded (`AppState.user`), so the page
+///   reads the same offline. A switch is disabled while its change is on its way; a change RYFT refuses or that can't be
+///   sent (offline) goes back and the notice says it wasn't saved.
+/// - Not asked yet: a notice and the pinned "Allow notifications". Off in iOS Settings: a notice (the switches stay, the
+///   choices are kept) and the pinned "Open Settings".
 private struct NotificationSettingsScreen: View {
     @State var model: NotificationSettingsViewModel
+    /// The switch whose change is on its way: a category's raw value, or `quietKey`.
+    @State private var pending: String?
     @Environment(\.openURL) private var openURL
 
+    private static let quietKey = "quietHours"
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
+        SubpageScaffold(Text("Notifications")) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 if model.showsSwitches {
                     permission
+                    if let error = model.error {
+                        InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                    }
                     categories
                     quietHours
                 } else {
                     // No switches that look on while nothing can be sent.
                     rollout
                 }
-                if let error = model.error {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
-                }
             }
-            .padding(Theme.Metrics.screenPadding)
         }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle("Notifications")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) { pinned }
         .task { await model.load() }
     }
 
-    /// `push.enabled` is off for this account: what will come, as a list to read.
-    private var rollout: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                Label("Notifications are being rolled out", systemImage: "bell.badge")
-                    .font(.ryft(.headline))
-                    .foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("You'll get").ryftLabelStyle()
-                    ForEach(NotificationCategory.allCases) { category in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(NotificationSettingsViewModel.title(category))
-                                .font(.ryft(.body))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text(NotificationSettingsViewModel.detail(category))
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-                Divider().overlay(Theme.separator)
-                Text("We'll let you know here when notifications reach your account.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("notifications.rollingOut")
-    }
+    // MARK: permission
 
     @ViewBuilder
     private var permission: some View {
@@ -80,129 +58,142 @@ private struct NotificationSettingsScreen: View {
         case .allowed, .rollingOut:
             EmptyView()
         case .notAsked:
-            Card {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("RYFT hasn't asked to send notifications yet.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                    PrimaryButton(title: "Allow notifications", style: .secondary) { await model.allow() }
-                }
-            }
+            InlineMessage(message: String(localized: "RYFT hasn't asked to send notifications yet."), systemImage: "bell",
+                          announces: false, readsAsOne: true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("notifications.notAsked")
         case .denied:
-            Card {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Notifications are off in iOS Settings", systemImage: "bell.slash")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Your choices below are kept for when you turn notifications back on.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    PrimaryButton(title: "Open Settings", style: .secondary) {
-                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
-                    }
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("notifications.denied")
+            InlineMessage(message: String(localized: "Notifications are off in iOS Settings"), systemImage: "bell.slash",
+                          caption: String(localized: "Your choices below are kept for when you turn notifications back on."),
+                          announces: false, readsAsOne: true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("notifications.denied")
         }
     }
 
-    private var categories: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Notify me about").ryftLabelStyle()
-            Card {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(NotificationCategory.allCases) { category in
-                        Toggle(isOn: Binding(get: { model.isOn(category) },
-                                             set: { on in Task { await model.set(category, on: on) } })) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(NotificationSettingsViewModel.title(category))
-                                    .font(.ryft(.body))
-                                    .foregroundStyle(Theme.textPrimary)
-                                Text(NotificationSettingsViewModel.detail(category))
-                                    .font(.ryft(.caption))
-                                    .foregroundStyle(Theme.textTertiary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        .tint(Theme.accent)
-                        if category != NotificationCategory.allCases.last {
-                            Divider().overlay(Theme.separator)
-                        }
-                    }
+    /// The page's one action, pinned: ask now, or go to iOS Settings.
+    @ViewBuilder
+    private var pinned: some View {
+        switch model.mode {
+        case .notAsked:
+            PinnedActionBar {
+                PillButton(Text("Allow notifications"), systemImage: "bell") { await model.allow() }
+                    .accessibilityIdentifier("notifications.allow")
+            }
+        case .denied:
+            PinnedActionBar {
+                PillButton(Text("Open Settings"), systemImage: PillButton.Icon.linkOut) {
+                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                 }
+                .accessibilityIdentifier("notifications.openSettings")
+            }
+        case .allowed, .rollingOut:
+            EmptyView()
+        }
+    }
+
+    // MARK: rolling out
+
+    /// `push.enabled` is off for this account: what will come, as a list to read.
+    private var rollout: some View {
+        VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+            InlineMessage(message: String(localized: "Notifications are being rolled out"), systemImage: "bell",
+                          caption: String(localized: "We'll let you know here when notifications reach your account."),
+                          announces: false, readsAsOne: true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("notifications.rollingOut")
+            GroupedCard(Text("You'll get")) {
+                ForEach(NotificationCategory.allCases) { category in
+                    RolloutRow(title: Text(NotificationSettingsViewModel.title(category)),
+                               detail: Text(NotificationSettingsViewModel.detail(category)))
+                }
+            }
+        }
+    }
+
+    // MARK: switches
+
+    private var categories: some View {
+        GroupedCard(Text("Notify me about")) {
+            ForEach(NotificationCategory.allCases) { category in
+                GroupedRow.toggle(Text(NotificationSettingsViewModel.title(category)),
+                                  detail: Text(NotificationSettingsViewModel.detail(category)),
+                                  identifier: "notifications.\(category.rawValue)",
+                                  isOn: change(category.rawValue, get: { model.isOn(category) },
+                                               set: { await model.set(category, on: $0) }))
+                    .disabled(pending == category.rawValue)
             }
         }
     }
 
     private var quietHours: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Quiet hours").ryftLabelStyle()
-            Card {
-                VStack(alignment: .leading, spacing: 14) {
-                    Toggle(isOn: Binding(get: { model.quietHoursOn },
-                                         set: { on in Task { await model.setQuietHours(on: on) } })) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Pause at night")
-                                .font(.ryft(.body))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text("Nothing arrives in this window; the morning score waits until it ends.")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .tint(Theme.accent)
-                    if model.quietHoursOn {
-                        Divider().overlay(Theme.separator)
-                        DatePicker("From", selection: Binding(get: { model.quietFrom },
-                                                              set: { d in Task { await model.setQuietFrom(d) } }),
-                                   displayedComponents: .hourAndMinute)
-                        DatePicker("Until", selection: Binding(get: { model.quietTo },
-                                                               set: { d in Task { await model.setQuietTo(d) } }),
-                                   displayedComponents: .hourAndMinute)
-                    }
+        GroupedCard(Text("Quiet hours"),
+                    footer: Text("Times are local. Equal times turn quiet hours off; a start later than the end spans midnight.")) {
+            GroupedRow.toggle(Text("Pause at night"),
+                              detail: Text("Nothing arrives in this window; the morning score waits until it ends."),
+                              identifier: "notifications.quietHours",
+                              isOn: change(Self.quietKey, get: { model.quietHoursOn }, set: { await model.setQuietHours(on: $0) }))
+                .disabled(pending == Self.quietKey)
+            if model.quietHoursOn {
+                GroupedRow.custom(Text("From")) {
+                    ValueChip(Text("From"), date: Binding(get: { model.quietFrom },
+                                                          set: { d in Task { await model.setQuietFrom(d) } }),
+                              displayedComponents: .hourAndMinute)
                 }
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
+                GroupedRow.custom(Text("Until")) {
+                    ValueChip(Text("Until"), date: Binding(get: { model.quietTo },
+                                                           set: { d in Task { await model.setQuietTo(d) } }),
+                              displayedComponents: .hourAndMinute)
+                }
             }
-            Text("Times are local. Equal times turn quiet hours off; a start later than the end spans midnight.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// A switch's binding: the model's value; a change marks the switch pending while it's saved. One change at a time
+    /// (the model rolls a refused change back to the values before it), so a tap on another switch meanwhile does nothing.
+    private func change(_ key: String, get: @escaping () -> Bool, set: @escaping (Bool) async -> Void) -> Binding<Bool> {
+        Binding(get: get, set: { on in
+            guard pending == nil, !model.saving else { return }
+            pending = key
+            Task {
+                await set(on)
+                pending = nil
+            }
+        })
     }
 }
 
-#Preview("Notifications · dark") {
-    NavigationStack { NotificationSettingsView() }.previewEnvironment(.preview(flags: [.pushEnabled: true]))
+/// A category while notifications are being rolled out: its title and its sentence as a row to read, one element that
+/// VoiceOver reads title first (no switch, nothing to tap).
+private struct RolloutRow: View {
+    let title: Text
+    let detail: Text
+
+    var body: some View {
+        GroupedRowLabel(title, detail: detail)
+            .groupedRowHairline()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(detail)
+            .accessibilityAddTraits(.isStaticText)
+    }
 }
 
-#Preview("Notifications · rolling out") {
-    NavigationStack { NotificationSettingsView() }.previewEnvironment()
-}
+// MARK: - previews (dark only)
 
-#Preview("Notifications · rolling out · light") {
-    NavigationStack { NotificationSettingsView() }.previewEnvironment(scheme: .light)
-}
-
-#Preview("Notifications · off in iOS · dark") {
+@MainActor
+private func notificationsPreview(_ status: UNAuthorizationStatus, rolledOut: Bool = true,
+                                  size: DynamicTypeSize = .large) -> some View {
     let notifier = MockNotifier()
-    notifier.status = .denied
+    notifier.status = status
     return NavigationStack { NotificationSettingsView() }
-        .previewEnvironment(.preview(flags: [.pushEnabled: true], notifier: notifier))
+        .previewEnvironment(.preview(flags: rolledOut ? [.pushEnabled: true] : [:], notifier: notifier))
+        .toggleStyle(.ryft)
+        .dynamicTypeSize(size)
 }
 
-#Preview("Notifications · allowed · light") {
-    let notifier = MockNotifier()
-    notifier.status = .authorized
-    return NavigationStack { NotificationSettingsView() }
-        .previewEnvironment(.preview(flags: [.pushEnabled: true], notifier: notifier), scheme: .light)
-}
-
-#Preview("Notifications · light") {
-    NavigationStack { NotificationSettingsView() }
-        .previewEnvironment(.preview(flags: [.pushEnabled: true]), scheme: .light)
-}
+#Preview("Notifications · allowed") { notificationsPreview(.authorized) }
+#Preview("Notifications · rolling out") { notificationsPreview(.authorized, rolledOut: false) }
+#Preview("Notifications · off in iOS") { notificationsPreview(.denied) }
+#Preview("Notifications · not asked") { notificationsPreview(.notDetermined) }
+#Preview("Notifications · AX3") { notificationsPreview(.authorized, size: .accessibility3) }
