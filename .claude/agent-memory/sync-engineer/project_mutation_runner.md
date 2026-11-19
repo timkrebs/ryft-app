@@ -18,6 +18,10 @@ Leads ask for a mutation check per new test ("break what it guards, see it fail,
   runs (each mutant's build compiles whatever is on disk).
 - A suite filter per mutant keeps each to a few minutes on the shared Mac; budget about 3–5 min a mutant.
 - A test that survives its mutant is a finding about the test, not the code: rework or drop it and say so.
+- (2026-11-19) Give the runner the main runs' `-derivedDataPath build/DerivedData` and `RYFT_STRICT_WARNINGS=YES`: a
+  different path or setting is a second full build (~1.2 GB, 10+ min under load). Then mutant texts must be
+  warning-free: `&& s.id == UUID()` instead of `&& false` ("will never be executed"), `_ = cap` instead of deleting
+  the only use of a `let`.
 
 **Why:** reviews re-run mutants ([[feedback-tests-pin-decisions]]); doing it by hand for 20+ mutants is slow and
 error-prone. **How to apply:** any round that asks for mutation results.

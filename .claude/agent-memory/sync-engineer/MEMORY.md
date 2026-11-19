@@ -33,3 +33,4 @@
 - [Seed after refresh](project_seed_after_refresh.md) — await pullPhases + settled() before setters; repro races with the one test alone
 - [CI runner shares the Mac](project_ci_runner_shares_the_mac.md) — swap/disk exhaustion → exit 70; UI smoke near its 15-min cap (load = timeout); pgrep -f self-match
 - [SwiftData deleted rows, iOS 18/26](project_swiftdata_deleted_row_ios18.md) — 18.0, 18.6, 26.0 trap on a deleted row's relationships even if pre-read; release holders
+- [SwiftData NaN is NULL](project_swiftdata_nan_null.md) — a saved Double.nan reads back nil; use .infinity for an EncodingError test

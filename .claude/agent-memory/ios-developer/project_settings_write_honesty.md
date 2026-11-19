@@ -21,3 +21,12 @@ before each await, and keeps its in-flight state in the shared editor (rows show
 Build pitfalls seen: `@Test` display names must be one string literal (no `+`); in `#expect(a && <try/await …>)` the
 right side is an autoclosure, so hoist into `let`s; a closure inside `#expect(await eventually { … })` nested in another
 closure tripped SIL ("function type mismatch"), use `w.wait` instead; `User.maxHr`/`sleepBaseMin` are `let`.
+
+Round 2 (C3 review 2, 2026-11-19): `200..<300` is `noAnswer` (APIClient.decode keeps the status of an unreadable body);
+`429` is `.busy` ("RYFT is busy right now…"). The editor never locks its page: only stepper/Save/"Use …"/picker
+disable; Close, Back and swipe-down always work, a late failure goes to `errorMissed` (open pages are a `Set<UUID>`
+of page tokens). A write is bounded in the editor (`answerDeadline` 25 s, and offline mid-write via `ObservationWatch`
+on `connectivity.isOnline`), never in APIClient. Each write/rescore clears its busy flag by its own token
+(`mine == writes && writing == write`); `AppState.reset()` (Demo switch) runs the account-state forgetters too.
+Uncertain outcomes keep an `unsettled` record settled by any later change of `state.user`; when the re-read can't run
+or fails, `Repository.userMayDiffer()` makes the next `.ifStale` user read fetch.

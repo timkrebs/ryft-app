@@ -43,3 +43,4 @@
 - [Widget surfaces + Live Activities](review-checks-widget-surfaces.md) — privacySensitive escapes placeholder (probed), per-device accessory sizes, test-only models, Volt scope, ages
 - [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
 - [Flow restyles with live results](review-checks-flow-restyles.md) — dropped hidesBackButton vs other branch keepers, "imported" incl. server-kept, muted live notices, catalog gaps, untapped pill tests
+- [Side-effect passes](review-checks-side-effect-passes.md) — memo not reset after undo, sibling stale surfaces, off-main mock races (no approachable), OS probes

@@ -29,4 +29,4 @@ repo, and check `git diff <sha> <merge>` for the files to see if findings still 
 
 **Why:** these are the honest-state and data-integrity gaps left after the PR's own editor tests passed.
 **How to apply:** any autosaving settings page or editor. See [[review-checks-form-reads-and-saves]],
-[[review-checks-undo-windows]], [[review-checks-outbox-queues]].
+[[review-checks-undo-windows]], [[review-checks-outbox-queues]]; the fix round's leftovers: [[review-checks-side-effect-passes]].
