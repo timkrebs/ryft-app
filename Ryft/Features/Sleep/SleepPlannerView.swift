@@ -592,8 +592,8 @@ struct SleepScheduleView: View {
 
 /// A row at the end of a group (Bedtime & wake's reminder and alarm), its glyph and its sentence (§2.3: a tone never
 /// alone): amber where something needs the user (a switch iOS refused, an alarm iOS stopped allowing), neutral where it
-/// only says what's true (the reminder waits for a plan). "Open Settings ↗" at the end when iOS Settings is where to change
-/// it (under the sentence from AX1). VoiceOver reads the sentence, then the link.
+/// only says what's true (the reminder waits for a plan). "Open Settings ↗" on its own line under the sentence when iOS
+/// Settings is where to change it, so the sentence keeps its line. VoiceOver reads the sentence, then the link.
 private struct ScheduleNoticeRow: View {
     enum Tone {
         case attention, neutral
@@ -605,15 +605,11 @@ private struct ScheduleNoticeRow: View {
     let identifier: String
     var openSettings: (() -> Void)?
 
-    @Environment(\.dynamicTypeSize) private var typeSize
     /// The glyph grows with the sentence, as `InlineMessage`'s does.
     @ScaledMetric(relativeTo: .callout) private var glyphSize = InlineMessageSpec.glyphSize
 
     var body: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
-        layout {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: InlineMessageSpec.glyphGap) {
                 Image(systemName: systemImage)
                     .font(.system(size: glyphSize))
@@ -625,7 +621,6 @@ private struct ScheduleNoticeRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(identifier)
             }
-            .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
             if let openSettings {
                 Button(action: openSettings) {
                     HStack(spacing: 4) {

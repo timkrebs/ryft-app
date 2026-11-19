@@ -1024,6 +1024,9 @@ struct BedtimeHostedTests {
             #expect(row.frame.minY >= alarm.frame.maxY - 0.5 && row.frame.maxY <= turnOff.frame.minY, "in the alarm's group")
             let open = try node(w, id: "schedule.alarm.refused.openSettings")
             #expect(open.label == "Open Settings" && open.frame.height >= Theme.Metrics.minHitTarget - 0.5)
+            // Open Settings on its own line, so the sentence keeps one (a callout line is about 20 pt; two would be 40).
+            #expect(open.frame.minY >= row.frame.maxY - 0.5, "under the sentence: \(open.frame) \(row.frame)")
+            #expect(row.frame.height < 30, "the sentence on one line: \(row.frame)")
             #expect(alarm.value == before, "still off: \(alarm.value ?? "")")
         }
     }
