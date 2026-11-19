@@ -21,6 +21,10 @@ final class TrainCoordinator {
 
     /// Presented full screen while set.
     var live: SessionController?
+    /// A workout `open` presents once the start sheet has gone, not `live` yet. The wipe, the demo's discard and an
+    /// account change let go of it as they do of `live`: it never appears over rows they deleted, or after its account.
+    @ObservationIgnored private(set) var opening: SessionController?
+    @ObservationIgnored private(set) var presenting: Task<Void, Never>?
     /// Shown after Finish, over whatever screen the user returns to.
     var summary: FinishSummary?
     var showsStart = false
@@ -167,11 +171,11 @@ final class TrainCoordinator {
     }
 
     private func open(_ s: LocalSession) {
-        let controller = live?.session.id == s.id
-            ? live
-            : SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
-                                layout: sessionLayout())
-        controller?.jumpToNext = jumpToNext
+        dropOpening(releasing: false)
+        let controller = (live?.session.id == s.id ? live : nil)
+            ?? SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
+                                 layout: sessionLayout())
+        controller.jumpToNext = jumpToNext
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
         guard showsStart else {
@@ -179,10 +183,26 @@ final class TrainCoordinator {
             return
         }
         showsStart = false
-        Task {
-            try? await Task.sleep(for: .milliseconds(450))
+        opening = controller
+        presenting = Task { [weak self, clock] in
+            try? await clock.sleep(for: .milliseconds(450))
+            // Still its turn: a wipe, the demo's discard, an account change or another workout drops it (`dropOpening`).
+            guard let self, opening === controller else { return }
+            opening = nil
+            presenting = nil
             live = controller
         }
+    }
+
+    /// Lets go of the workout `open` hasn't presented yet: released when its rows go (it reads them on its ticker),
+    /// stopped otherwise. One that is `live` as well is left to `live`'s own handling.
+    private func dropOpening(releasing: Bool) {
+        presenting?.cancel()
+        presenting = nil
+        guard let controller = opening else { return }
+        opening = nil
+        guard controller !== live else { return }
+        if releasing { controller.release() } else { controller.stop() }
     }
 
     /// Minimise: back to the app, the session keeps running.
@@ -208,6 +228,7 @@ final class TrainCoordinator {
     /// exercises or sets is a fatal error, whatever was read before the delete, and the rest timer reads them twice a
     /// second. `accountChanged()` still follows, from the app's account-change handler a runloop later.
     func releaseRows() {
+        dropOpening(releasing: true)
         live?.release()
         live = nil
         active = nil
@@ -218,6 +239,7 @@ final class TrainCoordinator {
     func accountChanged() {
         // The upload queue's replay first: nothing of the previous account's may land after this.
         sync.accountChanged()
+        dropOpening(releasing: false)
         live?.stop()
         live = nil
         summary = nil
@@ -250,6 +272,7 @@ final class TrainCoordinator {
         guard sync.hasDemoSessions else { return true }
         let ids = Set(sync.demoSessionIDs)
         guard let sessions = try? sync.fetchDemoSessions() else { return false }
+        if let opening, ids.contains(opening.id) { dropOpening(releasing: true) }
         if let live, ids.contains(live.session.id) {
             // Tickers, the advance and the undo first: nothing of it runs on a deleted row. Released, as by the wipe
             // (`releaseRows`): the cover may still be on its way out, and its screen draws none of the rows that go.

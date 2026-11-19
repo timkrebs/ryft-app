@@ -43,12 +43,13 @@ struct WipeAndDemoExitTests {
         try #require(controller.session.id == id)
         let exercise = try #require(controller.exercises.first)
 
-        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { _ in
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { w in
             controller.startRest(for: exercise, seconds: 120)
-            try await Task.sleep(for: .milliseconds(800))
+            try await w.wait("the rest bar") { w.node("Skip rest", exactly: true) != nil }
             #expect(rig.coordinator.discardDemoWorkouts())
-            // Three of the rest bar's half-second draws.
-            try await Task.sleep(for: .milliseconds(1600))
+            // The released screen has drawn, and nothing on it moves any more.
+            try await w.wait("the released screen") { w.nodes().isEmpty }
+            try await w.settle()
         }
 
         #expect(controller.isReleased)
@@ -64,6 +65,60 @@ struct WipeAndDemoExitTests {
         rig.store.save()
         try #require(try rig.storedSessions([live.id]) == 1)
         return live.id
+    }
+
+    // MARK: a workout still opening
+
+    /// What may come while a workout started from the sheet waits for it to go (`TrainCoordinator.open`).
+    enum Interruption: String, CaseIterable, Sendable {
+        case nothing, wipe, demoExit, accountChange
+    }
+
+    /// The workout's screen waits for the start sheet to go. A wipe, the demo's exit or an account change in that wait
+    /// lets go of it: it never appears, over deleted rows or after its account, so nothing can be logged in it and
+    /// nothing is queued. Released when its rows went. With nothing in between it appears once the wait is over.
+    @Test(arguments: Interruption.allCases)
+    func aWorkoutStillOpeningIsDroppedByWhatComesFirst(_ interruption: Interruption) async throws {
+        let clock = TestClock()
+        let rig = DemoTrainRig()
+        rig.demo = interruption == .demoExit
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+                                           liveActivities: false, clock: clock, liveActivity: rig.activity)
+        coordinator.sessionLayout = { .list }
+        coordinator.jumpToNext = { false }
+        coordinator.showsStart = true
+
+        coordinator.startEmpty()
+        let opening = try #require(coordinator.opening)
+        let presenting = try #require(coordinator.presenting)
+        let id = try #require(coordinator.active?.id)
+        #expect(coordinator.live == nil && !coordinator.showsStart)
+        #expect(await eventually { clock.pendingSleeps == 1 }, "the wait for the sheet")
+
+        switch interruption {
+        case .nothing:
+            break
+        case .wipe:
+            #expect(rig.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now))
+            coordinator.releaseRows()
+            coordinator.accountChanged()
+        case .demoExit:
+            #expect(coordinator.discardDemoWorkouts())
+        case .accountChange:
+            coordinator.accountChanged()
+        }
+        clock.advance(by: .seconds(1))
+        await presenting.value
+
+        #expect(coordinator.opening == nil)
+        if interruption == .nothing {
+            #expect(coordinator.live === opening)
+        } else {
+            #expect(coordinator.live == nil)
+        }
+        #expect(opening.isReleased == [.wipe, .demoExit].contains(interruption))
+        #expect(rig.store.pendingOps().isEmpty)
+        #expect(try rig.storedSessions([id]) == ([.nothing, .accountChange].contains(interruption) ? 1 : 0))
     }
 
     // MARK: a wipe with Demo data on
