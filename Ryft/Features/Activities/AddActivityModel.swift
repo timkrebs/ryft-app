@@ -210,6 +210,10 @@ final class AddActivityModel: Identifiable {
 
     // MARK: save
 
+    /// Previews and shots only: the sheet while it writes (a real save is synchronous and closes the sheet before it draws).
+    /// Not under `#if DEBUG`: `#Preview` bodies compile in Release too.
+    func previewSaving() { isSaving = true }
+
     /// Writes on this iPhone first, then the uploader takes it (ui.md §3.6: "Saved" is a local fact). False when
     /// nothing could be written (signed out, a read-only activity).
     @discardableResult
