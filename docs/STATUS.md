@@ -82,6 +82,22 @@ on 18.6 and 27.2. On 18.6 the wipe's release of the open workout is a precaution
 traps there, but the hosted screen never did (only on 18.0). W4a and W7 come before the External build, and C2 goes
 into force with it (Sign-out wipe, below).
 
+2026-11-19: the App Attest client (D245, ADR 0023, `feat/app-attest`, `docs/work/2026-11-19-app-attest/`). Every api
+and ingest request carries `X-RYFT-App-Token` once the app holds one, and a `403 app_attest_required` gets one renewal
+and one resend. A refused Train write, activity or import stays queued, and a refused sync page commits no HealthKit anchor.
+The key ID is in the Keychain (this device only), the token in memory, and the wipe drops both. While the server
+doesn't serve the routes (today: `404`), the app sends no header and probes again at most every 6 h.
+- **Verified on the simulator:** build with 0 warnings in our code; the 13 App Attest suites three times; the existing
+  networking, Train, activity, import and wipe suites. The simulator has no App Attest, so `isSupported` is false and
+  UI smoke is unaffected.
+- **Not verified on a device:** any attestation. The entitlement isn't in `Ryft.entitlements` yet (a hook allows it
+  only through Xcode's + Capability: the user's step).
+- **Not pushed:** `gitleaks` was refused in the run, and the brief says no push without it. PR title and body:
+  `docs/work/2026-11-19-app-attest/pr.md`.
+- **Open:**
+  - S2 (`review.md`): a redirect off the two hosts would carry the bearer and the app token. A separate PR.
+  - `docs/API_REQUESTS.md` → App Attest, AA1–AA4.
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.

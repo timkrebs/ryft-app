@@ -39,7 +39,8 @@ yet (D245)" (platform PR #220, merged). Branch `feat/app-attest` from `origin/ma
 8. **Wipe and sign-out:** the `keyId` and the token are gone; the next account attests its own key. A renewal in flight
    for the old account never publishes its token for the new one.
 9. **422s:** `app_attest_challenge_invalid` → a new challenge, the same step once; `app_attest_invalid` → drop the key,
-   attest a new one once; refused again → stop until the next launch. `429` → carry on without a token until
+   attest a new one once; refused again → no attestation for 24 h, across launches (design §4; the contract's "until
+   the next launch" made stricter, since a try costs one of the 10 keys a day). `429` → carry on without a token until
    `Retry-After`.
 10. **Privacy:** no log line, `APIStatus` record or error text carries the `keyId`, token, challenge or assertion.
 11. **Entitlement:** `com.apple.developer.devicecheck.appattest-environment` = `production` in `Ryft/Ryft.entitlements`;
