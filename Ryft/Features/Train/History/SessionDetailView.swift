@@ -15,6 +15,8 @@ enum SessionDetailLayout {
     nonisolated static let positionSize: CGFloat = 14, positionWidth: CGFloat = 28
     /// From AX1 a set's RPE goes under its weight and reps, this far.
     nonisolated static let stackedRPEGap: CGFloat = 2
+    /// The title's outline while a session nothing is known of loads (a pushed link from outside History).
+    nonisolated static let titlePlaceholderWidth: CGFloat = 120, titlePlaceholderHeight: CGFloat = 14
     /// The exercise cards' outlines while the session loads.
     nonisolated static let placeholderCards = 2, placeholderCardHeight: CGFloat = 160
     /// Under the last block.
@@ -56,7 +58,8 @@ struct SessionDetailContent: Equatable {
     }
 
     let state: State
-    let title: String
+    /// The session's title, "Workout" without one; nil while it loads with nothing known (the header draws an outline).
+    let title: String?
     /// "Fri, Nov 13 · 55 min · 17 sets"; nil before anything is known.
     let subtitle: String?
     /// "Friday, November 13, 55 minutes, 17 sets" (VoiceOver).
@@ -77,7 +80,11 @@ struct SessionDetailContent: Equatable {
          name: (UUID) -> String? = { _ in nil }) {
         state = session != nil ? .loaded : (loaded ? .failed : .loading)
         let rawTitle = (session?.title ?? summary?.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        title = rawTitle.isEmpty ? String(localized: "Workout") : rawTitle
+        if !rawTitle.isEmpty {
+            title = rawTitle
+        } else {
+            title = session == nil && summary == nil && !loaded ? nil : String(localized: "Workout")
+        }
 
         let start = session?.startedAt ?? summary?.startedAt
         let minutes = session.flatMap { s in s.endedAt.map { StrainFormat.minutes($0.timeIntervalSince(s.startedAt)) } }
@@ -119,7 +126,7 @@ struct SessionDetailContent: Equatable {
         notes = note.isEmpty ? nil : note
         exercises = (session?.exercises ?? []).sorted { $0.position < $1.position }.map { e in
             ExerciseBlock(id: e.id, exerciseID: e.exerciseId, name: name(e.exerciseId) ?? String(localized: "Exercise"),
-                          sets: Self.lines(e.sets))
+                          sets: Self.lines(e.sets, locale: locale))
         }
     }
 
@@ -135,7 +142,7 @@ struct SessionDetailContent: Equatable {
     }
 
     /// The sets in their order; the position counts the warm-ups too, as the live workout's list does ("W", "2", "3").
-    static func lines(_ sets: [SessionSet]) -> [SetLine] {
+    static func lines(_ sets: [SessionSet], locale: Locale = .autoupdatingCurrent) -> [SetLine] {
         let ordered = sets.sorted { $0.setIndex < $1.setIndex }
         return ordered.enumerated().map { i, set in
             let rpe = set.rpe.map { String(localized: "RPE \(Fmt.kgNumber($0))") }
@@ -143,18 +150,29 @@ struct SessionDetailContent: Equatable {
             if set.isWarmup { position.append(String(localized: "warm-up")) }
             return SetLine(id: set.id, position: set.isWarmup ? "W" : "\(i + 1)", text: text(set), rpe: rpe,
                            spokenPosition: position.joined(separator: ", "),
-                           spokenValue: [spoken(set), rpe].compactMap(\.self).joined(separator: ", "))
+                           spokenValue: [spoken(set, locale: locale), rpe].compactMap(\.self).joined(separator: ", "))
         }
     }
 
-    /// "5 reps at 80 kilograms", "8 reps", "80 kilograms"; a timed or distance set as drawn.
-    static func spoken(_ s: SessionSet) -> String {
+    /// "5 reps at 80 kilograms", "8 reps", "80 kilograms"; a timed set "45 seconds", a distance "3.1 miles, 25 minutes".
+    static func spoken(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         switch (s.reps, s.weightKg) {
         case let (r?, kg?): return String(localized: "\(r) reps at \(Fmt.kgNumber(kg)) kilograms")
         case let (r?, nil): return String(localized: "\(r) reps")
         case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg)) kilograms")
-        default: return text(s)
+        default:
+            let time = s.durationSec.map { spokenDuration(seconds: $0, locale: locale) }
+            if let m = s.distanceM, m > 0 {
+                return ([StrainFormat.spokenDistance(m, locale: locale)] + [time].compactMap(\.self)).joined(separator: ", ")
+            }
+            return time ?? text(s)
         }
+    }
+
+    /// "45 seconds", "1 minute, 30 seconds"; whole minutes as the app says them elsewhere ("25 minutes", `Fmt.spokenDuration`).
+    static func spokenDuration(seconds: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        guard seconds % 60 != 0 else { return Fmt.spokenDuration(minutes: seconds / 60, locale: locale) }
+        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide).locale(locale))
     }
 
     /// "80 kg × 5", "× 8"; a timed set "0:45", a distance "5.0 km" (with its time when there is one).
@@ -177,14 +195,14 @@ final class SessionDetailViewModel {
 
     private(set) var session: TrainSession?
     private(set) var loaded = false
+    /// The list's summary of it (cached), for the first paint: read once.
+    let summary: SessionSummary?
 
     init(sessionID: UUID, library: TrainLibrary) {
         self.sessionID = sessionID
         self.library = library
+        summary = library.cachedSessions().first { $0.id == sessionID }
     }
-
-    /// The list's summary of it (cached), for the first paint.
-    var summary: SessionSummary? { library.cachedSessions().first { $0.id == sessionID } }
 
     func content(locale: Locale = .autoupdatingCurrent) -> SessionDetailContent {
         SessionDetailContent(summary: summary, session: session, loaded: loaded, locale: locale) { [library] in
@@ -192,9 +210,11 @@ final class SessionDetailViewModel {
         }
     }
 
+    /// Reads the whole session. Again on every appearance (back from the exercise page): a failed read then keeps the one
+    /// on screen; only a page without one shows its outlines while it reads.
     func load() async {
-        loaded = false
-        session = await library.session(id: sessionID)
+        if session == nil { loaded = false }
+        session = await library.session(id: sessionID) ?? session
         loaded = true
     }
 }
@@ -239,9 +259,7 @@ struct SessionDetailPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                PushedHeader(Text(verbatim: content.title), subtitle: content.subtitle.map { Text(verbatim: $0) },
-                             spokenSubtitle: content.spokenSubtitle.map { Text(verbatim: $0) },
-                             identifierPrefix: "sessionDetail")
+                header
                 StrainHeroView(hero: content.hero, key: key, numeralStyle: numeralStyle, identifierPrefix: "sessionDetail")
                     .padding(.top, SessionDetailLayout.heroGap)
                 SessionDetailTiles(tiles: content.tiles)
@@ -279,6 +297,24 @@ struct SessionDetailPage: View {
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
         .navigationDestination(item: $shownExercise) { ExerciseDetailView(exerciseID: $0) }
+    }
+
+    /// The title over "Fri, Nov 13 · 55 min · 17 sets"; with nothing known yet, an outline where the title goes (VoiceOver
+    /// hears "Loading the workout").
+    @ViewBuilder private var header: some View {
+        if let title = content.title {
+            PushedHeader(Text(verbatim: title), subtitle: content.subtitle.map { Text(verbatim: $0) },
+                         spokenSubtitle: content.spokenSubtitle.map { Text(verbatim: $0) },
+                         identifierPrefix: "sessionDetail")
+        } else {
+            PushedHeader(Text("Loading the workout", comment: "VoiceOver: the session detail's outline cards while its sets load.")
+                            .foregroundStyle(.clear), identifierPrefix: "sessionDetail")
+                .overlay {
+                    PlaceholderOutline(Capsule())
+                        .frame(width: SessionDetailLayout.titlePlaceholderWidth,
+                               height: SessionDetailLayout.titlePlaceholderHeight)
+                }
+        }
     }
 
     /// While the session loads: the exercise cards' outlines; VoiceOver hears it once.
@@ -323,12 +359,15 @@ private struct SessionExerciseCard: View {
     let open: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var pressed = false
     @ScaledMetric(relativeTo: .callout) private var positionSize = SessionDetailLayout.positionSize
     @ScaledMetric(relativeTo: .callout) private var positionWidth = SessionDetailLayout.positionWidth
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous)
-        // A tap, not a Button: a button would fold the sets into one element, and VoiceOver reads them one by one.
+        // The tap is a button behind the content, hidden from VoiceOver: a button around it would fold the sets into one
+        // element, and VoiceOver reads them one by one (the name is VoiceOver's button). It reports its press, so the card
+        // answers as History's rows do.
         VStack(alignment: .leading, spacing: 0) {
             head
             ForEach(block.sets) { setRow($0) }
@@ -336,9 +375,15 @@ private struct SessionExerciseCard: View {
         .padding(.horizontal, SessionDetailLayout.cardInset)
         .padding(.bottom, SessionDetailLayout.cardBottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface, in: shape)
-        .contentShape(shape)
-        .onTapGesture(perform: open)
+        .allowsHitTesting(false)
+        .background {
+            Button(action: open) { shape.fill(Theme.surface) }
+                .buttonStyle(PressReportingButtonStyle(pressed: $pressed))
+                .accessibilityHidden(true)
+        }
+        .scaleEffect(pressed ? PressFeedback.scale : 1)
+        .opacity(pressed ? PressFeedback.opacity : 1)
+        .animation(PressFeedback.animation, value: pressed)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sessionDetail.exercise.\(block.exerciseID.uuidString)")
     }
@@ -408,6 +453,22 @@ private struct SessionExerciseCard: View {
     }
 }
 
+/// `PressableButtonStyle`'s feedback (History's rows), for a card that is not itself a button.
+private enum PressFeedback {
+    static let scale = 0.97, opacity = 0.85
+    static let animation = Animation.easeOut(duration: 0.15)
+}
+
+/// Draws the label as it is and reports whether it is pressed.
+private struct PressReportingButtonStyle: ButtonStyle {
+    @Binding var pressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onChange(of: configuration.isPressed) { _, isPressed in pressed = isPressed }
+    }
+}
+
 // MARK: - previews (dark only)
 
 @MainActor
@@ -422,6 +483,11 @@ enum SessionDetailPreview {
     static var loading: SessionDetailContent {
         SessionDetailContent(summary: SessionSummary(MockTrain.completed), session: nil, loaded: false,
                              locale: Locale(identifier: "en_US"))
+    }
+
+    /// Nothing known yet (a link from outside History): the title is an outline too.
+    static var loadingUnknown: SessionDetailContent {
+        SessionDetailContent(summary: nil, session: nil, loaded: false, locale: Locale(identifier: "en_US"))
     }
 
     /// Offline, not cached, no summary either.
@@ -448,6 +514,11 @@ enum SessionDetailPreview {
 
 #Preview("Session detail · loading") {
     NavigationStack { SessionDetailPage(content: SessionDetailPreview.loading) }
+        .previewEnvironment()
+}
+
+#Preview("Session detail · loading, nothing known") {
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loadingUnknown) }
         .previewEnvironment()
 }
 

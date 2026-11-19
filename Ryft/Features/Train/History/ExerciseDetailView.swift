@@ -5,6 +5,8 @@ import SwiftUI
 enum ExerciseDetailLayout {
     /// The header → the numeral; the numeral → "Estimated 1RM · kg"; that → the 90-day change.
     nonisolated static let heroGap: CGFloat = 22, captionGap: CGFloat = 12, changeGap: CGFloat = 4
+    /// The header → "Offline · as of 14:05", when the page shows the copy on this phone.
+    nonisolated static let offlineGap: CGFloat = 12
     /// The hero → the chart card.
     nonisolated static let chartGap: CGFloat = 22
     /// The chart card: radius 24, 16 inside; its head → the value line 6, the value line → the chart 8, plus what the PR's
@@ -112,7 +114,9 @@ private struct ExerciseDetailScreen: View {
 }
 
 /// The page: the header, the numeral 22 under it with its caption and change, the chart card 22 under that, then "Personal
-/// records" and "Recent sets", 18 apart. Pushed, no navigation bar: Back is the header's, the edge swipe still pops.
+/// records" and "Recent sets", 18 apart; a timed or distance exercise leads with its recent sets. A failed read with nothing
+/// cached is the message with Try again alone; the copy on this phone carries "Offline · as of 14:05" under the header.
+/// Pushed, no navigation bar: Back is the header's, the edge swipe still pops.
 struct ExerciseDetailPage: View {
     let model: ExerciseDetailViewModel
     var numeralStyle: DotNumeral.Style = .dots
@@ -125,15 +129,13 @@ struct ExerciseDetailPage: View {
         ScrollView {
             VStack(spacing: 0) {
                 header
-                hero
-                    .padding(.top, ExerciseDetailLayout.heroGap)
-                chartCard
-                    .padding(.top, ExerciseDetailLayout.chartGap)
-                VStack(alignment: .leading, spacing: ExerciseDetailLayout.sectionGap) {
-                    if !model.records.isEmpty { records }
-                    recentSets
+                if model.failed {
+                    // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
+                    InlineMessage(message: Self.failureText, retry: { await model.load() }, identifier: "exerciseDetail.failure")
+                        .padding(.top, ExerciseDetailLayout.heroGap)
+                } else {
+                    content
                 }
-                .padding(.top, ExerciseDetailLayout.sectionGap)
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
             .padding(.top, onClose == nil ? 0 : SheetHeaderSpec.topInset)
@@ -144,6 +146,43 @@ struct ExerciseDetailPage: View {
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
         .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
+    }
+
+    /// A failed read with nothing cached (the session detail's words).
+    static var failureText: String {
+        String(localized: "This exercise's history couldn't be loaded. Try again when you're online.",
+               comment: "The exercise page: the platform couldn't be reached and nothing is cached.")
+    }
+
+    /// The estimate leads (hero, chart); a bodyweight exercise without added weight shows the unlit hero and why; a timed or
+    /// distance exercise has no 1RM and leads with its recent sets.
+    @ViewBuilder private var content: some View {
+        if model.isOffline {
+            TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline")
+                .padding(.top, ExerciseDetailLayout.offlineGap)
+        }
+        switch model.lead {
+        case .estimate:
+            hero
+                .padding(.top, ExerciseDetailLayout.heroGap)
+            chartCard
+                .padding(.top, ExerciseDetailLayout.chartGap)
+        case .noAddedWeight:
+            hero
+                .padding(.top, ExerciseDetailLayout.heroGap)
+        case .sets:
+            EmptyView()
+        }
+        VStack(alignment: .leading, spacing: ExerciseDetailLayout.sectionGap) {
+            if model.lead == .sets {
+                recentSets
+                if !model.records.isEmpty { records }
+            } else {
+                if !model.records.isEmpty { records }
+                recentSets
+            }
+        }
+        .padding(.top, model.lead == .sets ? ExerciseDetailLayout.heroGap : ExerciseDetailLayout.sectionGap)
     }
 
     @ViewBuilder private var header: some View {
@@ -157,10 +196,12 @@ struct ExerciseDetailPage: View {
 
     // MARK: hero
 
-    /// "93.3" in dots, "Estimated 1RM · kg", "▲ 11.6 kg in 90 days". One element: "Estimated 1RM", "93.3 kilograms, Up 11.6 kg
-    /// in 90 days".
+    /// "93.3" in dots, "Estimated 1RM · kg", then "▲ 11.6 kg in 90 days"; "As of Jul 28" when the newest estimate is older
+    /// than the window; for a bodyweight exercise without added weight, why there is none. One element: "Estimated 1RM",
+    /// "93.3 kilograms, Up 11.6 kg in 90 days".
     private var hero: some View {
         let latest = model.latest
+        let date = model.heroDate(locale: locale)
         return VStack(spacing: 0) {
             DotNumeral(latest.map { E1RMChange.number($0, locale: locale) }, style: numeralStyle,
                        glyphGap: DotNumeral.glyphGapDetail, placeholder: "00.0",
@@ -179,6 +220,10 @@ struct ExerciseDetailPage: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, ExerciseDetailLayout.changeGap)
+            } else if let date {
+                heroLine(date)
+            } else if model.lead == .noAddedWeight {
+                heroLine(model.noAddedWeightText)
             }
         }
         .frame(maxWidth: .infinity)
@@ -188,10 +233,25 @@ struct ExerciseDetailPage: View {
         .accessibilityIdentifier("exerciseDetail.numeral")
     }
 
+    private func heroLine(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(.ryft(.label))
+            .foregroundStyle(Theme.textSecondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, ExerciseDetailLayout.changeGap)
+    }
+
     private func heroSpoken(_ latest: Double?) -> String {
-        guard let latest else { return String(localized: "No data") }
+        guard let latest else {
+            return model.lead == .noAddedWeight ? model.noAddedWeightText : String(localized: "No data")
+        }
         var parts = [HistorySpeech.kilograms(latest, locale: locale)]
-        if let change = model.change { parts.append(E1RMChange.overWindow(E1RMChange.spoken(change))) }
+        if let change = model.change {
+            parts.append(E1RMChange.overWindow(E1RMChange.spoken(change)))
+        } else if let date = model.heroDate(locale: locale) {
+            parts.append(date)
+        }
         return parts.joined(separator: ", ")
     }
 
@@ -246,7 +306,7 @@ struct ExerciseDetailPage: View {
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
             }
-            ChartValueLine(latest: model.latest, lastChange: model.lastChange)
+            ChartValueLine(latest: model.points.last?.value, lastChange: model.lastChange)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Estimated 1RM"))
@@ -255,7 +315,7 @@ struct ExerciseDetailPage: View {
     }
 
     private var chartHeadSpoken: String {
-        guard let latest = model.latest else { return String(localized: "No data") }
+        guard let latest = model.points.last?.value else { return String(localized: "No data") }
         var parts = [HistorySpeech.kilograms(latest, locale: locale)]
         if let change = model.lastChange { parts.append("\(E1RMChange.spoken(change)) \(String(localized: "vs last"))") }
         return parts.joined(separator: ", ")
@@ -276,7 +336,7 @@ struct ExerciseDetailPage: View {
     }
 
     @ViewBuilder private var recentSets: some View {
-        let rows = model.recentRows
+        let rows = model.recentRows(locale: locale)
         if model.isLoading {
             PlaceholderRow(height: ExerciseDetailLayout.placeholderSetsHeight)
                 .accessibilityHidden(true)
@@ -368,7 +428,7 @@ private struct RecordRow: View {
 }
 
 /// A recent session: the date (`callout`, `textSecondary`, 58 wide), its working sets (they wrap) and their best estimate at
-/// the right. From AX1 the three lines stack. One element: "Nov 13, 80 kg × 5 · 80 kg × 5, e1RM 93.5 kg".
+/// the right. From AX1 the three lines stack. One element: "Nov 13, 5 reps at 80 kilograms, 5 reps at 80 kilograms, e1RM 93.3 kg".
 private struct RecentSetsRow: View {
     let row: ExerciseDetailViewModel.RecentRow
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -409,6 +469,7 @@ private struct RecentSetsRow: View {
             .monospacedDigit()
             .foregroundStyle(Theme.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(Text(verbatim: row.spokenSets))
     }
 
     @ViewBuilder private var best: some View {
@@ -490,9 +551,19 @@ struct E1RMChart: View {
 
 @MainActor
 enum ExerciseDetailPreview {
-    /// The page as loaded with `history`, Bench press's by default.
-    static func model(_ history: ExerciseHistory?, exercise: UUID = MockTrain.bench.id) -> ExerciseDetailViewModel {
-        ExerciseDetailViewModel(exerciseID: exercise, history: history, library: TrainPreview.library, clock: SystemClock())
+    /// The page as loaded with `history`, Bench press's by default; `fresh` false is the copy on this phone, offline.
+    static func model(_ history: ExerciseHistory?, exercise: UUID = MockTrain.bench.id, fresh: Bool = true,
+                      fetchedAt: Date? = nil) -> ExerciseDetailViewModel {
+        ExerciseDetailViewModel(exerciseID: exercise, history: history, library: TrainPreview.library, clock: SystemClock(),
+                                fresh: fresh, fetchedAt: fetchedAt)
+    }
+
+    /// A history of `exercise` without estimates (a plank's holds, pull-ups without added weight): two sessions of `sets`.
+    static func withoutEstimates(_ exercise: Exercise, sets: [SessionSet]) -> ExerciseHistory {
+        let days = [3, 10].map { Date.now.addingTimeInterval(-Double($0) * 86_400) }
+        return ExerciseHistory(exerciseId: exercise.id, prs: [], sessions: days.map {
+            ExerciseHistorySession(sessionId: UUID(), date: DayFormat.string(from: $0), startedAt: $0, sets: sets)
+        }, e1rm: [])
     }
 }
 
@@ -510,6 +581,38 @@ enum ExerciseDetailPreview {
     NavigationStack {
         ExerciseDetailPage(model: ExerciseDetailPreview.model(MockTrain.historyWithoutRecords(for: MockTrain.squat.id),
                                                               exercise: MockTrain.squat.id))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Exercise page · offline") {
+    NavigationStack {
+        ExerciseDetailPage(model: ExerciseDetailPreview.model(MockTrain.exerciseHistory(for: MockTrain.bench.id,
+                                                                                         sessions: MockTrain.history),
+                                                              fresh: false, fetchedAt: .now.addingTimeInterval(-26 * 3600)))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Exercise page · failed") {
+    NavigationStack { ExerciseDetailPage(model: ExerciseDetailPreview.model(nil, fresh: false)) }
+        .previewEnvironment()
+}
+
+#Preview("Exercise page · timed") {
+    NavigationStack {
+        ExerciseDetailPage(model: ExerciseDetailPreview.model(
+            ExerciseDetailPreview.withoutEstimates(MockTrain.plank, sets: (0..<3).map { SessionSet(setIndex: $0, durationSec: 45) }),
+            exercise: MockTrain.plank.id))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Exercise page · bodyweight") {
+    NavigationStack {
+        ExerciseDetailPage(model: ExerciseDetailPreview.model(
+            ExerciseDetailPreview.withoutEstimates(MockTrain.pullUp, sets: (0..<3).map { SessionSet(setIndex: $0, reps: 8) }),
+            exercise: MockTrain.pullUp.id))
     }
     .previewEnvironment()
 }
