@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The rest pill's sheet (design.md §2.7, §4c). Idle: −15 and +15 set the length of the rest Start begins; the exercise
-/// changes only through "Set as rest for this exercise". Running: they move the countdown, Skip ends it. If the rest ends
-/// with the sheet open, it turns into the idle one.
+/// The rest pill's sheet (design.md §2.7, §4c; PR 6 B §4.5, `b-07`, `b-27`). Idle: −15 and +15 set the length of the rest Start
+/// begins; the exercise changes only through "Set as rest for this exercise". Running: they move the countdown, Skip ends it. If
+/// the rest ends with the sheet open, it turns into the idle one. The clock, two outlined keys, the primary pill, the Next line.
 struct RestSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -34,6 +34,10 @@ struct RestSheet: View {
 
     /// −15 and +15. A fixed size, as every number here, so they grow by hand with the key.
     static func keyNumeral(_ typeSize: DynamicTypeSize) -> CGFloat { typeSize >= .accessibility3 ? 26 : 17 }
+    /// The keys' outline: ink at 20 %, 10 % while off. Radius 14.
+    static let keyEdge = 0.20, disabledKeyEdge = 0.10, keyRadius: CGFloat = 14
+    /// Skip's glyph in the pill's circle.
+    static let skipGlyph = "forward.end"
 
     var body: some View {
         RestSheetFrame(title: Text("Rest"), detents: detents) {
@@ -108,10 +112,13 @@ struct RestSheet: View {
                 .font(.ryftNumber(size: Self.keyNumeral(typeSize)))
                 .monospacedDigit()
                 .lineLimit(1)
-                .foregroundStyle(enabled ? Theme.accent : Theme.textTertiary)
-                .frame(minWidth: 96, minHeight: keySize)
-                .background(Theme.accent.opacity(enabled ? 0.14 : 0.05),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary)
+                .frame(maxWidth: .infinity, minHeight: keySize)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous)
+                        .strokeBorder(Theme.textPrimary.opacity(enabled ? Self.keyEdge : Self.disabledKeyEdge),
+                                      lineWidth: Theme.Metrics.hairline)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressableButtonStyle())
@@ -126,24 +133,18 @@ struct RestSheet: View {
     @ViewBuilder
     private var primary: some View {
         if isRunning {
-            Button("Skip rest") {
+            PillButton(Text("Skip rest"), systemImage: Self.skipGlyph) {
                 controller.skipRest()
                 dismiss()
             }
-            .buttonStyle(TealButtonStyle())
             .accessibilityInputLabels([Text("Skip"), Text("Skip rest")])
             .accessibilityIdentifier("restSheet.skip")
         } else {
-            Button {
+            // The pill wraps at the largest sizes and grows with it.
+            PillButton(startLabel(Fmt.clock(TimeInterval(draft.seconds))), systemImage: PillButton.Icon.start) {
                 controller.startRest(for: exercise, seconds: draft.seconds)
                 dismiss()
-            } label: {
-                // Two lines at the largest sizes, German above all.
-                startLabel(Fmt.clock(TimeInterval(draft.seconds)))
-                    .multilineTextAlignment(.center)
-                    .padding(.vertical, 8)
             }
-            .buttonStyle(TealButtonStyle())
             .disabled(!draft.canStart)
             .accessibilityLabel(startLabel(RestSpeech.duration(draft.seconds)))
             // VoiceOver says the words, the screen says 1:15: Voice Control takes what the user reads.
@@ -170,14 +171,10 @@ struct RestSheet: View {
                 controller.setRest(draft.seconds, for: exercise)
             } label: {
                 Text("Set as rest for this exercise", comment: "The rest sheet in a workout: keeps the chosen length for this exercise.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .ryftLink()
             .accessibilityIdentifier("restSheet.save")
         }
     }
@@ -219,7 +216,7 @@ struct RestChoicesSheet: View {
                 if isCurrent {
                     Image(systemName: "checkmark")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.textPrimary)
                 }
             }
             .frame(minHeight: 56)
@@ -232,7 +229,11 @@ struct RestChoicesSheet: View {
     }
 }
 
-/// Both sheets' frame: a title, Done, `detents`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off.
+/// Both sheets' frame: the sheet header (the close circle, labelled "Done": closing keeps whatever was set; the title centred),
+/// `detents`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off; the header stays.
+///
+/// `SheetHeader`'s layout with a close of its own: `SheetHeader` names its close `sheet.close`, and the UI tests and this
+/// sheet's history know it as `restSheet.done`.
 private struct RestSheetFrame<Content: View>: View {
     let title: Text
     var detents: Set<PresentationDetent> = [.medium]
@@ -242,59 +243,56 @@ private struct RestSheetFrame<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            SheetHeaderLayout(minHeight: SheetHeaderSpec.height, minGap: SheetHeaderSpec.minGap) {
+                CircleButton(systemImage: "xmark", accessibilityLabel: Text("Done")) { dismiss() }
+                    .headerEdgeButton()
+                    .accessibilityIdentifier("restSheet.done")
+                    .accessibilitySortPriority(1)
+                title
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilitySortPriority(2)
+                // The empty trailing slot: the title stays centred on the leading circle's width.
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+            }
+            .accessibilityElement(children: .contain)
+            .padding(.horizontal, SheetHeaderSpec.sidePadding)
+            .padding(.top, SheetHeaderSpec.topInset)
             ScrollView { content }
                 .scrollBounceBehavior(.basedOnSize)
-                .background(Theme.background.ignoresSafeArea())
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                            .accessibilityIdentifier("restSheet.done")
-                    }
-                }
         }
+        .background(Theme.background.ignoresSafeArea())
         .presentationDetents(typeSize.isAccessibilitySize ? [.large] : detents)
     }
 }
 
-#Preview("Rest sheet · idle, dark") {
+#Preview("Rest sheet · idle") {
     let c = FocusedPreview.controller(.midSession)
     return RestSheet(controller: c, exercise: c.exercises[1]).previewEnvironment()
 }
 
-#Preview("Rest sheet · idle, light") {
-    let c = FocusedPreview.controller(.midSession)
-    return RestSheet(controller: c, exercise: c.exercises[1]).previewEnvironment(scheme: .light)
-}
-
-#Preview("Rest sheet · a changed length, dark") {
+/// `b-27`: idle, the length changed to 3:00.
+#Preview("Rest sheet · a changed length") {
     let c = FocusedPreview.controller(.midSession)
     return RestSheet(controller: c, exercise: c.exercises[1], seconds: 180).previewEnvironment()
 }
 
-#Preview("Rest sheet · running, dark") {
+/// `b-07`: running, 1:54 left.
+#Preview("Rest sheet · running") {
     let c = FocusedPreview.controller(.restRunning)
     return RestSheet(controller: c, exercise: c.exercises[1]).previewEnvironment()
 }
 
-#Preview("Rest sheet · running, light") {
-    let c = FocusedPreview.controller(.restRunning)
-    return RestSheet(controller: c, exercise: c.exercises[1]).previewEnvironment(scheme: .light)
-}
-
 #Preview("Rest sheet · AX3") {
     let c = FocusedPreview.controller(.midSession)
-    return RestSheet(controller: c, exercise: c.exercises[1]).previewEnvironment().dynamicTypeSize(.accessibility3)
+    return RestSheet(controller: c, exercise: c.exercises[1], seconds: 180).previewEnvironment().dynamicTypeSize(.accessibility3)
 }
 
-#Preview("Rest choices · dark") {
+#Preview("Rest choices") {
     let c = FocusedPreview.controller(.midSession)
     return RestChoicesSheet(controller: c, exercise: c.exercises[1]).previewEnvironment()
-}
-
-#Preview("Rest choices · light") {
-    let c = FocusedPreview.controller(.midSession)
-    return RestChoicesSheet(controller: c, exercise: c.exercises[1]).previewEnvironment(scheme: .light)
 }
