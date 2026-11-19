@@ -9,6 +9,8 @@ struct ReorderSheet: View {
 
     /// A row: at least 56 high (B §1.3, a row holding a control).
     static let rowHeight: CGFloat = 56
+    /// Header → the first row.
+    static let topGap: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,12 +36,19 @@ struct ReorderSheet: View {
                         }
                     }
                     .frame(minHeight: Self.rowHeight)
+                    // The row is its content: 56, not 56 plus the list's own insets above and below.
+                    .listRowInsets(EdgeInsets(top: 0, leading: GroupedListSpec.rowInset, bottom: 0,
+                                              trailing: GroupedListSpec.rowInset))
                     .listRowBackground(Theme.surface)
                     .listRowSeparatorTint(Theme.separator)
                 }
                 .onMove { controller.move(from: $0, to: $1) }
             }
+            .listStyle(.insetGrouped)
             .environment(\.editMode, .constant(.active))
+            .environment(\.defaultMinListRowHeight, Self.rowHeight)
+            // 12 under the header, as the other sheets' bodies (the list's own top margin is about 35).
+            .contentMargins(.top, Self.topGap, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .tint(Theme.textPrimary)
         }

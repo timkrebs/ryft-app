@@ -392,7 +392,7 @@ struct ListSheetsNocturneTests {
         }
     }
 
-    @Test("Reorder: the header with Done (its own identifier), a row per exercise, a superset named")
+    @Test("Reorder: the header with Done (its own identifier), a 56 pt row per exercise, a superset named")
     func reorder() async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }
@@ -403,6 +403,10 @@ struct ListSheetsNocturneTests {
             for ex in c.exercises.prefix(3) {
                 #expect(w.node(ex.name) != nil, "\(ex.name)")
             }
+            // 56 a row (B §1.3), not 56 plus the list's insets: the names are a row's height apart.
+            let first = try #require(w.node(c.exercises[0].name, exactly: true)).frame
+            let second = try #require(w.node(c.exercises[1].name, exactly: true)).frame
+            #expect(abs((second.midY - first.midY) - ReorderSheet.rowHeight) < 1.5, "\(first) \(second)")
             if c.exercises.contains(where: { $0.supersetGroup != nil }) {
                 #expect(w.node("In a superset") != nil)
             }
