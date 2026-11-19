@@ -11,8 +11,8 @@ enum LiveSessionSpec {
     /// `SetTableColumns.padding`.
     nonisolated static let sidePadding: CGFloat = 16, compactSidePadding: CGFloat = 12
     /// Above and below the header's row. The header is 6 + the taller of the buttons' 44 and the title over the clock + 6; the
-    /// title over the clock is the taller at every size, so the header is never the 56 of the buttons alone (pinned in a window
-    /// by `LiveSessionShellHostedTests.headerGeometry`).
+    /// title over the clock is the taller (about 57 at the default size, 52 at 320), so the header is about 69, and 64 at 320,
+    /// never the 56 of the buttons alone (pinned in a window by `LiveSessionShellHostedTests.headerGeometry`).
     nonisolated static let headerVerticalPadding: CGFloat = 6
     /// The row of buttons: a circle button's 44 pt box, with a 40 pt circle or the compact pill in it (D6B-3, was 48).
     nonisolated static let headerRow: CGFloat = Theme.Metrics.minHitTarget
