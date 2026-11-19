@@ -49,7 +49,11 @@ final class MyDayUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait), "the full screen")
         // The pushed header's title (Nocturne hides the navigation bar on the page, PR 6 B §9.2): one element, not a text.
-        XCTAssertTrue(app.descendants(matching: .any)["myday.view.header"].waitForExistence(timeout: wait))
+        let header = app.descendants(matching: .any)["myday.view.header"]
+        XCTAssertTrue(header.waitForExistence(timeout: wait))
+        XCTAssertEqual(header.label, "My Day")
+        let value = header.value as? String ?? ""
+        XCTAssertTrue(value.hasPrefix("Today"), "the subtitle says today, then the date: \(value)")
         XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait),
                       "today's rows, the merged run once")
         XCTAssertTrue(app.buttons["datestrip.day.\(day(daysBack: 0))"].exists, "the week strip")

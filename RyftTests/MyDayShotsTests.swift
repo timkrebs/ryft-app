@@ -14,7 +14,8 @@ struct MyDayShotsTests {
     /// The screens, each its own test (a test has a minute).
     nonisolated static let screens = ["today", "card-rows", "card-full", "card-empty", "card-loading", "card-stale",
                                       "card-missing-night", "card-missing-nothing", "card-failed", "day-today", "day-past",
-                                      "day-missing-night", "day-empty", "day-loading", "rows-tile", "rows-card"]
+                                      "day-missing-night", "day-empty", "day-loading", "rows-tile", "rows-card",
+                                      "card-offline", "day-offline", "day-missing-night-narrow"]
 
     /// The screen and its window's height at the default size and at AX3.
     private static func view(_ name: String) -> (AnyView, CGFloat, CGFloat) {
@@ -36,13 +37,18 @@ struct MyDayShotsTests {
         case "day-empty": return (page(MockMyDay.content(.pastEmpty), daysBack: 3), 844, 844)
         case "day-loading": return (page(MockMyDay.content(.loading), daysBack: 0), 844, 844)
         case "rows-tile": return (rows(tile: true), 844, 844)
+        case "card-offline": return (card(MyDayShotFixtures.offline), 600, 844)
+        case "day-offline": return (page(MyDayShotFixtures.offline, daysBack: 0), 844, 844)
+        case "day-missing-night-narrow": return (page(MyDayShotFixtures.missingNight(daysBack: 4), daysBack: 4), 844, 844)
         default: return (rows(tile: false), 844, 844)
         }
     }
 
-    private static func card(_ c: MockMyDay.Case) -> AnyView {
+    private static func card(_ c: MockMyDay.Case) -> AnyView { card(MockMyDay.content(c)) }
+
+    private static func card(_ content: MyDayContent) -> AnyView {
         AnyView(ScrollView {
-            MyDayCardBody(content: MockMyDay.content(c), actions: .preview)
+            MyDayCardBody(content: content, actions: .preview)
                 .padding(.horizontal, Theme.Metrics.screenPadding)
                 .padding(.vertical, 24)
         }
@@ -81,9 +87,14 @@ struct MyDayShotsTests {
         guard let dir = env["MYDAY_SHOTS_DIR"] else { return }
         if let only = env["MYDAY_SHOTS_ONLY"], !only.split(separator: ",").contains(Substring(name)) { return }
         let (view, height, ax3Height) = Self.view(name)
-        for (size, typeSize, category, h) in [("default", DynamicTypeSize.large, UIContentSizeCategory.large, height),
-                                              ("ax3", .accessibility3, .accessibilityExtraLarge, ax3Height)] {
-            try await HostedWindow.run(width: 390, height: h, typeSize: typeSize, category: category,
+        // The narrow one: 320 pt at xxxLarge (the review's "No sleep recorded" case) and at AX3.
+        let narrow = name.hasSuffix("-narrow")
+        let sizes: [(String, DynamicTypeSize, UIContentSizeCategory, CGFloat)] = [
+            narrow ? ("default", .xxxLarge, .extraExtraExtraLarge, height) : ("default", .large, .large, height),
+            ("ax3", .accessibility3, .accessibilityExtraLarge, ax3Height),
+        ]
+        for (size, typeSize, category, h) in sizes {
+            try await HostedWindow.run(width: narrow ? 320 : 390, height: h, typeSize: typeSize, category: category,
                                        view.toggleStyle(.ryft).myDayShotsWithoutEdgeEffect()
                                            .environment(\.locale, Locale(identifier: "en_US"))) { w in
                 if name == "today" {
@@ -111,16 +122,19 @@ enum MyDayShotFixtures {
         return content
     }
 
+    /// Offline with nothing saved for today.
+    static var offline: MyDayContent { MyDayContent(day: MockMyDay.today, isToday: true, phase: .offline, items: []) }
+
     static func past(daysBack: Int) -> MyDayContent {
         let day = DayFormat.shift(MockMyDay.today, days: -daysBack)
         return MyDayContent(day: day, isToday: false, phase: .ready, items: MockMyDay.items(daysBack: daysBack),
-                            dayStrain: strain(day), title: Fmt.dayTitle(day))
+                            dayStrain: strain(day), title: Fmt.dayTitle(day), isYesterday: daysBack == 1)
     }
 
     static func missingNight(daysBack: Int) -> MyDayContent {
         let day = DayFormat.shift(MockMyDay.today, days: -daysBack)
         return MyDayContent(day: day, isToday: false, phase: .ready, items: MockMyDay.items(daysBack: daysBack, sleep: false),
-                            dayStrain: strain(day), title: Fmt.dayTitle(day))
+                            dayStrain: strain(day), title: Fmt.dayTitle(day), isYesterday: daysBack == 1)
     }
 
     private static func strain(_ day: Date) -> Double? {

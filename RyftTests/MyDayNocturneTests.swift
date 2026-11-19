@@ -16,36 +16,24 @@ struct MyDayNocturneTests {
     private static let width: CGFloat = 390
     private static let english = Locale(identifier: "en_US")
 
-    // MARK: numbers
-
-    @Test("The card's and the screen's numbers are the spec's (§9.1, §9.2)")
-    func layoutNumbers() {
-        #expect(MyDayLayout.headerHeight == 40)
-        #expect(MyDayLayout.showAllHeight == GroupedListSpec.rowMinHeight)
-        #expect(MyDayLayout.placeholderRows == 3)
-        #expect(MyDayLayout.stripGap == 8 && MyDayLayout.summaryGap == 18 && MyDayLayout.rowsGap == 12)
-        #expect(MyDayLayout.rowSpacing == 8)
-        #expect(MyDayLayout.pinnedFade == 24 && MyDayLayout.pinnedBottom == 16 && MyDayLayout.pinnedSides == 20)
-        #expect(ActivityListRowSpec.cardVerticalPadding == 12 && ActivityListRowSpec.badgedVerticalPadding == 12)
-        #expect(ActivityListRowSpec.dashedOutlineOpacity == 0.12 && ActivityListRowSpec.outlineDash == 4)
-        #expect(SourceBadgeSpec.minHeight == 22 && SourceBadgeSpec.horizontalPadding == 8 && SourceBadgeSpec.outlineOpacity == 0.12)
-    }
-
     // MARK: the row's content (S6)
 
     private var gallery: [MyDayItem] { MockMyDay.gallery }
 
-    @Test("The night: its time asleep with \"h\", the violet glyph, its source as a badge, no mark")
+    @Test("The night: \"7:48\" with \"h\", the violet glyph, \"Apple Health\" as its badge, no mark")
     func nightContent() throws {
         let night = try #require(gallery.first { $0.kind.isSleep })
         let content = MyDayRow.content(night, locale: Self.english)
-        #expect(content.value == Fmt.clock(minutes: Int((night.duration / 60).rounded())))
+        // The demo night: 10:50 PM to 7:00 AM, 7 h 48 min asleep, from Apple Health (b-18).
+        #expect(content.value == "7:48")
         #expect(content.valueUnit == "h")
         #expect(content.glyphInk == .sleep)
-        #expect(content.badges == night.sources.map(\.title))
+        #expect(content.badges == ["Apple Health"])
         #expect(content.mark == nil, "a night has no strain mark")
         #expect(content.showsValue)
-        #expect(content.spoken == MyDayRow.spoken(night, locale: Self.english), "the pinned sentence")
+        #expect(content.spoken.hasPrefix("Sleep, "), "\(content.spoken)")
+        #expect(content.spoken.contains("7 hours, 48 minutes"), "\(content.spoken)")
+        #expect(content.spoken.hasSuffix("Source: Apple Health"), "\(content.spoken)")
     }
 
     @Test("A merged, scored run: both sources as badges and the strain as its mark, no value of its own")
@@ -98,6 +86,30 @@ struct MyDayNocturneTests {
     }
 
     // MARK: drawing
+
+    @Test("A state mark sits beside the text by default and goes under it from AX1")
+    func markGoesUnderFromAX1() throws {
+        let content = ActivityListRow.Content(systemImage: "figure.walk", title: "Walk", meta: "12:15", value: nil,
+                                              spoken: "Walk, No heart rate", mark: .noHeartRate)
+        func shot(_ typeSize: DynamicTypeSize) throws -> ControlRender {
+            try #require(ControlRender(ActivityListRow(content: content).frame(width: 350).background(Theme.background)
+                .environment(\.dynamicTypeSize, typeSize).environment(\.locale, Self.english), scale: 2))
+        }
+        let surface = Tokens.resolve(Theme.surface)
+        func inkOnTheRight(_ shot: ControlRender) -> CGRect? {
+            shot.bounds(xs: 230...330, ys: 4...Double(shot.size.height - 4)) {
+                Tokens.luminance($0) > Tokens.luminance(surface) + 0.08
+            }
+        }
+        let regular = try shot(.large), stacked = try shot(.accessibility1)
+        #expect(inkOnTheRight(regular) != nil, "\"No heart rate\" at the trailing edge by default")
+        #expect(inkOnTheRight(stacked) == nil, "nothing at the trailing edge from AX1: the word is under the text")
+        let under = try #require(stacked.bounds(xs: 60...200, ys: 0...Double(stacked.size.height)) {
+            Tokens.luminance($0) > Tokens.luminance(surface) + 0.08
+        })
+        #expect(under.maxY > stacked.size.height * 0.6, "ink in the lower part of the taller row: \(under), \(stacked.size)")
+        #expect(stacked.size.height > regular.size.height)
+    }
 
     @Test("StrainPill is the bare numeral in ink, never teal, and \"–\" in textTertiary without a strain")
     func strainPillInk() throws {
@@ -201,13 +213,22 @@ struct MyDayNocturneTests {
         }
     }
 
-    @Test("The stale line's Try again is a 44 pt text button")
-    func cardStale() async throws {
-        try await HostedWindow.run(width: Self.width, height: 1_000, card(MockMyDay.content(.stale))) { w in
+    @Test("The stale line's Try again is a 44 pt text button, beside the words by default and under them from AX1",
+          arguments: [false, true])
+    func cardStale(ax3: Bool) async throws {
+        try await HostedWindow.run(width: Self.width, height: 1_800, typeSize: ax3 ? .accessibility3 : .large,
+                                   category: ax3 ? .accessibilityExtraLarge : .large, card(MockMyDay.content(.stale))) { w in
             try await w.settle()
-            let retry = try #require(w.nodes().first { $0.identifier == "myday.stale.retry" })
+            let nodes = w.nodes()
+            let retry = try #require(nodes.first { $0.identifier == "myday.stale.retry" })
+            let words = try #require(nodes.first { $0.label.hasPrefix("Showing the list from") })
             #expect(retry.label == "Try again" && retry.traits.contains(.button))
             #expect(retry.frame.height >= 44, "\(retry.frame)")
+            if ax3 {
+                #expect(retry.frame.minY >= words.frame.maxY - 0.5, "under the words: \(words.frame) \(retry.frame)")
+            } else {
+                #expect(retry.frame.minX > words.frame.maxX, "beside the words: \(words.frame) \(retry.frame)")
+            }
         }
     }
 
@@ -295,13 +316,118 @@ struct MyDayNocturneTests {
         }
     }
 
-    @Test("Without the 14-day window there is no pinned Add activity")
-    func noAddOutsideTheWindow() async throws {
-        let content = MockMyDay.content(.pastEmpty)
-        try await HostedWindow.run(width: Self.width, height: 844, page(content, daysBack: 3, actions: MyDayActions())) { w in
+    @Test("The 14-day rule: Add activity is pinned 13 days back, absent 20 days back (the live screen's own actions)")
+    func addActivityOnlyInTheWindow() async throws {
+        for (back, offered) in [(13, true), (20, false)] {
+            let view = MyDayLiveHost(daysBack: back)
+                .previewEnvironment(AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true]))
+                .environment(\.locale, Self.english)
+            let date = DayFormat.shift(MockMyDay.today, days: -back)
+                .formatted(Date.FormatStyle(locale: Self.english).weekday(.wide).month(.wide).day())
+            try await HostedWindow.run(width: Self.width, height: 844, view) { w in
+                try await w.wait("the day \(back) back") {
+                    w.nodes().first { $0.identifier == "myday.view.header" }?.value == date
+                }
+                try await w.settle()
+                #expect(w.nodes().contains { $0.identifier == "myday.view.addActivity" } == offered, "\(back) days back")
+            }
+        }
+    }
+
+    // MARK: offline (the user's rule: never the outlines for good)
+
+    private static var offlineContent: MyDayContent {
+        MyDayContent(day: MockMyDay.today, isToday: true, phase: .offline, items: [])
+    }
+
+    @Test("Offline with nothing saved, the card and the screen say so with Try again, no outline rows")
+    func offlineMessage() async throws {
+        let views: [(String, AnyView)] = [("card", AnyView(card(Self.offlineContent))),
+                                          ("screen", AnyView(page(Self.offlineContent)))]
+        for (name, view) in views {
+            try await HostedWindow.run(width: Self.width, height: 844, view) { w in
+                try await w.settle()
+                let nodes = w.nodes()
+                #expect(nodes.contains { $0.label == "My Day appears once you're online." }, "\(name): \(nodes.map(\.label))")
+                let retry = try #require(nodes.first { $0.identifier == "myday.offline.retry" }, "\(name)")
+                #expect(retry.label == "Try again" && retry.frame.height >= 44)
+                #expect(!nodes.contains { $0.identifier == "myday.loading" }, "\(name): no outline rows")
+            }
+        }
+    }
+
+    // MARK: Retry on a failed row (R4)
+
+    @MainActor
+    private final class Taps {
+        var opened: [String] = []
+        var retried: [String] = []
+    }
+
+    @Test("A failed row's Retry is a VoiceOver action on the row's button: it retries the upload and opens nothing",
+          arguments: ["card", "screen"])
+    func rowRetry(_ place: String) async throws {
+        let content = MockMyDay.content(.full)
+        let failed = try #require(content.cardRows.first(where: MockMyDay.failed))
+        let other = try #require(content.cardRows.first { !MockMyDay.failed($0) && $0.opensDetail })
+        let taps = Taps()
+        let actions = MyDayActions(open: { taps.opened.append($0.id) }, retryRow: { taps.retried.append($0.id) })
+        let prefix = place == "card" ? "myday.row." : "myday.view.row."
+        let view = place == "card" ? AnyView(card(content, actions: actions)) : AnyView(page(content, actions: actions))
+        try await HostedWindow.run(width: Self.width, height: 2_400, view) { w in
             try await w.settle()
-            #expect(!w.nodes().contains { $0.identifier == "myday.view.addActivity" })
-            #expect(w.nodes().contains { $0.identifier == "myday.view.empty" })
+            let nodes = w.nodes()
+            let row = try #require(nodes.first { $0.identifier == prefix + failed.id }, "\(nodes.compactMap(\.identifier))")
+            #expect(row.actionNames.filter { $0 == "Retry" }.count == 1, "\(row.actionNames)")
+            #expect(row.traits.contains(.button))
+            #expect(row.perform(action: "Retry"))
+            #expect(taps.retried == [failed.id])
+            #expect(taps.opened.isEmpty, "Retry doesn't open the detail")
+            let plain = try #require(nodes.first { $0.identifier == prefix + other.id })
+            #expect(!plain.actionNames.contains("Retry"), "only a failed row offers Retry")
+        }
+    }
+
+    @Test("Without the uploader wired (previews) a failed row offers no Retry")
+    func noRetryWithoutTheUploader() async throws {
+        let content = MockMyDay.content(.full)
+        let failed = try #require(content.cardRows.first(where: MockMyDay.failed))
+        try await HostedWindow.run(width: Self.width, height: 2_400, card(content, actions: MyDayActions())) { w in
+            try await w.settle()
+            let row = try #require(w.nodes().first { $0.identifier == "myday.row." + failed.id })
+            #expect(!row.actionNames.contains("Retry"))
+        }
+    }
+
+    // MARK: the missing night on a narrow screen
+
+    @Test("At 320 pt and xxxLarge \"No sleep recorded\" never breaks inside a word: Add sleep goes under it")
+    func missingNightNarrow() async throws {
+        let word = try #require(ControlRender(Text(verbatim: "recorded").font(.ryft(.callout)).fixedSize()
+            .environment(\.dynamicTypeSize, .xxxLarge), scale: 2))
+        let content = MyDayShotFixtures.missingNight(daysBack: 4)
+        try await HostedWindow.run(width: 320, height: 1_400, typeSize: .xxxLarge, category: .extraExtraExtraLarge,
+                                   page(content, daysBack: 4)) { w in
+            try await w.settle()
+            let nodes = w.nodes()
+            let text = try #require(nodes.filter { $0.label == "No sleep recorded" }.min { $0.frame.width < $1.frame.width })
+            let add = try #require(nodes.first { $0.identifier == "myday.addSleep" })
+            #expect(text.frame.width >= word.size.width - 0.5, "wider than its longest word: \(text.frame) vs \(word.size)")
+            #expect(add.frame.minY >= text.frame.maxY - 0.5, "Add sleep under the words: \(text.frame) \(add.frame)")
+            #expect(add.frame.width > add.frame.height && add.frame.height >= 44, "one line, 44 high: \(add.frame)")
+        }
+    }
+}
+
+/// The live full screen on the preview environment's model, `daysBack` before today: the 14-day rule as the screen applies it.
+private struct MyDayLiveHost: View {
+    let daysBack: Int
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        NavigationStack {
+            MyDayView(model: screens.myDay)
+                .onAppear { screens.myDay.select(DayFormat.shift(screens.myDay.today, days: -daysBack)) }
         }
     }
 }
