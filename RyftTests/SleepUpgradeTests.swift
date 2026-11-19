@@ -462,21 +462,19 @@ struct BedtimeAndWakeTests {
     }
 
     @Test func remindersWindDownBeforeEachNightLocalTimeAcrossTheClockChange() async throws {
-        let (state, clock) = makeState()
+        let (_, clock) = makeState()
         let cal = berlin
         clock.set(at(2026, 10, 24, 12, calendar: cal)) // Saturday noon, before the DST night
-        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
         var s = SleepSchedule.default
         s.reminderOn = true
         s.windDownMin = 30
         let wake = at(2026, 10, 25, 8, calendar: cal)  // Sunday, after the clocks went back
         let p = plan(wake: wake)
-        await planner.scheduleReminders(schedule: s, plan: p, calendar: cal)
+        let requests = BedtimePlanner.reminders(schedule: s, plan: p, now: clock.now(), calendar: cal)
 
-        let notifier = try #require(state.env.notifier as? MockNotifier)
-        let ids = notifier.requests.map(\.identifier)
+        let ids = requests.map(\.identifier)
         #expect(ids.count == BedtimePlanner.nightsAhead && ids.allSatisfy { $0.hasPrefix(BedtimePlanner.reminderPrefix) })
-        let tonight = try #require(notifier.requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
+        let tonight = try #require(requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
         // Wall-clock components in the planning calendar's zone (`nextTriggerDate` would read them
         // in the device's zone).
         let fire = try #require((tonight.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
@@ -485,15 +483,14 @@ struct BedtimeAndWakeTests {
         #expect(tonight.content.categoryIdentifier == PushCategories.bedtime)
         #expect(tonight.content.body.contains(Fmt.time(p.bedtime100)))
         // Monday's (estimated from tonight's time in bed) wakes at the weekday time.
-        let monday = try #require(notifier.requests.first { $0.identifier == "bedtime.2026-10-26" })
+        let monday = try #require(requests.first { $0.identifier == "bedtime.2026-10-26" })
         let mondayFire = try #require((monday.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
         let mondayBed = at(2026, 10, 26, 6, 30, calendar: cal).addingTimeInterval(-Double(p.inBedMin) * 60 - 30 * 60)
         #expect(mondayFire.hour == cal.component(.hour, from: mondayBed) && mondayFire.minute == cal.component(.minute, from: mondayBed))
 
-        // Off: none left.
+        // Off: none.
         s.reminderOn = false
-        await planner.scheduleReminders(schedule: s, plan: p, calendar: cal)
-        #expect(notifier.requests.isEmpty)
+        #expect(BedtimePlanner.reminders(schedule: s, plan: p, now: clock.now(), calendar: cal).isEmpty)
     }
 
     @Test func aBedtimeThatMovesLessThanTenMinutesKeepsItsReminders() async throws {

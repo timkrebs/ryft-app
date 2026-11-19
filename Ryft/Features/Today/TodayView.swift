@@ -26,6 +26,8 @@ struct TodayView: View {
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
     static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
+    /// Bedtime & wake from Tonight, pushed from here: Today stays when the card leaves (the evening ends, an import starts).
+    @State private var bedtimeOpening: SleepScheduleView.Opening?
     /// Counts scores that landed while the night was pending: one success haptic each.
     @State private var landed = 0
     /// The calibration note's link, open in a sheet (design.md §7 rev. 2 §2).
@@ -88,6 +90,7 @@ struct TodayView: View {
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal))
                 }
+                .navigationDestination(item: $bedtimeOpening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
                 // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
                     SyncDetailsSheet(model: screens.profile.syncDetails)
@@ -401,7 +404,7 @@ struct TodayView: View {
             }
             // From 17:00: when to be in bed tonight (Bedtime & wake).
             if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {
-                TonightCard(planner: screens.bedtime)
+                TonightCard(planner: screens.bedtime) { bedtimeOpening = $0 }
             }
             if model.showsTrain, !day.hero.isImporting { TrainTodayCard() }
             if !day.hero.isImporting {

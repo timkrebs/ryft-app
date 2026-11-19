@@ -24,7 +24,7 @@ struct BedtimeShotsTests {
                     try await interact(w)
                     try await w.settle()
                 }
-                let image = try await PagedWindowShot.image(w)
+                let image = screen.paged ? try await PagedWindowShot.image(w) : Self.draw(w)
                 try #require(image.pngData()).write(to: URL(fileURLWithPath: "\(dir)/c4-\(name)-\(size).png"))
             }
         }
@@ -33,7 +33,18 @@ struct BedtimeShotsTests {
     nonisolated static let names = [
         "tonight", "tonight-not-set-up", "tonight-loading", "tonight-offline-cached", "tonight-offline", "tonight-failed",
         "bedtime-wake", "bedtime-wake-days", "bedtime-wake-refused", "bedtime-wake-alarm-problem",
+        "bedtime-wake-turn-off-dialog", "bedtime-wake-turning-off", "bedtime-wake-reminders-wait",
     ]
+
+    /// The window as it is, one screen at 3x (a dialog over the page: paging would scroll the page under it).
+    private static func draw(_ w: HostedWindow) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = true
+        return UIGraphicsImageRenderer(bounds: w.window.bounds, format: format).image { _ in
+            w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
+        }
+    }
 }
 
 /// Tonight and Bedtime & wake in one state each, on a test environment of their own (a fresh schedule store, the test
@@ -44,6 +55,8 @@ enum BedtimeShotScreen {
         let view: AnyView
         /// What a person does before the shot (a switch iOS refuses).
         var interact: ((HostedWindow) async throws -> Void)?
+        /// The whole page (`PagedWindowShot`); `false`: the screen as it is.
+        var paged = true
     }
 
     /// A test environment with Bedtime & wake's flag on, the clock at 5:42 PM local on its day.
@@ -123,6 +136,40 @@ enum BedtimeShotScreen {
             let planner = BedtimePlanner(state: state, alarms: alarms)
             await planner.refresh()
             return Screen(view: SubpageShotScreen.pushed(state) { SleepScheduleView(planner: planner) })
+        case "bedtime-wake-turn-off-dialog":
+            let screen = await screen("bedtime-wake")
+            return Screen(view: screen.view, interact: { w in
+                try await w.wait("Turn off") { w.nodes().contains { $0.identifier == "schedule.turnOff" } }
+                // Scrolled down to Turn off, as a person taps it: the dialog points at the button.
+                if let scroll = w.pageScrollView() {
+                    let inset = scroll.adjustedContentInset
+                    let bottom = max(-inset.top, scroll.contentSize.height + inset.bottom - scroll.bounds.height)
+                    scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: bottom), animated: false)
+                    try await w.settle()
+                }
+                _ = w.nodes().first { $0.identifier == "schedule.turnOff" }?.activate()
+                try await w.wait("the dialog") { w.host.presentedViewController is UIAlertController }
+            }, paged: false)
+        case "bedtime-wake-turning-off":
+            let (state, _) = state()
+            let alarms = StuckShotAlarms()
+            let planner = BedtimePlanner(state: state, alarms: alarms)
+            var schedule = SleepSchedule.default
+            schedule.alarmOn = true
+            await planner.update(schedule)
+            return Screen(view: SubpageShotScreen.pushed(state) { SleepScheduleView(planner: planner) }) { w in
+                try await w.wait("the page") { w.nodes().contains { $0.identifier == "schedule.turnOff" } }
+                alarms.sticks = true
+                Task { await planner.editor.turnOff() }
+                try await w.wait("Turning off…") { w.node("Turning off…") != nil }
+            }
+        case "bedtime-wake-reminders-wait":
+            let (state, _) = state(online: false)
+            let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+            var schedule = SleepSchedule.default
+            schedule.reminderOn = true
+            await planner.update(schedule)
+            return Screen(view: SubpageShotScreen.pushed(state) { SleepScheduleView(planner: planner) })
         default:
             let (state, _) = state()
             let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
@@ -146,5 +193,20 @@ enum BedtimeShotScreen {
         .previewEnvironment(state)
         .toggleStyle(.ryft)
         .environment(\.locale, Locale(identifier: "en_US")))
+    }
+}
+
+/// Wake alarms whose taking-away doesn't finish once `sticks`: Turn off stays on its way (the busy shot).
+private final class StuckShotAlarms: WakeAlarms {
+    let ringsLikeAnAlarm = true
+    var sticks = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func authorize() async -> Bool { true }
+    func isAllowed() async -> Bool { true }
+    func schedule(_ times: [String]) async throws {}
+    func cancelAll() async {
+        guard sticks else { return }
+        await withCheckedContinuation { waiting.append($0) }
     }
 }

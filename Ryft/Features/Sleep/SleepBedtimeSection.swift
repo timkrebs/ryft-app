@@ -249,12 +249,14 @@ struct SleepBedtimeSection: View {
             case .failed:
                 let failure = board.failure
                 let action = failure?.action ?? .retry
+                // Part of the section, as on Bedtime & wake and Tonight: read in place, not announced.
                 InlineMessage(message: board.message ?? "", systemImage: failure?.systemImage ?? "exclamationmark.circle",
                               retryTitle: action.title, details: failure?.details,
-                              retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.bedtime.failure")
+                              retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.bedtime.failure",
+                              announces: false)
             case .offline:
                 InlineMessage(message: board.message ?? "", systemImage: "wifi.exclamationmark",
-                              identifier: "sleep.bedtime.failure")
+                              identifier: "sleep.bedtime.failure", announces: false)
             case .planned, .planning:
                 SleepGoToBedTile(board: board, reduceTransparency: reduceTransparency)
             }
@@ -267,7 +269,8 @@ struct SleepBedtimeSection: View {
         SleepBedtimeSettings(board: board, wake: $wake) { opening = .edit }
             .padding(.top, SleepModesLayout.settingsGap)
         if let problem = board.alarmProblem {
-            InlineMessage(message: problem, systemImage: "alarm", identifier: "sleep.bedtime.alarm", severity: .attention)
+            InlineMessage(message: problem, systemImage: "alarm", identifier: "sleep.bedtime.alarm", severity: .attention,
+                          announces: false)
                 .padding(.top, SleepModesLayout.cardGap)
         }
         if let asOf = board.asOf {
