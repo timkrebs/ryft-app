@@ -12,8 +12,11 @@ and `LocalizedStringKey`), then:
 
 Then `make lint` checks the result. A new key's English is the key itself, unless the code gives a `defaultValue`:
 then the English is that default, as the stringsdata records it, and is written as the key's `en` (the key itself
-would otherwise be shown). A manual key (push loc-keys, Info.plist) needs its `en` written by hand. Usage (after a build into the same
-DerivedData, as `make build` does):
+would otherwise be shown). An `en` is written only when that value differs from the key. A plain key (`Text("…")`,
+`String(localized: "…")`) has no `value` in its stringsdata at all (Xcode 27.2: 2,790 plain entries, none with one;
+every keyed `defaultValue` has one, its interpolations as format specifiers, "Strain · %@"), so it gets an empty entry,
+as Xcode writes it. A manual key (push loc-keys, Info.plist) needs its `en` written by hand. Usage (after a build into
+the same DerivedData, as `make build` does):
 
     python3 scripts/sync-strings.py [--derived-data build/DerivedData]
         [--configuration Debug] [--platform iphonesimulator] [--check]
@@ -69,7 +72,8 @@ def extracted_keys(derived: str, configuration: str, platform: str, target: str)
     if not archs:
         sys.exit(f"No .stringsdata for {target} in {objects}: build first (make build).")
     # Every architecture of one build extracts the same keys; take the first.
-    keys: dict[str, str | None] = {}  # key -> the defaultValue's English, when the code gives one
+    # key -> the defaultValue's English, when the code gives one; a plain key's entry has no "value" (None here).
+    keys: dict[str, str | None] = {}
     for path in glob.glob(os.path.join(archs[0], "*.stringsdata")):
         with open(path) as f:
             data = json.load(f)
@@ -82,7 +86,8 @@ def extracted_keys(derived: str, configuration: str, platform: str, target: str)
 
 
 def english_entry(key: str, default: str | None) -> dict:
-    """The entry for a new key: empty when its English is the key; the code's defaultValue as `en` otherwise."""
+    """The entry for a new key: empty when its English is the key (a plain key, or a default equal to it); the code's
+    defaultValue as `en` only when it differs from the key."""
     if not default or default == key:
         return {}
     return {"localizations": {"en": {"stringUnit": {"state": "translated", "value": default}}}}
