@@ -131,7 +131,8 @@ extension MetricSpec {
                                         tickUnit: 15, custom: { Fmt.duration(minutes: Int($0.rounded())) })
     static let volumeKg = MetricSpec(title: String(localized: "Training volume"), unit: "kg",
                                      color: Theme.metricStrain)
-    static let e1rm = MetricSpec(title: String(localized: "Estimated 1RM"), unit: "kg", color: Theme.accent,
+    /// Strain blue: a training metric (PR 6 B D6B-14), as strength minutes and volume are.
+    static let e1rm = MetricSpec(title: String(localized: "Estimated 1RM"), unit: "kg", color: Theme.metricStrain,
                                  polarity: .higherIsBetter, fractionDigits: 1,
                                  custom: { Fmt.kg($0) })
     static let heartRate = MetricSpec(title: String(localized: "Heart rate"), unit: "bpm", color: Theme.alert)
