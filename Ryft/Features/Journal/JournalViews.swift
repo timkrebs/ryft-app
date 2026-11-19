@@ -134,25 +134,39 @@ struct JournalSheetContent {
     var error: String?
     var errorDetails: String?
     var isOnline: Bool
+    /// A failed read's status and request ID (`JournalSheetModel.readDetails`).
+    var failedDetails: String?
 
     /// Save is offered for a day whose rows are shown and can change, until it is saved: not while it saves (busy), not for a
     /// read-only day, not without a habit, not while the day isn't on this phone (an empty form would answer "no" to all).
     var canSave: Bool { phase == .ready && editable && !isSaving && !saved }
 
-    /// Why Save is off, for VoiceOver's hint.
+    /// The offline pill: over rows that could be saved. A read-only day and the no-habits state have nothing to save.
+    var showsOfflinePill: Bool { phase == .ready && editable && !isOnline }
+
+    /// Why Save is off, for VoiceOver's hint: the line the sheet shows in place of the rows, or the reason the rows can't
+    /// change. Nothing while it saves (the pill says "In progress") or once saved (it reads "Saved").
     var saveHint: String? {
         guard !canSave, !isSaving, !saved else { return nil }
-        if phase == .noHabits { return JournalSheetBody.noHabitsMessage }
-        return readOnlyReason
+        switch phase {
+        case .ready: return readOnlyReason
+        case .noHabits: return JournalSheetBody.noHabitsMessage
+        case .loading: return JournalSheetBody.loadingHint
+        case .offline: return JournalSheetBody.offlineMessage
+        case .failed: return JournalSheetBody.failedMessage
+        }
     }
 }
 
 extension JournalSheetContent {
+    /// The model as the sheet shows it; `readState` is the read pipeline's record of the journal, for a failed read's Details.
     @MainActor
-    init(_ model: JournalSheetModel, isOnline: Bool) {
-        self.init(title: model.title, days: model.stripDays, selected: model.day, phase: model.phase(isOnline: isOnline),
+    init(_ model: JournalSheetModel, isOnline: Bool, readState: ResourceState? = nil) {
+        let phase = model.phase(isOnline: isOnline)
+        self.init(title: model.title, days: model.stripDays, selected: model.day, phase: phase,
                   groups: model.groups, editable: model.editable, readOnlyReason: model.readOnlyReason, isSaving: model.isSaving,
-                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: isOnline)
+                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: isOnline,
+                  failedDetails: phase == .failed ? JournalSheetModel.readDetails(readState) : nil)
     }
 }
 
@@ -163,6 +177,8 @@ struct JournalSheetActions {
     var setCount: (UUID, Int) -> Void = { _, _ in }
     var setTime: (UUID, String) -> Void = { _, _ in }
     var save: () async -> Void = {}
+    /// The close circle: nil closes the sheet at once (`SheetHeader`'s dismiss).
+    var close: (() -> Void)?
     /// Reads the day again (offline, failed).
     var retry: () async -> Void = {}
     /// Profile → Journal's page (no habits chosen).
@@ -170,16 +186,18 @@ struct JournalSheetActions {
 }
 
 /// The journal sheet: yesterday by default, the strip steps back 14 days. Loads the day on open, and again when the iPhone is back
-/// online while the day isn't on it (not when it is: that would undo answers being given). Saving closes it.
+/// online while the day isn't on it (not when it is: that would undo answers being given). Saving closes it. Answers that aren't
+/// saved are never dropped without asking: closing (the circle or a swipe) and switching days confirm first.
 struct JournalSheet: View {
     @State var model: JournalSheetModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appEnvironment) private var env
     @Environment(ConnectivityMonitor.self) private var connectivity
     @State private var choosesHabits = false
 
     var body: some View {
         NavigationStack {
-            JournalSheetBody(content: JournalSheetContent(model, isOnline: connectivity.isOnline), actions: actions)
+            JournalSheetBody(content: content, actions: actions)
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(isPresented: $choosesHabits) { JournalSettingsView(store: model.store) }
         }
@@ -187,30 +205,57 @@ struct JournalSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(Theme.background)
+        .interactiveDismissDisabled(model.isDirty || model.isSaving)
+        .confirmationDialog(Text("Discard your answers?",
+                                 comment: "Journal sheet: closing or switching days would drop answers that aren't saved."),
+                            isPresented: Binding(get: { model.pendingDiscard != nil }, set: { if !$0 { model.cancelDiscard() } }),
+                            titleVisibility: .visible, presenting: model.pendingDiscard) { pending in
+            Button(role: .destructive) {
+                Task { if await model.discard(pending) { dismiss() } }
+            } label: {
+                Text("Discard", comment: "Journal sheet's confirmation: drops the answers that aren't saved.")
+            }
+            Button(role: .cancel) {
+                model.cancelDiscard()
+            } label: {
+                Text("Keep editing", comment: "Journal sheet's confirmation: keeps the answers and stays on the day.")
+            }
+        }
         .task { await model.load() }
         .onChange(of: connectivity.isOnline) { _, online in
+            model.connectionChanged(online: online)
             if online, !model.hasDay { Task { await model.load() } }
         }
         // Back from Profile → Journal: the habits chosen there.
         .onChange(of: choosesHabits) { _, open in
-            if !open { Task { await model.load() } }
+            if !open { Task { await model.habitsChanged() } }
         }
+    }
+
+    private var content: JournalSheetContent {
+        JournalSheetContent(model, isOnline: connectivity.isOnline, readState: env.reads.states[.journal])
     }
 
     private var actions: JournalSheetActions {
         let model = model
-        return JournalSheetActions(select: { day in Task { await model.select(day) } },
+        return JournalSheetActions(select: { day in Task { await model.requestSelect(day) } },
                                    setOn: { model.set($0, on: $1) },
                                    setCount: { model.set($0, count: $1) },
                                    setTime: { model.set($0, time: $1) },
                                    save: { await save() },
+                                   close: { close() },
                                    retry: { await model.load() },
                                    chooseHabits: { choosesHabits = true })
     }
 
     private func save() async {
-        await model.save()
-        if model.saved { dismiss() }
+        if await model.save() { dismiss() }
+    }
+
+    /// While a save is out the circle waits for it; with answers not saved it asks first.
+    private func close() {
+        guard !model.isSaving else { return }
+        if model.requestClose() { dismiss() }
     }
 }
 
@@ -231,12 +276,30 @@ struct JournalSheetBody: View {
                comment: "Journal sheet: no habit is chosen yet; a button to Profile → Journal follows.")
     }
 
+    static var offlineMessage: String {
+        String(localized: "This day's answers appear once you're online.",
+               comment: "Journal sheet: offline, and the selected day isn't saved on this iPhone yet.")
+    }
+
+    static var failedMessage: String {
+        String(localized: "Couldn't load this day.",
+               comment: "Journal sheet: the selected day couldn't be read and isn't saved on this iPhone.")
+    }
+
+    /// Save's VoiceOver hint while the day is read.
+    static var loadingHint: String {
+        String(localized: "Available once this day has loaded.",
+               comment: "VoiceOver hint of the Journal sheet's Save while the day is still loading.")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    // No other day while a save is out: its outcome belongs to the day it was asked for.
                     JournalDateStrip(days: content.days, selected: content.selected, select: actions.select)
+                        .disabled(content.isSaving)
                         .padding(.top, JournalLayout.headerToStrip)
                     VStack(alignment: .leading, spacing: JournalLayout.groupSpacing) {
                         notices
@@ -255,7 +318,7 @@ struct JournalSheetBody: View {
     // MARK: header
 
     private var header: some View {
-        SheetHeader(Text(verbatim: content.title)) {
+        SheetHeader(Text(verbatim: content.title), onClose: actions.close) {
             PillButton(content.saved ? Text("Saved") : Text("Save"), size: .compact, busy: content.isSaving) {
                 await actions.save()
             }
@@ -274,16 +337,19 @@ struct JournalSheetBody: View {
 
     @ViewBuilder private var notices: some View {
         let showsRows = content.phase == .ready || content.phase == .noHabits
-        if showsRows, !content.isOnline {
-            OfflinePill()
+        if content.showsOfflinePill {
+            JournalOfflinePill()
                 .accessibilityIdentifier("journal.offlinePill")
         }
         if let error = content.error {
+            // Try again only while Save itself would send this day.
             InlineMessage(message: error, systemImage: "exclamationmark.circle", details: content.errorDetails,
-                          retry: actions.save, identifier: "journal.error")
+                          retry: content.canSave ? actions.save : nil, identifier: "journal.error")
         }
         if showsRows, let reason = content.readOnlyReason {
-            InlineMessage(message: reason, systemImage: "lock", identifier: "journal.readOnly", announces: false, readsAsOne: true)
+            InlineMessage(message: reason, systemImage: "lock", announces: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("journal.readOnly")
         }
     }
 
@@ -295,7 +361,7 @@ struct JournalSheetBody: View {
             ForEach(content.groups) { group in
                 GroupedCard(Text(JournalSheetModel.title(group.category))) {
                     ForEach(group.rows) { row in
-                        JournalHabitRow(row: row, editable: content.editable, actions: actions)
+                        JournalHabitRow(row: row, editable: content.editable, isSaving: content.isSaving, actions: actions)
                     }
                 }
             }
@@ -304,12 +370,11 @@ struct JournalSheetBody: View {
         case .loading:
             loading
         case .offline:
-            InlineMessage(message: String(localized: "This day's answers appear once you're online.",
-                                          comment: "Journal sheet: offline, and the selected day isn't saved on this iPhone yet."),
-                          systemImage: "wifi.slash", retry: actions.retry, identifier: "journal.offline")
+            InlineMessage(message: Self.offlineMessage, systemImage: "wifi.slash", retry: actions.retry,
+                          identifier: "journal.offline")
         case .failed:
-            InlineMessage(message: String(localized: "Couldn't load this day.",
-                                          comment: "Journal sheet: the selected day couldn't be read and isn't saved on this iPhone."),
+            // Online (offline is the line above): not a network glyph.
+            InlineMessage(message: Self.failedMessage, systemImage: "exclamationmark.circle", details: content.failedDetails,
                           retry: actions.retry, identifier: "journal.failed")
         }
     }
@@ -352,11 +417,13 @@ struct JournalSheetBody: View {
 }
 
 /// A habit: its switch (`GroupedRow.toggle`, "Alcohol, switch, on"), and while it's on its sub-row in the same card, without a
-/// hairline: Count as a quiet stepper row (VoiceOver "Drinks, 2", adjustable), Time as a chip. A read-only day's row doesn't
-/// take taps and draws at 55 %; VoiceOver's activation changes nothing either.
+/// hairline: Count as a quiet stepper row (VoiceOver "Drinks, 2", adjustable; Voice Control also "Count"), Time as a chip. A
+/// read-only day's row doesn't take taps and draws at 55 %; VoiceOver's activation changes nothing either. While a save is out
+/// no row takes taps (the model ignores changes then too).
 private struct JournalHabitRow: View {
     let row: JournalSheetModel.Row
     let editable: Bool
+    let isSaving: Bool
     let actions: JournalSheetActions
 
     /// A built-in by its fixed slug; the user's own by its id (as Profile → Journal names them).
@@ -373,7 +440,7 @@ private struct JournalHabitRow: View {
                     .environment(\.isInGroupedCard, false)
             }
         }
-        .allowsHitTesting(editable)
+        .allowsHitTesting(editable && !isSaving)
         .opacity(editable ? 1 : JournalLayout.readOnlyOpacity)
     }
 
@@ -387,6 +454,7 @@ private struct JournalHabitRow: View {
                            value: Binding(get: { row.count }, set: { count in if editable { actions.setCount(row.id, count) } }),
                            in: JournalLayout.countRange)
                 .accessibilityLabel(Text(verbatim: row.behavior.name))
+                .accessibilityInputLabels([Text(verbatim: row.behavior.name), Text("Count")])
                 .accessibilityIdentifier("journal.count.\(key)")
         case .time:
             ValueChipRow(Text("Time")) {
@@ -453,9 +521,9 @@ struct JournalDateStrip: View {
             .contentShape(RoundedRectangle(cornerRadius: JournalLayout.chipRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
+        // `DateStrip`'s pattern: the button stays the element (and its action), its words replaced.
         .accessibilityLabel(Text(verbatim: date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale))))
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("journal.day.\(day)")
     }
 }
@@ -464,7 +532,7 @@ struct JournalDateStrip: View {
 /// 12 (scaling with the words), `caption` in `textSecondary`. Saving needs the network (`JournalStore`), so it says that, never
 /// that the answers are saved on this phone or sent later. At accessibility sizes the words wrap and the capsule becomes a
 /// rounded rectangle (a capsule's ends would cut into the lines). One element for VoiceOver.
-struct OfflinePill: View {
+struct JournalOfflinePill: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .caption) private var glyphSize: CGFloat = JournalLayout.pillGlyphSize
 
@@ -548,6 +616,10 @@ func journalPreviewStore(_ state: AppState) -> JournalStore {
 
 #Preview("Journal sheet · offline, not on this iPhone") {
     JournalSheetBody(content: MockJournalStates.content(.offlineUncached)).toggleStyle(.ryft).previewEnvironment()
+}
+
+#Preview("Journal sheet · read failed") {
+    JournalSheetBody(content: MockJournalStates.content(.failed)).toggleStyle(.ryft).previewEnvironment()
 }
 
 #Preview("Journal sheet · save failed") {
