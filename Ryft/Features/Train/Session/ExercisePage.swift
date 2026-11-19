@@ -278,7 +278,7 @@ struct ExercisePage: View {
 
     static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
 
-    /// "Add set" and "Add warm-up set": quiet text buttons, ink at 78 % (PR 6 B §1.1), 11.6:1 on the screen.
+    /// "Add set" and "Add warm-up set": quiet text buttons, ink at 78 % (PR 6 B §1.1), 10.6:1 on the screen.
     static let quietLink = 0.78
 
     private static func spokenDuration(_ seconds: Int) -> String {
@@ -481,8 +481,9 @@ struct SetTableHeader: View {
     }
 }
 
-/// What the last session did, as a table on the set table's columns (design.md §2.6, L7): the heading has the date only,
-/// since the session's title isn't on the wire. Hidden by its caller without a working set; the whole card opens history.
+/// What the last session did, as a table with the set table's columns (design.md §2.6, L7): the heading has the date only,
+/// since the session's title isn't on the wire. The columns sit inside the card's 14 pt padding (PR 6 B `b-04`), so they are
+/// inset from the table's above, not aligned with them. Hidden by its caller without a working set; the whole card opens history.
 struct LastTimeCard: View {
     /// `exercise.lastTime`, warm-ups included: they aren't listed.
     let sets: [SessionSet]
