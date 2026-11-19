@@ -40,6 +40,7 @@ struct ProfileView: View {
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
         .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
             ShareSheet(items: [$0.url], completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
+                .presentedRoot()
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
@@ -99,7 +100,7 @@ struct ProfileView: View {
             Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
         }
         .sheet(isPresented: $showChangePassword) {
-            SetNewPasswordView(mode: .change)
+            SetNewPasswordView(mode: .change).presentedRoot()
         }
         .confirmationDialog("Withdraw your consent?", isPresented: $showWithdrawConfirm, titleVisibility: .visible) {
             Button("Withdraw consent", role: .destructive) {
@@ -347,7 +348,7 @@ struct ProfileView: View {
     }
 
     /// The link-outs' hints: a web page outside RYFT, a page in RYFT's own sheet, the Health app.
-    static let browserHint = Text("Opens in the browser", comment: "VoiceOver hint of a Profile row that opens a web page.")
+    static let browserHint = GroupedRow.webLinkHint
     static let inAppHint = Text("Opens the page in RYFT",
                                 comment: "VoiceOver hint of Profile's Privacy Policy and Terms of Use: they open in RYFT's own browser sheet.")
     static let healthAppHint = Text("Opens the Health app", comment: "VoiceOver hint of Profile's Open Health row.")
@@ -560,12 +561,14 @@ private struct ProfileDeveloperGroup: View {
             GroupedRow.push(Text(verbatim: "Feature flags"), identifier: ProfileRows.devFlags, route: ProfileRoute.flags)
             GroupedRow.value(Text(verbatim: "Push registration"), value: Text(verbatim: screens.push.lastResult ?? "—"))
             field("API URL override") {
-                TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
+                TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                     .keyboardType(.URL)
             }
-            field("Ingest URL override (compose: :8081)") {
-                TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
+            field("Ingest URL override (compose: :8081, needed with an API override)") {
+                TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
+                          text: Bindable(settings).devIngestURLOverride)
                     .keyboardType(.URL)
+                    .accessibilityIdentifier("profile.dev.ingestURL")
             }
             GroupedRow.toggle(Text(verbatim: "API key mode"),
                               detail: Text(verbatim: "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),

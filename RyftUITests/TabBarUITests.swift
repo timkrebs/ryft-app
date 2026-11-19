@@ -96,7 +96,8 @@ final class TabBarUITests: XCTestCase {
     @MainActor
     func testTheKeyboardCoversTheBar() throws {
         let app = launchDemo(extra: ["-RyftTab", "profile"])
-        let field = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Same host as the API'")).firstMatch
+        // The ingest override (its placeholder is the build's ingest host, which a Debug xcconfig may change).
+        let field = app.textFields["profile.dev.ingestURL"]
         XCTAssertTrue(app.tabBar.waitForExistence(timeout: wait), "the tab bar")
         let barTop = app.tabBar.frame.minY
         for _ in 0..<12 where !(field.exists && field.isHittable && field.frame.maxY < barTop) { app.swipeUp(velocity: .slow) }

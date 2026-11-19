@@ -430,6 +430,6 @@ struct ImportReplaceAlert: ViewModifier {
 }
 
 #Preview("Import unavailable") {
-    Theme.background.ignoresSafeArea().sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }
+    Theme.background.ignoresSafeArea().sheet(isPresented: .constant(true)) { ImportUnavailableSheet().presentedRoot() }
         .preferredColorScheme(.dark)
 }

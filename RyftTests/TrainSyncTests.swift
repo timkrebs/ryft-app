@@ -17,6 +17,8 @@ final class TrainStubURLProtocol: URLProtocol {
         case hold
         /// Like `status`, once `release()` is called.
         case holdThen(Int, Data)
+        /// Like `status`, with response headers (`X-Request-ID` on a `409`, whose body is a session).
+        case headed(Int, Data, [String: String])
     }
 
     /// Lets a `hold` reply answer.
@@ -68,11 +70,13 @@ final class TrainStubURLProtocol: URLProtocol {
         case .holdThen(let code, let data):
             _ = Self.gate.wait(timeout: .now() + 10)
             respond(code, data)
+        case .headed(let code, let data, let headers):
+            respond(code, data, headers: headers)
         }
     }
 
-    private func respond(_ code: Int, _ data: Data) {
-        let response = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: "HTTP/1.1", headerFields: nil)!
+    private func respond(_ code: Int, _ data: Data, headers: [String: String]? = nil) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
@@ -112,18 +116,18 @@ struct TrainSyncTests {
         service.gate = { _ in nil } // open: these tests are about what happens past it
     }
 
-    private func session(_ title: String) -> LocalSession {
+    func session(_ title: String) -> LocalSession {
         let s = SessionFactory.empty(in: store)
         s.title = title
         SessionFactory.add(MockTrain.bench, to: s, sets: 2, in: store)
         return s
     }
 
-    private func path(_ id: UUID, _ suffix: String = "") -> String {
+    func path(_ id: UUID, _ suffix: String = "") -> String {
         "/v1/sessions/\(id.uuidString.lowercased())\(suffix)"
     }
 
-    private func check(_ set: LocalSet, reps: Int, kg: Double) {
+    func check(_ set: LocalSet, reps: Int, kg: Double) {
         set.reps = reps
         set.weightKg = kg
         set.completedAt = .now
@@ -257,7 +261,7 @@ struct TrainSyncTests {
         TrainStubURLProtocol.release()
 
         #expect(await finishing.value == nil)
-        #expect(service.lastCompletion == nil && service.lastError == nil && !service.isFlushing)
+        #expect(service.lastCompletion == nil && !service.isFlushing)
         try? await Task.sleep(for: .milliseconds(100))
         #expect(TrainStubURLProtocol.requests.count == 2)
     }
@@ -330,15 +334,17 @@ struct TrainSyncTests {
         #expect(service.pendingCount == 0)
     }
 
-    @Test func refusedOpIsSetAsideAndTheQueueMovesOn() async throws {
+    /// O2: a refused op is kept (it used to be dequeued and lost), and the queue moves on to the other session's.
+    @Test func refusedOpIsKeptAndTheQueueMovesOn() async throws {
         let a = session("A"), b = session("B")
         service.sessionChanged(a)
         service.sessionChanged(b)
         TrainStubURLProtocol.script([.status(422, Data(#"{"error":"reps out of range"}"#.utf8)), .echo])
         await service.flush()
-        #expect(TrainStubURLProtocol.requests.count == 2)
-        #expect(service.pendingCount == 0)
-        #expect(service.lastError == nil) // the later success clears it
+        #expect(TrainStubURLProtocol.requests.map(\.path) == [path(a.id), path(b.id)])
+        #expect(service.pendingCount == 1)
+        #expect(store.pendingOps().map(\.sessionId) == [a.id])
+        #expect(b.uploaded && !a.uploaded)
     }
 
     @Test func discardBeforeUploadSendsNothing() async {

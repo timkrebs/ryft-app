@@ -38,7 +38,7 @@ struct DevicesAndSyncView: View {
         // Back from Check sync: "Last checked" and the rows' results.
         .onAppear { model.reloadCheck() }
         .navigationDestination(item: $route) { destination($0) }
-        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
+        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model).presentedRoot() }
     }
 
     @ViewBuilder private func destination(_ route: DevicesRoute) -> some View {

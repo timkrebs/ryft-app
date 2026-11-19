@@ -1,6 +1,7 @@
-// HTTP client for the RYFT platform (one host in production; ingest may sit
-// on its own port in a compose stack). The bearer is the Supabase access
-// token (AuthService). Status handling follows API.md → Errors:
+// HTTP client for the RYFT platform's two hosts: `POST /v1/sync` goes to ingest
+// (`Settings.ingestURL`, never the API host), every other route to the API
+// (`Settings.apiURL`); each answers 404 to the other's routes (`root`).
+// The bearer is the Supabase access token (AuthService). Status handling follows API.md → Errors:
 //   401 → refresh the session once, retry once; a second 401 signs out.
 //   403 + code → a gate (invite, consent), reported to `APIStatus`; never "log in again".
 //   503 → never sign out; wait `Retry-After`, retry (sync is idempotent).
@@ -254,13 +255,15 @@ protocol RyftDataSource {
 final class APIClient: RyftDataSource {
     static let shared = APIClient()
 
-    private let settings = Settings.shared
+    private let settings: Settings
     private let session: URLSession
     private let backgroundSession: URLSession
     private let tokens: AccessTokenProvider?
     private let sleep: @Sendable (Int) async throws -> Void
     /// Replaces the configured API URL (tests).
     private let baseURL: URL?
+    /// Replaces the configured ingest URL (tests).
+    private let ingestURL: URL?
     /// Where gates, 503 waits and failures are reported; `APIStatus.shared` unless a test injects one.
     private let status: APIStatus?
 
@@ -300,14 +303,17 @@ final class APIClient: RyftDataSource {
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
     /// `session` (tests: a stubbed one) serves background runs too unless `backgroundSession` is given.
+    /// `settings` (tests: their own) supplies the hosts `baseURL` / `ingestURL` don't replace, and the device ID.
     init(session: URLSession? = nil, backgroundSession: URLSession? = nil,
          tokens: AccessTokenProvider? = nil,
          sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
-         baseURL: URL? = nil, status: APIStatus? = nil) {
+         baseURL: URL? = nil, ingestURL: URL? = nil, status: APIStatus? = nil, settings: Settings? = nil) {
         self.session = session ?? URLSession(configuration: APIClient.defaultConfiguration)
         self.backgroundSession = backgroundSession ?? session
             ?? URLSession(configuration: APIClient.backgroundConfiguration)
         self.baseURL = baseURL
+        self.ingestURL = ingestURL
+        self.settings = settings ?? .shared
         self.tokens = tokens
         self.sleep = sleep
         self.status = status
@@ -320,8 +326,18 @@ final class APIClient: RyftDataSource {
     ]
 
     static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
-        let route = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
-        return openBehindInviteGate.contains("\(method) \(route)")
+        openBehindInviteGate.contains("\(method) \(route(path))")
+    }
+
+    /// The host a request goes to: `POST /v1/sync` to `ingest` (`nil` when there's none: never the API
+    /// host, which answers it `404`), every other route to `api`.
+    static func root(method: String, path: String, api: URL?, ingest: URL?) -> URL? {
+        method == "POST" && route(path) == "/v1/sync" ? ingest : api
+    }
+
+    /// The path without its query.
+    private static func route(_ path: String) -> String {
+        path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
     }
 
     /// `X-RYFT-Gate: invite_required, consent_required` (comma-separated, or repeated,
@@ -357,8 +373,7 @@ final class APIClient: RyftDataSource {
     /// `POST /v1/sync` with a body `SyncEngine` encoded off the main actor (and gzipped,
     /// `contentEncoding: "gzip"`, when the platform takes it).
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse {
-        let answer = try await exchange("POST", path: "/v1/sync", encodedBody: body, contentEncoding: contentEncoding,
-                                        base: settings.ingestURL)
+        let answer = try await exchange("POST", path: "/v1/sync", encodedBody: body, contentEncoding: contentEncoding)
         return try Self.decode(SyncResponse.self, from: answer)
     }
 
@@ -447,12 +462,15 @@ final class APIClient: RyftDataSource {
                            accepting: accepting, unavailableRetries: unavailableRetries)
     }
 
-    /// The request with an already encoded JSON body (or none).
+    /// The request with an already encoded JSON body (or none). It goes to the route's host (`root`), or to
+    /// `base` when a caller gives one; without a host it throws `notConfigured` before anything is sent.
     func exchange(_ method: String, path: String, encodedBody: Data?, contentEncoding: String? = nil, base: URL? = nil,
                   accepting: Set<Int> = [],
                   unavailableRetries: Int = APIClient.maxUnavailableRetries,
                   retriesRateLimit: Bool = true) async throws -> Answer {
-        guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
+        let host = base ?? Self.root(method: method, path: path, api: baseURL ?? settings.apiURL,
+                                     ingest: ingestURL ?? settings.ingestURL)
+        guard let root = host, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
         }

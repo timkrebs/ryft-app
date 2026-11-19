@@ -272,7 +272,7 @@ struct SessionReplaceSafetyTests {
     @Test func signingOutWithAnOpenUndoQueuesAndWritesNothing() async {
         let rig = ReplaceRig()
         await rig.controller.replaceExercise(rig.x, with: rig.incline)
-        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store),
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store, outbox: rig.sync),
                                            liveActivities: false)
         coordinator.live = rig.controller
 

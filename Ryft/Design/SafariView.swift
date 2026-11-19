@@ -9,14 +9,14 @@ enum LegalPage: String, Identifiable {
 
     var url: URL {
         switch self {
-        case .privacy: return URL(string: "https://ryftapp.de/privacy")!
-        case .terms: return URL(string: "https://ryftapp.de/terms")!
+        case .privacy: return URL(string: "https://ryftlab.de/privacy")!
+        case .terms: return URL(string: "https://ryftlab.de/terms")!
         }
     }
 
     /// Our own links in Markdown text are opened in-app too.
     init?(url: URL) {
-        guard url.host == "ryftapp.de" else { return nil }
+        guard url.host == "ryftlab.de" else { return nil }
         switch url.path {
         case "/privacy": self = .privacy
         case "/terms": self = .terms
@@ -43,7 +43,7 @@ extension View {
     /// Presents `page` in an in-app Safari sheet, and routes taps on our legal
     /// links in Markdown text to it.
     func safariSheet(_ page: Binding<LegalPage?>) -> some View {
-        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea() }
+        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea().presentedRoot() }
             .environment(\.openURL, OpenURLAction { url in
                 guard let legal = LegalPage(url: url) else { return .systemAction }
                 page.wrappedValue = legal

@@ -11,13 +11,13 @@ struct AppRouteTests {
     private let id = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
 
     @Test func universalLinksForEveryScreen() {
-        #expect(link("https://ryftapp.de/day/2026-10-19") == .day(day))
-        #expect(link("https://ryftapp.de/sleep/2026-10-19") == .sleep(day))
-        #expect(link("https://ryftapp.de/insights/hrv") == .insights(.hrv))
-        #expect(link("https://ryftapp.de/insights/sleep_min") == .insights(.sleepMin))
-        #expect(link("https://ryftapp.de/train/session/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
-        #expect(link("https://ryftapp.de/train/plan/6F9619FF-8B86-D011-B42D-00C04FC964FF") == .trainPlan(id))
-        #expect(link("https://www.ryftapp.de/day/2026-10-19") == .day(day))
+        #expect(link("https://ryftlab.de/day/2026-10-19") == .day(day))
+        #expect(link("https://ryftlab.de/sleep/2026-10-19") == .sleep(day))
+        #expect(link("https://ryftlab.de/insights/hrv") == .insights(.hrv))
+        #expect(link("https://ryftlab.de/insights/sleep_min") == .insights(.sleepMin))
+        #expect(link("https://ryftlab.de/train/session/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
+        #expect(link("https://ryftlab.de/train/plan/6F9619FF-8B86-D011-B42D-00C04FC964FF") == .trainPlan(id))
+        #expect(link("https://www.ryftlab.de/day/2026-10-19") == .day(day))
     }
 
     @Test func customSchemeHasTheSamePaths() {
@@ -27,7 +27,7 @@ struct AppRouteTests {
     }
 
     @Test func authCallbackKeepsItsURL() throws {
-        let url = try #require(URL(string: "https://ryftapp.de/auth/callback?code=abc"))
+        let url = try #require(URL(string: "https://ryftlab.de/auth/callback?code=abc"))
         #expect(AppRoute(url: url) == .authCallback(url))
         #expect(AppRoute(url: url)?.needsSession == false)
         #expect(link("ryft://auth/callback?code=abc").map { if case .authCallback = $0 { return true } else { return false } } == true)
@@ -35,31 +35,31 @@ struct AppRouteTests {
 
     @Test func foreignURLsAreNotOurs() {
         #expect(link("https://example.com/day/2026-10-19") == nil)
-        #expect(link("http://ryftapp.de/day/2026-10-19") == nil)
+        #expect(link("http://ryftlab.de/day/2026-10-19") == nil)
         #expect(link("mailto:alex@example.com") == nil)
     }
 
     @Test func unknownOrMalformedPathsOpenToday() {
-        for s in ["https://ryftapp.de/", "https://ryftapp.de/day/19-10-2026", "https://ryftapp.de/insights/vo2",
-                  "https://ryftapp.de/train/session/not-a-uuid", "https://ryftapp.de/train/workout/6f9619ff-8b86-d011-b42d-00c04fc964ff",
-                  "https://ryftapp.de/day/2026-10-19/extra", "ryft://somewhere"] {
+        for s in ["https://ryftlab.de/", "https://ryftlab.de/day/19-10-2026", "https://ryftlab.de/insights/vo2",
+                  "https://ryftlab.de/train/session/not-a-uuid", "https://ryftlab.de/train/workout/6f9619ff-8b86-d011-b42d-00c04fc964ff",
+                  "https://ryftlab.de/day/2026-10-19/extra", "ryft://somewhere"] {
             #expect(link(s) == .today, "\(s)")
         }
     }
 
     @Test func theBriefsPaths() {
-        #expect(link("https://ryftapp.de/train/sessions/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
-        #expect(link("https://ryftapp.de/train/exercises/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainExercise(id))
-        #expect(link("https://ryftapp.de/insights/behaviors") == .insightsBehaviors)
-        #expect(link("https://ryftapp.de/sleep/plan") == .sleepPlan)
+        #expect(link("https://ryftlab.de/train/sessions/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
+        #expect(link("https://ryftlab.de/train/exercises/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainExercise(id))
+        #expect(link("https://ryftlab.de/insights/behaviors") == .insightsBehaviors)
+        #expect(link("https://ryftlab.de/sleep/plan") == .sleepPlan)
         #expect(link("ryft://sleep/plan") == .sleepPlan)
         #expect(link("ryft://train/history") == .trainHistory)
     }
 
     /// Every `ryft.url` example in API.md → Push notifications.
     @Test func everyPushTableURLParses() {
-        #expect(link("https://ryftapp.de/day/2026-10-19") == .day(day))
-        #expect(link("https://ryftapp.de/train/session/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
+        #expect(link("https://ryftlab.de/day/2026-10-19") == .day(day))
+        #expect(link("https://ryftlab.de/train/session/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
     }
 
     @Test func insightsLeadToTheirRoute() {
@@ -77,7 +77,7 @@ struct AppRouteTests {
                   .trainExercise(id), .insightsBehaviors, .sleepPlan, .trainHistory] {
             #expect(l.url.flatMap(AppRoute.init(url:)) == l)
         }
-        #expect(AppRoute.day(day).url?.absoluteString == "https://ryftapp.de/day/2026-10-19")
+        #expect(AppRoute.day(day).url?.absoluteString == "https://ryftlab.de/day/2026-10-19")
     }
 }
 
@@ -140,7 +140,7 @@ struct DeepLinkRouterTests {
     }
 
     @Test func openingAURLSaysWhetherItWasOurs() async throws {
-        #expect(await router.open(try #require(URL(string: "https://ryftapp.de/insights/strain"))))
+        #expect(await router.open(try #require(URL(string: "https://ryftlab.de/insights/strain"))))
         #expect(insights.focusedMetric == .strain)
         #expect(await !router.open(try #require(URL(string: "https://example.com/x"))))
     }
@@ -178,7 +178,7 @@ struct PushMessageTests {
 
     @Test func alertCarriesItsCategoryAndLink() throws {
         let message = PushMessage(userInfo: try userInfo("push_alert"))
-        #expect(message == .alert(category: .morningScore, url: URL(string: "https://ryftapp.de/day/2026-10-19")))
+        #expect(message == .alert(category: .morningScore, url: URL(string: "https://ryftlab.de/day/2026-10-19")))
     }
 
     @Test func silentPushRefreshesTheDay() throws {
@@ -542,8 +542,8 @@ struct NotificationSettingsViewModelTests {
 struct InviteLinkTests {
     @Test func inviteLinksCarryTheCode() {
         #expect(AppRoute(url: URL(string: "ryft://invite/RYFT-7K3M-QX9P")!) == .invite(code: "RYFT-7K3M-QX9P"))
-        #expect(AppRoute(url: URL(string: "https://ryftapp.de/invite/RYFT-7K3M-QX9P")!) == .invite(code: "RYFT-7K3M-QX9P"))
-        #expect(AppRoute.invite(code: "RYFT-7K3M-QX9P").url?.absoluteString == "https://ryftapp.de/invite/RYFT-7K3M-QX9P")
+        #expect(AppRoute(url: URL(string: "https://ryftlab.de/invite/RYFT-7K3M-QX9P")!) == .invite(code: "RYFT-7K3M-QX9P"))
+        #expect(AppRoute.invite(code: "RYFT-7K3M-QX9P").url?.absoluteString == "https://ryftlab.de/invite/RYFT-7K3M-QX9P")
         #expect(AppRoute(url: URL(string: "ryft://invite")!) == .today)
     }
 }

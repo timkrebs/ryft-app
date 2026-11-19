@@ -75,7 +75,7 @@ struct JournalSettingsView: View {
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
-        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store) }
+        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store).presentedRoot() }
         .confirmationDialog(Text(verbatim: deleting.map { Self.deleteTitle($0.name) } ?? ""),
                             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible, presenting: deleting) { habit in

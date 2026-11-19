@@ -66,7 +66,7 @@ struct SleepRangeBoard: Equatable {
         let legend: [SleepStageKind?]
         /// Per night, oldest first: "Wednesday 18: Deep 1 hour 35 minutes, REM 1 hour 45 minutes, Light 4 hours 28 minutes".
         let spokenNights: [String]
-        /// The card's head as VoiceOver reads it: "7 hours 58 minutes average sleep".
+        /// The card's head as VoiceOver reads it: "Average sleep, 7 hours 58 minutes".
         let spokenAverage: String
     }
 
@@ -74,13 +74,13 @@ struct SleepRangeBoard: Equatable {
     let look: Look
     /// "7:58"; `nil` draws the unlit "0:00".
     let clock: String?
-    /// "7 hours 58 minutes average sleep", "Loading…"; `nil` hides the numeral from VoiceOver (the message, or the caption
+    /// "Average sleep, 7 hours 58 minutes", "Loading…"; `nil` hides the numeral from VoiceOver (the message, or the caption
     /// without an average, says it).
     let numeralLabel: String?
     /// "Average · last 7 nights", "Average · 4 nights", "Loading…"; empty keeps the line.
     let caption: String
-    /// The newest night against the mean of the six before it in the seven that end on it (F6, Today's and Insights' rule:
-    /// the same in Week and Month), in the sleep colour when it is longer.
+    /// The newest night against the mean of the others in the seven that end on it (F6, `MetricDelta.vsSevenDayMean`: Today's
+    /// and Insights' rule, the same in Week and Month), in the sleep colour when it is longer.
     let delta: MetricDelta?
     /// Which night the delta is: "Last night" when it ended this morning, else its weekday ("Mon"; "Mon, Nov 9" beyond a
     /// week); and as VoiceOver says it ("Monday").
@@ -130,11 +130,11 @@ struct SleepRangeBoard: Equatable {
         clock = range.avgTotalMin.map { Fmt.clock(minutes: $0) }
         caption = Self.caption(nights: range.nights, kind: kind)
         numeralLabel = range.avgTotalMin.map {
-            String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) average sleep",
-                   comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep (\"7 hours 58 minutes average sleep\").")
+            String(localized: "Average sleep, \(Fmt.spokenDuration(minutes: $0, locale: locale))",
+                   comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\".")
         }
         let newest = Self.newestNight(summary.totals)
-        delta = Self.delta(summary.totals)
+        delta = .vsSevenDayMean(summary.totals)
         let lead = newest.map { Self.lead(night: $0.date, today: today, locale: locale, calendar: calendar) }
         deltaLead = lead?.shown ?? ""
         spokenDeltaLead = lead?.spoken ?? ""
@@ -161,15 +161,6 @@ struct SleepRangeBoard: Equatable {
     /// The newest night with a time asleep.
     private static func newestNight(_ totals: [TrendPoint]) -> TrendPoint? {
         totals.filter { $0.value != nil }.max { $0.day < $1.day }
-    }
-
-    /// Today's and Insights' rule (`TrendCardContent.delta`): the newest night against the mean of the nights before it among
-    /// the seven that end on it, so Month (30 nights) says what Week says.
-    static func delta(_ totals: [TrendPoint]) -> MetricDelta? {
-        let valued = totals.filter { $0.value != nil }.sorted { $0.day < $1.day }
-        guard let last = valued.last else { return nil }
-        let from = DayFormat.string(from: DayFormat.shift(last.date, days: -(SleepBoard.weekNights - 1)))
-        return .vsSevenDayMean(valued.filter { $0.day >= from })
     }
 
     /// "Last night" for the night that ended this morning, else its weekday ("Mon"), with its date beyond a week ("Mon, Nov
@@ -289,7 +280,8 @@ struct SleepRangeBoard: Equatable {
             + (present.contains(nil) ? [nil] : [])
         let average = String(localized: "avg \(summary.averageSleep)")
         let spokenAverage = range.avgTotalMin.map {
-            String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) average sleep")
+            String(localized: "Average sleep, \(Fmt.spokenDuration(minutes: $0, locale: locale))",
+                       comment: "VoiceOver on Sleep → Week or Month's stage card: the range's average time asleep. %@: the duration.")
         } ?? average
         return Stages(segments: segments, average: average, averageHours: summary.averageHours, top: top,
                       yTicks: Array(stride(from: 0, through: top, by: SleepModesLayout.hourStep)), start: start, end: end,

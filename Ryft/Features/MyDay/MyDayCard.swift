@@ -68,8 +68,8 @@ struct MyDayCard: View {
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
             .navigationDestination(item: $activity) { ActivityDetailView(route: $0) }
-            .sheet(item: $adding) { AddActivitySheet(model: $0) }
-            .sheet(item: $sleeping) { AddSleepSheet(model: $0) }
+            .sheet(item: $adding) { AddActivitySheet(model: $0).presentedRoot() }
+            .sheet(item: $sleeping) { AddSleepSheet(model: $0).presentedRoot() }
             .task(id: state.lastUpdated) {
                 await model.load(model.today)
                 if let back = autoOpen {

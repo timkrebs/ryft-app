@@ -97,7 +97,7 @@ struct ChartStyleTests {
     // MARK: T0 item 4: "— vs 7 d" next to a full line
 
     /// Today's Trends card: 7 readiness points, the newest 80. `vsSevenDayMean` is NOT nil here (it needs one
-    /// earlier point inside the 7 days before the newest); the delta is "flat" (< 2 %). It used to render as "—"
+    /// earlier point in the 7 days that end on the newest); the delta is "flat" (< 2 %). It used to render as "—"
     /// followed by "vs 7 d", which read as a missing value; it reads "Steady vs 7 d" now (ui.md §4, decision UI-2).
     /// A nil delta renders nothing at all (`if let delta`).
     @Test func aFlatSevenDayDeltaReadsSteady() throws {
@@ -121,5 +121,15 @@ struct ChartStyleTests {
         let gaps = [TrendPoint(day: "2026-10-15", value: nil), TrendPoint(day: "2026-10-20", value: 70),
                     TrendPoint(day: "2026-10-21", value: 80)]
         #expect(MetricDelta.vsSevenDayMean(gaps) != nil)
+    }
+
+    /// T5.7 S3: the one "vs 7 d" rule (Today's, now Strain's too): the window is the newest day and the 6 before it, in
+    /// any order; 6 days back counts, 7 back doesn't.
+    @Test func theWindowIsTheSevenDaysEndingOnTheNewest() {
+        let points = [TrendPoint(day: "2026-10-21", value: 80), TrendPoint(day: "2026-10-14", value: 50),
+                      TrendPoint(day: "2026-10-15", value: 70)]
+        #expect(MetricDelta.vsSevenDayMean(points) == MetricDelta(current: 80, reference: 70))
+        #expect(MetricDelta.vsSevenDayMean(points.reversed()) == MetricDelta(current: 80, reference: 70))
+        #expect(MetricDelta.windowDays == 7)
     }
 }

@@ -74,8 +74,8 @@ enum StrainLayout {
     nonisolated static let chartHeightLargeText: CGFloat = 200
     /// The line (1.4 pt, round joins), the average's dashed 1 pt rule and the peak's 3 pt dot.
     nonisolated static let chartLine: CGFloat = 1.4, chartAverageLine: CGFloat = 1, chartPeakDot: CGFloat = 3
-    /// The y axis's three ticks and its gridlines, `textPrimary` at 8 %.
-    nonisolated static let chartYTicks = 3, chartGridOpacity = 0.08
+    /// The y axis's gridlines, `textPrimary` at 8 %.
+    nonisolated static let chartGridOpacity = 0.08
     /// The chart → the source line ("Recorded by Garmin Connect").
     nonisolated static let sourceGap: CGFloat = 14
     /// The last element → the bottom of the page.

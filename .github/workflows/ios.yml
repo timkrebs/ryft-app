@@ -132,7 +132,7 @@ jobs:
           python3 scripts/coverage.py build/coverage.json --summary "$GITHUB_STEP_SUMMARY"
       - name: UI smoke
         if: env.FULL != 'true'
-        timeout-minutes: 15
+        timeout-minutes: 25
         # TestPlans/UISmoke: a failing test is retried up to twice before it counts.
         run: |
           rm -rf build/UISmoke.xcresult

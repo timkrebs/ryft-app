@@ -531,7 +531,7 @@ struct SleepBoard: Equatable {
             String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) asleep")
         }
         if let performance = scored?.sleepPerformance {
-            caption = String(localized: "Asleep · \(performance) % of your need",
+            caption = String(localized: "Asleep · \(performance)\u{00A0}% of your need",
                              comment: "Under Sleep's numeral: the night's time asleep as a share of its sleep need (\"Asleep · 94 % of your need\").")
             spokenCaption = String(localized: "\(performance) percent of your need",
                                    comment: "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\").")

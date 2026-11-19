@@ -91,7 +91,7 @@ actor RecordingTrainSource: TrainDataSource {
 
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
         calls.append(.put(s.id))
-        guard holdsPuts else { return .saved(s) }
+        guard holdsPuts else { return .saved }
         return await withCheckedContinuation { held.append($0) }
     }
 
@@ -179,8 +179,8 @@ final class DemoTrainRig {
         let sync = TrainSyncService(store: store, remote: { remote }, owner: { binding.owner },
                                     debounce: .seconds(3600), monitorsNetwork: false, defaults: defaults)
         sync.gate = { _ in nil }
-        let library = reads.map { r in TrainLibrary(store: store, remote: { r }, restore: false) }
-            ?? TrainLibrary.preview(store: store)
+        let library = reads.map { r in TrainLibrary(store: store, remote: { r }, outbox: { sync }, restore: false) }
+            ?? TrainLibrary.preview(store: store, outbox: sync)
         let coordinator = TrainCoordinator(sync: sync, library: library, liveActivities: false, liveActivity: activity)
         // Not the live graph's flags: their first use opens `TrainStore.shared` mid-test. On iOS 17.0, still the
         // deployment target, that newer container stops a set made after it joining a session made before

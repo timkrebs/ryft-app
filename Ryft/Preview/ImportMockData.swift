@@ -155,7 +155,7 @@ enum ImportMockData {
                      library: TrainLibrary? = nil, uploader: TrainImportUploader? = nil,
                      configure: (ImportFlowModel) -> Void = { _ in }) -> ImportFlowModel {
         let store = TrainStore(inMemory: true)
-        let library = library ?? TrainLibrary.preview(store: store, enrolled: enrolled)
+        let library = library ?? TrainLibrary.preview(store: store, outbox: .preview(store: store), enrolled: enrolled)
         let deps = ImportFlowModel.Dependencies(
             library: library, mappings: ImportMappingStore(persistence: store) { "preview" },
             uploader: uploader ?? Self.uploader(nil), clock: TestClock(now: now), zone: zone, account: { "preview" }, isOnline: { true },

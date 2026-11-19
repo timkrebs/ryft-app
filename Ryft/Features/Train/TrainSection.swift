@@ -347,14 +347,14 @@ struct TrainTodayCard: View {
 }
 
 #Preview("Start workout") {
-    Text("").sheet(isPresented: .constant(true)) { StartWorkoutSheet().previewEnvironment() }
+    Text("").sheet(isPresented: .constant(true)) { StartWorkoutSheet().previewEnvironment().presentedRoot() }
         .previewEnvironment()
 }
 
 /// Each option's detail wraps whole.
 #Preview("Start workout · AX3") {
     Text("").sheet(isPresented: .constant(true)) {
-        StartWorkoutSheet().previewEnvironment().dynamicTypeSize(.accessibility3)
+        StartWorkoutSheet().previewEnvironment().dynamicTypeSize(.accessibility3).presentedRoot()
     }
     .previewEnvironment()
 }

@@ -101,10 +101,12 @@ struct RyftApp: App {
                                 settled: { [repository = state.repository] in
                                     await repository.settledBeforeCompletion()
                                 },
-                                compact: { [repository = state.repository, activities = state.env.activities] in
+                                compact: { [repository = state.repository, env = state.env, train = TrainCoordinator.shared, bedtime = screens.bedtime] in
                                     await repository.compact()
+                                    // A background-only run reaches an owed wipe here.
+                                    await env.auth.finishOwedWipe(train: train, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
-                                    activities.deleteExpiredParked()
+                                    env.activities.deleteExpiredParked()
                                 })
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
@@ -173,6 +175,7 @@ struct RyftApp: App {
                 // Teal is recovery only (design.md §P5-1): controls, menus, pickers and links take the ink.
                 .tint(Theme.textPrimary)
                 // Every toggle is the Nocturne switch (§P5-1.4); a screen that needs another style sets its own.
+                // Presented content doesn't inherit the style: every sheet and cover ends with `presentedRoot()`.
                 .toggleStyle(.ryft)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
@@ -270,6 +273,7 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.
@@ -334,7 +338,7 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.featureFlags?.refresh()
-                    // ryftapp.de's tracker catalog once a day (behind `devices.setup`, never in demo mode).
+                    // ryftlab.de's tracker catalog once a day (behind `devices.setup`, never in demo mode).
                     await env.catalogStore.refreshIfDue()
                 }
                 Task(priority: .utility) {
@@ -530,6 +534,7 @@ struct RootView: View {
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
                              useOther: { await onboarding.useOtherAccount() })
+                .presentedRoot()
         }
         // Someone who already answered the system prompt (an earlier version) skips the intro.
         .task(id: auth.accountID) {
@@ -537,10 +542,10 @@ struct RootView: View {
             if await env.health.accessStatus() == .asked { settings.healthIntroDone = true }
         }
         // The live workout, from Today, Strain or the Live Activity.
-        .fullScreenCover(item: Bindable(train).live) { SessionView(controller: $0) }
+        .fullScreenCover(item: Bindable(train).live) { SessionView(controller: $0).presentedRoot() }
         // A password-reset link signed the user in; ask for the new password now.
         .sheet(isPresented: Bindable(auth).needsNewPassword) {
-            SetNewPasswordView(mode: .recovery)
+            SetNewPasswordView(mode: .recovery).presentedRoot()
         }
     }
 
@@ -572,8 +577,8 @@ struct RootView: View {
     private var tabBar: some View {
         RootTabs()
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
-            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0) }
-            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet() }
+            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0).presentedRoot() }
+            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
@@ -581,6 +586,7 @@ struct RootView: View {
             .sheet(item: Bindable(onboarding).sheetStep) { step in
                 OnboardingStepView(step: step, model: onboarding)
                     .interactiveDismissDisabled(!onboarding.canDefer(step))
+                    .presentedRoot()
             }
     }
 }
@@ -741,7 +747,7 @@ private struct DebugRefreshDetails: View {
 
     var body: some View {
         TodayView()
-            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: Self.issue) }
+            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: Self.issue).presentedRoot() }
     }
 
     private static var issue: RefreshIssue {

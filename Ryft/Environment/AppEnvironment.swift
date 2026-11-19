@@ -27,7 +27,7 @@ final class AppEnvironment {
     let defaults: UserDefaults
     /// Concrete so SwiftUI can observe it; services read it as `Connectivity`.
     let connectivityMonitor: ConnectivityMonitor
-    /// ryftapp.de's static files (the tracker catalog): no auth, outside the read pipeline (ADR 0002).
+    /// ryftlab.de's static files (the tracker catalog): no auth, outside the read pipeline (ADR 0002).
     /// Only the live graph reaches the web; every other graph answers like a phone without a connection.
     let content: ContentSource
     /// Small files of the content above (the catalog's crash marker); a fresh directory for each test graph.
@@ -38,7 +38,7 @@ final class AppEnvironment {
     /// retries, budget and per-resource record, whoever asks (Repository, journal, flags, Train,
     /// onboarding).
     lazy var reads = ReadScheduler(env: self)
-    /// The tracker catalog: bundled, or the newest valid copy from ryftapp.de (`trackerCatalog`).
+    /// The tracker catalog: bundled, or the newest valid copy from ryftlab.de (`trackerCatalog`).
     lazy var catalogStore = TrackerCatalogStore(env: self)
     /// Activities and manual sleep on this iPhone until the platform confirms them, scoped to the account
     /// (`persistence`'s store; demo data's own in memory).

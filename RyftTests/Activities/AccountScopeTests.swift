@@ -663,7 +663,7 @@ struct UploadGateTests {
 
     private static func config(policy: String) -> RemoteConfig {
         RemoteConfig(flags: [:], evaluatedAt: .now, ttlSec: 21_600, privacyPolicyVersion: policy,
-                     privacyPolicyUrl: "https://ryftapp.de/privacy")
+                     privacyPolicyUrl: "https://ryftlab.de/privacy")
     }
 }
 

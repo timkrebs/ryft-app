@@ -131,10 +131,10 @@ struct InsightsDataTests {
         let six = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 66])
         let short = Self.make(.hrv, series: six, monthly: six)
         #expect(short.band == nil)
-        #expect(short.note == String(localized: "Band needs 7 days of data"))
+        #expect(short.note == String(localized: "Usual range needs 7 days of data"))
     }
 
-    @Test("Spec 29: \"Band needs…\" only with the 30-day series loaded; without it, the metric's own note")
+    @Test("Spec 29: \"Usual range needs…\" only with the 30-day series loaded; without it, the metric's own note")
     func noBandUntilLoaded() {
         let s = Self.series(.readiness, [70, 72, 74], avg: 72)
         let card = Self.make(.readiness, series: s, monthly: nil)
@@ -147,7 +147,7 @@ struct InsightsDataTests {
     func notes() {
         let month = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 60, 70, 66])
         #expect(Self.make(.readiness, series: Self.series(.readiness, [70]), monthly: month).note
-                == String(localized: "Band: your usual range"))
+                == String(localized: "Shaded: your usual range"))
         #expect(Self.make(.hrv, series: Self.series(.hrv, [60]), monthly: month).note == String(localized: "SDNN"))
         let sleep = Self.make(.sleepMin, series: Self.series(.sleepMin, [468], avg: 451), monthly: month)
         #expect(sleep.note == String(localized: "Avg \("7:31 h")"))
@@ -259,7 +259,7 @@ struct InsightsDataTests {
         #expect(card.chartEnding == TrendLine.spoken(.above))
         #expect(card.spokenValue.hasPrefix("78"))
         #expect(card.spokenValue.contains(String(localized: "versus 7 days")))
-        #expect(card.spokenValue.contains(String(localized: "Band: your usual range")))
+        #expect(card.spokenValue.contains(String(localized: "Shaded: your usual range")))
         #expect(card.spokenValue.hasSuffix(TrendLine.spoken(.above)))
         // Without a band, the sentence ends at the value.
         let strain = Self.make(.strain, series: Self.series(.strain, [9, 12.4]))
@@ -313,6 +313,56 @@ struct InsightsDataTests {
         #expect(captions.first == "▲\(DeltaLabel.noBreakSpace)+12")
     }
 
+    @Test("S3 (T5.7): Strain and Insights' strain card give the same \"vs 7 d\" for the same day; 2 prior days are enough",
+          .timeLimit(.minutes(1)), arguments: [
+              // Two days before: both show a change (Strain once needed 3).
+              ([0: 13.0, 1: 10, 2: 10], MetricDelta(current: 13, reference: 10)),
+              // Days 1, 2 and 6 back count; 7 back (90) is outside the window, for both.
+              ([0: 15.0, 1: 10, 2: 12, 6: 11, 7: 90], MetricDelta(current: 15, reference: 11)),
+          ])
+    func strainAgreesWithInsights(_ row: (strains: [Int: Double], expected: MetricDelta)) async throws {
+        let (vm, state, _) = Self.scripted([.strain: row.strains])
+        vm.range = .month
+        await vm.load()
+        let insights = try #require(vm.card(.strain).delta, "Insights' strain card")
+        // Strain reads the same days from the cached scores.
+        let today = Calendar.current.startOfDay(for: state.env.clock.now())
+        state.history = row.strains.map { back, strain in
+            DailyScore(day: DayFormat.string(from: DayFormat.shift(today, days: -back)), strain: strain)
+        }
+        let strain = StrainViewModel(state: state, store: TrainStore(inMemory: true))
+        #expect(insights == row.expected)
+        #expect(strain.strainDelta == insights)
+        #expect(strain.board.hero.delta == insights)
+        #expect(DeltaLabel.text(insights, spec: .strain) == DeltaLabel.text(try #require(strain.board.hero.delta), spec: .strain))
+    }
+
+    // MARK: S4 (T5.7): offline
+
+    @Test("S4: offline, not demo: the offline line in the card's place, \"As of\" on the cards; demo counts as online")
+    func offlineSaysSo() {
+        // An account graph (demo is online everywhere): signed in, airplane mode.
+        let clock = TestClock()
+        let state = AppState(env: .test(clock: clock, online: false))
+        state.user = MockData.user
+        let vm = InsightsViewModel(state: state)
+        #expect(vm.refreshIssue == nil, "the refresh card never shows offline")
+        #expect(vm.isOffline && vm.cardsAreStale)
+        let content = InsightsPageContent(vm)
+        #expect(content.isOffline && content.issue == nil)
+        #expect(content.blocks.first == .issue, "the line under the header: \(content.blocks)")
+        // A cached series reads "As of" its last day, as on Strain's stale copy.
+        let day = Self.today.formatted(.dateTime.month(.abbreviated).day())
+        #expect(Self.make(.readiness, series: Self.series(.readiness, [70]), stale: vm.cardsAreStale).note
+                == String(localized: "As of \(day)"))
+        // Online again: no line, no "As of".
+        state.env.connectivityMonitor.update(true)
+        #expect(!vm.isOffline && !vm.cardsAreStale && !InsightsPageContent(vm).blocks.contains(.issue))
+        // Demo data, offline: online as far as the page goes.
+        let demo = InsightsViewModel(state: AppState.preview(online: false))
+        #expect(!demo.isOffline && !InsightsPageContent(demo).blocks.contains(.issue))
+    }
+
     @Test("S2, S4: in 7 D the band comes from the 30-day series (7 and 8 days back count), the change doesn't (they don't)", .timeLimit(.minutes(1)))
     func weekBandAndDelta() async {
         // The newest 56; six days of 50; 40 seven days back, 60 eight back: 8 values before the newest, mean 50, SD 5.
@@ -333,10 +383,12 @@ struct InsightsDataTests {
         let (vm, _, source) = Self.scripted([.readiness: [0: 70, 1: 72]])
         source.holds[.month] = hold
         source.failing = [.readiness, .strain]
+        // A failed wait below must not leave the load held.
+        defer { hold.release() }
         // Before the first load, and while it runs: pending.
         #expect(vm.card(.strain).isPending)
         let load = Task { await vm.load() }
-        while hold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { hold.waiting > 0 }, "the 30-day reads are held")
         #expect(vm.card(.strain).isPending && vm.card(.readiness).note == nil)
         hold.release()
         await load.value
@@ -355,13 +407,14 @@ struct InsightsDataTests {
         let (vm, _, source) = Self.scripted([.readiness: [0: 70, 1: 72]])
         source.holds = [.month: monthHold, .week: weekHold]
         source.failing = [.strain]
+        defer { monthHold.release(); weekHold.release() }
         // 30 D, then 7 D, then back to 30 D, each load starting before the one before it ends (`.task(id:)`).
         vm.range = .month
         let first = Task { await vm.load() }
-        while monthHold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { monthHold.waiting > 0 }, "the 30-day reads are held")
         vm.range = .week
         let second = Task { await vm.load() }
-        while weekHold.waiting == 0 { await Task.yield() }
+        try #require(await eventually { weekHold.waiting > 0 }, "the 7-day reads are held")
         vm.range = .month
         let third = Task { await vm.load() }
         // The 30-day reads answer: the first and the third load end; the second still waits for its 7-day reads.

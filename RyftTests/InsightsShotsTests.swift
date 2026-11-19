@@ -28,7 +28,7 @@ struct InsightsShotsTests {
     }
 
     nonisolated static let names = ["scored", "not-set-up", "only-tile", "no-insights", "loading", "calibrating", "offline",
-                                    "not-loaded", "expanded", "7d"]
+                                    "not-loaded", "unreachable", "expanded", "7d"]
 
     /// The screen: "scored" is the live screen on the demo data, its series read first so the shot is the loaded page.
     private static func screen(_ name: String) async -> AnyView? {
@@ -52,8 +52,9 @@ struct InsightsShotsTests {
             ("no-insights", page(InsightsPreview.content(insights: []))),
             ("loading", page(InsightsPreview.content(loading: true))),
             ("calibrating", page(InsightsPreview.content(bands: false))),
-            ("offline", page(InsightsPreview.content(issue: InsightsPreview.offline))),
-            ("not-loaded", page(InsightsPreview.content(notLoaded: true, issue: InsightsPreview.offline))),
+            ("offline", page(InsightsPreview.content(offline: true))),
+            ("not-loaded", page(InsightsPreview.content(notLoaded: true, offline: true))),
+            ("unreachable", page(InsightsPreview.content(issue: InsightsPreview.unreachable))),
             ("expanded", page(InsightsPreview.content(insights: [], expanded: [.readiness, .hrv]))),
             ("7d", page(InsightsPreview.content(range: .week))),
         ]
