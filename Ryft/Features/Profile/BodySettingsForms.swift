@@ -280,8 +280,10 @@ struct MaxHeartRateForm: View {
 /// A save sends `PATCH /v1/me` (`BodySettingsEditor`, which holds its state: a page opened while it's out shows "Saving…"
 /// and its answer). Offline nothing is sent and it says so at once; a refusal, no answer or a server error says so in words
 /// under the ruler and the numeral goes back to the saved value, so nothing reads as saved that wasn't. While the save is
-/// out, Close, Back and the sheet's swipe down wait for it. Save is off while nothing changed, while the account isn't here,
-/// and while anything is in flight.
+/// out only the controls wait (the stepper, Save, the "Use …" row): the page scrolls, and Close, Back and the sheet's swipe
+/// down leave it; the save goes on, the rows that open the editor say "Saving…", and a failure that arrives after the page
+/// went is said where the user is (`BodySettingsEditor.errorMissed`). Save is off while nothing changed, while the account
+/// isn't here, and while anything is in flight.
 private struct BodySettingPage: View {
     let setting: BodySetting
     let editor: BodySettingsEditor
@@ -291,6 +293,8 @@ private struct BodySettingPage: View {
     @State private var draft: Int
     /// Edited by hand (or opened on a value on its way): no longer follows the saved value.
     @State private var touched: Bool
+    /// This page's token among the editor's open pages.
+    @State private var page = UUID()
 
     init(setting: BodySetting, editor: BodySettingsEditor, showsClose: Bool, rescores: Bool) {
         self.setting = setting
@@ -352,10 +356,6 @@ private struct BodySettingPage: View {
                 .padding(.top, BodySettingsLayout.rulerToContent)
             }
         }
-        // While the save is out the page stays: Close and Back are off, and the sheet can't be swiped away (its answer, or
-        // the failure, is said here). The pinned bar is outside, so the pill shows Saving… at full strength.
-        .disabled(editor.saving)
-        .interactiveDismissDisabled(editor.saving)
         .pinnedBar {
             PillButton(savingValue ? Text(verbatim: BodySettingsEditor.savingWord) : Text("Save"),
                        systemImage: PillButton.Icon.confirm, busy: savingValue) {
@@ -366,10 +366,10 @@ private struct BodySettingPage: View {
         }
         .safeAreaPadding(.top, showsClose ? 0 : SubpageSpec.sheetTopInset)
         .onAppear {
-            editor.pageAppeared()
+            editor.pageAppeared(page)
             if editor.pending(setting) == nil { reset() }
         }
-        .onDisappear { editor.pageDisappeared() }
+        .onDisappear { editor.pageDisappeared(page) }
         // The account arrived (or changed, or RYFT was asked again) while the page was open: follow it until edited.
         .onChange(of: savedValue) { if !touched { draft = savedValue } }
         // A write this page didn't start (it opened while it was out) ended: back to what's saved.
@@ -412,13 +412,13 @@ private struct BodySettingPage: View {
                 .textSelection(.enabled)
                 .accessibilityIdentifier("bodySettings.error")
         }
-        if editor.savedChange {
+        if editor.hasSaved(setting) {
             InlineMessage(message: rescores ? String(localized: "Saved. Past days keep their scores until you rescore them.")
                                             : String(localized: "Saved.", comment: "Body setting editors in onboarding: saved (no past days to rescore yet)."),
                           systemImage: "checkmark", readsAsOne: true)
                 .accessibilityIdentifier("bodySettings.saved")
         }
-        if rescores, editor.savedChange || editor.rescoreStatus != nil {
+        if rescores, editor.hasSaved(setting) || editor.rescoreStatus != nil {
             VStack(alignment: .leading, spacing: BodySettingsLayout.noticeGap) {
                 GroupedCard {
                     GroupedRow.action(editor.rescoring ? Text("Rescoring…", comment: "Body setting editors: the rescore row while it runs.")
@@ -513,7 +513,8 @@ private struct EstimateRow: View {
 /// - offline: nothing was sent, so nothing changed;
 /// - no answer (a timeout, a dropped connection): it may have saved, so RYFT is asked again;
 /// - a server error (`5xx`): it's back as it was, and RYFT is asked again all the same;
-/// - anything else (`409`, `403`, `429`): nothing changed; try again.
+/// - busy (`429`): nothing changed; try again in a minute;
+/// - anything else (`409`, `403`): nothing changed; try again.
 /// A `422` keeps the editor's own sentence naming the range (`BodySettingsEditor`).
 struct BodySettingsFailure: Equatable {
     let kind: SettingsWriteFailure
@@ -542,7 +543,7 @@ struct BodySettingsFailure: Equatable {
         case .noAnswer:
             message = String(localized: "RYFT didn't answer, so the rescore may not have started. Try again in a moment.",
                              comment: "Body setting editors and Profile: Rescore the last 90 days, no answer (a timeout, a dropped connection).")
-        case .serverError, .refused:
+        case .serverError, .busy, .refused:
             message = String(localized: "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.",
                              comment: "Body setting editors and Profile: Rescore the last 90 days, refused or a server error (5xx, 429, 403 …).")
         }

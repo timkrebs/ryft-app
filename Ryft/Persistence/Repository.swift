@@ -68,6 +68,8 @@ final class Repository {
     @ObservationIgnored private var userChanges = 0
     /// A refused save of the user went again (`committed`): a second refusal in a row isn't retried.
     @ObservationIgnored private var resubmittedUser = false
+    /// Stores whose cached user may not be what the platform holds (`userMayDiffer()`), until a user is stored in them.
+    @ObservationIgnored private var userOutdated: Set<StoreID> = []
     /// A misuse (`seed` while writes are pending, a preview setter on the live graph): Debug builds stop at it; in the
     /// unit tests' host it fails the test that made it (`Misuse.report`). A test that expects one records it here.
     @ObservationIgnored var onMisuse: (String) -> Void = { Misuse.report($0) }
@@ -420,7 +422,7 @@ final class Repository {
     }
 
     func refreshUser(mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws {
-        if mode == .ifStale {
+        if mode == .ifStale, !userOutdated.contains(store.epoch.store) {
             var d = FetchDescriptor<CachedUser>()
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.user) { return }
@@ -722,6 +724,7 @@ final class Repository {
     /// upload gate decides from it in the same step (ADR 0008). A commit never replaces it; `invalidate()` does.
     @discardableResult
     func store(user: User) -> WriteTicket {
+        userOutdated.remove(store.epoch.store)
         writtenThroughUser = (store.epoch.store, user)
         forget([.user])
         return submit(.user(user))
@@ -772,9 +775,17 @@ final class Repository {
             return .dropped
         }
         noteUserChange()
+        userOutdated.remove(change.store)
         writtenThroughUser = (change.store, user)
         forget([.user])
         return submit(.user(user), at: change.epoch)
+    }
+
+    /// A change of the user may have gone through without its answer reaching this phone (none came, or the store dropped
+    /// it), and RYFT couldn't be asked again (offline, or the question failed): the cached user may not be what the platform
+    /// holds. The next `refreshUser(mode: .ifStale)` asks, fresh or not; the next user stored in this store ends it.
+    func userMayDiffer() {
+        userOutdated.insert(store.epoch.store)
     }
 
     /// The withdrawal (`DELETE /v1/me/consent` answered), begun at `change`: the user as this phone has it, without the

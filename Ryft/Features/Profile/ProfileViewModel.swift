@@ -843,8 +843,9 @@ final class BodySettingsEditor {
     /// A birth year Profile's picker couldn't save (it has no form to say so in).
     private(set) var birthYearError: String?
     private(set) var birthYearErrorDetails: String?
-    /// A change was saved since the form opened, and the account holds it: past days keep their scores until rescored.
-    private(set) var savedChange = false
+    /// The change saved since the form opened, which the account holds: past days keep their scores until rescored. Its words
+    /// are on its own setting's page only (`hasSaved(_:)`).
+    private(set) var savedWrite: Write?
     private(set) var rescoring = false
     private(set) var rescoreStatus: String?
     /// Status and request ID of a failed rescore.
@@ -854,17 +855,35 @@ final class BodySettingsEditor {
     /// The last rescore went through and its scores came back: the page's row waits for the next saved change.
     private(set) var rescored = false
 
-    /// Editor pages on screen (`pageAppeared`, `pageDisappeared`).
-    private var openPages = 0
-    /// Writes started, never reset: a re-read speaks only while its write is the latest.
+    /// Editor pages on screen, one token each (`pageAppeared`, `pageDisappeared`): a page that appears twice, or goes without
+    /// having appeared, counts once or not at all.
+    private var openPages: Set<UUID> = []
+    /// Writes started, never reset: a re-read speaks only while its write is the latest, and a write ends only its own.
     private var writes = 0
+    /// Rescores started, never reset: a rescore ends only its own.
+    private var rescores = 0
+    /// A change that may have saved (no answer, a `5xx`, an answer the store dropped), not yet seen in the account: any
+    /// later read of the user that holds it makes it "Saved." after all (`settle()`, while `userWatch` watches).
+    @ObservationIgnored private var unsettled: Unsettled? {
+        didSet { if unsettled == nil { userWatch = nil } }
+    }
+    @ObservationIgnored private var userWatch: ObservationWatch?
     /// Bumped when the account's state is forgotten: a write begun before leaves the words alone.
     private var generation = 0
 
     /// A `PATCH` is out.
     var saving: Bool { writing != nil }
+    /// A change was saved since the form opened (of any setting): the rescore has something to do.
+    var savedChange: Bool { savedWrite != nil }
+    /// `setting`'s page says Saved.
+    func hasSaved(_ setting: BodySetting) -> Bool { savedWrite?.setting == setting }
     /// One thing at a time: a save during a rescore would be reported as rescored.
     var isBusy: Bool { saving || rescoring }
+
+    /// How long a change waits for its answer before the editor stops waiting (C3 review 2, item 2): the request's own limits
+    /// (up to 300 s waiting for a network, a 60 s timeout, a `429`'s or `503`'s wait before it goes again) are for uploads,
+    /// not for a page the user is looking at.
+    nonisolated static let answerDeadline: Duration = .seconds(25)
 
     /// What `PATCH /v1/me` takes: 4–12 h, in the sheet's 15-minute steps.
     nonisolated static let sleepBaseRange = 240...720
@@ -895,15 +914,16 @@ final class BodySettingsEditor {
         clearWords()
     }
 
-    /// An editor page appeared (`begin`), or went: a failure that arrives with none open is shown where the user is.
-    func pageAppeared() {
-        openPages += 1
+    /// An editor page appeared (`begin`), or went (its own token each time): a failure that arrives with none open is shown
+    /// where the user is.
+    func pageAppeared(_ page: UUID) {
+        openPages.insert(page)
         errorMissed = false
         begin()
     }
 
-    func pageDisappeared() {
-        openPages = max(0, openPages - 1)
+    func pageDisappeared(_ page: UUID) {
+        openPages.remove(page)
     }
 
     /// The previous account's words and its value on its way go (`AppState.forgetActivityState`): an answer for it that
@@ -912,6 +932,7 @@ final class BodySettingsEditor {
         generation += 1
         writing = nil
         rescoring = false
+        unsettled = nil
         clearWords()
         birthYearError = nil
         birthYearErrorDetails = nil
@@ -922,7 +943,8 @@ final class BodySettingsEditor {
         errorDetails = nil
         errorSetting = nil
         errorMissed = false
-        savedChange = false
+        savedWrite = nil
+        unsettled = nil
         rescoreStatus = nil
         rescoreDetails = nil
         rescoreFailed = false
@@ -1097,8 +1119,11 @@ final class BodySettingsEditor {
             return
         }
         let owner = Owner(env, generation: generation)
+        rescores += 1
+        let mine = rescores
         rescoring = true
-        defer { if owns(owner) { rescoring = false } }
+        // Only this rescore ends here: a forgetting (the Demo data switch, another account) may have let another begin.
+        defer { if mine == rescores { rescoring = false } }
         let now = env.clock.now()
         do {
             try await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
@@ -1106,15 +1131,22 @@ final class BodySettingsEditor {
             rescoreStatus = String(localized: "Rescoring — scores update in a few seconds.")
             let accepted = env.clock.now()
             try? await env.clock.sleep(for: SyncService.rescoreDelay)
+            // Offline the reload doesn't run, and nothing says rescored.
+            guard owns(owner), isOnline else { return }
+            // Seen, not assumed: the 90 days of scores asked for after the platform took the rescore, and answered.
+            let today = env.clock.now()
+            do {
+                try await state.repository.refreshHistory(from: DayFormat.shift(today, days: -(AppState.historyDays - 1)), to: today,
+                                                          mode: .changed(since: accepted))
+            } catch {
+                return
+            }
+            // Today's own numbers too, as the reload did (not part of what's said).
+            _ = try? await state.repository.refreshDay(today, mode: .changed(since: accepted))
             guard owns(owner) else { return }
-            await state.refresh(force: true)
-            guard owns(owner) else { return }
-            // Seen, not assumed: scores fetched after the platform took the rescore (offline the reload doesn't run).
-            let todayKey = DayFormat.string(from: env.clock.now())
-            guard let fetched = state.repository.newestPastScoreFetchedAt(before: todayKey), fetched >= accepted else { return }
             rescoreStatus = String(localized: "The last 90 days are rescored with your settings.")
             rescored = true
-            savedChange = false
+            savedWrite = nil
         } catch where error.isCancellation {
             return
         } catch {
@@ -1149,10 +1181,14 @@ final class BodySettingsEditor {
     /// One `PATCH /v1/me`: `true` once the account holds the change.
     /// - Offline nothing is sent, and it says so at once.
     /// - A refusal (`422`) says `refused`; anything else says in words what happened (`SettingsWriteFailure`).
+    /// - No answer within `answerDeadline`, or the network going while it's out, is no answer: the request is cancelled.
     /// - When the change may have gone through (no answer, a `5xx`, an answer the store dropped) RYFT is asked again: if the
-    ///   account then holds it (`holds`), it's "Saved." after all.
-    /// - An answer for an account that's gone (a sign-out, another account, a wipe) changes nothing here.
-    private func save(_ patch: UserPatch, as write: Write, refused: String, holds: (User) -> Bool) async -> Bool {
+    ///   account then holds it (`holds`), it's "Saved." after all, as it is when a later read of the user shows it
+    ///   (`settle()`). Offline, or when the question fails, the cached user is marked so the next refresh asks.
+    /// - An answer for an account that's gone (a sign-out, another account, a wipe, the Demo data switch) changes nothing
+    ///   here, and the write ends all the same.
+    private func save(_ patch: UserPatch, as write: Write, refused: String,
+                      holds: @escaping (User) -> Bool) async -> Bool {
         guard !isBusy else { return false }
         clearSaveWords(for: write)
         guard isOnline else {
@@ -1163,19 +1199,22 @@ final class BodySettingsEditor {
         writes += 1
         let mine = writes
         writing = write
+        unsettled = nil
+        // Only this write ends here: a forgetting (the Demo data switch, another account) may have let another begin.
+        defer { if mine == writes, writing == write { writing = nil } }
         do {
-            let stored = try await state.patchUser(patch)
+            let answer = try await answer(to: patch)
             guard owns(owner) else { return false }
             writing = nil
-            guard stored else {
-                // The store dropped the answer (a change of the user begun meanwhile came first): never "Saved." on its
-                // word; RYFT is asked what it holds.
+            guard answer == true else {
+                // No answer in time, or the store dropped it (a change of the user begun meanwhile came first): never
+                // "Saved." on its word; it may have saved, and RYFT is asked what it holds.
+                fail(write, message: SettingsWriteFailure.noAnswer.saveMessage, details: nil)
                 return await reread(write, owner: owner, mine: mine, holds: holds)
             }
-            saved()
+            saved(write)
             return true
         } catch where error.isCancellation {
-            if owns(owner) { writing = nil }
             return false
         } catch let e as APIError where e.isFieldError {
             guard owns(owner) else { return false }
@@ -1192,19 +1231,91 @@ final class BodySettingsEditor {
         }
     }
 
-    /// `GET /v1/me`, asked now: the page shows what RYFT holds. Holding the change, the words become "Saved.". Only online:
-    /// offline the question would wait for the network, and the words already say what's known.
-    private func reread(_ write: Write, owner: Owner, mine: Int, holds: (User) -> Bool) async -> Bool {
-        guard isOnline else { return false }
-        try? await state.repository.refreshUser(mode: .changed(since: env.clock.now()))
-        guard owns(owner), mine == writes, !saving, let user, holds(user) else { return false }
-        clearSaveWords(for: write)
-        saved()
+    /// `AppState.patchUser`'s answer (whether the store took it), or `nil` when none came within `answerDeadline` or the
+    /// iPhone went offline first: then the request is cancelled, and a late answer is the store's alone (the rows follow it).
+    private func answer(to patch: UserPatch) async throws -> Bool? {
+        let first = FirstAnswer()
+        // Whose change it is and where it goes are this step's: the request's task starts a turn later.
+        let change = state.repository.userChange(), source = state.source
+        let request = Task { @MainActor [state] in
+            do {
+                first.finish(.success(try await state.patchUser(patch, begun: change, via: source)))
+            } catch {
+                first.finish(.failure(error))
+            }
+        }
+        let deadline = Task { @MainActor [env] in
+            guard (try? await env.clock.sleep(for: Self.answerDeadline)) != nil else { return }
+            first.finish(.success(nil))
+        }
+        // The network going while the request is out: no answer is coming soon (the request would wait for one). Demo data
+        // answers on the phone, with no network to lose.
+        let offline = state.isDemo ? nil : ObservationWatch(read: { [env] in _ = env.connectivity.isOnline }, changed: { [env] in
+            if !env.connectivity.isOnline { first.finish(.success(nil)) }
+        })
+        defer {
+            deadline.cancel()
+            withExtendedLifetime(offline) {}
+        }
+        let answer = try await withTaskCancellationHandler {
+            try await first.value()
+        } onCancel: {
+            request.cancel()
+            Task { @MainActor in first.finish(.failure(CancellationError())) }
+        }
+        if answer == nil { request.cancel() }
+        return answer
+    }
+
+    /// `GET /v1/me`, asked now: the page shows what RYFT holds. Holding the change, the words become "Saved.". Offline the
+    /// question would wait for the network, and when it fails it has no answer: the cached user is marked instead, so the next
+    /// refresh asks (`Repository.userMayDiffer`). Either way a later read of the user that holds it settles it.
+    private func reread(_ write: Write, owner: Owner, mine: Int, holds: @escaping (User) -> Bool) async -> Bool {
+        unsettled = Unsettled(write: write, owner: owner, mine: mine, holds: holds)
+        if userWatch == nil {
+            userWatch = ObservationWatch(read: { [weak self] in _ = self?.state.user }, changed: { [weak self] in self?.settle() })
+        }
+        guard isOnline else {
+            state.repository.userMayDiffer()
+            return false
+        }
+        do {
+            try await state.repository.refreshUser(mode: .changed(since: env.clock.now()))
+        } catch {
+            if owns(owner) { state.repository.userMayDiffer() }
+            return false
+        }
+        settle()
+        // Settled here, or by the watch while the answer was being stored.
+        return owns(owner) && mine == writes && savedWrite == write
+    }
+
+    /// A change that may have saved, and what says it did: the account holding it.
+    private struct Unsettled {
+        let write: Write
+        let owner: Owner
+        let mine: Int
+        let holds: (User) -> Bool
+    }
+
+    /// `unsettled`, against the user as cached now (after the re-read, and on every change of it: a refresh, a pull): held,
+    /// it's "Saved."; another write, account or forgetting since, and it's no longer this editor's to say.
+    @discardableResult
+    private func settle() -> Bool {
+        guard let change = unsettled else { return false }
+        guard owns(change.owner), change.mine == writes, !saving else {
+            unsettled = nil
+            return false
+        }
+        guard let user, change.holds(user) else { return false }
+        unsettled = nil
+        clearSaveWords(for: change.write)
+        saved(change.write)
         return true
     }
 
     private func clearSaveWords(for write: Write) {
-        savedChange = false
+        savedWrite = nil
         if case .birthYear = write {
             birthYearError = nil
             birthYearErrorDetails = nil
@@ -1216,8 +1327,8 @@ final class BodySettingsEditor {
         }
     }
 
-    private func saved() {
-        savedChange = true
+    private func saved(_ write: Write) {
+        savedWrite = write
         rescoreStatus = nil
         rescoreDetails = nil
         rescoreFailed = false
@@ -1232,8 +1343,28 @@ final class BodySettingsEditor {
             error = message
             errorDetails = details
             errorSetting = write.setting
-            errorMissed = openPages == 0
+            errorMissed = openPages.isEmpty
         }
+    }
+}
+
+/// The first of a write's outcomes (`BodySettingsEditor.answer(to:)`): its answer, `nil` for none in time (the deadline, the
+/// network gone), or its failure. Later ones are dropped.
+@MainActor
+private final class FirstAnswer {
+    private var outcome: Result<Bool?, Error>?
+    private var waiting: CheckedContinuation<Bool?, Error>?
+
+    func finish(_ result: Result<Bool?, Error>) {
+        guard outcome == nil else { return }
+        outcome = result
+        waiting?.resume(with: result)
+        waiting = nil
+    }
+
+    func value() async throws -> Bool? {
+        if let outcome { return try outcome.get() }
+        return try await withCheckedThrowingContinuation { waiting = $0 }
     }
 }
 
