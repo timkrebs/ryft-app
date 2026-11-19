@@ -6,8 +6,9 @@ import SwiftUI
 
 // MARK: - the board (pure)
 
-/// Week or Month as values: the numeral, the caption and the "vs 7 d" line, the strip, the tiles, the stage chart and the
-/// nights, formatted; the look for loading, no sleep and a failed load. Pure: tests build it without a view.
+/// Week or Month as values: the numeral, the caption and the "vs 7 d" line, the strip, the tiles, the stage chart, the
+/// nights and the "As of" note, formatted; the look for loading, no sleep and a failed load. Pure: tests build it without a
+/// view.
 struct SleepRangeBoard: Equatable {
     enum Look: Equatable {
         /// Nights to show.
@@ -30,7 +31,7 @@ struct SleepRangeBoard: Equatable {
         let count: String
         /// The consistency sentence under the strip.
         let hint: String
-        /// The tile as one VoiceOver value: "7 nights. Mean bedtime 22:48, mean wake time 06:41. Fairly regular. …"
+        /// The tile as one VoiceOver value: "7 nights. Mean bedtime 10:48 PM, mean wake time 6:41 AM. Fairly regular. …"
         let spoken: String
     }
 
@@ -73,12 +74,18 @@ struct SleepRangeBoard: Equatable {
     let look: Look
     /// "7:58"; `nil` draws the unlit "0:00".
     let clock: String?
-    /// "7 hours 58 minutes average sleep", "Loading…"; `nil` hides the numeral from VoiceOver (the message says it).
+    /// "7 hours 58 minutes average sleep", "Loading…"; `nil` hides the numeral from VoiceOver (the message, or the caption
+    /// without an average, says it).
     let numeralLabel: String?
     /// "Average · last 7 nights", "Average · 4 nights", "Loading…"; empty keeps the line.
     let caption: String
-    /// The newest night against the seven before it (F6), in the sleep colour when it is better.
+    /// The newest night against the mean of the six before it in the seven that end on it (F6, Today's and Insights' rule:
+    /// the same in Week and Month), in the sleep colour when it is longer.
     let delta: MetricDelta?
+    /// Which night the delta is: "Last night" when it ended this morning, else its weekday ("Mon"; "Mon, Nov 9" beyond a
+    /// week); and as VoiceOver says it ("Monday").
+    let deltaLead: String
+    let spokenDeltaLead: String
     let strip: Strip?
     /// Quality and Consistency.
     let tiles: [SleepTile]
@@ -87,11 +94,17 @@ struct SleepRangeBoard: Equatable {
     let nights: [SleepRangeSummary.NightRow]
     /// The failed load's sentence, symbol, Details and button.
     let failure: SleepLoadFailure?
+    /// "As of Nov 15" under the nights: the copy shown may be old (offline, the last read failed, or the range doesn't end
+    /// today), as Bedtime's plan and Insights' cards say.
+    let asOf: String?
 
     var isOutline: Bool { look != .loaded }
 
+    /// - Parameters:
+    ///   - isStale: offline, or the range's last read failed: the cached copy says "As of" its last day.
+    ///   - today: the range is old when it doesn't end on this day.
     init(range: SleepRange?, kind: SleepRangeKind, isLoading: Bool = false, failure: SleepLoadFailure? = nil,
-         locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) {
+         isStale: Bool = false, today: Date = .now, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) {
         self.kind = kind
         guard let range, range.nights > 0, !range.days.isEmpty else {
             let look: Look = isLoading ? .loading : failure != nil ? .failed : .empty
@@ -101,6 +114,9 @@ struct SleepRangeBoard: Equatable {
             numeralLabel = look == .loading ? loading : nil
             caption = look == .loading ? loading : ""
             delta = nil
+            deltaLead = ""
+            spokenDeltaLead = ""
+            asOf = nil
             strip = nil
             tiles = [Self.quality(nil, locale: locale), Self.consistency(nil, week: [], locale: locale)]
             stages = nil
@@ -116,9 +132,14 @@ struct SleepRangeBoard: Equatable {
         numeralLabel = range.avgTotalMin.map {
             String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) average sleep",
                    comment: "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep (\"7 hours 58 minutes average sleep\").")
-        } ?? caption
-        delta = .vsSevenDayMean(summary.totals)
-        strip = Self.strip(summary, kind: kind)
+        }
+        let newest = Self.newestNight(summary.totals)
+        delta = Self.delta(summary.totals)
+        let lead = newest.map { Self.lead(night: $0.date, today: today, locale: locale, calendar: calendar) }
+        deltaLead = lead?.shown ?? ""
+        spokenDeltaLead = lead?.spoken ?? ""
+        asOf = Self.asOf(range, isStale: isStale, today: today, end: summary.end, locale: locale, calendar: calendar)
+        strip = Self.strip(summary, kind: kind, locale: locale)
         let week = Self.lastNights(range, end: summary.end, calendar: calendar)
         tiles = [Self.quality(range.avgQuality, locale: locale), Self.consistency(range.avgConsistency, week: week, locale: locale)]
         stages = Self.stages(range, summary: summary, kind: kind, locale: locale, calendar: calendar)
@@ -132,13 +153,58 @@ struct SleepRangeBoard: Equatable {
                           comment: "Sleep → Week or Month, under the numeral: the time asleep is the average of the whole range (\"Average · last 7 nights\").")
         }
         return String(localized: "Average · \(nights) nights",
-                      comment: "Sleep → Week or Month, under the numeral, when the range has fewer nights than its days (\"Average · 4 nights\").")
+                      comment: "Sleep → Week/Month under the numeral: fewer nights than days (\"Average · 4 nights\"). Plural: \"Average · 1 night\".")
     }
 
-    private static func strip(_ summary: SleepRangeSummary, kind: SleepRangeKind) -> Strip? {
+    // MARK: the delta (F6)
+
+    /// The newest night with a time asleep.
+    private static func newestNight(_ totals: [TrendPoint]) -> TrendPoint? {
+        totals.filter { $0.value != nil }.max { $0.day < $1.day }
+    }
+
+    /// Today's and Insights' rule (`TrendCardContent.delta`): the newest night against the mean of the nights before it among
+    /// the seven that end on it, so Month (30 nights) says what Week says.
+    static func delta(_ totals: [TrendPoint]) -> MetricDelta? {
+        let valued = totals.filter { $0.value != nil }.sorted { $0.day < $1.day }
+        guard let last = valued.last else { return nil }
+        let from = DayFormat.string(from: DayFormat.shift(last.date, days: -(SleepBoard.weekNights - 1)))
+        return .vsSevenDayMean(valued.filter { $0.day >= from })
+    }
+
+    /// "Last night" for the night that ended this morning, else its weekday ("Mon"), with its date beyond a week ("Mon, Nov
+    /// 9"); VoiceOver hears the weekday in full.
+    static func lead(night: Date, today: Date, locale: Locale = .autoupdatingCurrent,
+                     calendar: Calendar = .current) -> (shown: String, spoken: String) {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: night),
+                                           to: calendar.startOfDay(for: today)).day ?? 0
+        if days == 0 {
+            let lastNight = String(localized: "Last night",
+                                   comment: "Week/Month: the newest night before its change vs 7 d, when it ended this morning (else \"Mon\"). Also on Today.")
+            return (lastNight, lastNight)
+        }
+        let style = Date.FormatStyle(locale: locale, calendar: calendar)
+        if (1..<SleepBoard.weekNights).contains(days) {
+            return (night.formatted(style.weekday(.abbreviated)), night.formatted(style.weekday(.wide)))
+        }
+        return (night.formatted(style.weekday(.abbreviated).month(.abbreviated).day()),
+                night.formatted(style.weekday(.wide).month(.wide).day()))
+    }
+
+    /// "As of Nov 15" (the range's last day) offline, after a failed read, or when the range doesn't end today.
+    private static func asOf(_ range: SleepRange, isStale: Bool, today: Date, end: Date, locale: Locale,
+                             calendar: Calendar) -> String? {
+        let endsToday = range.to.map { $0 == DayFormat.string(from: today) } ?? true
+        guard isStale || !endsToday else { return nil }
+        let day = end.formatted(Date.FormatStyle(locale: locale, calendar: calendar).month(.abbreviated).day())
+        // The key Bedtime's plan and Insights' cards use ("As of %@").
+        return String(localized: "As of \(day)")
+    }
+
+    private static func strip(_ summary: SleepRangeSummary, kind: SleepRangeKind, locale: Locale) -> Strip? {
         guard !summary.bedtimes.isEmpty else { return nil }
         let count = String(localized: "\(summary.bedtimes.count) nights")
-        let means = BedtimeLayout(summary.bedtimes).spoken
+        let means = BedtimeLayout(summary.bedtimes).spoken(locale: locale)
         return Strip(bedtimes: summary.bedtimes,
                      rowHeight: kind == .week ? SleepModesLayout.weekRowHeight : SleepModesLayout.monthRowHeight,
                      showsRowLabels: kind == .week, count: count, hint: summary.consistencyHint,
@@ -166,7 +232,10 @@ struct SleepRangeBoard: Equatable {
     /// from 60, missed below, a small dot without a value, the newest night last in Volt; VoiceOver says which is which.
     static func consistency(_ value: Int?, week: [Int?], locale: Locale = .autoupdatingCurrent) -> SleepTile {
         let day = SleepTile.consistency(value, week: week, locale: locale)
-        var spoken = value.map(String.init) ?? String(localized: "No data")
+        var spoken = value.map {
+            String(localized: "\($0) out of 100",
+                   comment: "VoiceOver on Sleep → Week or Month's Consistency tile: the range's mean consistency on its 0–100 scale (\"72 out of 100\").")
+        } ?? String(localized: "No data")
         if !week.isEmpty {
             let regular = week.filter { $0.map { $0 >= SleepTile.regularThreshold } ?? false }.count
             let irregular = week.filter { $0.map { $0 < SleepTile.regularThreshold } ?? false }.count
@@ -199,8 +268,9 @@ struct SleepRangeBoard: Equatable {
         let gap = Double(SleepModesLayout.stageSegmentGap) * top / Double(SleepModesLayout.stagePlotHeight)
         var segments: [Segment] = []
         var spokenNights: [String] = []
+        let byNight = Dictionary(grouping: summary.bars, by: \.day)
         for night in range.days {
-            let parts = Self.segments(night)
+            let parts = byNight[night.day] ?? []
             var lower = 0.0
             for (index, part) in parts.enumerated() {
                 let upper = lower + part.hours
@@ -228,19 +298,8 @@ struct SleepRangeBoard: Equatable {
                       legend: legend, spokenNights: spokenNights, spokenAverage: spokenAverage)
     }
 
-    /// A night's stages bottom to top (`SleepRangeSummary.stageOrder`: Deep, Light, REM), or its total as "Asleep".
-    static func segments(_ night: SleepNight) -> [(stage: SleepStageKind?, hours: Double)] {
-        let staged: [(stage: SleepStageKind?, hours: Double)] = SleepRangeSummary.stageOrder.compactMap { stage in
-            let minutes = night.minutes(for: stage)
-            return minutes > 0 ? (stage, Double(minutes) / 60) : nil
-        }
-        if !staged.isEmpty { return staged }
-        guard let total = night.totalMin, total > 0 else { return [] }
-        return [(nil, Double(total) / 60)]
-    }
-
     /// "Wednesday 18: Deep 1 hour 35 minutes, REM 1 hour 45 minutes, Light 4 hours 28 minutes", in the legend's order.
-    private static func spoken(_ night: SleepNight, parts: [(stage: SleepStageKind?, hours: Double)], locale: Locale) -> String {
+    private static func spoken(_ night: SleepNight, parts: [SleepRangeSummary.Bar], locale: Locale) -> String {
         let order: [SleepStageKind?] = [.deep, .rem, .light, nil]
         let said = order.compactMap { stage -> String? in
             guard let part = parts.first(where: { $0.stage == stage }) else { return nil }
@@ -255,7 +314,8 @@ struct SleepRangeBoard: Equatable {
 // MARK: - the section
 
 /// Week or Month under the header and the picker (§P5-7.2): the notice, the numeral 22 under the picker, its caption and the
-/// "vs 7 d" line, the bed-and-wake tile 20 under them, the two tiles, the stage card, the nights.
+/// "vs 7 d" line, the bed-and-wake tile 20 under them, the two tiles, the stage card, the nights, and "As of" a copy that may
+/// be old.
 struct SleepRangeSection: View {
     let board: SleepRangeBoard
     var numeralStyle: DotNumeral.Style = .dots
@@ -320,6 +380,9 @@ struct SleepRangeSection: View {
             }
             .padding(.top, SleepModesLayout.cardGap)
         }
+        if let asOf = board.asOf {
+            SleepAsOfNote(text: asOf, identifier: "sleep.range.asOf")
+        }
     }
 }
 
@@ -347,27 +410,31 @@ struct SleepRangeHead: View {
                 .accessibilityHidden(board.caption.isEmpty || board.look == .loading)
                 .padding(.top, SleepModesLayout.captionGap)
             if let delta = board.delta {
-                SleepRangeDelta(delta: delta)
+                SleepRangeDelta(delta: delta, lead: board.deltaLead, spokenLead: board.spokenDeltaLead)
                     .padding(.top, SleepModesLayout.deltaGap)
             }
         }
     }
 }
 
-/// "Last night ▲ +17m · +4 % vs 7 d": the newest night against the seven before it, the change in the sleep colour when it is
-/// longer and `alert` when shorter (`DeltaLabel`, the arrow and the sign carry the direction). One VoiceOver element.
+/// "Last night ▲ +17m · +4 % vs 7 d" ("Mon ▼ …" when the newest night is older): the newest night against the nights before
+/// it in its seven, the change in the sleep colour when it is longer and `alert` when shorter (`DeltaLabel`, the arrow and
+/// the sign carry the direction). One VoiceOver element.
 struct SleepRangeDelta: View {
     let delta: MetricDelta
+    /// The night: "Last night", "Mon"; and as VoiceOver says it ("Monday").
+    var lead = ""
+    var spokenLead = ""
 
     var body: some View {
-        // One line, or "Last night" over the change when the line doesn't fit (large text).
+        // One line, or the night over the change when the line doesn't fit (large text).
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                lead
+                leadText
                 change
             }
             VStack(spacing: 2) {
-                lead
+                leadText
                 change
             }
         }
@@ -377,10 +444,11 @@ struct SleepRangeDelta: View {
         .accessibilityIdentifier("sleep.range.delta")
     }
 
-    private var lead: some View {
-        Text("Last night")
+    private var leadText: some View {
+        Text(verbatim: lead)
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textTertiary)
+            .accessibilityLabel(Text(verbatim: spokenLead.isEmpty ? lead : spokenLead))
     }
 
     private var change: some View {
@@ -741,6 +809,24 @@ struct SleepModeNotice: View {
     }
 }
 
+/// "As of Nov 15" (Week, Month) or "As of 10:44 AM" (Bedtime) 12 under the last card: what's shown may be old.
+struct SleepAsOfNote: View {
+    let text: String
+    let identifier: String
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(.ryft(.caption))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .padding(.top, SleepModesLayout.footerGap)
+            .accessibilityIdentifier(identifier)
+    }
+}
+
 /// A tile or a card while its data loads: the placeholder outline with its title in `textTertiary` (as Day's hypnogram slot).
 struct SleepModeOutline: View {
     let title: Text
@@ -762,7 +848,7 @@ struct SleepModeOutline: View {
 /// Sleep → Week or Month for a state, as `SleepView` lays it out (previews and the hosted tests).
 struct SleepRangePreviewPage: View {
     enum Scene: String, CaseIterable {
-        case week, month, fewNights, loading, empty, failed, offline
+        case week, month, fewNights, older, loading, empty, failed, offline
     }
 
     let scene: Scene
@@ -775,13 +861,19 @@ struct SleepRangePreviewPage: View {
 
     var board: SleepRangeBoard {
         switch scene {
-        case .week, .month, .offline: return SleepRangeBoard(range: MockData.sleepRange(kind), kind: kind)
+        case .week, .month: return SleepRangeBoard(range: MockData.sleepRange(kind), kind: kind)
         case .fewNights:
-            var range = MockData.sleepRange(.week)
-            range.days = Array(range.days.suffix(4))
-            range.nights = range.days.count
-            range.bedtimes = Array(range.bedtimes.suffix(4))
+            let week = MockData.sleepRange(.week)
+            return SleepRangeBoard(range: Self.nights(week, Array(week.days.suffix(4))), kind: .week)
+        case .older:
+            // Read two days ago: the newest night is named, the copy "As of" its day.
+            let week = MockData.sleepRange(.week)
+            var range = Self.nights(week, Array(week.days.dropLast(2)))
+            range.to = range.days.last?.day
             return SleepRangeBoard(range: range, kind: .week)
+        case .offline:
+            // What the app shows offline: the cached week as it is, "As of" its day (no refresh card: reads aren't failing).
+            return SleepRangeBoard(range: MockData.sleepRange(.week), kind: .week, isStale: true)
         case .loading: return SleepRangeBoard(range: nil, kind: .week, isLoading: true)
         case .empty: return SleepRangeBoard(range: nil, kind: .week)
         case .failed:
@@ -791,13 +883,15 @@ struct SleepRangePreviewPage: View {
         }
     }
 
-    /// Reads failing for a while, the cache two hours old (Today's card).
-    static var offlineIssue: RefreshIssue {
-        let at = Date.now
-        let error = ResourceError(kind: .transient, status: nil, code: nil, requestID: nil, transport: "timedOut", attempts: 3,
-                                  at: at)
-        return RefreshIssue(reason: .unreachable, resource: .today, dataFrom: at.addingTimeInterval(-7_200), failures: 3,
-                            error: error)
+    /// `range` with only `days`, its bedtimes and averages theirs, as the platform computes them (`MockData.sleepRange`).
+    static func nights(_ range: SleepRange, _ days: [SleepNight]) -> SleepRange {
+        func mean(_ xs: [Int]) -> Int? { xs.isEmpty ? nil : Int((Double(xs.reduce(0, +)) / Double(xs.count)).rounded()) }
+        let kept = Set(days.map(\.day))
+        return SleepRange(range: range.range, from: range.from, to: range.to, days: days,
+                          avgTotalMin: mean(days.compactMap(\.totalMin)), avgQuality: mean(days.compactMap(\.quality)),
+                          avgInBedMin: mean(days.compactMap(\.inBedMin)), avgEfficiency: mean(days.compactMap(\.efficiency)),
+                          avgConsistency: mean(days.compactMap(\.consistency)),
+                          bedtimes: range.bedtimes.filter { kept.contains($0.day) })
     }
 
     var body: some View {
@@ -807,7 +901,6 @@ struct SleepRangePreviewPage: View {
         NavigationStack {
             SleepPage(header: header, mode: .constant(mode), modes: SleepMode.allCases, step: { _ in }) {
                 SleepRangeSection(board: board, showsHealthHint: scene == .empty,
-                                  notice: SleepModeNotice(issue: scene == .offline ? Self.offlineIssue : nil),
                                   retry: scene == .failed ? {} : nil, signIn: scene == .failed ? {} : nil)
             }
         }
@@ -823,6 +916,7 @@ struct SleepRangePreviewPage: View {
     SleepRangePreviewPage(.month).previewEnvironment().environment(\.dynamicTypeSize, .accessibility3)
 }
 #Preview("Sleep · Week, 4 nights") { SleepRangePreviewPage(.fewNights).previewEnvironment() }
+#Preview("Sleep · Week, read two days ago") { SleepRangePreviewPage(.older).previewEnvironment() }
 #Preview("Sleep · Week, loading") { SleepRangePreviewPage(.loading).previewEnvironment() }
 #Preview("Sleep · Week, loading · AX3") {
     SleepRangePreviewPage(.loading).previewEnvironment().environment(\.dynamicTypeSize, .accessibility3)

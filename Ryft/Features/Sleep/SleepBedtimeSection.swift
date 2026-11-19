@@ -1,22 +1,22 @@
 // Sleep → Bedtime in Nocturne (docs/work/2026-11-16-nocturne/design.md §P5-7.3, the draft `draft-sleep-bedtime`): tonight's
 // bedtime for your goal as the hero numeral, the planned sleep on Day's ruler, the three goals in the go-to-bed glow tile, Need
-// and Time in bed, then the wake time, why the need is what it is and Bedtime & wake. The numbers come from `GET /v1/sleep/plan`
+// and Time in bed, then the wake time, why the need is what it is and Bedtime & wake. Without Bedtime & wake: the invitation
+// over the three bedtimes for the wake time asked and the settings card. The numbers come from `GET /v1/sleep/plan`
 // (`SleepPlannerViewModel`), the goal and the alarm from `BedtimePlanner`; `SleepBedtimeBoard` decides every value and look.
 import SwiftUI
 
 // MARK: - the board (pure)
 
-/// Bedtime as values: the numeral and its meridiem, the caption, the ruler, the goals, the tiles, the footer; the look for no
-/// schedule, planning, a failed plan and offline. Pure: tests build it without a view.
+/// Bedtime as values: the numeral and its meridiem, the caption, the ruler, the goals, the tiles, the footer; the look for
+/// planning, a failed plan and offline, with or without Bedtime & wake. Pure: tests build it without a view.
 struct SleepBedtimeBoard: Equatable {
+    /// The plan's state.
     enum Look: Equatable {
         /// A plan to show.
         case planned
-        /// No Bedtime & wake yet: the invitation and the button to the editor; no ruler, no tile.
-        case noSchedule
         /// No plan yet and the request in flight: the unlit numeral, the ruler without its needle, outlines.
         case planning
-        /// The plan failed with nothing cached: the message with Try again in the tile's place.
+        /// The plan failed with nothing cached: the calm sentence, Details and Today's button in the tile's place.
         case failed
         /// Offline with nothing cached: the message, no button (it appears once online).
         case offline
@@ -39,6 +39,9 @@ struct SleepBedtimeBoard: Equatable {
     }
 
     let look: Look
+    /// Bedtime & wake is set up: the numeral, the caption, the ruler and the tiles are its goal's. Without it the invitation
+    /// stands over the three bedtimes (no "your goal") and the settings card.
+    let hasSchedule: Bool
     /// "10:06", "22:06"; `nil` draws the unlit "00:00".
     let digits: String?
     /// "PM" after the numeral; `nil` in 24-hour locales.
@@ -49,11 +52,16 @@ struct SleepBedtimeBoard: Equatable {
     let caption: String
     /// The planned sleep against tonight's need; `nil` without a schedule. Without a plan: the ticks, no needle.
     let ruler: SleepRuler?
+    /// What the ruler says without a plan (not Day's "No time asleep yet").
+    static var rulerPlaceholder: String {
+        String(localized: "No plan yet, on a scale from 0 to 10 hours.",
+               comment: "VoiceOver on Sleep → Bedtime's ruler (\"Planned sleep\") while tonight's plan is loading, failed or offline.")
+    }
     /// "wake 7:00 AM" in the tile's head.
     let wake: String
     /// Peak, Perform, Get by (100 / 85 / 70 %), earliest first.
     let rows: [Row]
-    /// Need and Time in bed.
+    /// Need and Time in bed; none without a schedule (Time in bed is the goal's share).
     let tiles: [SleepTile]
     /// The tile as one VoiceOver value: the wake time and the three goals.
     let spokenTile: String
@@ -61,11 +69,13 @@ struct SleepBedtimeBoard: Equatable {
     let plan: SleepPlan?
     /// "As of 10:44 AM": the plan is a cached one.
     let asOf: String?
-    /// The failed plan's sentence.
+    /// The failed plan's sentence, or the offline one.
     let message: String?
+    /// The failed plan's symbol, Details and button (`SleepLoadFailure`).
+    let failure: SleepLoadFailure?
     /// The wake alarm couldn't be set: under the settings card.
     let alarmProblem: String?
-    /// Bedtime & wake's row value ("Weekdays 6:30").
+    /// Bedtime & wake's row value (`BedtimePlanner.summary`: "6:30 AM · weekend 8:00 AM", "Off").
     let summary: String
 
     var isOutline: Bool { look != .planned }
@@ -73,64 +83,39 @@ struct SleepBedtimeBoard: Equatable {
     /// - Parameters:
     ///   - plan: `SleepPlannerViewModel.plan`, for the wake time asked (`wake`).
     ///   - goal: Bedtime & wake's goal; `nil` without a schedule.
-    init(plan: SleepPlan?, wake: Date, goal: SleepSchedule.Goal?, isLoading: Bool = false, error: String? = nil,
+    ///   - failure: why the plan couldn't load with nothing cached; offline is said first.
+    init(plan: SleepPlan?, wake: Date, goal: SleepSchedule.Goal?, isLoading: Bool = false, failure: SleepLoadFailure? = nil,
          isOnline: Bool = true, asOf: Date? = nil, alarmProblem: String? = nil, summary: String = "",
          locale: Locale = .autoupdatingCurrent) {
         self.alarmProblem = alarmProblem
         self.summary = summary
         self.asOf = asOf.map { String(localized: "As of \(Fmt.time($0, locale: locale))") }
-        let loading = String(localized: "Loading…")
-        guard let goal else {
-            look = .noSchedule
-            digits = nil
-            meridiem = nil
-            numeralLabel = nil
-            caption = ""
-            ruler = nil
-            self.wake = String(localized: "wake \(Fmt.time(wake, locale: locale))")
-            rows = []
-            tiles = []
-            spokenTile = ""
-            self.plan = nil
-            message = nil
-            return
+        hasSchedule = goal != nil
+        let look: Look = plan != nil ? .planned : isLoading ? .planning : !isOnline ? .offline
+            : failure != nil ? .failed : .planning
+        self.look = look
+        self.plan = plan
+        self.failure = look == .failed ? failure : nil
+        switch look {
+        case .failed: message = failure?.message
+        case .offline: message = String(localized: "Tonight's bedtime needs a connection. It appears once you're online.")
+        case .planned, .planning: message = nil
         }
+        let loading = String(localized: "Loading…")
         guard let plan else {
-            let look: Look = isLoading ? .planning : error != nil ? .failed : !isOnline ? .offline : .planning
-            self.look = look
             digits = nil
             meridiem = nil
-            numeralLabel = look == .planning ? loading : nil
-            caption = look == .planning ? loading : ""
-            ruler = SleepRuler(totalMin: nil, needMin: nil, locale: locale)
+            numeralLabel = look == .planning && goal != nil ? loading : nil
+            caption = look == .planning && goal != nil ? loading : ""
+            ruler = goal.map { _ in SleepRuler(totalMin: nil, needMin: nil, unknown: Self.rulerPlaceholder, locale: locale) }
             self.wake = String(localized: "wake \(Fmt.time(wake, locale: locale))")
             rows = SleepSchedule.Goal.allCases.map {
                 Row(goal: $0, time: Fmt.placeholder, share: Self.share($0), asleep: "", isGoal: $0 == goal, spoken: "")
             }
-            tiles = [Self.need(nil, locale: locale), Self.timeInBed(nil, efficiency: nil, locale: locale)]
+            tiles = goal == nil ? [] : [Self.need(nil, locale: locale), Self.timeInBed(nil, efficiency: nil, locale: locale)]
             spokenTile = ""
-            self.plan = nil
-            switch look {
-            case .failed: message = error
-            case .offline:
-                message = String(localized: "Tonight's bedtime needs a connection. It appears once you're online.")
-            default: message = nil
-            }
             return
         }
-        look = .planned
-        message = nil
-        self.plan = plan
-        let bed = goal.bedtime(in: plan)
-        let parts = Fmt.clockParts(bed, locale: locale)
-        digits = parts.digits
-        meridiem = parts.meridiem
-        numeralLabel = String(localized: "Go to bed at \(Fmt.time(bed, locale: locale))",
-                              comment: "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for your goal (\"Go to bed at 10:06 PM\").")
-        caption = String(localized: "In bed by · \(goal.rawValue) % of your need",
-                         comment: "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's need (\"In bed by · 100 % of your need\").")
-        let sleepMin = Self.sleepMin(plan, goal: goal)
-        ruler = SleepRuler(totalMin: sleepMin, needMin: plan.needMin, locale: locale)
         self.wake = String(localized: "wake \(Fmt.time(plan.wake, locale: locale))",
                            comment: "Sleep → Bedtime's go-to-bed tile, top right: the wake time the bedtimes are for (\"wake 7:00 AM\"). Lower case.")
         rows = SleepSchedule.Goal.allCases.map { option in
@@ -148,6 +133,24 @@ struct SleepBedtimeBoard: Equatable {
                        spoken: spoken.joined(separator: ", "))
         }
         spokenTile = ([self.wake] + rows.map(\.spoken)).joined(separator: ". ")
+        guard let goal else {
+            digits = nil
+            meridiem = nil
+            numeralLabel = nil
+            caption = ""
+            ruler = nil
+            tiles = []
+            return
+        }
+        let bed = goal.bedtime(in: plan)
+        let parts = Fmt.clockParts(bed, locale: locale)
+        digits = parts.digits
+        meridiem = parts.meridiem
+        numeralLabel = String(localized: "Go to bed at \(Fmt.time(bed, locale: locale))",
+                              comment: "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for your goal (\"Go to bed at 10:06 PM\").")
+        caption = String(localized: "In bed by · \(goal.rawValue) % of your need",
+                         comment: "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's need (\"In bed by · 100 % of your need\").")
+        ruler = SleepRuler(totalMin: Self.sleepMin(plan, goal: goal), needMin: plan.needMin, locale: locale)
         let inBed = Int((Double(plan.inBedMin) * Double(goal.rawValue) / 100).rounded())
         tiles = [Self.need(plan.needMin, locale: locale), Self.timeInBed(inBed, efficiency: plan.efficiency, locale: locale)]
     }
@@ -201,7 +204,7 @@ struct SleepBedtimeBoard: Equatable {
 
 /// Bedtime under the header and the picker (§P5-7.3): the notice, the numeral 22 under the picker, its caption, the ruler, the
 /// go-to-bed tile 20 under the ruler's box, the two tiles, the settings card and the footer. Without a schedule: the sentence
-/// and the button to Bedtime & wake.
+/// and the button to Bedtime & wake over the three bedtimes for the wake time asked and the settings card.
 struct SleepBedtimeSection: View {
     let board: SleepBedtimeBoard
     /// The wake time asked ("Wake up at").
@@ -210,7 +213,9 @@ struct SleepBedtimeSection: View {
     /// Previews and tests; `nil` follows the system.
     var reduceTransparency: Bool?
     var notice = SleepModeNotice(issue: nil)
-    var retry: () async -> Void = {}
+    /// A failed plan's Try again and Sign in (`SleepLoadFailure.action`).
+    var retry: (() async -> Void)?
+    var signIn: (() async -> Void)?
 
     @Environment(ScreenModels.self) private var screens
     @State private var showsSchedule = false
@@ -219,13 +224,11 @@ struct SleepBedtimeSection: View {
         VStack(spacing: 0) {
             notice
             SleepBedtimeHead(board: board, numeralStyle: numeralStyle)
-            switch board.look {
-            case .noSchedule:
+            if !board.hasSchedule {
                 invitation
                     .padding(.top, SleepModesLayout.captionGap)
-            case .planned, .planning, .failed, .offline:
-                planned
             }
+            planned
         }
         .navigationDestination(isPresented: $showsSchedule) { SleepScheduleView(planner: screens.bedtime) }
     }
@@ -242,17 +245,24 @@ struct SleepBedtimeSection: View {
         }
         Group {
             switch board.look {
-            case .failed, .offline:
-                InlineMessage(message: board.message ?? "",
-                              systemImage: board.look == .offline ? "wifi.exclamationmark" : "exclamationmark.circle",
-                              retry: board.look == .failed ? retry : nil, identifier: "sleep.bedtime.failure")
-            default:
+            case .failed:
+                let failure = board.failure
+                let action = failure?.action ?? .retry
+                InlineMessage(message: board.message ?? "", systemImage: failure?.systemImage ?? "exclamationmark.circle",
+                              retryTitle: action.title, details: failure?.details,
+                              retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.bedtime.failure")
+            case .offline:
+                InlineMessage(message: board.message ?? "", systemImage: "wifi.exclamationmark",
+                              identifier: "sleep.bedtime.failure")
+            case .planned, .planning:
                 SleepGoToBedTile(board: board, reduceTransparency: reduceTransparency)
             }
         }
-        .padding(.top, SleepModesLayout.goToBedGap)
-        SleepTileGrid(tiles: board.tiles, isOutline: board.isOutline)
-            .padding(.top, SleepModesLayout.tilesGap)
+        .padding(.top, board.hasSchedule ? SleepModesLayout.goToBedGap : SleepModesLayout.tileGap)
+        if !board.tiles.isEmpty {
+            SleepTileGrid(tiles: board.tiles, isOutline: board.isOutline)
+                .padding(.top, SleepModesLayout.tilesGap)
+        }
         SleepBedtimeSettings(board: board, wake: $wake) { showsSchedule = true }
             .padding(.top, SleepModesLayout.settingsGap)
         if let problem = board.alarmProblem {
@@ -260,17 +270,11 @@ struct SleepBedtimeSection: View {
                 .padding(.top, SleepModesLayout.cardGap)
         }
         if let asOf = board.asOf {
-            Text(asOf)
-                .font(.ryft(.caption))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, GroupedListSpec.rowInset)
-                .padding(.top, SleepModesLayout.footerGap)
+            SleepAsOfNote(text: asOf, identifier: "sleep.bedtime.asOf")
         }
     }
 
-    /// No Bedtime & wake yet: what it does, and the way in.
+    /// No Bedtime & wake yet: what it does, and the way in, over the bedtimes for the wake time asked.
     private var invitation: some View {
         VStack(spacing: SleepModesLayout.tileGap) {
             Text("Tell RYFT when you want to wake up. It tells you when to go to bed, with what today's strain and your sleep debt add.")
@@ -525,16 +529,17 @@ struct SleepBedtimePreviewPage: View {
 
     var board: SleepBedtimeBoard {
         let plan = MockJournal.sleepPlan(wake: "07:00")
-        // As Bedtime & wake writes it (`BedtimePlanner.summary`).
-        let summary = "06:30 · weekend 08:00"
+        // Bedtime & wake's row, as it writes its default schedule (`BedtimePlanner.summary`).
+        let summary = BedtimePlanner.summary(.default)
         switch scene {
         case .planned: return SleepBedtimeBoard(plan: plan, wake: wake, goal: .peak, summary: summary)
         case .perform: return SleepBedtimeBoard(plan: plan, wake: wake, goal: .perform, summary: summary)
-        case .noSchedule: return SleepBedtimeBoard(plan: plan, wake: wake, goal: nil)
+        case .noSchedule:
+            return SleepBedtimeBoard(plan: plan, wake: wake, goal: nil, summary: BedtimePlanner.summary(nil))
         case .planning: return SleepBedtimeBoard(plan: nil, wake: wake, goal: .peak, isLoading: true, summary: summary)
         case .failed:
-            return SleepBedtimeBoard(plan: nil, wake: wake, goal: .peak,
-                                     error: RefreshIssue.Reason.busy.message, summary: summary)
+            let failure = SleepLoadFailure(APIError.http(503, "", requestID: "01JD8K2V9Q7M3X"), isOnline: true, at: .now)
+            return SleepBedtimeBoard(plan: nil, wake: wake, goal: .peak, failure: failure, summary: summary)
         case .offline:
             return SleepBedtimeBoard(plan: nil, wake: wake, goal: .peak, isOnline: false, summary: summary)
         case .alarmProblem:
@@ -549,7 +554,7 @@ struct SleepBedtimePreviewPage: View {
                                         canStepForward: false)
         NavigationStack {
             SleepPage(header: header, mode: .constant(.plan), modes: SleepMode.allCases, step: { _ in }) {
-                SleepBedtimeSection(board: board, wake: $wake)
+                SleepBedtimeSection(board: board, wake: $wake, retry: scene == .failed ? {} : nil)
             }
         }
     }

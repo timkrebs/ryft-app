@@ -123,6 +123,27 @@ import UIKit
         }
     }
 
+    @Test("Offline: the cached week as it is and \"As of\" its day under the nights, no refresh card")
+    func offlineSaysAsOf() async throws {
+        try await host(SleepRangePreviewPage(.offline), ready: "sleep.range.asOf", height: 3000) { w in
+            let note = try #require(w.nodes().first { $0.identifier == "sleep.range.asOf" })
+            #expect(note.label.hasPrefix("As of "), "\(note.label)")
+            let last = try #require(nightRows(w).last)
+            #expect(note.frame.minY >= last.frame.maxY, "under the nights")
+            #expect(!w.nodes().contains { ($0.identifier ?? "").hasPrefix("refreshIssue") || $0.identifier == "today.refreshIssue" },
+                    "no refresh card: reads aren't failing offline")
+        }
+    }
+
+    @Test("Read two days ago: the change names its night, not \"Last night\"")
+    func anOlderWeekNamesItsNight() async throws {
+        try await host(SleepRangePreviewPage(.older), ready: "sleep.range.delta", height: 3000) { w in
+            let delta = try #require(w.nodes().first { $0.identifier == "sleep.range.delta" })
+            #expect(!delta.label.contains("Last night") && delta.label.contains("day"), "\(delta.label)")
+            #expect(w.nodes().contains { $0.identifier == "sleep.range.asOf" })
+        }
+    }
+
     @Test func emptyAndFailedSayWhy() async throws {
         try await host(SleepRangePreviewPage(.empty), ready: "No sleep data for this range yet.") { w in
             #expect(!w.nodes().contains { $0.identifier == "sleep.range.numeral" }, "the message says it")
@@ -169,16 +190,31 @@ import UIKit
         }
     }
 
-    @Test func noScheduleInvitesToSetUp() async throws {
+    @Test("No schedule: the invitation over the three bedtimes and the settings card; no ruler, no tiles, no goal")
+    func noScheduleInvitesToSetUp() async throws {
         try await host(SleepBedtimePreviewPage(.noSchedule), ready: "sleep.bedtime.setUp") { w in
-            #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.ruler" || $0.identifier == "sleep.bedtime.goToBed" })
-            #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.numeral" }, "the sentence says it")
+            let ids = w.nodes().compactMap(\.identifier)
+            for id in ["sleep.bedtime.ruler", "sleep.tile.need", "sleep.tile.timeInBed", "sleep.bedtime.numeral"] {
+                #expect(!ids.contains(id), "\(id)")
+            }
+            let setUp = try frame(w, "sleep.bedtime.setUp"), tile = try frame(w, "sleep.bedtime.goToBed")
+            #expect(setUp.maxY < tile.minY, "the invitation above the bedtimes")
+            let goToBed = try #require(w.nodes().first { $0.identifier == "sleep.bedtime.goToBed" })
+            #expect(!(goToBed.value ?? "").contains("your goal") && (goToBed.value ?? "").contains("100 percent of your need"))
+            for id in ["sleep.bedtime.why", "sleep.bedtime.schedule"] {
+                #expect(ids.contains(id), "\(id)")
+            }
+            // The compact picker shows no identifier in the tree: its row's label.
+            let wake = try #require(w.node("Wake up at"), "Wake up at")
+            #expect(wake.frame.minY > tile.maxY, "the settings card under them")
         }
     }
 
     @Test func failedAndAlarmProblem() async throws {
         try await host(SleepBedtimePreviewPage(.failed), ready: "sleep.bedtime.failure.retry") { w in
             #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.goToBed" })
+            #expect(w.node("Details") != nil, "the request ID behind Details")
+            #expect(!w.nodes().contains { $0.label.contains("HTTP 503") }, "until Details opens")
         }
         try await host(SleepBedtimePreviewPage(.alarmProblem), ready: "sleep.bedtime.schedule") { w in
             let schedule = try frame(w, "sleep.bedtime.schedule")
@@ -198,21 +234,28 @@ import UIKit
 
     // MARK: shots
 
-    /// Every state at 402 wide (iPhone 17 Pro), 3x, paged, at the default size and AX3, into `T55_SHOTS_DIR`.
+    /// Every state at 402 wide (iPhone 17 Pro), 3x, paged, at the default size and AX3, into `T55_SHOTS_DIR`: Week and Month
+    /// here, Bedtime in `writeBedtimeShots` (each within the time limit).
     @Test func writeShots() async throws {
-        guard let dir = ProcessInfo.processInfo.environment["T55_SHOTS_DIR"] else { return }
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var pages: [(name: String, view: AnyView, ready: String)] = SleepRangePreviewPage.Scene.allCases.map {
+        try await writeShots(SleepRangePreviewPage.Scene.allCases.map {
             let ready = switch $0 {
             case .empty: "No sleep data for this range yet."
             case .failed: "sleep.range.failure.retry"
             default: "sleep.range.numeral"
             }
             return ("range-\($0.rawValue)", AnyView(SleepRangePreviewPage($0)), ready)
-        }
-        pages += SleepBedtimePreviewPage.Scene.allCases.map {
+        })
+    }
+
+    @Test func writeBedtimeShots() async throws {
+        try await writeShots(SleepBedtimePreviewPage.Scene.allCases.map {
             ("bedtime-\($0.rawValue)", AnyView(SleepBedtimePreviewPage($0)), $0 == .noSchedule ? "sleep.bedtime.setUp" : "sleep.tile.need")
-        }
+        })
+    }
+
+    private func writeShots(_ pages: [(name: String, view: AnyView, ready: String)]) async throws {
+        guard let dir = ProcessInfo.processInfo.environment["T55_SHOTS_DIR"] else { return }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for page in pages {
             for ax3 in [false, true] {
                 let ready = page.ready
