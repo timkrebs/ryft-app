@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import Testing
 import UIKit
@@ -13,8 +14,12 @@ import UIKit
 @Suite("T6B.5: History, session detail and exercise page, shots", .serialized)
 struct TrainHistoryShotsTests {
     /// The screens, each its own test (a test has a minute).
-    nonisolated static let screens = ["history", "history-empty", "session-detail", "session-detail-unscored", "exercise",
-                                      "exercise-first-time"]
+    nonisolated static let screens = ["history", "history-empty", "history-failed", "history-offline", "session-detail",
+                                      "session-detail-unscored", "exercise", "exercise-first-time", "exercise-failed",
+                                      "exercise-offline", "exercise-timed", "exercise-bodyweight"]
+
+    /// Three hours ago: the offline line's time.
+    private static var fetched: Date { .now.addingTimeInterval(-3 * 3600) }
 
     private static func view(_ name: String) -> AnyView {
         switch name {
@@ -24,6 +29,13 @@ struct TrainHistoryShotsTests {
             let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) },
                                        restore: false)
             return AnyView(NavigationStack { TrainHistoryView().trainDestinations() }.environment(library))
+        case "history-failed":
+            return AnyView(NavigationStack { TrainHistoryView() }.environment(TrainHistoryFixtures.library(cached: false, fails: true)))
+        case "history-offline":
+            let library = TrainHistoryFixtures.library()
+            let copy = TrainHistoryViewModel(library: library, sessions: MockTrain.history.reversed().map(SessionSummary.init),
+                                             fresh: false, fetchedAt: fetched)
+            return AnyView(NavigationStack { TrainHistoryPage(model: copy) }.environment(library))
         case "session-detail", "session-detail-unscored":
             let session = name == "session-detail" ? MockTrain.completed : MockTrain.completedUnscored
             return AnyView(NavigationStack { SessionDetailView(sessionID: session.id).trainDestinations() }
@@ -31,11 +43,31 @@ struct TrainHistoryShotsTests {
         case "exercise":
             return AnyView(NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id).trainDestinations() }
                 .environment(TrainHistoryFixtures.library()))
+        case "exercise-failed":
+            return AnyView(NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id, name: MockTrain.bench.name) }
+                .environment(TrainHistoryFixtures.library(cached: false, fails: true)))
+        case "exercise-offline":
+            return AnyView(NavigationStack { page(MockTrain.exerciseHistory(for: MockTrain.bench.id, sessions: MockTrain.history),
+                                                  MockTrain.bench, fresh: false) })
+        case "exercise-timed":
+            let holds = (0..<3).map { SessionSet(setIndex: $0, durationSec: 45) }
+            return AnyView(NavigationStack { page(ExerciseDetailPreview.withoutEstimates(MockTrain.plank, sets: holds), MockTrain.plank) })
+        case "exercise-bodyweight":
+            let reps = (0..<3).map { SessionSet(setIndex: $0, reps: 8) }
+            return AnyView(NavigationStack { page(ExerciseDetailPreview.withoutEstimates(MockTrain.pullUp, sets: reps), MockTrain.pullUp) })
         default:
             let history = MockTrain.firstTimeHistory(for: MockTrain.bench.id)
             return AnyView(NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id).trainDestinations() }
                 .environment(TrainHistoryFixtures.library(history: history)))
         }
+    }
+
+    /// The exercise page as read: `fresh` false is the copy on this phone, fetched three hours ago.
+    private static func page(_ history: ExerciseHistory, _ exercise: Exercise, fresh: Bool = true) -> some View {
+        let library = TrainHistoryFixtures.library()
+        let model = ExerciseDetailViewModel(exerciseID: exercise.id, history: history, library: library, clock: SystemClock(),
+                                            fresh: fresh, fetchedAt: fresh ? nil : fetched)
+        return ExerciseDetailPage(model: model).environment(library)
     }
 
     /// `TRAIN_HISTORY_SHOTS_ONLY`: a comma-separated subset of `screens`.
@@ -72,33 +104,56 @@ private extension View {
 }
 
 /// Libraries for History's tests and shots: demo data with the exercises cached, a session or an exercise history of the
-/// test's own, or a platform that never answers.
+/// test's own, or a platform that never answers or can't be reached.
 @MainActor
 enum TrainHistoryFixtures {
     static func library(session: TrainSession? = nil, history: ExerciseHistory? = nil, hangs: Bool = false,
-                        cached: Bool = true) -> TrainLibrary {
+                        cached: Bool = true, fails: Bool = false) -> TrainLibrary {
+        rig(session: session, history: history, hangs: hangs, cached: cached, fails: fails).library
+    }
+
+    /// The library with its store and its platform, whose `fails` a test switches (offline, then back).
+    static func rig(session: TrainSession? = nil, history: ExerciseHistory? = nil, hangs: Bool = false, cached: Bool = true,
+                    fails: Bool = false, list: [SessionSummary]? = nil)
+        -> (library: TrainLibrary, source: TrainHistoryFixtureSource, store: TrainStore) {
         let store = TrainStore(inMemory: true)
         if cached { store.cache(exercises: MockTrain.exercises) }
-        let source = TrainHistoryFixtureSource(session: session, history: history, hangs: hangs)
-        return TrainLibrary(store: store, remote: { source }, restore: cached)
+        let source = TrainHistoryFixtureSource(session: session, history: history, hangs: hangs, list: list)
+        source.fails = fails
+        return (TrainLibrary(store: store, remote: { source }, restore: cached), source, store)
     }
 }
 
-/// Demo data's platform, with one session or one exercise history replaced, or no answer at all (loading states).
+/// Demo data's platform, with one session, one exercise history or the session list replaced, no answer at all (loading
+/// states), or none to be had (`fails`: offline).
 final class TrainHistoryFixtureSource: TrainDataSource, @unchecked Sendable {
     private let base = MockTrainSource()
     private let session: TrainSession?
     private let history: ExerciseHistory?
     private let hangs: Bool
+    private let list: [SessionSummary]?
+    private let failing = OSAllocatedUnfairLock(initialState: false)
+    private let reads = OSAllocatedUnfairLock(initialState: 0)
 
-    init(session: TrainSession?, history: ExerciseHistory?, hangs: Bool) {
+    /// How often a whole session was asked for (the session detail reads it again when it reappears).
+    var sessionReads: Int { reads.withLock { $0 } }
+
+    /// The reads History's pages make (the list, a session, an exercise's history) throw, as offline.
+    var fails: Bool {
+        get { failing.withLock { $0 } }
+        set { failing.withLock { $0 = newValue } }
+    }
+
+    init(session: TrainSession?, history: ExerciseHistory?, hangs: Bool, list: [SessionSummary]? = nil) {
         self.session = session
         self.history = history
         self.hangs = hangs
+        self.list = list
     }
 
     private func hang() async throws {
         if hangs { try await Task.sleep(for: .seconds(60)) }
+        if fails { throw URLError(.notConnectedToInternet) }
     }
 
     func exercises() async throws -> [Exercise] { try await base.exercises() }
@@ -117,11 +172,13 @@ final class TrainHistoryFixtureSource: TrainDataSource, @unchecked Sendable {
     func planToday() async throws -> PlanToday? { try await base.planToday() }
     func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
         try await hang()
-        let list = try await base.sessions(from: from, to: to)
-        guard let session else { return list }
-        return list.map { $0.id == session.id ? SessionSummary(session) : $0 }
+        if let list { return list.filter { $0.startedAt >= from && $0.startedAt <= to } }
+        let all = try await base.sessions(from: from, to: to)
+        guard let session else { return all }
+        return all.map { $0.id == session.id ? SessionSummary(session) : $0 }
     }
     func session(id: UUID) async throws -> TrainSession {
+        reads.withLock { $0 += 1 }
         try await hang()
         if let session, session.id == id { return session }
         return try await base.session(id: id)

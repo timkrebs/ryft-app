@@ -2001,19 +2001,27 @@ struct TrainViewModelTests {
         #expect(weeks.flatMap(\.sessions).count == vm.sessions.count)
     }
 
-    @Test func exerciseDetailKeepsTheLast90Days() async {
-        let clock = TestClock(now: .now)
-        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: library(), clock: clock)
-        #expect(vm.isLoading, "outline cards before the first read, not \"Loading…\"")
-        await vm.load()
-        #expect(vm.loaded && !vm.isLoading)
-        let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
-        #expect(vm.points.allSatisfy { $0.day >= from })
-        #expect(vm.hasTrend == (vm.points.count >= 2))
-        #expect(vm.recentRows.count <= 10)
-        // Moving the clock 200 days on empties the window.
-        clock.advance(by: .seconds(200 * 86_400))
-        #expect(vm.points.isEmpty && vm.change == nil && vm.latest == nil)
+    @Test func exerciseDetailKeepsTheLast90Days() async throws {
+        // Friday 13 November 2026 at noon: the window is today and the 89 days before, from Sunday 16 August.
+        let noon = try #require(DayFormat.date(from: "2026-11-13")).addingTimeInterval(12 * 3600)
+        let clock = TestClock(now: noon)
+        let history = ExerciseHistory(exerciseId: MockTrain.bench.id, prs: [], sessions: [], e1rm: [
+            E1RMPoint(day: "2026-08-15", value: 70), // 90 days back: outside
+            E1RMPoint(day: "2026-08-16", value: 80), // 89 days back: inside
+            E1RMPoint(day: "2026-11-13", value: 92.5),
+        ])
+        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, history: history, library: library(), clock: clock)
+        #expect(vm.points.map(\.day) == ["2026-08-16", "2026-11-13"])
+        #expect(vm.latest == 92.5 && vm.change == 12.5 && vm.lastChange == 12.5, "from 80, not 70")
+        #expect(vm.hasTrend)
+        // A day on, 16 August is 90 days back too: one point left, no trend.
+        clock.advance(by: .seconds(86_400))
+        #expect(vm.points.map(\.day) == ["2026-11-13"] && !vm.hasTrend && vm.change == nil && vm.latest == 92.5)
+
+        let read = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: library(), clock: clock)
+        #expect(read.isLoading, "outline cards before the first read, not \"Loading…\"")
+        await read.load()
+        #expect(read.loaded && !read.isLoading && !read.failed && read.recentRows().count <= 10)
     }
 
     @Test func planDetailFiltersByWeek() async {
