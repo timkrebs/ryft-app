@@ -381,8 +381,43 @@ struct SignedOutOnboardingTests {
         api.failure = nil
         await model.loadPolicyIfMissing() // Try again (user-initiated: no wait after the failure)
         #expect(model.policyRead == .idle && model.policyVersion == MockData.policyVersion && model.canAgree)
-        #expect(await model.agree())
+        // The step drew another version than the current one: nothing is agreed to.
+        #expect(await !model.agree(shown: "2026-01-01"))
+        #expect(api.consentPosts.isEmpty)
+        #expect(await model.agree(shown: MockData.policyVersion))
         #expect(api.consentPosts == [MockData.policyVersion])
+    }
+
+    @Test("Consent past the config's ttl: the version is read again; a newer one is shown, not agreed to, and the tick goes")
+    func consentAfterThePolicyChanged() async throws {
+        let api = MockPlatformAPI()
+        api.accountConsent = nil
+        let clock = TestClock()
+        let state = AppState(env: AppEnvironment.test(api: api, clock: clock))
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        func caption(_ version: String) -> String {
+            String(localized: "Nothing is synced until you agree. Privacy policy version \(version).")
+        }
+        func box(_ w: HostedWindow) -> HostedWindow.Node? { w.nodes().first { $0.identifier == "consent.checkbox" } }
+        func agree(_ w: HostedWindow) -> HostedWindow.Node? { w.nodes().first { $0.identifier == "consent.agree" } }
+        try await run(Self.standard, ConsentView(model: model).previewEnvironment(state)) { w in
+            try await w.wait("the version") { w.node(caption(MockData.policyVersion)) != nil }
+            #expect(try #require(box(w)).activate())
+            try await w.wait("ticked") { box(w)?.isSelected == true && agree(w)?.isEnabled == true }
+
+            clock.advance(by: .seconds(api.remoteConfig.ttlSec + 1))
+            let newer = "2026-12-01"
+            api.remoteConfig = RemoteConfig(flags: [:], evaluatedAt: clock.now(), ttlSec: 21_600,
+                                            privacyPolicyVersion: newer, privacyPolicyUrl: nil)
+            #expect(await !model.agree(shown: MockData.policyVersion))
+            #expect(api.consentPosts.isEmpty, "nothing posted for the old version")
+            #expect(model.errorMessage
+                == String(localized: "The privacy policy was just updated. Read the new version, then agree again."))
+            #expect(model.policyVersion == newer)
+            try await w.wait("the new version") { w.node(caption(newer)) != nil }
+            try await w.wait("unticked") { box(w)?.isSelected == false }
+            #expect(agree(w)?.isEnabled == false, "Agree waits for a new tick")
+        }
     }
 
     // MARK: the first field takes the keyboard once (S4)

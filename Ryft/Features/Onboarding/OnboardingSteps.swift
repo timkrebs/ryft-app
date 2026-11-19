@@ -330,11 +330,13 @@ struct ConsentView: View {
                               identifier: "consent.policyVersion")
                     .padding(.top, OnboardingSpec.actionGap)
             }
+            // The version this step drew: a newer one arriving before the tap isn't agreed to.
+            let shown = model.policyVersion
             PillButton(model.isWorking ? Text("Saving your consent…") : Text("Agree and continue"),
                        systemImage: PillButton.Icon.confirm, busy: model.isWorking) {
-                await model.agree()
+                await model.agree(shown: shown)
             }
-            .disabled(!agreed || model.policyVersion == nil)
+            .disabled(!agreed || !model.canAgree)
             .padding(.top, model.errorMessage == nil ? ConsentSpec.primaryGap : OnboardingSpec.actionGap)
             .accessibilityIdentifier("consent.agree")
             LaterButton(title: "Not now") { model.later(.consent) }
@@ -348,6 +350,10 @@ struct ConsentView: View {
         }
         .safariSheet($legal)
         .task { await model.loadPolicyIfMissing() }
+        // Another version on screen: the tick was for the old one, so it is given again, deliberately.
+        .onChange(of: model.policyVersion) { old, new in
+            if old != nil, new != nil, old != new { agreed = false }
+        }
     }
 
     /// What agreeing records: the policy version, or that it is still on its way.

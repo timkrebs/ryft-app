@@ -243,8 +243,8 @@ final class OnboardingCoordinator {
 
     private(set) var policyRead: PolicyRead = .idle
 
-    /// Agree can run: a policy version is on screen (the one `agree()` records) and nothing else runs.
-    var canAgree: Bool { policyVersion != nil && !isWorking }
+    /// Agree has a version to record: the one on screen (while it runs, the pill shows busy).
+    var canAgree: Bool { policyVersion != nil }
 
     /// The consent step opened with no policy version: one `GET /v1/config` (joined with any read in flight), so the
     /// version agreed to is always one the screen showed. A failure leaves Agree off and the step offers Try again.
@@ -252,8 +252,7 @@ final class OnboardingCoordinator {
         guard policyVersion == nil, policyRead != .loading else { return }
         policyRead = .loading
         do {
-            let config = try await consent.fetchConfig(userInitiated: true)
-            readPolicyVersion = config?.privacyPolicyVersion ?? readPolicyVersion
+            remember(try await consent.fetchConfig(userInitiated: true))
             policyRead = policyVersion == nil ? .failed : .idle
         } catch where error.isCancellation {
             policyRead = .idle
@@ -441,6 +440,8 @@ final class OnboardingCoordinator {
         clearError()
         phase = .idle
         aboutYouSaved = false
+        readPolicyVersion = nil
+        policyRead = .idle
         firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
         aboutYouDone = account.map { defaults.bool(forKey: Self.key("aboutYouDone", $0)) } ?? false
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
@@ -469,11 +470,20 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// `POST /v1/me/consent` for the policy version on screen, then the first sync. Nothing without a version shown
-    /// (`canAgree`); a stale one is checked first, and a newer policy than the one shown is shown, not agreed to.
+    /// The version a config read brought, for when the record can't keep it (demo data).
+    private func remember(_ config: RemoteConfig?) {
+        if let version = config?.privacyPolicyVersion { readPolicyVersion = version }
+    }
+
+    /// The policy changed between drawing the step and agreeing: the new one is on screen now.
+    private struct PolicyChangedOnScreen: Error {}
+
+    /// `POST /v1/me/consent` for the policy version on screen (`shown`: the one the step drew; nil takes the current
+    /// one), then the first sync. Nothing without a version, or when `shown` isn't the current one any more; a stale
+    /// version is checked first, and a newer policy is shown, not agreed to.
     @discardableResult
-    func agree() async -> Bool {
-        guard let version = policyVersion else { return false }
+    func agree(shown: String? = nil) async -> Bool {
+        guard let version = policyVersion, shown == nil || shown == version else { return false }
         let ok = await perform {
             if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
                 // Nil: nothing was sent (offline, a Retry-After window).
@@ -481,7 +491,8 @@ final class OnboardingCoordinator {
                     throw URLError(.notConnectedToInternet)
                 }
                 guard fresh.privacyPolicyVersion == version else {
-                    throw APIError.http(422, "the policy changed since it was shown")
+                    self.remember(fresh)
+                    throw PolicyChangedOnScreen()
                 }
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
@@ -491,10 +502,15 @@ final class OnboardingCoordinator {
             self.deferred.remove(.consent)
             await self.check(force: true)
         } message: { error in
+            let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            if error is PolicyChangedOnScreen { return updated }
             guard (error as? APIError)?.status == 422 else { return nil }
-            // The text on screen was an older policy: show the new one.
-            Task { [weak self] in _ = try? await self?.consent.fetchConfig(userInitiated: true) }
-            return String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            // The platform refused an older policy than the one in force: read and show the new one.
+            Task { [weak self] in
+                guard let self else { return }
+                remember(try? await consent.fetchConfig(userInitiated: true))
+            }
+            return updated
         }
         if ok { await startSync() }
         return ok
