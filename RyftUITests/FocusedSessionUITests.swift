@@ -94,7 +94,8 @@ final class FocusedSessionUITests: XCTestCase {
 
     private func training(in app: XCUIApplication) -> XCUIElement {
         app.tab("Profile").tap()
-        let toggle = element(app, "profile.jumpToNext")
+        // The switch, by type: a grouped row's identifier also lands on a wrapper.
+        let toggle = app.switches["profile.jumpToNext"]
         requireExists(toggle, "Profile → Training")
         var swipes = 0
         while !toggle.isHittable && swipes < 10 {
@@ -114,8 +115,14 @@ final class FocusedSessionUITests: XCTestCase {
 
         app = launch(extra: Self.focusedOn)
         XCTAssertTrue(training(in: app).label.contains("Advance to the next exercise"))
-        requireExists(element(app, "profile.sessionLayout"), "the choice with the flag on")
-        app.buttons["List"].tap()
+        // Nocturne (T5.4): a menu row, its items the choices. By type: the row's identifier also lands on a wrapper.
+        let layout = app.buttons["profile.sessionLayout"]
+        requireExists(layout, "the choice with the flag on")
+        app.reveal(layout)
+        layout.tap()
+        let list = app.buttons["List"]
+        requireExists(list, "the menu's List")
+        list.tap()
         app.tab("Strain").tap()
         startTodaysPlan(in: app)
         requireExists(element(app, "set.0.1"), "List's first set row")
