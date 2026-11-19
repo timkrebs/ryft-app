@@ -331,6 +331,11 @@ struct CustomExerciseForm: View {
 
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
     private static let loadTypes: [LoadType] = [.weight, .bodyweight, .time, .distance]
+    /// Under the name while it is longer than the platform takes: "Up to 80 characters."
+    static var tooLong: Text {
+        Text("Up to \(CustomExerciseDraft.maxNameLength) characters.",
+             comment: "Under a custom exercise's name while it is too long; Add stays off. 1: the limit, 80.")
+    }
 
     init(name: String, onSave: @escaping (Exercise) -> Void) {
         _draft = State(initialValue: CustomExerciseDraft(name: name))
@@ -354,7 +359,8 @@ struct CustomExerciseForm: View {
                 .accessibilityIdentifier("customExercise.add")
         } content: {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
-                GroupedCard {
+                // Over the platform's 80 scalars, Add stays off and the reason sits under the field.
+                GroupedCard(footer: draft.nameIsTooLong ? Self.tooLong : nil) {
                     // The field's label says "Name" once: an empty prompt, not the label again.
                     FormField(Text("Name"), isFocused: nameFocused) {
                         TextField(text: $draft.name, prompt: Text(verbatim: "").fieldPrompt()) { Text("Name") }
@@ -443,6 +449,13 @@ extension AddExerciseSheet {
 
 #Preview("Custom exercise") {
     CustomExerciseForm(name: "Landmine press") { _ in }
+        .environment(TrainPreview.library)
+        .preferredColorScheme(.dark)
+}
+
+/// Over the platform's 80 scalars (11 family emoji and "Rows"): Add off, the reason under the field.
+#Preview("Custom exercise · name too long") {
+    CustomExerciseForm(name: String(repeating: "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", count: 11) + "Rows") { _ in }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }

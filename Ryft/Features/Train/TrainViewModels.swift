@@ -496,8 +496,14 @@ struct CustomExerciseDraft: Equatable {
     var loadType: LoadType = .weight
     var unilateral = false
 
+    /// The platform's limit for an exercise's name: 80 Unicode scalars. It counts runes and refuses a longer name (422), so
+    /// the count is `unicodeScalars`, not Characters (a family emoji is one Character and 7 scalars).
+    static let maxNameLength = ImportCustomExercise.maxNameLength
+
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canSave: Bool { !trimmedName.isEmpty && muscle != nil }
+    /// Longer than the platform takes: Save stays off and the form says why.
+    var nameIsTooLong: Bool { trimmedName.unicodeScalars.count > Self.maxNameLength }
+    var canSave: Bool { !trimmedName.isEmpty && !nameIsTooLong && muscle != nil }
 
     /// "Landmine press" → slug `landmine-press`.
     var slug: String {
