@@ -84,11 +84,16 @@ into force with it (Sign-out wipe, below).
 
 2026-11-19: Train never loses a workout (O1 + O2 logic, ADR 0022, `fix/train-refusals-kept`). A custom exercise made
 offline is an outbox op, sent ahead of the workouts that use it, so on reconnect it's exercise, `PUT`, `complete`. A
-refusal (`400`, `409` after the merge rounds, `413`, `422`, `404` on `complete`) keeps the op with its status, code and
-request ID on the session; that session waits for Retry or an edit, other sessions go. Every `403`, a `404` on `PUT`
-or `POST`, `426` and `5xx` hold the queue; a `2xx` the app can't read was delivered; a `complete` answered `409` means
-the platform discarded the session. A refused `PUT` of a session the platform already has doesn't hold its
-`complete`. A plan save waits up to 10 s for the custom exercises it names. Simulator-verified only: the Unit plan
+refusal (`400`, `409` after the merge rounds, `413`, `422`, any other `4xx` but the holds, `404` on `complete`, or a
+body the app can't encode) keeps the op with its status, code and request ID on the session; that session waits for
+Retry or an edit, other sessions go. Every `403`, a `404` on `PUT` or `POST`, `408`, `426`, `429` and `5xx` hold the
+queue; a `2xx` the app can't read was delivered, in Train and for activities alike (ADR 0022 §1 has the list and the
+API.md lines); a `complete` answered `409` means the platform discarded the session. A refused `PUT` of a session the
+platform already has doesn't hold its `complete`, and that completion's answer (the platform's older copy) changes
+nothing logged here, nor does one that arrives while an edit's `PUT` is queued (ADR 0022 §5). A plan save waits up to
+10 s for the custom exercises it names and is dropped if the account changes meanwhile; a custom exercise the platform
+answers without taking it no longer holds unrelated workouts; a NUL in an exercise name is dropped; Finish keeps the
+body weight on the session for Retry. No schema change (`bodyweightKg` was already an optional attribute). Simulator-verified only: the Unit plan
 (3,542 tests in 356 suites) and `TrainSessionUITests` on 27.2, and the schema, downgrade and wipe suites on 18.6 (32
 tests). **Device steps (the user):**
 1. Airplane mode: make a custom exercise, log two sets of it, Finish ("Will sync"), kill the app, network on, open it.
@@ -98,8 +103,10 @@ tests). **Device steps (the user):**
    Nothing is lost and the workout syncs.
 3. A workout with 51 exercises: Finish. It stays in history and Console shows `Train put refused: 422 <request ID>`;
    remove one exercise and it uploads.
-4. 51 sets of one exercise, with the first 50 already uploaded: Finish completes the workout (its strain shows) and
-   Console shows the `PUT` with set 51 refused (`422`).
+4. 50 sets of one exercise at 60 kg, uploaded (wait for "Synced"); then change set 1 to 65 kg and add set 51: Finish
+   completes the workout (its strain shows), Console shows that `PUT` refused (`422`), and set 1 still reads 65 kg
+   with set 51 still there. Remove set 51: the `PUT` goes, and the platform's copy (another device, or after a
+   reinstall) has set 1 at 65 kg.
 5. Downgrade: install the previous TestFlight build over this one. The workouts are still listed.
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
@@ -1678,11 +1685,10 @@ contract points are in `docs/API_REQUESTS.md`.
   shows "Couldn't sync" with Retry and Details only with O2's UI (wave 4 of `docs/work/2026-11-19-offline-first/`).
 - **Workouts an earlier build dropped aren't sent again yet.** Their ops are gone and the session still reads "Will
   sync"; the same goes for one an older build installed over this one drops. O1b queues them again at launch.
-- **A custom exercise name over 80 characters** is refused by `TrainLibrary.createExercise` (nil, with the library's
-  error), but the add-exercise sheet still falls back to the unsaved exercise: the workout's `PUT` is then refused and
-  kept. The sheet's cap and its nil handling come with Nocturne PR 6 (Train).
-- **Train's outbox has no backoff for a hold** (a `403`, a `404` on `PUT` or `POST`, `5xx`): the queue goes again at
-  the next trigger (reconnect, app active, an edit). O3 adds per-op backoff.
+- **A custom exercise name over 80 characters** turns the add-exercise sheet's Save grey, with no hint why (nothing
+  is saved or queued). The hint comes with O2's UI.
+- **Train's outbox has no backoff for a hold** (a `403`, a `404` on `PUT` or `POST`, `426`, `5xx`): the queue goes
+  again at the next trigger (reconnect, app active, an edit). O3 adds per-op backoff.
 - iOS 17 only: after "try the demo, then sign in", the account's first new rows aren't saved until a relaunch (only
   the newest SwiftData container of a schema takes inserts on iOS 17.0; T0.6). Measured fine on 18.0, 26.0 and 27.2;
   17.1–17.6 unmeasured. A consent withdrawal still holds (kept outside SwiftData). On 17.0 an account's workout
