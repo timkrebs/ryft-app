@@ -590,7 +590,8 @@ final class FocusedSessionUITests: XCTestCase {
         }
         // The hosted test can't choose a menu item: this is the one test of `onPlates` from the page.
         app.buttons["Plate calculator"].firstMatch.tap()
-        requireExists(app.navigationBars["Plate calculator"], "the plate calculator")
+        // Its sheet header's title (PR 6 B §4.6): no navigation bar since Nocturne.
+        requireExists(app.staticTexts["Plate calculator"], "the plate calculator")
     }
 
     // MARK: relaunch and remove

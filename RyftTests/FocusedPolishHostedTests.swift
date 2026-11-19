@@ -38,18 +38,29 @@ struct FocusedPolishHostedTests {
         }
     }
 
-    @Test("Finish is one line: 44 at 320, 48 elsewhere and at AX3 everywhere", arguments: [
-        (regular, 48 as CGFloat), (compact, 44), (regularAX3, 48), (compactAX3, 48),
+    /// The compact pill's one line at the header's cap (`.xxLarge`, `.large` at 320): the 44 pt box, or the line and 8 above
+    /// and below when that is taller (PR 6 B §4.1, D6B-3; it was a 48 pt capsule).
+    static func finishHeight(_ s: SizeCase) -> CGFloat {
+        let cap = s.width < 360 ? LiveSessionSpec.compactFinishCap : LiveSessionSpec.finishCap
+        let line = UIHostingController(rootView: Text(verbatim: "Finish").font(.ryft(.button))
+            .environment(\.dynamicTypeSize, min(s.size, cap)))
+            .sizeThatFits(in: CGSize(width: 400, height: 200)).height
+        return max(PillButton.compactHitHeight, line + 2 * PillButton.compactTitleVertical)
+    }
+
+    @Test("Finish is one line in its 44 pt box, at the default and AX3 sizes and at 320", arguments: [
+        regular, compact, regularAX3, compactAX3,
     ])
-    func finishHoldsItsLine(_ c: (s: SizeCase, height: CGFloat)) async throws {
+    func finishHoldsItsLine(_ s: SizeCase) async throws {
         let controller = FocusedPreview.controller(.midSession)
         defer { controller.stop() }
-        try await HostedWindow.run(width: c.s.width, height: c.s.height, typeSize: c.s.size, category: c.s.category,
+        try await HostedWindow.run(width: s.width, height: s.height, typeSize: s.size, category: s.category,
                                    SessionView(controller: controller)) { w in
             try await w.settle()
             let finish = try #require(w.node("Finish", exactly: true))
-            #expect(abs(finish.frame.height - c.height) < 0.5, "\(finish.frame)")
-            #expect(finish.frame.maxX <= c.s.width, "\(finish.frame)")
+            #expect(abs(finish.frame.height - Self.finishHeight(s)) < 0.5, "\(finish.frame)")
+            #expect(finish.frame.height < 2 * PillButton.compactHitHeight, "one line: \(finish.frame)")
+            #expect(finish.frame.maxX <= s.width, "\(finish.frame)")
         }
     }
 
@@ -60,15 +71,15 @@ struct FocusedPolishHostedTests {
     func finishHoldsItsWord(_ c: (s: SizeCase, language: String, word: String)) async throws {
         let controller = FocusedPreview.controller(.midSession)
         defer { controller.stop() }
-        let word = UIHostingController(rootView: Text(verbatim: c.word).font(.ryft(.headline))
-            .environment(\.dynamicTypeSize, .large))
+        let word = UIHostingController(rootView: Text(verbatim: c.word).font(.ryft(.button))
+            .environment(\.dynamicTypeSize, LiveSessionSpec.compactFinishCap))
         let width = word.sizeThatFits(in: CGSize(width: 400, height: 100)).width
         try await HostedWindow.run(width: c.s.width, height: c.s.height, typeSize: c.s.size, category: c.s.category,
                                    SessionView(controller: controller).environment(\.locale, Locale(identifier: c.language))) { w in
             try await w.settle()
             let finish = try #require(w.node(c.word, exactly: true), "\(w.nodes().map(\.label).prefix(8))")
-            #expect(abs(finish.frame.width - (width + 2 * 14)) < 1, "\(finish.frame), the word is \(width)")
-            #expect(abs(finish.frame.height - (c.s.size == .large ? 44 : 48)) < 0.5, "\(finish.frame)")
+            #expect(abs(finish.frame.width - (width + 2 * PillButton.compactHorizontal)) < 1, "\(finish.frame), the word is \(width)")
+            #expect(abs(finish.frame.height - PillButton.compactHitHeight) < 0.5, "\(finish.frame)")
         }
     }
 
@@ -95,22 +106,23 @@ struct FocusedPolishHostedTests {
         #expect(abs(frames[1].height - frames[0].height) < 0.5, "AX1 \(frames[0]), AX3 \(frames[1])")
     }
 
-    @Test("An unfilled Finish has an accent outline, and a filled one reads as accent to its edge", arguments: [true, false])
-    func finishOutline(dark: Bool) async throws {
+    /// PR 6 B §4.1, F14: the compact secondary pill (an ink outline at 20 % on the screen) until all-done. Dark only: the app has
+    /// one appearance. Was a teal outline on `surface`, in both appearances.
+    @Test("An unfilled Finish has an ink outline at 20 % around the screen's colour")
+    func finishOutline() async throws {
         let controller = FocusedPreview.controller(.midSession)
         defer { controller.stop() }
-        try await HostedWindow.run(width: 390, height: 844, dark: dark, SessionView(controller: controller)) { w in
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { w in
             try await w.settle()
             let frame = try #require(w.node("Finish", exactly: true)).frame
-            let scheme: ColorScheme = dark ? .dark : .light
             let edge = try #require(w.pixel(at: CGPoint(x: frame.minX + 0.5, y: frame.midY)))
             let inside = try #require(w.pixel(at: CGPoint(x: frame.minX + 4, y: frame.midY)))
-            #expect(Self.isClose(edge, to: Theme.accent, scheme), "\(edge)")
-            #expect(Self.isClose(inside, to: Theme.surface, scheme), "\(inside)")
+            #expect(Self.isClose(edge, to: Self.over(Theme.textPrimary.opacity(PillButton.outlineOpacity), Theme.background)), "\(edge)")
+            #expect(Self.isClose(inside, to: Self.rgb(Theme.background)), "\(inside)")
         }
     }
 
-    @Test("At all-done the outline goes with the fill")
+    @Test("At all-done Finish fills with ink to its edge")
     func finishFilledHasNoOutline() async throws {
         let controller = FocusedPreview.controller(.allDone)
         defer { controller.stop() }
@@ -118,15 +130,30 @@ struct FocusedPolishHostedTests {
             try await w.settle()
             let frame = try #require(w.node("Finish", exactly: true)).frame
             let inside = try #require(w.pixel(at: CGPoint(x: frame.minX + 4, y: frame.midY)))
-            #expect(Self.isClose(inside, to: Theme.accent, .dark), "\(inside)")
+            #expect(Self.isClose(inside, to: Self.rgb(Theme.textPrimary)), "\(inside)")
         }
     }
 
-    private static func isClose(_ p: (r: Double, g: Double, b: Double), to color: Color, _ scheme: ColorScheme) -> Bool {
+    typealias RGB = (r: Double, g: Double, b: Double)
+
+    static func rgb(_ color: Color) -> RGB {
         var environment = EnvironmentValues()
-        environment.colorScheme = scheme
+        environment.colorScheme = .dark
         let c = color.resolve(in: environment)
-        return abs(p.r - Double(c.red)) < 0.06 && abs(p.g - Double(c.green)) < 0.06 && abs(p.b - Double(c.blue)) < 0.06
+        return (Double(c.red), Double(c.green), Double(c.blue))
+    }
+
+    /// `top` over `bottom` in gamma sRGB, as the screen composes it.
+    static func over(_ top: Color, _ bottom: Color) -> RGB {
+        var environment = EnvironmentValues()
+        environment.colorScheme = .dark
+        let t = top.resolve(in: environment), b = rgb(bottom)
+        let a = Double(t.opacity)
+        return (Double(t.red) * a + b.r * (1 - a), Double(t.green) * a + b.g * (1 - a), Double(t.blue) * a + b.b * (1 - a))
+    }
+
+    static func isClose(_ p: RGB, to c: RGB, tolerance: Double = 0.06) -> Bool {
+        abs(p.r - c.r) < tolerance && abs(p.g - c.g) < tolerance && abs(p.b - c.b) < tolerance
     }
 
     /// Node.activate(), VoiceOver's double tap. The menu lists plates here; the tap on it is a UI test's, because a menu runs an
