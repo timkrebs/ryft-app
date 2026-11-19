@@ -245,11 +245,9 @@ enum StrainPreview {
     /// A Train coordinator of its own with a session running (the shared preview store stays idle for the others).
     @MainActor static let liveTrain: TrainCoordinator = {
         let store = TrainStore(inMemory: true)
-        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: false)
-        sync.gate = { _ in nil }
+        let sync = TrainSyncService.preview(store: store)
         _ = MockTrain.liveSession(in: store)
-        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store), liveActivities: false)
+        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store, outbox: sync), liveActivities: false)
     }()
 
     static func week(selected: Date = today) -> [DateStrip.Day] {

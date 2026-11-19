@@ -16,10 +16,8 @@ struct StrainHostedTests {
     /// suite in the same run may have left, and the section would show the in-progress banner instead of Start.
     private static let idle: TrainCoordinator = {
         let store = TrainStore(inMemory: true)
-        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: false)
-        sync.gate = { _ in nil }
-        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store), liveActivities: false)
+        let sync = TrainSyncService.preview(store: store)
+        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store, outbox: sync), liveActivities: false)
     }()
 
     private func page(_ content: StrainPageContent, add: Bool = true) -> some View {
