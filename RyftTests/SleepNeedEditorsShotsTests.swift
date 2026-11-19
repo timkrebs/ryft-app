@@ -36,6 +36,8 @@ struct SleepNeedEditorsShotsTests {
         // The review round (C3 fix round): the states that changed or are new.
         "baseline-server-error", "baseline-not-loaded", "baseline-saving", "baseline-rescoring", "baseline-rescored",
         "baseline-onboarding-saved", "max-hr-no-birth-year", "sleep-need-saving", "sleep-need-missed-failure",
+        // C3 review 2: a 429's own words.
+        "baseline-busy",
     ]
 }
 
@@ -129,6 +131,9 @@ struct SleepNeedShotScreen {
             api?.failNext = APIError.transport(URLError(.timedOut))
             await editor.setSleepBase(465)
             reseed()
+        case "baseline-busy":
+            api?.failNext = APIError.http(429, "", requestID: "01JD8K2V9Q7M3X", retryAfter: 60)
+            await editor.setSleepBase(465)
         case "baseline-server-error":
             api?.failNext = APIError.http(503, "", requestID: "01JD8K2V9Q7M3X")
             await editor.setSleepBase(465)
@@ -142,28 +147,28 @@ struct SleepNeedShotScreen {
             api?.failure = APIError.http(500, "", requestID: "01JD8K2V9Q7M3X")
             await editor.rescore()
         case "baseline-saving":
-            // Two steps up and Save, its answer held: Saving… on the pill, 8:00 on its way, Close off.
+            // Two steps up and Save, its answer held: Saving… on the pill, 8:00 on its way; Close stays on.
             api?.beforePatchMe = { [gate] in await gate.wait() }
             for _ in 0..<2 {
                 try #require(w.nodes().first { $0.isAdjustable }).increment()
                 try await w.settle()
             }
             try #require(w.nodes().first { $0.identifier == BodySetting.sleepBase.saveIdentifier }).activate()
-            try await w.wait("saving") { editor.saving }
+            try await w.wait("saving", timeout: .seconds(15)) { editor.saving }
         case "sleep-need-saving":
             // A save on its way from the editor, its answer held: the sheet's row says Saving….
             api?.beforePatchMe = { [gate] in await gate.wait() }
             Task { await editor.setSleepBase(480) }
-            try await w.wait("saving") { editor.saving }
+            try await w.wait("saving", timeout: .seconds(15)) { editor.saving }
         case "baseline-rescoring":
             // Accepted, then the network went before the reload: the last word stays "Rescoring — …".
             await editor.setSleepBase(450)
             reseed()
             Task { await editor.rescore() }
-            try await w.wait("the delay") { clock.pendingSleeps == 1 }
+            try await w.wait("the delay", timeout: .seconds(15)) { clock.pendingSleeps == 1 }
             state.env.connectivityMonitor.update(false)
             clock.advance(by: SyncService.rescoreDelay)
-            try await w.wait("done") { !editor.rescoring }
+            try await w.wait("done", timeout: .seconds(15)) { !editor.rescoring }
         case "baseline-rescored":
             await editor.setSleepBase(450)
             reseed()

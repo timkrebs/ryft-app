@@ -72,6 +72,9 @@ private let noAnswerWords = "RYFT didn't answer, so this may not have saved. Try
 private let offlineWords = "You're offline, so this wasn't saved. Try again when you're back online."
 private let serverErrorWords = "RYFT had a problem saving this, so it's back as it was. Try again in a moment."
 private let savedWords = "Saved. Past days keep their scores until you rescore them."
+/// The hosted suites' waits (C3 review 2, N6): a loaded runner lays out slowly.
+private let hostedWait: Duration = .seconds(15)
+private let busyWords = "RYFT is busy right now, so this wasn't saved. Try again in a minute."
 
 // MARK: - the stepper and the ruler
 
@@ -276,8 +279,8 @@ struct BodySettingsFailureTests {
                 == "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.")
     }
 
-    @Test("Refused (429, 409, 403, 501): it's back as it was; the request ID goes along, never the raw error text",
-          arguments: [APIError.http(429, "", requestID: "rid-429"), APIError.http(409, "conflict", requestID: "rid-409"),
+    @Test("Refused (409, 403, 501): it's back as it was; the request ID goes along, never the raw error text",
+          arguments: [APIError.http(409, "conflict", requestID: "rid-409"),
                       APIError.http(403, "forbidden", requestID: "rid-403"), APIError.http(501, "", requestID: "rid-501")])
     func refused(_ error: APIError) {
         let failure = BodySettingsFailure(save: error)
@@ -287,6 +290,44 @@ struct BodySettingsFailureTests {
         #expect(failure.message != error.localizedDescription)
         #expect(BodySettingsFailure(rescore: error).message
                 == "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.")
+    }
+
+    /// C3 review 2, N5: a 429 is RYFT being busy, in its own words, for the editors and Notifications alike; not asked again.
+    @Test("Busy (429): its own words for both callers; nothing changed, RYFT isn't asked again")
+    func busy() async {
+        let error = APIError.http(429, "", requestID: "rid-429", retryAfter: 60)
+        #expect(SettingsWriteFailure(error) == .busy && !SettingsWriteFailure(error).rereads)
+        #expect(BodySettingsFailure(save: error).message == busyWords && NotificationSettingsFailure(error).message == busyWords)
+        #expect(BodySettingsFailure(save: error).details?.contains("Request ID rid-429") == true)
+        #expect(BodySettingsFailure(rescore: error).message
+                == "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.")
+        let (api, _) = C3Platform.api()
+        let editor = BodySettingsEditor(state: makeState(api: api))
+        let reads = api.count("me")
+        api.failNext = error
+        #expect(!(await editor.setSleepBase(465)))
+        #expect(editor.error == busyWords && editor.sleepBase == 450 && !editor.savedChange)
+        #expect(api.count("me") == reads, "a 429 changed nothing: nothing to ask")
+    }
+
+    /// C3 review 2, item 3: RYFT took the change and answered in words this build can't read (`APIClient.decode` keeps the
+    /// status): no answer, which may have saved.
+    @Test("An unreadable 2xx is no answer: it may have saved, and RYFT is asked again")
+    func anUnreadableAnswer() async {
+        let unreadable = APIError.http(200, "RYFT sent an answer this version of the app can't read.", requestID: "rid-200")
+        #expect(SettingsWriteFailure(unreadable) == .noAnswer && SettingsWriteFailure(unreadable).rereads)
+        #expect(SettingsWriteFailure(APIError.http(204, "")) == .noAnswer)
+        let (api, platform) = C3Platform.api()
+        platform.onPatch = { throw unreadable }
+        let state = makeState(api: api)
+        let editor = BodySettingsEditor(state: state)
+        let reads = api.count("me")
+        #expect(await editor.setSleepBase(465), "asked again: the account holds it")
+        #expect(editor.error == nil && editor.hasSaved(.sleepBase) && api.count("me") > reads)
+        platform.applies = false
+        platform.onPatch = { throw unreadable }
+        #expect(!(await editor.setSleepBase(480)))
+        #expect(editor.error == noAnswerWords && editor.errorDetails?.contains("rid-200") == true && editor.sleepBase == 465)
     }
 
     /// The blocker (C3 review, item 1): offline with an account, a save used to wait up to 300 s for the network.
@@ -411,7 +452,8 @@ struct BodySettingsHonestyTests {
         await state.repository.store(user: MockSleepNeedStates.user, asOf: state.repository.userChange()).committed()
         await gate.open()
         #expect(!(await save.value))
-        #expect(!editor.savedChange && editor.error == nil && !editor.saving, "not Saved. on the dropped answer's word")
+        #expect(!editor.savedChange && !editor.saving, "not Saved. on the dropped answer's word")
+        #expect(editor.error == noAnswerWords, "RYFT couldn't be asked: it may not have saved (C3 review 2, N2)")
         // Asked, and RYFT holds it: Saved.
         api.faults["me"] = nil
         let gate2 = Gate()
@@ -449,7 +491,8 @@ struct BodySettingsHonestyTests {
         #expect(await eventually { editor.saving && editor.pendingSleepBase == 465 })
 
         await auth.signOut()
-        for _ in 0..<20 { await Task.yield() }
+        // The sign-out's hooks ran: the editor forgot A (its value on its way among it).
+        #expect(await eventually(timeout: .seconds(15)) { !auth.isSignedIn && !editor.saving })
         client.emit(.signedIn, .preview(id: UUID()))
         #expect(await eventually { auth.isSignedIn })
         state.user = MockSleepNeedStates.user
@@ -495,6 +538,190 @@ struct BodySettingsHonestyTests {
     }
 }
 
+// MARK: - what a save waits for (C3 review 2)
+
+/// An app graph whose Demo data switch is its own setting (never the test host's), with the account's platform and demo's.
+@MainActor
+private func switchable(account: MockPlatformAPI, demo: MockPlatformAPI) -> (AppState, Settings, TestClock) {
+    let clock = TestClock()
+    let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+    let settings = Settings(defaults: defaults)
+    settings.demoMode = false
+    account.now = { clock.now() }
+    demo.now = { clock.now() }
+    let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: account, demoAPI: demo, auth: .preview(),
+                             persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(),
+                             flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
+                             demoOverride: nil)
+    env.reads.random = { $0.lowerBound }
+    env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+    let state = AppState(env: env)
+    state.repository.widgetFile = nil
+    state.user = MockSleepNeedStates.user
+    return (state, settings, clock)
+}
+
+/// Demo data's account: a learned 7:00.
+private let demoUser = MockSleepNeedStates.user(sleepBaseMin: 420, sleepBaseSource: .learned)
+
+@MainActor
+struct BodySettingsWaitTests {
+    /// The switch as `ProfileViewModel.setDemoMode(true)` turns it.
+    private func demoOn(_ state: AppState, _ settings: Settings) async {
+        settings.demoMode = true
+        state.reset()
+        await state.refresh()
+    }
+
+    @Test("Demo data on mid-save: nothing busy, nothing of the account's; the account's late answer ends only its own write",
+          .timeLimit(.minutes(1)))
+    func demoMidSave() async {
+        let (account, accountPlatform) = C3Platform.api()
+        let (demo, _) = C3Platform.api(user: demoUser)
+        let gate = Gate()
+        account.beforePatchMe = { await gate.wait() }
+        let (state, settings, _) = switchable(account: account, demo: demo)
+        let editor = BodySettingsEditor(state: state)
+        let save = Task { await editor.setSleepBase(465) }
+        #expect(await eventually { editor.pendingSleepBase == 465 })
+        await demoOn(state, settings)
+        #expect(!editor.isBusy && editor.pendingSleepBase == nil && editor.error == nil && !editor.savedChange)
+        #expect(SleepNeedSheetContent.BaselineRow(editor: editor).value == "7:00", "demo's baseline, not Saving…")
+        // Demo's own save, held, while the account's answer arrives.
+        let demoGate = Gate()
+        demo.beforePatchMe = { await demoGate.wait() }
+        let demoSave = Task { await editor.setSleepBase(435) }
+        #expect(await eventually { editor.pendingSleepBase == 435 })
+        await gate.open()
+        #expect(!(await save.value))
+        #expect(editor.saving && editor.pendingSleepBase == 435, "the account's answer ends only its own write")
+        #expect(editor.error == nil && !editor.savedChange)
+        await demoGate.open()
+        #expect(await demoSave.value)
+        #expect(!editor.isBusy && editor.sleepBase == 435 && editor.hasSaved(.sleepBase))
+        #expect(accountPlatform.user.sleepBaseMin == 465, "the account's change stayed the account's")
+    }
+
+    @Test("Demo data on mid-rescore: nothing busy, no status of the account's; its late end ends only its own rescore",
+          .timeLimit(.minutes(1)))
+    func demoMidRescore() async {
+        let (account, _) = C3Platform.api()
+        let (demo, _) = C3Platform.api(user: demoUser)
+        let (state, settings, clock) = switchable(account: account, demo: demo)
+        let editor = BodySettingsEditor(state: state)
+        let run = Task { await editor.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 1 && editor.rescoreStatus != nil })
+        await demoOn(state, settings)
+        #expect(!editor.isBusy && editor.rescoreStatus == nil && !editor.rescoreFailed)
+        // Demo's own rescore waits a second longer than the account's.
+        clock.advance(by: .seconds(1))
+        let demoRun = Task { await editor.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 2 })
+        clock.advance(by: SyncService.rescoreDelay - .seconds(1))
+        await run.value
+        #expect(editor.rescoring && editor.rescoreStatus == "Rescoring — scores update in a few seconds.", "demo's still runs")
+        clock.advance(by: .seconds(1))
+        await demoRun.value
+        #expect(!editor.isBusy && editor.rescored)
+        #expect(account.count("recompute") == 1 && demo.count("recompute") == 1)
+    }
+
+    @Test("No answer within 25 s: the editor stops waiting, says it may not have saved, and asks RYFT; a late answer settles it",
+          .timeLimit(.minutes(1)))
+    func theDeadline() async {
+        let (api, platform) = C3Platform.api()
+        let gate = Gate()
+        platform.applies = false
+        platform.onPatch = { await gate.wait() }
+        let clock = TestClock()
+        let state = AppState(env: .test(api: api, clock: clock))
+        state.user = MockSleepNeedStates.user
+        let editor = BodySettingsEditor(state: state)
+        let reads = api.count("me")
+        let save = Task { await editor.setSleepBase(465) }
+        #expect(await eventually { editor.saving && clock.pendingSleeps == 1 })
+        clock.advance(by: BodySettingsEditor.answerDeadline - .seconds(1))
+        #expect(editor.saving, "24 s: still waiting")
+        clock.advance(by: .seconds(1))
+        #expect(!(await save.value))
+        #expect(!editor.saving && editor.error == noAnswerWords && editor.sleepBase == 450)
+        #expect(api.count("me") > reads, "asked again")
+        // The answer arrives after all, and the store takes it: the account holds the change, so it's Saved.
+        await gate.open()
+        #expect(await eventually { editor.error == nil && editor.hasSaved(.sleepBase) && editor.sleepBase == 465 })
+    }
+
+    @Test("The network goes mid-save: no answer at once, nothing asked offline; online, the next refresh asks and settles it",
+          .timeLimit(.minutes(1)))
+    func offlineMidSaveThenRefresh() async {
+        let (api, platform) = C3Platform.api()
+        let gate = Gate()
+        // RYFT took it; the answer is held.
+        platform.onPatch = { await gate.wait() }
+        let state = makeState(api: api)
+        let monitor = state.env.connectivityMonitor
+        let editor = BodySettingsEditor(state: state)
+        let reads = api.count("me")
+        let save = Task { await editor.setSleepBase(465) }
+        #expect(await eventually { editor.saving })
+        monitor.update(false)
+        #expect(!(await save.value))
+        #expect(!editor.saving && editor.error == noAnswerWords && api.count("me") == reads, "offline: nothing asked")
+        #expect(SleepNeedSheetContent.BaselineRow(editor: editor).value == "7:30")
+        monitor.update(true)
+        await state.refresh()
+        #expect(api.count("me") == reads + 1, "the cached user was fresh, but marked: asked")
+        #expect(SleepNeedSheetContent.BaselineRow(editor: editor).value == "7:45", "what the platform holds")
+        #expect(await eventually { editor.error == nil && editor.hasSaved(.sleepBase) }, "held: Saved. after all")
+        await state.refresh()
+        #expect(api.count("me") == reads + 1, "asked once: the mark went with the answer")
+        await gate.open()
+    }
+
+    @Test("RYFT can't be asked after no answer: the cached user is marked, and the next refresh asks and settles it",
+          .timeLimit(.minutes(1)))
+    func aFailedRereadMarksTheUser() async {
+        let (api, platform) = C3Platform.api()
+        platform.onPatch = { throw APIError.transport(URLError(.timedOut)) }
+        let state = makeState(api: api)
+        let editor = BodySettingsEditor(state: state)
+        api.faults["me"] = FaultInjection.Rule(.notFound)
+        #expect(!(await editor.setSleepBase(465)))
+        #expect(editor.error == noAnswerWords && editor.sleepBase == 450)
+        api.faults["me"] = nil
+        let reads = api.count("me")
+        await state.refresh()
+        #expect(api.count("me") == reads + 1)
+        #expect(await eventually { editor.error == nil && editor.sleepBase == 465 && editor.hasSaved(.sleepBase) })
+    }
+
+    @Test("Saved is the saved setting's: the other page's words stay unsaid (C3 review 2, N1)")
+    func savedIsTheSettings() async {
+        let editor = BodySettingsEditor(state: makeState())
+        #expect(await editor.setSleepBase(465))
+        #expect(editor.hasSaved(.sleepBase) && !editor.hasSaved(.maxHR) && editor.savedChange)
+        #expect(await editor.setBirthYear(1991))
+        #expect(!editor.hasSaved(.sleepBase) && !editor.hasSaved(.maxHR) && editor.savedChange, "no page of its own")
+    }
+
+    @Test("The rescore's reload failed: it stays \"Rescoring — …\", never rescored (C3 review 2, N4)", .timeLimit(.minutes(1)))
+    func aFailedReloadIsNotRescored() async {
+        let (api, _) = C3Platform.api()
+        let clock = TestClock()
+        let state = AppState(env: .test(api: api, clock: clock))
+        state.user = MockSleepNeedStates.user
+        let editor = BodySettingsEditor(state: state)
+        api.faults["days"] = FaultInjection.Rule(.notFound)
+        let run = Task { await editor.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncService.rescoreDelay)
+        await run.value
+        #expect(!editor.rescoring && !editor.rescored && !editor.rescoreFailed)
+        #expect(editor.rescoreStatus == "Rescoring — scores update in a few seconds.")
+        #expect(api.count("days") >= 1, "asked, not answered")
+    }
+}
+
 // MARK: - Notifications: the same classifier
 
 @MainActor
@@ -502,7 +729,8 @@ struct NotificationFailuresTests {
     @Test("Notifications judge a failure by what left the phone, as the editors do", arguments: [
         (APIError.transport(URLError(.notConnectedToInternet)), SettingsWriteFailure.offline),
         (APIError.transport(URLError(.timedOut)), .noAnswer), (APIError.transport(URLError(.networkConnectionLost)), .noAnswer),
-        (APIError.http(500, ""), .serverError), (APIError.http(429, ""), .refused),
+        (APIError.http(500, ""), .serverError), (APIError.http(429, ""), .busy), (APIError.http(200, ""), .noAnswer),
+        (APIError.http(409, ""), .refused),
     ])
     func classified(_ error: APIError, _ kind: SettingsWriteFailure) {
         let failure = NotificationSettingsFailure(error)
@@ -535,7 +763,90 @@ struct NotificationFailuresTests {
         let reads = api.count("me")
         await model.set(.pr, on: false)
         #expect(model.failure?.message == serverErrorWords && model.failure?.details?.contains("rid-503") == true)
+        await model.asking?.value
         #expect(model.isOn(.pr) && api.count("me") > reads)
+    }
+
+    /// C3 review 2, N3: the question after a failure runs outside the save's turn.
+    @Test("The question after a 5xx doesn't hold the switches: they're free while it's out", .timeLimit(.minutes(1)))
+    func theQuestionDoesntHoldTheSwitches() async {
+        let (model, api) = model()
+        let gate = Gate()
+        api.beforeMe = { await gate.wait() }
+        api.failNext = APIError.http(503, "")
+        await model.set(.pr, on: false)
+        #expect(!model.saving && model.failure?.kind == .serverError, "back as it went, and free, while RYFT is asked")
+        await gate.open()
+        await model.asking?.value
+        #expect(model.isOn(.pr) && model.failure?.kind == .serverError, "RYFT doesn't hold it: the notice stays")
+    }
+
+    @Test("Asked again, only the change's own key decides: another device's change of the rest doesn't keep the notice")
+    func onlyTheChangedKeyDecides() async {
+        let (model, api) = model()
+        // RYFT took it, and another device turned the morning score off meanwhile.
+        var categories = NotificationPrefs.allOn.categories
+        categories[NotificationCategory.pr.rawValue] = false
+        categories[NotificationCategory.morningScore.rawValue] = false
+        api.prefs = NotificationPrefs(categories: categories, quietHours: nil)
+        api.failNext = APIError.http(503, "")
+        await model.set(.pr, on: false)
+        await model.asking?.value
+        #expect(model.failure == nil, "it did save")
+        #expect(!model.isOn(.pr) && !model.isOn(.morningScore), "the page shows what RYFT holds")
+    }
+
+    @Test("A question that fails changes nothing: the page stays as it went back, the notice stays")
+    func aFailedQuestionChangesNothing() async {
+        let (model, api) = model()
+        var categories = NotificationPrefs.allOn.categories
+        categories[NotificationCategory.pr.rawValue] = false
+        api.prefs = NotificationPrefs(categories: categories, quietHours: nil)
+        api.faults["me"] = FaultInjection.Rule(.notFound)
+        api.failNext = APIError.http(503, "")
+        await model.set(.pr, on: false)
+        await model.asking?.value
+        #expect(model.isOn(.pr) && model.failure?.kind == .serverError)
+    }
+}
+
+/// The UIKit pickers under `view` (a compact `DatePicker` is one).
+@MainActor
+private func datePickers(_ view: UIView?) -> [UIDatePicker] {
+    guard let view else { return [] }
+    if let picker = view as? UIDatePicker { return [picker] }
+    return view.subviews.flatMap { datePickers($0) }
+}
+
+@MainActor
+@Suite("C3: Notifications offline, hosted", .serialized)
+struct NotificationsOfflineHostedTests {
+    /// C3 review 2, N3: checked in the simulator, kept as a test.
+    @Test("Offline, a time the wheel stopped on goes back: the wheel shows the saved time, the notice says why")
+    func anOfflineTimeGoesBack() async throws {
+        let notifier = MockNotifier()
+        notifier.status = .authorized
+        let state = AppState(env: .test(api: MockPlatformAPI(), notifier: notifier, flags: [.pushEnabled: true], online: false))
+        var user = MockData.user
+        user.notifications = NotificationPrefs(categories: user.notifications.categories,
+                                               quietHours: QuietHours(from: "22:30", to: "07:00"))
+        state.user = user
+        let view = NavigationStack { NotificationSettingsView() }
+            .previewEnvironment(state)
+            .toggleStyle(.ryft)
+            .environment(\.locale, Locale(identifier: "en_US"))
+        try await HostedWindow.run(width: 390, height: 1_400, view) { w in
+            try await w.wait("the time chips", timeout: hostedWait) { datePickers(w.host.view).count == 2 }
+            try await w.settle()
+            let from = try #require(datePickers(w.host.view).first)
+            #expect(NotificationSettingsViewModel.string(from.date) == "22:30")
+            from.date = Calendar.current.date(bySettingHour: 23, minute: 15, second: 0, of: from.date) ?? from.date
+            from.sendActions(for: .valueChanged)
+            try await w.wait("the notice", timeout: hostedWait) { w.node(offlineWords, exactly: true) != nil }
+            try await w.settle()
+            let shown = datePickers(w.host.view).first.map { NotificationSettingsViewModel.string($0.date) }
+            #expect(shown == "22:30", "the wheel is back on the saved time, not the unsaved 23:15")
+        }
     }
 }
 
@@ -641,7 +952,7 @@ struct BodySettingsEditorHostedTests {
         try await HostedWindow.run(width: Self.width, height: Self.height, bottomInset: 34,
                                    typeSize: ax3 ? .accessibility3 : .large, category: ax3 ? .accessibilityExtraLarge : .large,
                                    page.previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US"))) { w in
-            try await w.wait("the stepper") { w.nodes().contains { $0.isAdjustable } }
+            try await w.wait("the stepper", timeout: hostedWait) { w.nodes().contains { $0.isAdjustable } }
             try await w.settle()
             try await body(w, editor)
         }
@@ -669,10 +980,12 @@ struct BodySettingsEditorHostedTests {
             #expect(!w.nodes().contains { $0.label == "Less" || $0.label == "More" })
             #expect(!w.nodes().contains { $0.identifier == "bodySettings.ruler" })
             element.increment()
-            try await w.wait("a step up") { (try? stepper(w).value) == (setting == .sleepBase ? "7 hours 45 minutes" : "191 beats per minute") }
+            let up = setting == .sleepBase ? "7 hours 45 minutes" : "191 beats per minute"
+            try await w.wait("a step up", timeout: hostedWait) { (try? stepper(w).value) == up }
             try stepper(w).decrement()
             try stepper(w).decrement()
-            try await w.wait("two down") { (try? stepper(w).value) == (setting == .sleepBase ? "7 hours 15 minutes" : "189 beats per minute") }
+            let down = setting == .sleepBase ? "7 hours 15 minutes" : "189 beats per minute"
+            try await w.wait("two down", timeout: hostedWait) { (try? stepper(w).value) == down }
         }
     }
 
@@ -683,11 +996,11 @@ struct BodySettingsEditorHostedTests {
         try await host(state: makeState(api: api, user: user)) { w, _ in
             #expect(try stepper(w).value == "7 hours 40 minutes")
             try stepper(w).increment()
-            try await w.wait("7:45") { (try? stepper(w).value) == "7 hours 45 minutes" }
+            try await w.wait("7:45", timeout: hostedWait) { (try? stepper(w).value) == "7 hours 45 minutes" }
             try stepper(w).decrement()
-            try await w.wait("7:30") { (try? stepper(w).value) == "7 hours 30 minutes" }
+            try await w.wait("7:30", timeout: hostedWait) { (try? stepper(w).value) == "7 hours 30 minutes" }
             try stepper(w).decrement()
-            try await w.wait("7:15") { (try? stepper(w).value) == "7 hours 15 minutes" }
+            try await w.wait("7:15", timeout: hostedWait) { (try? stepper(w).value) == "7 hours 15 minutes" }
         }
     }
 
@@ -697,32 +1010,32 @@ struct BodySettingsEditorHostedTests {
             #expect(try save(w).isEnabled == false)
             #expect(w.node("Set by you", exactly: true) != nil)
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             #expect(node(w, "bodySettings.source")?.label == "Set by you, saved 7 hours 30 minutes", "not 7:30 as a time of day")
         }
         try await host(.maxHR) { w, _ in
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w, .maxHR).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w, .maxHR).isEnabled) == true }
             #expect(node(w, "bodySettings.source")?.label == "Estimated from your age (born 1990), saved 190 beats per minute")
         }
     }
 
-    @Test("Saving: the pill says Saving… and is busy, the stepper and Close are off; Saved: the notice, the rescore row, Save off")
+    @Test("Saving: the pill says Saving… and is busy, the stepper is off, Close isn't; Saved: the notice, the rescore row, Save off")
     func savingThenSaved() async throws {
         let (api, _) = C3Platform.api()
         let gate = Gate()
         api.beforePatchMe = { await gate.wait() }
         try await host(state: makeState(api: api)) { w, editor in
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             try save(w).activate()
-            try await w.wait("Saving…") { (try? save(w).label) == "Saving…" }
+            try await w.wait("Saving…", timeout: hostedWait) { (try? save(w).label) == "Saving…" }
             #expect(try save(w).value == "In progress")
             #expect(try stepper(w).isEnabled == false)
-            #expect(node(w, "subpage.close")?.isEnabled == false, "the page stays while its save is out")
+            #expect(node(w, "subpage.close")?.isEnabled == true, "the page may go while its save is out (C3 review 2, item 2)")
             #expect(!w.nodes().contains { $0.label.hasPrefix("Saved.") }, "nothing reads as saved yet")
             await gate.open()
-            try await w.wait("Saved") { w.node(savedWords) != nil }
+            try await w.wait("Saved", timeout: hostedWait) { w.node(savedWords) != nil }
             try await w.settle()
             let pill = try save(w), value = try stepper(w)
             #expect(pill.label == "Save" && !pill.isEnabled)
@@ -732,7 +1045,7 @@ struct BodySettingsEditorHostedTests {
         }
     }
 
-    @Test("Opened while a save is out: Saving…, the value on its way, Close off; then its answer on this page")
+    @Test("Opened while a save is out: Saving…, the value on its way, Close on; then its answer on this page")
     func reopenedMidSave() async throws {
         let (api, _) = C3Platform.api()
         let gate = Gate()
@@ -745,13 +1058,33 @@ struct BodySettingsEditorHostedTests {
             let pill = try save(w), value = try stepper(w)
             #expect(pill.label == "Saving…" && pill.value == "In progress")
             #expect(value.value == "8 hours" && !value.isEnabled)
-            #expect(node(w, "subpage.close")?.isEnabled == false)
+            #expect(node(w, "subpage.close")?.isEnabled == true)
             await gate.open()
             _ = await saving.value
-            try await w.wait("Saved") { w.node(savedWords) != nil }
+            try await w.wait("Saved", timeout: hostedWait) { w.node(savedWords) != nil }
             try await w.settle()
             let after = try save(w), stepped = try stepper(w)
             #expect(after.label == "Save" && stepped.value == "8 hours" && stepped.isEnabled)
+        }
+    }
+
+    @Test("Another setting's page open while a save is out: that save's Saved isn't said there (C3 review 2, N1)")
+    func savedIsItsOwnPages() async throws {
+        let (api, _) = C3Platform.api()
+        let gate = Gate()
+        api.beforePatchMe = { await gate.wait() }
+        let state = makeState(api: api)
+        let editor = BodySettingsEditor(state: state)
+        let saving = Task { await editor.setSleepBase(480) }
+        #expect(await eventually { editor.saving })
+        try await host(.maxHR, state: state, editor: editor) { w, _ in
+            await gate.open()
+            #expect(await saving.value)
+            try await w.settle()
+            #expect(editor.hasSaved(.sleepBase) && !editor.hasSaved(.maxHR))
+            #expect(w.node(savedWords) == nil && node(w, "bodySettings.rescore") == nil, "the baseline's Saved isn't this page's")
+            let pill = try save(w, .maxHR), value = try stepper(w)
+            #expect(pill.label == "Save" && value.isEnabled)
         }
     }
 
@@ -774,9 +1107,9 @@ struct BodySettingsEditorHostedTests {
         }
         try await host(state: makeState(api: api, online: online)) { w, editor in
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             try save(w).activate()
-            try await w.wait("the notice") { w.node(message, exactly: true) != nil }
+            try await w.wait("the notice", timeout: hostedWait) { w.node(message, exactly: true) != nil }
             try await w.settle()
             let notice = try #require(w.node(message, exactly: true))
             let value = try stepper(w)
@@ -798,11 +1131,11 @@ struct BodySettingsEditorHostedTests {
         let (api, _) = C3Platform.api()
         try await host(state: makeState(api: api)) { w, editor in
             await editor.setSleepBase(465)
-            try await w.wait("the rescore row") { w.nodes().contains { $0.identifier == "bodySettings.rescore" } }
+            try await w.wait("the rescore row", timeout: hostedWait) { w.nodes().contains { $0.identifier == "bodySettings.rescore" } }
             api.failure = APIError.http(500, "", requestID: "rid-rescore")
             try #require(w.nodes().first { $0.identifier == "bodySettings.rescore" }).activate()
             let message = "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment."
-            try await w.wait("the rescore notice") { w.node(message) != nil }
+            try await w.wait("the rescore notice", timeout: hostedWait) { w.node(message) != nil }
             try await w.settle()
             let row = try #require(w.nodes().first { $0.identifier == "bodySettings.rescore" })
             let notice = try #require(w.node(message))
@@ -821,19 +1154,19 @@ struct BodySettingsEditorHostedTests {
         state.user = MockSleepNeedStates.user
         try await host(state: state) { w, editor in
             await editor.setSleepBase(465)
-            try await w.wait("the rescore row") { node(w, "bodySettings.rescore") != nil }
+            try await w.wait("the rescore row", timeout: hostedWait) { node(w, "bodySettings.rescore") != nil }
             try #require(node(w, "bodySettings.rescore")).activate()
             // Waited for outside `#expect`: a closure inside its expansion here trips the compiler (closure type mismatch).
-            try await w.wait("the delay", timeout: .seconds(10)) { clock.pendingSleeps == 1 }
+            try await w.wait("the delay", timeout: hostedWait) { clock.pendingSleeps == 1 }
             clock.advance(by: SyncService.rescoreDelay)
-            try await w.wait("rescored", timeout: .seconds(10)) { w.node("The last 90 days are rescored with your settings.") != nil }
+            try await w.wait("rescored", timeout: hostedWait) { w.node("The last 90 days are rescored with your settings.") != nil }
             try await w.settle()
             #expect(node(w, "bodySettings.rescore")?.isEnabled == false, "nothing new to rescore")
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             try save(w).activate()
-            try await w.wait("Saved again") { w.node(savedWords) != nil }
-            try await w.wait("the row is back") { node(w, "bodySettings.rescore")?.isEnabled == true }
+            try await w.wait("Saved again", timeout: hostedWait) { w.node(savedWords) != nil }
+            try await w.wait("the row is back", timeout: hostedWait) { node(w, "bodySettings.rescore")?.isEnabled == true }
         }
     }
 
@@ -848,8 +1181,8 @@ struct BodySettingsEditorHostedTests {
             #expect(row.label == (setting == .sleepBase ? "Use RYFT's estimate" : "Use the estimate"))
             row.activate()
             let expected = setting == .sleepBase ? "7 hours 52 minutes" : "\(estimate) beats per minute"
-            try await w.wait("the numeral follows") { (try? stepper(w).value) == expected }
-            try await w.wait("Saved") { w.node(savedWords) != nil }
+            try await w.wait("the numeral follows", timeout: hostedWait) { (try? stepper(w).value) == expected }
+            try await w.wait("Saved", timeout: hostedWait) { w.node(savedWords) != nil }
             #expect(node(w, "bodySettings.useEstimate") == nil, "RYFT's value now: nothing to go back to")
         }
     }
@@ -879,9 +1212,9 @@ struct BodySettingsEditorHostedTests {
     func onboardingHasNoRescore() async throws {
         try await host(rescores: false) { w, _ in
             try stepper(w).increment()
-            try await w.wait("Save on") { (try? save(w).isEnabled) == true }
+            try await w.wait("Save on", timeout: hostedWait) { (try? save(w).isEnabled) == true }
             try save(w).activate()
-            try await w.wait("Saved") { w.node("Saved.", exactly: true) != nil }
+            try await w.wait("Saved", timeout: hostedWait) { w.node("Saved.", exactly: true) != nil }
             try await w.settle()
             #expect(node(w, "bodySettings.rescore") == nil && w.node(savedWords) == nil)
         }
@@ -944,7 +1277,7 @@ struct BodySettingsPlacementHostedTests {
         }
     }
 
-    @Test("As Profile's and onboarding's sheet: Close; off mid-save, no swipe away; onboarding offers no rescore",
+    @Test("As Profile's and onboarding's sheet: Close, on mid-save, and the sheet swipes away; onboarding offers no rescore",
           arguments: [true, false])
     func asASheet(rescores: Bool) async throws {
         let (api, _) = C3Platform.api()
@@ -953,25 +1286,25 @@ struct BodySettingsPlacementHostedTests {
         let state = makeState(api: api)
         let editor = BodySettingsEditor(state: state)
         try await host(BodySettingSheetHost(editor: editor, rescores: rescores), state: state) { w in
-            try await w.wait("the sheet") { sheetStepper(w) != nil && sheetNode(w, "subpage.close") != nil }
+            try await w.wait("the sheet", timeout: hostedWait) { sheetStepper(w) != nil && sheetNode(w, "subpage.close") != nil }
             try await w.settle()
             #expect(sheetNode(w, "subpage.back") == nil)
             sheetStepper(w)?.object.accessibilityIncrement()
-            try await w.wait("Save on") { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
+            try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
             sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
-            try await w.wait("Saving…") { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
-            #expect(sheetNode(w, "subpage.close")?.isEnabled == false)
-            #expect(w.host.presentedViewController?.isModalInPresentation == true, "no swipe down mid-save")
+            try await w.wait("Saving…", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
+            #expect(sheetNode(w, "subpage.close")?.isEnabled == true)
+            #expect(w.host.presentedViewController?.isModalInPresentation == false, "a swipe down leaves mid-save too")
             await gate.open()
             let saved = rescores ? savedWords : "Saved."
-            try await w.wait("Saved") { sheetNodes(w).contains { $0.label == saved } }
+            try await w.wait("Saved", timeout: hostedWait) { sheetNodes(w).contains { $0.label == saved } }
             #expect(sheetNode(w, "subpage.close")?.isEnabled == true)
             #expect(w.host.presentedViewController?.isModalInPresentation == false)
             #expect((sheetNode(w, "bodySettings.rescore") != nil) == rescores)
         }
     }
 
-    @Test("Pushed inside Sleep's need sheet: Back (no Close), the sheet's 26 pt inset, Back off while the save is out")
+    @Test("Pushed inside Sleep's need sheet: Back (no Close), the sheet's 26 pt inset, Back on while the save is out")
     func pushedInTheNeedSheet() async throws {
         let (api, _) = C3Platform.api()
         let gate = Gate()
@@ -982,7 +1315,7 @@ struct BodySettingsPlacementHostedTests {
             SleepNeedSheet(need: MockSleepNeedStates.need, total: "8h 18m", night: "Last night · Sun, Nov 15", editor: editor)
         }
         try await host(sheet, state: state) { w in
-            try await w.wait("the need sheet") { sheetNode(w, "sleepNeed.changeBaseline") != nil }
+            try await w.wait("the need sheet", timeout: hostedWait) { sheetNode(w, "sleepNeed.changeBaseline") != nil }
             try await w.settle()
             let close = try #require(sheetNode(w, "subpage.close"))
             // The sheet's top edge on screen (its view's frame is in the transition container's coordinates).
@@ -990,7 +1323,7 @@ struct BodySettingsPlacementHostedTests {
             let sheetTop = sheetView.convert(sheetView.bounds, to: nil).minY
             let rootInset = close.frame.minY - sheetTop
             sheetNode(w, "sleepNeed.changeBaseline")?.activate()
-            try await w.wait("the editor") { sheetNode(w, "subpage.back") != nil && sheetStepper(w) != nil }
+            try await w.wait("the editor", timeout: hostedWait) { sheetNode(w, "subpage.back") != nil && sheetStepper(w) != nil }
             try await w.settle()
             let back = try #require(sheetNode(w, "subpage.back"))
             #expect(abs((back.frame.minY - sheetTop) - rootInset) < 1,
@@ -998,14 +1331,90 @@ struct BodySettingsPlacementHostedTests {
             #expect(abs(rootInset - (SubpageSpec.sheetTopInset - ScreenHeaderSpec.buttonOverhang)) < 1, "\(rootInset)")
             #expect(sheetNodes(w).contains { $0.label == "Baseline sleep need" && $0.traits.contains(.header) })
             sheetStepper(w)?.object.accessibilityIncrement()
-            try await w.wait("Save on") { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
+            try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
             sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
-            try await w.wait("Saving…") { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
-            #expect(sheetNode(w, "subpage.back")?.isEnabled == false)
-            #expect(w.host.presentedViewController?.isModalInPresentation == true)
-            await gate.open()
-            try await w.wait("Saved") { sheetNodes(w).contains { $0.label == savedWords } }
+            try await w.wait("Saving…", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…" }
             #expect(sheetNode(w, "subpage.back")?.isEnabled == true)
+            #expect(w.host.presentedViewController?.isModalInPresentation == false)
+            await gate.open()
+            try await w.wait("Saved", timeout: hostedWait) { sheetNodes(w).contains { $0.label == savedWords } }
+            #expect(sheetNode(w, "subpage.back")?.isEnabled == true)
+        }
+    }
+
+    /// C3 review 2, item 2: the page doesn't hold the user while its save is out.
+    @Test("Close mid-save: the sheet goes, the save goes on, and its failure is kept for where the user is")
+    func closedMidSave() async throws {
+        let (api, platform) = C3Platform.api()
+        let gate = Gate()
+        platform.applies = false
+        platform.onPatch = {
+            await gate.wait()
+            throw APIError.transport(URLError(.timedOut))
+        }
+        let state = makeState(api: api)
+        let editor = BodySettingsEditor(state: state)
+        try await host(BodySettingSheetHost(editor: editor, rescores: true), state: state) { w in
+            try await w.wait("the sheet", timeout: hostedWait) { sheetStepper(w) != nil }
+            try await w.settle()
+            sheetStepper(w)?.object.accessibilityIncrement()
+            try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
+            sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
+            try await w.wait("Saving…", timeout: hostedWait) { editor.saving }
+            sheetNode(w, "subpage.close")?.activate()
+            try await w.wait("the sheet went", timeout: hostedWait) { w.host.presentedViewController == nil }
+            #expect(editor.saving && editor.pendingSleepBase == 465, "the save goes on")
+            await gate.open()
+            try await w.wait("the failure", timeout: hostedWait) { editor.error != nil }
+            #expect(editor.error == noAnswerWords && editor.errorMissed, "said where the user is: About you, the need sheet")
+        }
+    }
+
+    /// The navigation stack inside the presented sheet.
+    private func navigation(in controller: UIViewController?) -> UINavigationController? {
+        guard let controller else { return nil }
+        if let navigation = controller as? UINavigationController { return navigation }
+        return controller.children.lazy.compactMap { self.navigation(in: $0) }.first
+    }
+
+    /// C3 review 2, item 5: Back (or the edge swipe) while the save is out; its failure arrives on the need sheet.
+    @Test("Back mid-save in the need sheet: the row says Saving…, then the failure is under it")
+    func backMidSave() async throws {
+        let (api, platform) = C3Platform.api()
+        let gate = Gate()
+        platform.applies = false
+        platform.onPatch = {
+            await gate.wait()
+            throw APIError.transport(URLError(.timedOut))
+        }
+        let state = makeState(api: api)
+        let editor = BodySettingsEditor(state: state)
+        let sheet = SheetHost {
+            SleepNeedSheet(need: MockSleepNeedStates.need, total: "8h 18m", night: "Last night · Sun, Nov 15", editor: editor)
+        }
+        try await host(sheet, state: state) { w in
+            try await w.wait("the need sheet", timeout: hostedWait) { sheetNode(w, "sleepNeed.changeBaseline") != nil }
+            try await w.settle()
+            sheetNode(w, "sleepNeed.changeBaseline")?.activate()
+            try await w.wait("the editor", timeout: hostedWait) { sheetNode(w, "subpage.back") != nil && sheetStepper(w) != nil }
+            try await w.settle()
+            sheetStepper(w)?.object.accessibilityIncrement()
+            try await w.wait("Save on", timeout: hostedWait) { sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.isEnabled == true }
+            sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.activate()
+            try await w.wait("Saving…", timeout: hostedWait) {
+                sheetNode(w, BodySetting.sleepBase.saveIdentifier)?.label == "Saving…"
+            }
+            // As the edge swipe ends: UIKit pops, SwiftUI follows.
+            let stack = try #require(navigation(in: w.host.presentedViewController))
+            stack.popViewController(animated: false)
+            try await w.wait("the need sheet again", timeout: hostedWait) {
+                sheetNode(w, "sleepNeed.changeBaseline") != nil && sheetStepper(w) == nil
+            }
+            #expect(sheetNode(w, "sleepNeed.changeBaseline")?.value == "Saving…")
+            await gate.open()
+            try await w.wait("the failure under the row", timeout: hostedWait) { sheetNode(w, "sleepNeed.baselineError") != nil }
+            #expect(sheetNode(w, "sleepNeed.baselineError")?.label.contains(noAnswerWords) == true)
+            #expect(sheetNode(w, "sleepNeed.changeBaseline")?.value == "7 hours 30 minutes, Set by you")
         }
     }
 
@@ -1044,15 +1453,15 @@ struct BodySettingsPlacementHostedTests {
         let editor = screens.profile.bodySettings
         try await HostedWindow.run(width: 390, height: 3_200, view) { w in
             let id = ProfileRow.sleepBase.identifier
-            try await w.wait("the row") { w.nodes().contains { $0.identifier == id } }
+            try await w.wait("the row", timeout: hostedWait) { w.nodes().contains { $0.identifier == id } }
             try await w.settle()
             #expect(w.nodes().first { $0.identifier == id }?.value == "7h 30m, Set by you · learned 7h 52m")
             let saving = Task { await editor.setSleepBase(480) }
-            try await w.wait("Saving…") { w.nodes().first { $0.identifier == id }?.value == "Saving…" }
+            try await w.wait("Saving…", timeout: hostedWait) { w.nodes().first { $0.identifier == id }?.value == "Saving…" }
             #expect(!w.nodes().contains { ($0.value ?? "").contains("8h") }, "the value on its way is the editor's alone")
             await gate.open()
             _ = await saving.value
-            try await w.wait("the failure, where the user is") { w.node(noAnswerWords, exactly: true) != nil }
+            try await w.wait("the failure, where the user is", timeout: hostedWait) { w.node(noAnswerWords, exactly: true) != nil }
             #expect(w.nodes().first { $0.identifier == id }?.value == "7h 30m, Set by you · learned 7h 52m")
         }
     }
@@ -1072,7 +1481,7 @@ struct SleepNeedHostedTests {
         try await HostedWindow.run(width: 390, height: ax3 ? 2_400 : 1_000, bottomInset: 0,
                                    typeSize: ax3 ? .accessibility3 : .large, category: ax3 ? .accessibilityExtraLarge : .large,
                                    sheet.previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US"))) { w in
-            try await w.wait("the baseline row") { w.nodes().contains { $0.identifier == "sleepNeed.changeBaseline" } }
+            try await w.wait("the baseline row", timeout: hostedWait) { w.nodes().contains { $0.identifier == "sleepNeed.changeBaseline" } }
             try await w.settle()
             try await body(w)
         }
@@ -1116,7 +1525,7 @@ struct SleepNeedHostedTests {
             #expect(row()?.value == "Saving…", "never the value on its way: \(row()?.value ?? "")")
             await gate.open()
             _ = await saving.value
-            try await w.wait("the failure") { w.node(noAnswerWords, exactly: true) != nil }
+            try await w.wait("the failure", timeout: hostedWait) { w.node(noAnswerWords, exactly: true) != nil }
             try await w.settle()
             #expect(row()?.value == "7 hours 30 minutes, Set by you")
             let notice = try #require(w.node(noAnswerWords, exactly: true))
@@ -1179,7 +1588,7 @@ struct SleepNeedHostedTests {
         try await HostedWindow.run(width: 390, height: 400, bottomInset: 0,
                                    SleepNeedCard(need: MockSleepNeedStates.need) { opened = true }
                                        .padding(20).previewEnvironment(state)) { w in
-            try await w.wait("the card") { w.nodes().contains { $0.identifier == "sleep.need" } }
+            try await w.wait("the card", timeout: hostedWait) { w.nodes().contains { $0.identifier == "sleep.need" } }
             let row = try #require(w.nodes().first { $0.identifier == "sleep.need" })
             #expect(row.label == "Sleep need" && row.value == "8 hours 18 minutes")
             #expect(row.hint == "Shows how your sleep need adds up, and your baseline to change" && row.traits.contains(.button))
