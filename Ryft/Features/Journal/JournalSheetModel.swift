@@ -77,6 +77,9 @@ final class JournalSheetModel {
         }
     }
 
+    /// Whether Save can go (the Offline pill when not): demo data answers on the phone, so it's never offline there.
+    var isOnline: Bool { store.isOnline }
+
     var readOnlyReason: String? {
         editable ? nil : String(localized: "Days more than 14 days ago can't be changed.")
     }

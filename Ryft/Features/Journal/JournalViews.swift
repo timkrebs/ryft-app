@@ -48,7 +48,6 @@ struct JournalCard: View {
 struct JournalSheet: View {
     @State var model: JournalSheetModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(ConnectivityMonitor.self) private var connectivity
 
     var body: some View {
         NavigationStack {
@@ -57,7 +56,8 @@ struct JournalSheet: View {
                     JournalDateStrip(days: model.stripDays, selected: model.day) { day in
                         Task { await model.select(day) }
                     }
-                    if !connectivity.isOnline { OfflinePill() }
+                    // The store's word (it observes the network): demo data, answering on the phone, is never offline.
+                    if !model.isOnline { OfflinePill() }
                     if let reason = model.readOnlyReason {
                         InlineMessage(message: reason, systemImage: "lock")
                     }

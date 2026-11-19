@@ -997,6 +997,20 @@ private func noScoresState() -> AppState {
     return state
 }
 
+/// The account, offline, with the mock data as `AppState.preview` has it. Not a demo data graph: demo data answers on the
+/// phone, so Tonight plans there offline too, and the screen wouldn't be the account's offline one.
+@MainActor
+private func offlineAccountState() -> AppState {
+    let state = AppState(env: .test(clock: TestClock(now: .now), online: false))
+    state.env.uploader.gate = { _ in nil }
+    state.history = MockData.history
+    state.user = MockData.user
+    state.insights = MockData.insights
+    state.readinessWeek = MockData.trend(.readiness, range: .week)
+    state.today = MockData.todayDetail
+    return state
+}
+
 /// The account without a name (Sign in with Apple may deliver none, R-N2): "Good evening", no comma.
 @MainActor
 private func namelessState() -> AppState {
@@ -1036,8 +1050,8 @@ private func namelessState() -> AppState {
 #Preview("Today · no scores yet · AX3") { TodayPreview(state: noScoresState(), ax3: true) }
 #Preview("Today · not set up") { TodayPreview(state: .preview(empty: true)) }
 #Preview("Today · not set up · AX3") { TodayPreview(state: .preview(empty: true), ax3: true) }
-#Preview("Today · offline") { TodayPreview(state: .preview(online: false), online: false) }
-#Preview("Today · offline · AX3") { TodayPreview(state: .preview(online: false), online: false, ax3: true) }
+#Preview("Today · offline") { TodayPreview(state: offlineAccountState(), online: false) }
+#Preview("Today · offline · AX3") { TodayPreview(state: offlineAccountState(), online: false, ax3: true) }
 #Preview("Today · demo") { TodayPreview(state: .preview(coachMarks: true)) }
 #Preview("Today · demo · AX3") { TodayPreview(state: .preview(coachMarks: true), ax3: true) }
 #Preview("Today · with attention cards (night hint)") { TodayPreview(state: .preview(scenario: .nightGap)) }

@@ -130,8 +130,9 @@ final class JournalStore {
     private func owns(_ owner: Owner) -> Bool { owner == self.owner }
 
     var isLive: Bool { availability == .live }
-    /// Demo data answers on the phone: it has no network to lose (as Notifications and the editors).
-    private var isOnline: Bool { env.isDemo || env.connectivity.isOnline }
+    /// Whether a write can go and a day is asked for: demo data answers on the phone, with no network to lose (as
+    /// Notifications, the editors and the planners). The journal sheet's Offline pill says it.
+    var isOnline: Bool { env.isDemo || env.connectivity.isOnline }
     private var now: Date { env.clock.now() }
 
     var yesterday: String { DayFormat.string(from: DayFormat.shift(now, days: -1)) }
