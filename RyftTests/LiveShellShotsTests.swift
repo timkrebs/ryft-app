@@ -40,7 +40,8 @@ struct LiveShellShotsTests {
 
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         [Shot(screen: screen, width: 390), Shot(screen: screen, width: 390, ax3: true)]
-    } + [Shot(screen: .focused, width: 320), Shot(screen: .focused, width: 320, ax3: true), Shot(screen: .keypad, width: 320)]
+    } + [Shot(screen: .focused, width: 320), Shot(screen: .focused, width: 320, ax3: true), Shot(screen: .keypad, width: 320),
+         Shot(screen: .list, width: 320), Shot(screen: .list, width: 320, ax3: true)]
 
     @Test("Render and write", arguments: shots)
     func rendersAndWrites(_ shot: Shot) async throws {

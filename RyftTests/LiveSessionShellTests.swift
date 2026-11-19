@@ -146,6 +146,32 @@ struct LiveSessionShellHostedTests {
         }
     }
 
+    /// §4.1 at 320 in List too: 12 pt sides, 6 pt gaps, and an hour clock on one line at 26 pt. A clock under a minute is the
+    /// reference: one line in any header, so the same height means "1:23:45" didn't break.
+    @Test("List's header at 320: the circles on 12 pt sides, 6 apart, \"1:23:45\" on one line")
+    func listsCompactHeader() async throws {
+        var heights: [CGFloat] = []
+        for elapsed in [5025.0, 42] {
+            let c = FocusedPreview.controller(.draftList)
+            defer { c.stop() }
+            #expect(c.layout == .list)
+            c.session.startedAt = Date().addingTimeInterval(-elapsed)
+            try await HostedWindow.run(width: 320, height: 693, SessionView(controller: c)) { w in
+                try await w.settle()
+                let minimise = try #require(w.node("Minimise", exactly: true)).frame
+                let more = try #require(w.node("More", exactly: true)).frame
+                let finish = try #require(w.node("Finish", exactly: true)).frame
+                let clock = try #require(w.node("\(c.session.title), elapsed time", exactly: true))
+                #expect(abs(minimise.minX + Self.overhang - LiveSessionSpec.compactSidePadding) < 0.5, "\(minimise)")
+                #expect(abs(finish.maxX - (320 - LiveSessionSpec.compactSidePadding)) < 0.5, "\(finish)")
+                #expect(abs(finish.minX - (more.maxX - Self.overhang) - LiveSessionSpec.compactHeaderGap) < 0.5, "\(more) \(finish)")
+                #expect(abs(c.elapsed(at: .now) - elapsed) < 60, "\(c.elapsed(at: .now))")
+                heights.append(clock.frame.height)
+            }
+        }
+        #expect(heights.count == 2 && abs(heights[0] - heights[1]) < 0.5, "1:23:45 \(heights.first ?? 0), 0:42 \(heights.last ?? 0)")
+    }
+
     @Test("VoiceOver reads Focused's header as one row: Minimise, the title and clock, More, Finish")
     func headerOrder() async throws {
         let c = FocusedPreview.controller(.draft)

@@ -7,7 +7,8 @@ import SwiftUI
 enum LiveSessionSpec {
     // MARK: the header (§4.1), shared by both layouts
 
-    /// The page's sides: 16 (358 pt of content), 12 at 320 (D6B-2). The table's own padding is `SetTableColumns.padding`.
+    /// The page's sides: 16 (358 pt of content), 12 at 320 (D6B-2), in both layouts. The table's own padding is
+    /// `SetTableColumns.padding`.
     nonisolated static let sidePadding: CGFloat = 16, compactSidePadding: CGFloat = 12
     /// Above and below the header's row.
     nonisolated static let headerVerticalPadding: CGFloat = 6
@@ -20,7 +21,8 @@ enum LiveSessionSpec {
     nonisolated static let headerGap: CGFloat = 8, compactHeaderGap: CGFloat = 6
     /// The minimise and More circles' glyph.
     nonisolated static let headerIcon: CGFloat = 16
-    /// The clock: 30 Light, 26 at 320, where an hour clock may shrink to 80 % beside the buttons.
+    /// The clock: 30 Light; 26 at 320 in both layouts, where an hour clock stays on one line and may shrink to 80 % beside the
+    /// buttons.
     nonisolated static let clock: CGFloat = 30, compactClock: CGFloat = 26, compactClockScale: CGFloat = 0.8
     /// One row of header: Finish stops growing here and keeps its one line (a long press shows it large).
     nonisolated static let finishCap = DynamicTypeSize.xxLarge, compactFinishCap = DynamicTypeSize.large
