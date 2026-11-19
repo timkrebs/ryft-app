@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import Ryft
 
@@ -213,6 +214,78 @@ struct NotificationUnsureSaveTests {
         #expect(api.count("me") == asked + 1, "read back once")
         #expect(!model.isOn(.pr) && !model.isOn(.morningScore), "the page shows what RYFT holds")
         #expect(state.user?.notifications.isOn(.pr) == false && model.failure == nil)
+    }
+
+    /// Still unsure: save 3 (session scored off) succeeds before save 1 lands, and save 1 lands before the read-back's
+    /// answer. The page shows what RYFT holds then, not save 3's answer.
+    private func readsBackAfterTheNextSave(_ model: NotificationSettingsViewModel, _ api: MockPlatformAPI,
+                                           first: RequestHold) async {
+        let meHold = RequestHold()
+        api.beforeMeRead = { await meHold.wait() }
+        let three = Task { await model.set(.sessionScored, on: false) }
+        #expect(await eventually { meHold.waiting == 1 }, "save 3 answered; RYFT is asked again")
+        #expect(model.isOn(.pr) && !model.isOn(.sessionScored), "save 3's answer: save 1 hadn't landed")
+        first.release()
+        #expect(await eventually { !api.prefs.isOn(.pr) })
+        meHold.release()
+        await three.value
+        #expect(!model.isOn(.pr) && !model.isOn(.sessionScored), "still unsure, so read back: the page shows what RYFT holds")
+    }
+
+    @Test("B: save 2 succeeds while the user's read waits out a retry-after: nothing is sent, the page keeps save 2's answer, still unsure",
+          .timeLimit(.minutes(1)))
+    func aReadBackHeldByARetryAfter() async throws {
+        let (model, state, api, first, second, _, two) = await oneUnanswered()
+        state.env.reads.seed([.me: ResourceState(retryNotBefore: state.env.clock.now().addingTimeInterval(300))])
+        let asked = api.count("me")
+        second.release()
+        await two.value
+        #expect(api.count("me") == asked, "held: nothing sent")
+        #expect(model.isOn(.pr) && !model.isOn(.morningScore) && model.failure == nil,
+                "save 2's answer, not the cached user from before it")
+        state.env.reads.seed([:])
+        await readsBackAfterTheNextSave(model, api, first: first)
+    }
+
+    @Test("B: the network goes between save 2's answer and the read-back: nothing is sent, the page keeps save 2's answer, still unsure",
+          .timeLimit(.minutes(1)))
+    func aReadBackOffline() async throws {
+        let (model, state, api, first, second, _, two) = await oneUnanswered()
+        // Offline the moment save 2's answer is shown, before the read-back asks (its write already has the answer).
+        withObservationTracking { _ = model.prefs } onChange: {
+            MainActor.assumeIsolated { state.env.connectivityMonitor.update(false) }
+        }
+        let asked = api.count("me")
+        second.release()
+        await two.value
+        #expect(!state.env.connectivity.isOnline && api.count("me") == asked, "offline: nothing sent")
+        #expect(model.isOn(.pr) && !model.isOn(.morningScore) && model.failure == nil,
+                "save 2's answer, not the cached user from before it")
+        state.env.connectivityMonitor.update(true)
+        await readsBackAfterTheNextSave(model, api, first: first)
+    }
+
+    @Test("B: the latest save gets no answer and its question is held by a retry-after: still unsure, the next success reads back",
+          .timeLimit(.minutes(1)))
+    func askingAgainSentNothing() async throws {
+        let clock = TestClock()
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: clock, flags: [.pushEnabled: true])
+        let state = AppState(env: env)
+        state.user = MockData.user
+        let model = NotificationSettingsViewModel(state: state, push: PushRegistrar(env: env))
+        let first = RequestHold()
+        let calls = Calls()
+        api.beforePatchNotifications = { if calls.next() == 1 { await first.wait() } }
+        env.reads.seed([.me: ResourceState(retryNotBefore: clock.now().addingTimeInterval(300))])
+        let one = Task { await model.set(.pr, on: false) }
+        #expect(await eventually { first.waiting == 1 && clock.pendingSleeps == 1 })
+        clock.advance(by: SettingsWrite.deadline)
+        await one.value
+        await model.asking?.value
+        #expect(model.failure?.kind == .noAnswer && model.isOn(.pr), "no answer: back as RYFT last confirmed it")
+        env.reads.seed([:])
+        await readsBackAfterTheNextSave(model, api, first: first)
     }
 }
 

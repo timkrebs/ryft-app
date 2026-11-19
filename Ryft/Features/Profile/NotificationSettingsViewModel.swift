@@ -237,8 +237,8 @@ final class NotificationSettingsViewModel {
             // Offline the question would wait for the network: the mark is enough.
             guard failed.kind.rereads, state.isDemo || state.env.connectivity.isOnline else { return }
             // The page shows what RYFT holds, asked again outside this turn, so the switches don't wait for the question (and
-            // the next save doesn't either). That's the read-back an earlier unsure save needed too.
-            unsure = false
+            // the next save doesn't either). That's the read-back an earlier unsure save needed too: unsure until its answer
+            // is in.
             asking = Task { await self.askAgain(patch, mine: mine, binding: binding) }
         }
     }
@@ -250,31 +250,34 @@ final class NotificationSettingsViewModel {
     }
 
     /// The latest save succeeded after one that may still land: `GET /v1/me`, and the page takes the settings RYFT holds.
-    /// When the question fails the cached user stays marked, so the next refresh asks.
+    /// Only an answer counts: when nothing was sent (offline, or the user's read waits out a retry-after) or the question
+    /// fails, the page keeps this save's answer, the cached user is marked so the next refresh asks, and it's still unsure,
+    /// so the next save that succeeds reads back again.
     private func readSettingsBack(mine: Int, binding: AccountBinding) async {
-        do {
-            try await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
-        } catch {
-            if binding.isCurrent(in: state.env) { state.repository.userMayDiffer() }
+        let answered = (try? await state.repository.readUserBack(since: state.env.clock.now())) ?? false
+        guard binding.isCurrent(in: state.env) else { return }
+        guard answered else {
+            mayHaveSaved()
             return
         }
-        guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
+        guard mine == saves, let held = state.user?.notifications else { return }
         confirmed = held
         prefs = held
     }
 
-    /// `GET /v1/me` after a change that may have saved. Only an answer counts: when the question fails the page stays as it
-    /// went back, and the cached user is marked so the next refresh asks (`Repository.userMayDiffer`). Only while the change
-    /// is the latest; and only the change's own key decides whether it did save (another device may have changed the rest
-    /// meanwhile).
+    /// `GET /v1/me` after a change that may have saved. Only an answer counts: when nothing was sent or the question fails
+    /// the page stays as it went back, the cached user is marked so the next refresh asks (`Repository.userMayDiffer`), and
+    /// it's still unsure. Only while the change is the latest; and only the change's own key decides whether it did save
+    /// (another device may have changed the rest meanwhile).
     private func askAgain(_ patch: NotificationPatch, mine: Int, binding: AccountBinding) async {
-        do {
-            try await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
-        } catch {
-            if binding.isCurrent(in: state.env) { state.repository.userMayDiffer() }
+        let answered = (try? await state.repository.readUserBack(since: state.env.clock.now())) ?? false
+        guard binding.isCurrent(in: state.env) else { return }
+        guard answered else {
+            mayHaveSaved()
             return
         }
-        guard binding.isCurrent(in: state.env), mine == saves, let held = state.user?.notifications else { return }
+        guard mine == saves, let held = state.user?.notifications else { return }
+        unsure = false
         confirmed = held
         prefs = held
         // It did save: nothing to say.

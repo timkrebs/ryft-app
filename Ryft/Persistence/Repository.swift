@@ -437,6 +437,16 @@ final class Repository {
         try await refreshUser(mode: force ? .latest : .ifStale)
     }
 
+    /// `refreshUser(mode: .changed(since:))` for a page that reads its save back: `true` when a `GET /v1/me` started at or
+    /// after `since` answered (and was stored), `false` when nothing was sent (offline, or `.me` waits out a retry-after),
+    /// so the cached user may be older than `since`.
+    func readUserBack(since: Date) async throws -> Bool {
+        try await env.reads.run(ReadKey(.me), mode: .changed(since: since),
+                                storeAsked: { [weak self] (user: User, asked: Date) in
+                                    await self?.store(fetchedUser: user, askedAt: asked).committed()
+                                }, { [env] in try await env.api.me() }) != nil
+    }
+
     func refreshSleepRange(_ kind: SleepRangeKind, mode: ReadMode = .ifStale) async throws {
         let k = kind.rawValue
         if mode == .ifStale {
