@@ -87,6 +87,8 @@ struct JournalAccountTests {
         await store.load()
         try await store.create(name: "Evening walk", nameDe: nil, kind: .yesNo, category: .custom)
         await store.loadImpacts()
+        let kept = h.persistence.document([Behavior].self, key: JournalStore.behaviorsKey)
+        #expect(kept?.contains { $0.name == "Evening walk" } == true, "the account's own list, on disk")
         let hold = RequestHold()
         account.beforeBehaviorWrite = { _ in await hold.wait() }
         let toggle = Task { try await store.setEnabled(MockJournal.magnesium, true) }
@@ -101,8 +103,116 @@ struct JournalAccountTests {
         hold.release()
         await #expect(throws: CancellationError.self) { try await toggle.value }
         #expect(store.behaviors == demoList, "the account's late answer changed nothing")
-        let kept = h.persistence.document([Behavior].self, key: JournalStore.behaviorsKey) ?? []
-        #expect(!kept.contains { $0.name == "Evening walk" }, "nor what's kept on disk")
+        // The account's list on disk is as it was: demo data's catalog never went there, nor the late answer's switch.
+        #expect(h.persistence.document([Behavior].self, key: JournalStore.behaviorsKey) == kept)
+    }
+
+    @Test("A's day save, a day and the effects answered after B signed in change nothing of B's, in memory or on disk",
+          .timeLimit(.minutes(1)))
+    func aLateDayOrEffectsForAChangeNothingOfB() async throws {
+        let h = WipeHarness()
+        h.clock.set(.now)   // the mock takes days relative to the real date
+        let api = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let store = try await loadA(h)
+        let hold = RequestHold()
+        api.beforeJournalAnswer = { _ in await hold.wait() }
+        let yesterday = store.yesterday
+        let earlier = DayFormat.string(from: DayFormat.shift(h.clock.now(), days: -2))
+        let save = Task { try await store.save(day: yesterday, entries: [JournalEntry(behaviorId: MockJournal.sauna, valueBool: false)]) }
+        let day = Task { await store.loadDay(earlier) }
+        let effects = Task { await store.loadImpacts() }
+        #expect(await eventually { hold.waiting == 3 })
+
+        await h.auth.signOut()
+        await h.signIn(WipeHarness.b)
+        nothingOfA(store, h)
+        hold.release()
+        await #expect(throws: CancellationError.self) { try await save.value }
+        #expect(await day.value == nil, "A's day isn't B's to show")
+        await effects.value
+        nothingOfA(store, h)
+        #expect(store.cachedDay(earlier) == nil)
+        #expect(h.persistence.document(JournalDay.self, key: JournalStore.dayKey(earlier)) == nil, "nor kept on disk")
+    }
+}
+
+// MARK: - Journal: demo data's journal is never the account's, on either side (review 2, item 1)
+
+@MainActor
+struct JournalDemoSideTests {
+    /// A harness on the account, Demo data off, at the real date (the mock takes days relative to it).
+    private func onTheAccount() -> WipeHarness {
+        let h = WipeHarness(demo: true)
+        h.clock.set(.now)
+        h.env.settings.demoMode = false
+        h.state.reset()
+        return h
+    }
+
+    private func switchDemo(_ h: WipeHarness, on: Bool) {
+        h.env.settings.demoMode = on
+        h.state.reset()
+    }
+
+    @Test("The account's saved day never shows in demo data, not even while demo data's day is on its way",
+          .timeLimit(.minutes(1)))
+    func demoNeverShowsTheAccountsDay() async throws {
+        let h = onTheAccount()
+        let demo = try #require(h.env.demoAPI as? MockPlatformAPI)
+        let store = JournalStore(state: h.state)
+        await store.load()
+        let day = store.yesterday
+        let mine = [JournalEntry(behaviorId: MockJournal.drinks, valueBool: true, valueNum: 7)]
+        try await store.save(day: day, entries: mine)
+        #expect(store.cachedDay(day)?.entries == mine, "the account's answers")
+
+        switchDemo(h, on: true)
+        await store.load()
+        let hold = RequestHold()
+        demo.beforeJournalAnswer = { name in if name == "journal" { await hold.wait() } }
+        let asking = Task { await store.loadDay(day) }
+        #expect(await eventually { hold.waiting == 1 })
+        #expect(store.days[day] == nil && store.cachedDay(day) == nil, "nothing of the account's while demo data's day is out")
+        #expect(JournalSheetModel(store: store, day: day).groups.allSatisfy { $0.rows.allSatisfy { $0.count != 7 } },
+                "the sheet isn't prefilled with the account's answers")
+        hold.release()
+        let shown = await asking.value
+        #expect(shown != nil && shown?.entries != mine, "demo data's own day")
+        #expect(h.persistence.document(JournalDay.self, key: JournalStore.dayKey(day))?.entries == mine,
+                "the account's day on disk, untouched")
+    }
+
+    @Test("Demo data off, the account's reads failing: nothing of demo data's catalog, day or effects shows, nor at the next launch",
+          .timeLimit(.minutes(1)))
+    func demoOffLeavesNothingOfDemos() async throws {
+        let h = onTheAccount()
+        let account = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let store = JournalStore(state: h.state)
+        await store.load()
+        try await store.create(name: "Evening walk", nameDe: nil, kind: .yesNo, category: .custom)
+        let accountList = store.behaviors
+        #expect(store.impacts == nil && store.cachedDay(store.yesterday) == nil, "the account has no effects or day yet")
+
+        // Demo data: its own catalog (with a habit of its own), yesterday's answers and the effects.
+        switchDemo(h, on: true)
+        await store.load()
+        try await store.create(name: "Demo walk", nameDe: nil, kind: .yesNo, category: .custom)
+        await store.loadDay(store.yesterday)
+        await store.loadImpacts()
+        #expect(store.cachedDay(store.yesterday)?.answered == true && store.impacts != nil)
+
+        account.failure = APIError.http(400, "")
+        switchDemo(h, on: false)
+        await store.load()
+        await store.loadDay(store.yesterday)
+        await store.loadImpacts()
+        #expect(store.behaviors == accountList, "the account's own catalog, from its store")
+        #expect(!store.behaviors.contains { $0.name == "Demo walk" })
+        #expect(store.cachedDay(store.yesterday) == nil && store.impacts == nil, "no day or effects of demo data's")
+
+        let relaunched = JournalStore(env: h.env)
+        #expect(relaunched.behaviors == accountList && relaunched.impacts == nil, "nor in the store, at the next launch")
+        #expect(relaunched.cachedDay(relaunched.yesterday) == nil)
     }
 }
 

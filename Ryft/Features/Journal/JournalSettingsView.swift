@@ -460,6 +460,9 @@ struct AddBehaviorSheet: View {
 
 // MARK: - previews (dark only)
 
+// Previews only: `journalPreviewStore` is debug-only, and a Release build has no previews.
+#if DEBUG
+
 #Preview("Journal settings") {
     let state = AppState.preview()
     return NavigationStack { JournalSettingsView(store: journalPreviewStore(state)) }
@@ -489,8 +492,7 @@ struct AddBehaviorSheet: View {
         Behavior(id: UUID(), slug: "habit-\(n)", name: "Habit \(n)", nameEn: "Habit \(n)", nameDe: "Habit \(n)",
                  category: .custom, kind: .yesNo, defaultOn: true, enabled: true, isCustom: true, sort: n)
     }
-    state.env.persistence.saveDocument(MockJournal.behaviors + more, key: JournalStore.behaviorsKey, at: .now)
-    return AddBehaviorSheet(store: JournalStore(env: state.env), name: "Evening walk")
+    return AddBehaviorSheet(store: journalPreviewStore(state, behaviors: MockJournal.behaviors + more), name: "Evening walk")
         .previewEnvironment(state)
 }
 
@@ -500,3 +502,4 @@ struct AddBehaviorSheet: View {
         .previewEnvironment(state)
         .dynamicTypeSize(.accessibility3)
 }
+#endif

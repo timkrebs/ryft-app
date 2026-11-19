@@ -698,8 +698,9 @@ struct ProfileSubpagesHostedTests {
             Behavior(id: UUID(), slug: "habit-\(n)", name: "Habit \(n)", nameEn: "Habit \(n)", nameDe: "Habit \(n)",
                      category: .custom, kind: .yesNo, defaultOn: true, enabled: true, isCustom: true, sort: n)
         }
-        state.env.persistence.saveDocument(MockJournal.behaviors + more, key: JournalStore.behaviorsKey, at: .now)
-        let sheet = AnyView(AddBehaviorSheet(store: JournalStore(env: state.env), name: "Evening walk").previewEnvironment(state)
+        // Demo data's journal lives in memory only: the 50 go there.
+        let store = journalPreviewStore(state, behaviors: MockJournal.behaviors + more)
+        let sheet = AnyView(AddBehaviorSheet(store: store, name: "Evening walk").previewEnvironment(state)
             .toggleStyle(.ryft).environment(\.locale, Locale(identifier: "en_US")))
         try await host(sheet, height: 1_400) { w in
             try await w.wait("the sheet") { has(w, id: "addHabit.add") }

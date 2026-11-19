@@ -178,14 +178,22 @@ struct JournalDateStrip: View {
     }
 }
 
-/// A store with the mock catalog and yesterday already cached (previews render
-/// before an async load finishes).
+// Previews only: `JournalStore.seedForPreview` is a debug method, and a Release build has no previews.
+#if DEBUG
+/// A store with the catalog (the mock's, or `behaviors`) and yesterday already there (previews render before an async load
+/// finishes): in memory on a demo data graph, whose journal lives there only; in the store on an account's graph, as it
+/// would be kept.
 @MainActor
-func journalPreviewStore(_ state: AppState) -> JournalStore {
-    let p = state.env.persistence
-    p.saveDocument(MockJournal.behaviors, key: JournalStore.behaviorsKey, at: .now)
+func journalPreviewStore(_ state: AppState, behaviors: [Behavior] = MockJournal.behaviors) -> JournalStore {
     let yesterday = DayFormat.string(from: DayFormat.shift(.now, days: -1))
-    p.saveDocument(MockJournal.journal(day: yesterday), key: JournalStore.dayKey(yesterday), at: .now)
+    let day = MockJournal.journal(day: yesterday)
+    guard let disk = state.env.accountDocuments else {
+        let store = JournalStore(env: state.env)
+        store.seedForPreview(behaviors: behaviors, days: [day])
+        return store
+    }
+    disk.saveDocument(behaviors, key: JournalStore.behaviorsKey, at: .now)
+    disk.saveDocument(day, key: JournalStore.dayKey(yesterday), at: .now)
     return JournalStore(env: state.env)
 }
 
@@ -218,3 +226,4 @@ func journalPreviewStore(_ state: AppState) -> JournalStore {
         .task { await store.load() }
         .previewEnvironment(state, scheme: .light)
 }
+#endif

@@ -6,15 +6,17 @@ import Observation
 ///
 /// - **Not live yet:** a `404` on `GET /v1/behaviors` means the platform hasn't
 ///   deployed M5: everything hides, nothing shows an error.
-/// - **Offline-first reads:** the catalog, each day and the last impacts are
-///   kept in SwiftData (`CachedDocument` "journal.*").
+/// - **Offline-first reads:** the account's catalog, each day and the last impacts are kept in SwiftData
+///   (`CachedDocument` "journal.*"). Demo data's journal lives in memory only: it never reads the account's documents and
+///   never writes any (`AppEnvironment.accountDocuments`), so neither side shows the other's habits, answers or effects.
 /// - **Writes need the network**; offline they fail with `JournalError.offline`
 ///   and the screens show the Offline pill. A habit's change waits as every settings write does (`SettingsWrite`: one
 ///   attempt, an answer within 25 s or none, none at once when the network goes); after no answer or a `5xx` the list is
 ///   asked again (`rereading`).
-/// - **The account's**: every read and write is bound to the account signed in when it began (`AccountBinding` and
+/// - **The account's**: every read and write is bound to the account and side it began on (`AccountBinding` and
 ///   `generation`); another account, a sign-out or the Demo data switch forgets what's shown (`accountChanged()`, run with
-///   the other account-state forgetters), and an answer for the previous one is dropped, in memory and on disk.
+///   the other account-state forgetters), and an answer for the previous one is dropped, in memory and on disk. Back on
+///   the account (Demo data off, or the next account's first load), its own documents come back from its store.
 @MainActor
 @Observable
 final class JournalStore {
@@ -55,6 +57,9 @@ final class JournalStore {
     private var generation = 0
     /// The list asked for again after a write that may have saved (no answer, a `5xx`); tests await it.
     private(set) var rereading: Task<Void, Never>?
+    /// The side changed since the account's documents were read (`accountChanged()`): the account's next `load()` reads
+    /// them again first (`restore()`). Demo data has none to read.
+    @ObservationIgnored private var restores = false
 
     static let behaviorsKey = "journal.behaviors"
     static let impactKey = "journal.impact"
@@ -62,8 +67,13 @@ final class JournalStore {
 
     init(env: AppEnvironment) {
         self.env = env
-        behaviors = env.persistence.document([Behavior].self, key: Self.behaviorsKey) ?? []
-        impacts = env.persistence.document(BehaviorImpacts.self, key: Self.impactKey)
+        if let disk = env.accountDocuments {
+            behaviors = disk.document([Behavior].self, key: Self.behaviorsKey) ?? []
+            impacts = disk.document(BehaviorImpacts.self, key: Self.impactKey)
+        } else {
+            // Launched in demo data: the account's documents are read when it's back (`restore()`).
+            restores = true
+        }
         if !behaviors.isEmpty { availability = .live }
     }
 
@@ -86,7 +96,29 @@ final class JournalStore {
         impacts = nil
         error = nil
         availability = .unknown
+        // Not read here: a sign-out's wipe may not have run yet. The next account's first load reads its own.
+        restores = true
     }
+
+    /// Back on the account: its catalog and effects as kept on this iPhone, before its `GET` answers (offline-first). After a
+    /// sign-out's wipe they're gone, so another account finds nothing of the previous one's. Demo data reads nothing.
+    private func restore() {
+        guard restores, let disk = env.accountDocuments else { return }
+        restores = false
+        behaviors = disk.document([Behavior].self, key: Self.behaviorsKey) ?? []
+        impacts = disk.document(BehaviorImpacts.self, key: Self.impactKey)
+        if !behaviors.isEmpty { availability = .live }
+    }
+
+    #if DEBUG
+    /// Previews and tests: what a demo data graph's journal holds before its load answers (it lives in memory only, so
+    /// nothing kept on disk shows there).
+    func seedForPreview(behaviors list: [Behavior], days seeded: [JournalDay] = []) {
+        behaviors = list
+        for day in seeded { days[day.day] = day }
+        if !list.isEmpty { availability = .live }
+    }
+    #endif
 
     /// Whose a read or write is: the account and side then, and no forgetting since.
     private struct Owner: Equatable {
@@ -112,7 +144,7 @@ final class JournalStore {
     /// A day as known now: in memory, else the SwiftData cache (no request).
     func cachedDay(_ day: String) -> JournalDay? {
         if let known = days[day] { return known }
-        let cached = env.persistence.document(JournalDay.self, key: Self.dayKey(day))
+        let cached = env.accountDocuments?.document(JournalDay.self, key: Self.dayKey(day))
         if let cached { days[day] = cached }
         return cached
     }
@@ -135,6 +167,7 @@ final class JournalStore {
     /// The catalog (and with it, whether the journal is live).
     func load() async {
         guard env.isDemo || env.auth.isSignedIn else { return }
+        restore()
         let api = env.api, owner = self.owner
         let asked = completedWrites
         do {
@@ -163,7 +196,7 @@ final class JournalStore {
     /// One day: the cache first, then the platform's.
     @discardableResult
     func loadDay(_ day: String) async -> JournalDay? {
-        if days[day] == nil, let cached = env.persistence.document(JournalDay.self, key: Self.dayKey(day)) {
+        if days[day] == nil, let cached = env.accountDocuments?.document(JournalDay.self, key: Self.dayKey(day)) {
             days[day] = cached
         }
         guard isLive, isOnline else { return days[day] }
@@ -186,7 +219,7 @@ final class JournalStore {
         switch answer {
         case .some(.some(let fresh)):
             impacts = fresh
-            env.persistence.saveDocument(fresh, key: Self.impactKey, at: now)
+            env.accountDocuments?.saveDocument(fresh, key: Self.impactKey, at: now)
         case .some(.none):
             availability = .notLive
         case .none:
@@ -287,18 +320,18 @@ final class JournalStore {
 
     // MARK: cache
 
-    /// The list, in memory and on disk, while it's still `owner`'s (checked again here: nothing of a previous account's is
-    /// written into the next one's store).
+    /// The list, in memory and (the account's) on disk, while it's still `owner`'s (checked again here: nothing of a previous
+    /// account's is written into the next one's store, and demo data's never into the account's).
     private func replace(_ list: [Behavior], as owner: Owner) {
         guard owns(owner) else { return }
         behaviors = list
-        env.persistence.saveDocument(list, key: Self.behaviorsKey, at: now)
+        env.accountDocuments?.saveDocument(list, key: Self.behaviorsKey, at: now)
     }
 
     private func store(_ day: JournalDay, as owner: Owner) {
         guard owns(owner) else { return }
         days[day.day] = day
-        env.persistence.saveDocument(day, key: Self.dayKey(day.day), at: now)
+        env.accountDocuments?.saveDocument(day, key: Self.dayKey(day.day), at: now)
     }
 
     // MARK: Today's card

@@ -443,6 +443,18 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         #endif
     }
 
+    #if DEBUG
+    /// Runs before a day (`"journal"`) or the effects (`"behaviorImpact"`) answer, and before a day's save (`"putJournal"`) is
+    /// applied and answered, with the call's name (tests hold one open with it).
+    var beforeJournalAnswer: (@Sendable (String) async -> Void)?
+    #endif
+
+    private func holdJournalAnswer(_ name: String) async {
+        #if DEBUG
+        await beforeJournalAnswer?(name)
+        #endif
+    }
+
     func behaviors() async throws -> [Behavior] {
         try enterJournal("behaviors")
         return lock.withLock { behaviorList }
@@ -491,12 +503,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func journal(day: String) async throws -> JournalDay {
         try enterJournal("journal")
-        return lock.withLock { journals[day] } ?? MockJournal.journal(day: day)
+        // Read when the request arrives, as the platform reads it.
+        let answer = lock.withLock { journals[day] } ?? MockJournal.journal(day: day)
+        await holdJournalAnswer("journal")
+        return answer
     }
 
     func putJournal(day: String, _ body: JournalPut) async throws -> JournalDay {
         try enterJournal("putJournal")
         guard MockJournal.isEditable(day) else { throw APIError.http(422, "not editable") }
+        await holdJournalAnswer("putJournal")
         let saved = JournalDay(day: day, answered: true, answeredAt: .now, editable: true, entries: body.entries)
         lock.withLock {
             journals[day] = saved
@@ -507,6 +523,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func behaviorImpact() async throws -> BehaviorImpacts {
         try enterJournal("behaviorImpact")
+        await holdJournalAnswer("behaviorImpact")
         return MockJournal.impacts
     }
 
