@@ -428,6 +428,57 @@ struct ProfileSubpagesHostedTests {
         }
     }
 
+    @Test("L27: Report a problem draws no teal: Send the light pill, the chosen kind's mark and the diagnostics switch in ink")
+    func reportDrawsNoTeal() async throws {
+        let teals = [Theme.teal, Theme.accent, Theme.recovery].map { NocturneTokenTests.resolve($0) }
+        func isTeal(_ r: Double, _ g: Double, _ b: Double) -> Bool {
+            teals.contains { abs($0.r - r) + abs($0.g - g) + abs($0.b - b) < 0.15 }
+        }
+        // The probe itself: a teal swatch is seen.
+        let swatch = Rectangle().fill(Theme.accent).frame(width: 40, height: 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
+        try await host(AnyView(swatch)) { w in
+            try await w.settle()
+            #expect(try Self.count(in: w, isTeal) > 1_000, "the swatch")
+        }
+        // PR 5's version had a teal Send and a teal mark on the chosen kind.
+        let page = SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .bug, includeDiagnostics: true) }
+        try await host(page, height: 1_400) { w in
+            try await w.wait("the form") { has(w, id: "report.send") }
+            try await w.settle()
+            #expect(try node(w, id: "report.send").isEnabled)
+            #expect(try node(w, id: "report.category.bug").isSelected)
+            #expect(try node(w, id: "report.diagnostics").value == "1", "the switch on")
+            let teal = try Self.count(in: w, isTeal)
+            #expect(teal == 0, "\(teal) teal pixels")
+        }
+    }
+
+    /// The window's pixels (1x) for which `match` holds.
+    private static func count(in w: HostedWindow, _ match: (Double, Double, Double) -> Bool) throws -> Int {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(bounds: w.window.bounds, format: format).image { _ in
+            w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
+        }
+        let cg = try #require(image.cgImage)
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drew = bytes.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        try #require(drew)
+        return stride(from: 0, to: bytes.count, by: 4).reduce(0) { n, i in
+            n + (match(Double(bytes[i]) / 255, Double(bytes[i + 1]) / 255, Double(bytes[i + 2]) / 255) ? 1 : 0)
+        }
+    }
+
     // MARK: AX3 sweep (§6 item 17)
 
     @Test("AX3: no element leaves the 390 pt width; every button has a label",
