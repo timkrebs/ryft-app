@@ -14,6 +14,9 @@
       "comment" : "Training import: two counts, e.g. 1 plan and 12 workouts."
     },
     "%@ asleep, %@ to %@, %@" : {},
+    "%@ average sleep" : {
+      "comment" : "VoiceOver on Sleep → Week or Month's numeral: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\"."
+    },
     "%@ doesn't share %@ with Apple Health." : {
       "comment" : "Under Today's gauge: the app doesn't write it to Apple Health. Args: app (Garmin Connect), one signal (HRV)."
     },
@@ -50,6 +53,39 @@
       "comment" : "VoiceOver on Sleep's Restorative tile: the deep and REM time (\"3 hours 20 minutes of deep and REM sleep\")."
     },
     "%@ outside the window" : {},
+    "%@ over %lld days" : {
+      "comment" : "VoiceOver: a trend line's name and its range. %@: the metric's name, e.g. \"Readiness\". %lld: the number of days, e.g. 30 (plural: \"over 1 day\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ over %#@days@"
+          },
+          "substitutions" : {
+            "days" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg day"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg days"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%@ per kilometre" : {
       "comment" : "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”."
     },
@@ -59,6 +95,9 @@
     "%@ readings" : {},
     "%@ to %@" : {
       "comment" : "VoiceOver: a time range."
+    },
+    "%@ · %@" : {
+      "comment" : "Profile's status row under the name: the data's source, then the sync's state. e.g. \"Apple Health · up to date\"."
     },
     "%@ · %lld %%" : {},
     "%@ · no HRV" : {
@@ -84,6 +123,9 @@
     "%@, %@, not today's score" : {
       "comment" : "VoiceOver value of a dimmed Today tile: value, its day (e.g. Yesterday)."
     },
+    "%@, %@." : {
+      "comment" : "VoiceOver, Profile's identity row: the data's source, then the sync's state, e.g. \"Apple Health, up to date.\"."
+    },
     "%@, done" : {
       "comment" : "VoiceOver: the warm-up pill once every warm-up is checked. 1: e.g. 2 warm-up sets."
     },
@@ -91,10 +133,10 @@
       "comment" : "VoiceOver: the exercise's title on its page in a workout, which opens its history."
     },
     "%@, maximum" : {
-      "comment" : "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value."
+      "comment" : "VoiceOver value of a stepper at its highest, on the Edit targets sheet and the shared stepper, e.g. \"15:00, maximum\". %@: the value."
     },
     "%@, minimum" : {
-      "comment" : "VoiceOver value of an Edit targets stepper at its lowest. 1: value."
+      "comment" : "VoiceOver value of a stepper at its lowest, on the Edit targets sheet and the shared stepper, e.g. \"2, minimum\". %@: the value."
     },
     "%@, minimum. %@" : {
       "comment" : "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower."
@@ -700,11 +742,17 @@
         }
       }
     },
+    "%lld out of 100" : {
+      "comment" : "VoiceOver on Sleep → Week or Month's Consistency tile: the range's mean consistency on its 0–100 scale. %lld: the score, e.g. 72."
+    },
     "%lld percent of the target" : {
       "comment" : "VoiceOver, Sleep's Restorative tile, after the time: its score, 0–100 (\"100 percent of the target\")."
     },
     "%lld percent of your need" : {
       "comment" : "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\")."
+    },
+    "%lld percent or more" : {
+      "comment" : "VoiceOver: the heart-rate-reserve range of zone 5, the top zone. %lld: the lower bound in percent, e.g. 90."
     },
     "%lld percent, %@" : {
       "comment" : "VoiceOver, two places. Training import: the progress value. Today's Recovery tile: the score, then its band or the day (\"82 percent, High\", \"75 percent, Yesterday, not today's score\")."
@@ -826,6 +874,9 @@
           }
         }
       }
+    },
+    "%lld to %lld percent" : {
+      "comment" : "VoiceOver: a heart-rate zone's range as a percentage of heart-rate reserve. First %lld: the lower bound, second %lld: the upper bound, e.g. \"50 to 60 percent\"."
     },
     "%lld to check" : {
       "comment" : "Training import, step 4: the count line."
@@ -1115,6 +1166,15 @@
     "1 warm-up set" : {
       "comment" : "The warm-up pill on an exercise's page, one set."
     },
+    "30 D" : {
+      "comment" : "Insights' range control: 30 days. A short label; D stands for day."
+    },
+    "7 D" : {
+      "comment" : "Insights' range control: 7 days. A short label; D stands for day."
+    },
+    "90 D" : {
+      "comment" : "Insights' range control: 90 days. A short label; D stands for day."
+    },
     "A 24-hour time with am or pm: RYFT used the 24-hour time" : {
       "comment" : "Import warning, after \"Line N\", e.g. for 16:41 pm."
     },
@@ -1162,6 +1222,9 @@
       }
     },
     "Account gates and feature flags" : {},
+    "action needed" : {
+      "comment" : "Profile's status row after the source: a gate (consent or an invite) or signed out; a tap opens it."
+    },
     "Action needed: agree to the privacy policy" : {},
     "Action needed: agree to the privacy policy. Nothing syncs until you do." : {},
     "Action needed: enter your invite code" : {},
@@ -1226,6 +1289,9 @@
     },
     "Advance to the next exercise" : {
       "comment" : "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one."
+    },
+    "aerobic" : {
+      "comment" : "VoiceOver: heart-rate zone 2's name, read after \"Zone 2, \"."
     },
     "Agree and continue" : {},
     "Agreed on %@ · policy %@" : {
@@ -1369,17 +1435,123 @@
     "Assisted weight isn't imported, reps are" : {
       "comment" : "Import note, after \"Line N\": a negative load such as -20."
     },
+    "at %lld percent efficiency" : {
+      "comment" : "VoiceOver on Sleep → Bedtime's Time in bed tile, after the time: the assumed efficiency. %lld: the percentage, e.g. 90 (\"at 90 percent efficiency\")."
+    },
+    "Average" : {
+      "comment" : "A workout's heart-rate chart: the label of the rule at the average heart rate."
+    },
+    "Average %1$lld beats per minute, peak %2$lld" : {
+      "comment" : "VoiceOver value of a workout's heart-rate chart: the mean and the highest heart rate. %1$lld: the average beats per minute, %2$lld: the peak, e.g. \"Average 128 beats per minute, peak 171\" (plural: \"1 beat per minute\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Average %#@beats@, peak %2$lld"
+          },
+          "substitutions" : {
+            "beats" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg beat per minute"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg beats per minute"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Average heart rate" : {
+      "comment" : "A workout's tile: the label of the mean heart rate."
+    },
+    "average heart rate %lld bpm" : {
+      "comment" : "VoiceOver in an activity row: the workout's average heart rate. %lld: beats per minute, e.g. 128."
+    },
+    "Average · %lld nights" : {
+      "comment" : "Sleep → Week or Month under the numeral: fewer nights than days were recorded. %lld: the number of nights, e.g. \"Average · 4 nights\". Plural: \"Average · 1 night\".",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Average · %lld night"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Average · %lld nights"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Average · last %lld nights" : {
+      "comment" : "Sleep → Week or Month under the numeral: the time asleep is the average of the whole range. %lld: the number of nights in the average, e.g. \"Average · last 7 nights\". Plural: \"last 1 night\".",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Average · last %lld night"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Average · last %lld nights"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Avg %@" : {
+      "comment" : "A trend card's note: the range's average. %@: the value with its unit, e.g. \"Avg 7:31 h\"."
+    },
     "Avg pace" : {
       "comment" : "Activity detail: average time per kilometre or mile."
     },
     "Avg speed" : {
       "comment" : "Activity detail: average moving speed."
     },
+    "Back" : {
+      "comment" : "VoiceOver label of the circle button that goes back to the page before."
+    },
     "Backlog" : {},
+    "Band needs 7 days of data" : {
+      "comment" : "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed."
+    },
+    "Band: your usual range" : {
+      "comment" : "The Readiness trend card's note: the band behind the line is the usual range."
+    },
     "Baseline sleep need" : {},
     "Baselines" : {},
     "Baselines need heart-rate variability and resting heart rate from nights with your watch." : {
       "comment" : "Note under the baseline gauge when a long history has no HRV or resting heart rate (row B)."
+    },
+    "Bed and wake times" : {
+      "comment" : "Sleep → Week or Month: the title of the glow tile with each night's bed and wake times."
     },
     "Bedtime & wake" : {},
     "Bedtime reminder" : {},
@@ -1390,6 +1562,9 @@
     },
     "bodyweight" : {
       "comment" : "VoiceOver: a set with no added load, in a workout."
+    },
+    "bpm" : {
+      "comment" : "Beats per minute, the unit after a heart rate on a workout's tiles: \"148 bpm\"."
     },
     "Breathing rate" : {
       "comment" : "A signal on a setup card and a row name in Check sync."
@@ -1514,6 +1689,9 @@
     "collapsed" : {
       "comment" : "VoiceOver: the warm-up group is folded."
     },
+    "Connect a data source to see trends." : {
+      "comment" : "Insights, without a signed-in account or a server: what to do to see trends. An empty state."
+    },
     "Continue in RYFT" : {
       "comment" : "Training import I8: close the import so the consent or invite step can show."
     },
@@ -1607,6 +1785,9 @@
       "comment" : "Confirmation title: delete a night the user added."
     },
     "Deletions kept" : {},
+    "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it." : {
+      "comment" : "Footer under Profile → Privacy, while Demo data is on and the user is signed in. \"Demo data\" is the switch's name in Profile."
+    },
     "Depends on your tracker's app" : {
       "comment" : "Collapsed setup card of Other."
     },
@@ -1616,6 +1797,9 @@
     "Device model and iOS version" : {},
     "Devices & sync" : {
       "comment" : "Profile → Data row and screen title: what you wear and how its data reaches RYFT."
+    },
+    "Devices and sync" : {
+      "comment" : "Profile: the group heading for what the user wears, Apple Health, the sync and Demo data."
     },
     "devices.summary.none" : {
       "comment" : "Profile → Data → Devices & sync row when no tracker is chosen.",
@@ -1645,9 +1829,6 @@
     "Dismiss" : {
       "comment" : "Training import: hide a finished import's row."
     },
-    "Display" : {
-      "comment" : "Profile section title above the Hero numbers setting (Dots or Thin digits on Today, Sleep and Strain)."
-    },
     "distance %@" : {
       "comment" : "VoiceOver: a set's stored distance, e.g. distance 5.0 km."
     },
@@ -1672,7 +1853,6 @@
     "E1RM" : {
       "comment" : "Set table's column in a workout: the set's estimated one-rep max. Keep it short, the column is 48 pt wide."
     },
-    "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {},
     "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it." : {},
     "Each set adds %@ to your body weight." : {
       "comment" : "Training import, step 4: the added-weight option."
@@ -1680,6 +1860,9 @@
     "Each workout you log appears in Fitness and Health. Only the workout: no heart rate." : {},
     "Easy" : {
       "comment" : "Perceived effort 3–4."
+    },
+    "easy" : {
+      "comment" : "VoiceOver: heart-rate zone 1's name, read after \"Zone 1, \"."
     },
     "Edit targets" : {
       "comment" : "Title of the sheet that edits one exercise's targets in a workout."
@@ -1719,6 +1902,21 @@
     "End must be after start." : {
       "comment" : "Add activity: end before start."
     },
+    "ending above its usual range" : {
+      "comment" : "VoiceOver: the end of a trend line's sentence, when the newest value is above its usual range."
+    },
+    "ending at %@" : {
+      "comment" : "VoiceOver: a trend line without a usual range ends at this value. %@: the value with its unit, e.g. \"78\"."
+    },
+    "ending below its usual range" : {
+      "comment" : "VoiceOver: the end of a trend line's sentence, when the newest value is below its usual range."
+    },
+    "ending within its usual range" : {
+      "comment" : "VoiceOver: the end of a trend line's sentence, when the newest value is within its usual range."
+    },
+    "Energy" : {
+      "comment" : "A workout's tile: the label of the active energy it burned."
+    },
     "Engine" : {},
     "Engineered for peak." : {
       "comment" : "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up."
@@ -1754,6 +1952,9 @@
     },
     "Expands the sets" : {
       "comment" : "VoiceOver hint on a collapsed exercise in a workout."
+    },
+    "Export data" : {
+      "comment" : "Profile: the button that creates a file of the user's data to share or save."
     },
     "Export my data first" : {},
     "Export or delete everything at any time in Profile. You can withdraw this consent in Profile → Privacy." : {},
@@ -1809,6 +2010,12 @@
       "comment" : "Training import I1."
     },
     "Given" : {},
+    "Go to bed at %@" : {
+      "comment" : "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for the user's goal. %@: the time, e.g. \"10:06 PM\"."
+    },
+    "Goes back to sign in" : {
+      "comment" : "VoiceOver hint of Profile's status row while signed out: a tap returns to the sign-in screen."
+    },
     "Good afternoon" : {
       "comment" : "Today's greeting from 12:00 to 18:00 when no first name is known."
     },
@@ -1853,6 +2060,9 @@
     "Here's your workout." : {},
     "Hero numbers" : {
       "comment" : "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn."
+    },
+    "Hides the detailed chart" : {
+      "comment" : "VoiceOver hint on an open trend card: a tap collapses the chart."
     },
     "History only" : {
       "comment" : "Training import, step 4: the exercise is only in the workouts."
@@ -1972,8 +2182,14 @@
     "In bed by" : {},
     "In bed by %@ for %lld %% of your need: %@." : {},
     "In bed by %@ for your full %@." : {},
+    "In bed by · %lld %% of your need" : {
+      "comment" : "Sleep → Bedtime, under the numeral: the bedtime gives this share of tonight's sleep need. %lld: the percentage, e.g. 100. The % sign is literal."
+    },
     "in progress" : {
       "comment" : "Exercise strip, VoiceOver: the exercise on screen, or one with a set checked."
+    },
+    "In progress" : {
+      "comment" : "VoiceOver value of a button while its action runs. The button ignores taps until it is done."
     },
     "In your RYFT account, on servers in the EU. Never sold, never used for advertising." : {},
     "Include diagnostics" : {},
@@ -1984,6 +2200,9 @@
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {},
     "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
       "comment" : "Training import, step 5: the offline duplicate check."
+    },
+    "kcal" : {
+      "comment" : "Kilocalories, the unit after an energy on Strain's and a workout's tiles: \"612 kcal\"."
     },
     "Large numbers on Today, Sleep and Strain." : {
       "comment" : "Footer under Profile → Display → Hero numbers: where the dots or thin digits show."
@@ -2009,8 +2228,35 @@
     "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
       "comment" : "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7)."
     },
+    "Less" : {
+      "comment" : "The minus circle of a stepper: makes the value smaller. A button label, read by Voice Control."
+    },
+    "Load %@" : {
+      "comment" : "An activity row's detail line: a logged session's muscular load. %@: the number, e.g. \"84.6\"."
+    },
+    "Loading this day" : {
+      "comment" : "VoiceOver on Strain's numeral while the day loads (shown as outlines, no spinner)."
+    },
     "Loading this night" : {
       "comment" : "Sleep → Day while a night that isn't cached loads: under the unlit numeral, and for VoiceOver."
+    },
+    "max" : {
+      "comment" : "VoiceOver: heart-rate zone 5's name, read after \"Zone 5, \"."
+    },
+    "Max heart rate" : {
+      "comment" : "A workout's tile: the label of the highest heart rate."
+    },
+    "min" : {
+      "comment" : "Minutes, the unit after a duration under an hour on Strain and a workout: \"42 min\"."
+    },
+    "moderate 10–14" : {
+      "comment" : "Strain's ruler: the label of the marked band, strain 10 to 14. A band's name, not a target."
+    },
+    "More trends" : {
+      "comment" : "Insights: the heading above the other trend cards, after the four main ones."
+    },
+    "Need" : {
+      "comment" : "Sleep → Bedtime's tile: the label of tonight's sleep need, e.g. \"8:01 h\"."
     },
     "need %@" : {
       "comment" : "Sleep's duration ruler, the middle label: the night's sleep need as hours:minutes (\"need 8:18\")."
@@ -2021,8 +2267,17 @@
     "next %@ warm-up %lld of %lld" : {
       "comment" : "VoiceOver, the rest pill: the next set when it is a warm-up, e.g. next Bench press warm-up 1 of 2."
     },
+    "No data in this range" : {
+      "comment" : "A trend card's note: the selected range has no value."
+    },
     "No data, %@" : {
       "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”."
+    },
+    "No heart-rate zones for this workout." : {
+      "comment" : "A workout's zones tile: the workout has no heart-rate zone data."
+    },
+    "No heart-rate zones yet today." : {
+      "comment" : "Strain's zones tile for today, when there is no zone data so far (the day isn't over)."
     },
     "No newer night to show" : {
       "comment" : "VoiceOver hint on Sleep's disabled Next night button."
@@ -2030,8 +2285,20 @@
     "No older night to show" : {
       "comment" : "VoiceOver hint on Sleep's disabled Previous night button."
     },
+    "No plan yet, on a scale from 0 to 10 hours." : {
+      "comment" : "VoiceOver on Sleep → Bedtime's ruler (named \"Planned sleep\") while tonight's plan is loading, failed or offline."
+    },
     "No readiness yet, on a scale from 0 to 100" : {
       "comment" : "VoiceOver value of Today's readiness ruler while there is no readiness (pending, calibrating, nothing scored)."
+    },
+    "No strain" : {
+      "comment" : "VoiceOver in an activity row without a strain."
+    },
+    "No strain recorded for this day." : {
+      "comment" : "Strain's caption under the unlit numeral: the past day loaded without a strain."
+    },
+    "No strain yet today." : {
+      "comment" : "Strain's caption under the unlit numeral today: nothing has added strain so far (the day isn't over)."
     },
     "No time asleep yet, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need."
@@ -2039,11 +2306,20 @@
     "No time asleep yet, on a scale from 0 to 10 hours. Your need is %@." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, with the sleep need (\"8 hours 18 minutes\")."
     },
+    "Not loaded" : {
+      "comment" : "A trend card's note: the series couldn't be read (offline, or the read failed) and none is saved."
+    },
     "Not running. Starts at %@" : {
       "comment" : "VoiceOver, the idle rest pill. 1: the exercise's rest, e.g. 1 minute 15 seconds."
     },
+    "Not shown" : {
+      "comment" : "Profile → Privacy → Health-data consent, while Demo data is on: the account's consent is not shown."
+    },
     "not started" : {
       "comment" : "Exercise strip, VoiceOver: an exercise with no set checked."
+    },
+    "not updated yet" : {
+      "comment" : "Profile's status row after the source: nothing has loaded for this account yet."
     },
     "Notes for this exercise" : {
       "comment" : "Placeholder of an exercise's notes in a workout."
@@ -2069,6 +2345,9 @@
     "of 21 · moderate" : {
       "comment" : "After Today's strain value: the scale and the band (10 to 14)."
     },
+    "offline" : {
+      "comment" : "Profile's status row after the source: no connection; it syncs when back online."
+    },
     "Offline. Showing your saved exercise library." : {
       "comment" : "Caption in the replace sheet without a connection."
     },
@@ -2078,17 +2357,41 @@
     "Opens history" : {
       "comment" : "VoiceOver hint on the last-time card of an exercise's page."
     },
+    "Opens in the browser" : {
+      "comment" : "VoiceOver hint of a Profile row that opens a web page."
+    },
     "Opens My Day" : {
       "comment" : "VoiceOver hint of Today's Calendar button."
     },
+    "Opens outside the app" : {
+      "comment" : "VoiceOver hint of a row that opens a web page or another app, when the row doesn't say where."
+    },
+    "Opens the add-activity sheet" : {
+      "comment" : "VoiceOver hint on Strain's header button: it opens Add activity for the day shown."
+    },
+    "Opens the Health app" : {
+      "comment" : "VoiceOver hint of Profile's Open Health row: it opens Apple Health."
+    },
+    "Opens the page in RYFT" : {
+      "comment" : "VoiceOver hint of Profile's Privacy Policy and Terms of Use rows: they open in RYFT's own browser sheet."
+    },
     "planned %@" : {
       "comment" : "VoiceOver: a set's prefilled values, not logged yet. 1: e.g. 10 reps at 75 kilograms."
+    },
+    "Planned sleep" : {
+      "comment" : "VoiceOver label of Sleep → Bedtime's ruler: the sleep that tonight's bedtime gives, from 0 to 10 hours."
+    },
+    "Read the policy" : {
+      "comment" : "Link at the end of Profile → Privacy's footer: opens the privacy policy in force."
     },
     "Readiness scale" : {
       "comment" : "VoiceOver label of Today's readiness ruler (0 to 100)."
     },
     "Readiness · %@" : {
       "comment" : "Under Today's gauge: \"Readiness\", then the band word (High, Moderate, Low)."
+    },
+    "Recorded by %@" : {
+      "comment" : "Under a workout's heart-rate chart: the app or device that recorded the workout. %@: its name."
     },
     "Replace %@" : {
       "comment" : "Title of the sheet that replaces an exercise mid-workout. 1: exercise name."
@@ -2132,6 +2435,9 @@
     "Restored %@. Your plan still has the new exercise." : {
       "comment" : "Toast after Undo: the workout is back, but the plan could not be changed back. 1: exercise name."
     },
+    "SDNN" : {
+      "comment" : "The HRV trend card's note: the kind of HRV the number is. Keep the abbreviation SDNN (a measure of heart-rate variability)."
+    },
     "set %lld, %@" : {
       "comment" : "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms."
     },
@@ -2147,8 +2453,14 @@
     "Sets with values can't be removed here. Delete them in the list." : {
       "comment" : "Edit targets: the sets stepper can't go lower because a set has values."
     },
+    "Settings" : {
+      "comment" : "Profile: the group heading for notifications, the journal, hero numbers and bedtime."
+    },
     "Shows or hides the warm-up sets" : {
       "comment" : "VoiceOver hint on the warm-up pill."
+    },
+    "Shows the detailed chart" : {
+      "comment" : "VoiceOver hint on a trend card: a tap opens the chart."
     },
     "Similar" : {
       "comment" : "Section of exercises like the one being replaced."
@@ -2207,8 +2519,17 @@
     "Start rest %@" : {
       "comment" : "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15."
     },
+    "Starts the workout" : {
+      "comment" : "VoiceOver hint on a start-sheet option: it starts the workout."
+    },
+    "Strain not scored yet today." : {
+      "comment" : "VoiceOver, Profile's identity row: today's strain has no score yet (the ring shows only its track)."
+    },
     "Strain scale" : {
       "comment" : "VoiceOver label of a strain ruler (0 to 21)."
+    },
+    "Strain today %@ of 21." : {
+      "comment" : "VoiceOver, Profile's identity row: today's strain on its 0–21 scale. %@: the value, e.g. \"12.4\"."
     },
     "Strain · %@" : {
       "comment" : "The strain tile's label while it shows another day (\"Yesterday\") or \"calibrating\"."
@@ -2217,8 +2538,20 @@
       "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset."
     },
     "Superset with %@" : {},
+    "Tab %lld of %lld" : {
+      "comment" : "VoiceOver value of a tab: its position. First %lld: this tab's position, second %lld: the number of tabs, e.g. \"Tab 2 of 5\"."
+    },
+    "Tab bar" : {
+      "comment" : "VoiceOver: the name of the container that holds the five tabs."
+    },
     "Target weight (kg)" : {
       "comment" : "Edit targets: the weight to lift."
+    },
+    "tempo" : {
+      "comment" : "VoiceOver: heart-rate zone 3's name, read after \"Zone 3, \"."
+    },
+    "the last is the newest night" : {
+      "comment" : "VoiceOver on Sleep → Week or Month's Consistency tile, after the counts: the last dot is the newest night."
     },
     "the last is the night shown" : {
       "comment" : "VoiceOver on Sleep's Consistency tile, after the counts: the last dot (in Volt) is the night on screen."
@@ -3605,11 +3938,17 @@
     "This workout is in another picked file too and is imported once" : {
       "comment" : "Import warning, after \"Line N\"."
     },
+    "threshold" : {
+      "comment" : "VoiceOver: heart-rate zone 4's name, read after \"Zone 4, \"."
+    },
     "time %@" : {
       "comment" : "VoiceOver: a set's stored time, e.g. time 0:45."
     },
     "Time asleep %@" : {
       "comment" : "Add sleep: the time between bed and wake."
+    },
+    "Time asleep per night" : {
+      "comment" : "Sleep → Week or Month: the title of the card with each night's stages as a bar."
     },
     "Time in bed. RYFT can't see your sleep stages for this entry." : {
       "comment" : "Add sleep: the duration is the time in bed; no stages for a typed-in night."
@@ -3705,7 +4044,6 @@
       "comment" : "Training import P4."
     },
     "Tries to load your data again" : {},
-    "Try another wake time" : {},
     "Trying again in %lld seconds" : {
       "comment" : "Training import I5: a Retry-After countdown.",
       "localizations" : {
@@ -3748,8 +4086,17 @@
       "comment" : "VoiceOver, Sleep's Sleep debt tile: the debt grew (\"up 20 minutes from the night before\")."
     },
     "Up to date" : {},
+    "up to date" : {
+      "comment" : "Profile's status row after the source: the sync is up to date (\"Apple Health · up to date\")."
+    },
     "Up to date · %@" : {},
     "Up to date · just now" : {},
+    "updated %@" : {
+      "comment" : "Profile's status row after the source: old data or a failed sync. %@: when it last updated, e.g. \"5 hr. ago\"."
+    },
+    "updating…" : {
+      "comment" : "Profile's status row after the source: reading, uploading or scoring right now."
+    },
     "Uploaded" : {},
     "Uploading" : {},
     "Uploading %@ readings" : {},
@@ -3774,6 +4121,9 @@
     "Vendor guide" : {
       "comment" : "Link to the tracker maker's help page on a setup card."
     },
+    "versus 7 days" : {
+      "comment" : "VoiceOver: the reference of a change, after the change, e.g. \"Up 11 versus 7 days\"."
+    },
     "Very easy" : {
       "comment" : "Perceived effort 1–2."
     },
@@ -3794,6 +4144,9 @@
       "comment" : "Sync details → Engine → Scoring: when scoring began and the platform's usual time in seconds."
     },
     "waiting…" : {},
+    "wake %@" : {
+      "comment" : "Sleep → Bedtime's go-to-bed tile, top right: the wake time the bedtimes are for. %@: the time, e.g. \"7:00 AM\". Lower case in English."
+    },
     "Wake %@ · need %@" : {},
     "Wake me at my wake time" : {},
     "Wake-up alarm" : {},
@@ -3850,6 +4203,17 @@
     },
     "Workout history" : {
       "comment" : "Training import, step 3: the history toggle."
+    },
+    "workout.strain.caption" : {
+      "comment" : "Under a workout's strain numeral: the word \"Strain\", then the scale and the band. %@: the band's caption, e.g. \"of 21 · moderate\" or \"of 21\".",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strain · %@"
+          }
+        }
+      }
     },
     "Workouts" : {},
     "workouts" : {},
@@ -3933,6 +4297,9 @@
     "Your file is ready. Sign in to continue." : {
       "comment" : "Training import E6: a file was opened while signed out."
     },
+    "your goal" : {
+      "comment" : "VoiceOver on Sleep → Bedtime's go-to-bed tile, after the goal that is the user's own (the filled marker)."
+    },
     "Your health data, your consent" : {},
     "Your history is on its way." : {},
     "Your import is kept on this iPhone. RYFT retries when the connection is back." : {
@@ -3964,6 +4331,63 @@
     },
     "Your wake time from Bedtime & wake." : {},
     "Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile." : {},
+    "Your watch didn't record heart-rate zones for this day." : {
+      "comment" : "Strain's zones tile for a past day without zone data, because the watch didn't record it."
+    },
+    "Z1 · Easy" : {
+      "comment" : "Heart-rate zone 1's row label (50–60 % of heart-rate reserve). Keep \"Z1\"; \"Easy\" is the zone's name."
+    },
+    "Z2 · Aerobic" : {
+      "comment" : "Heart-rate zone 2's row label (60–70 % of heart-rate reserve). Keep \"Z2\"; \"Aerobic\" is the zone's name."
+    },
+    "Z3 · Tempo" : {
+      "comment" : "Heart-rate zone 3's row label (70–80 % of heart-rate reserve). Keep \"Z3\"; \"Tempo\" is the zone's name."
+    },
+    "Z4 · Threshold" : {
+      "comment" : "Heart-rate zone 4's row label (80–90 % of heart-rate reserve). Keep \"Z4\"; \"Threshold\" is the zone's name."
+    },
+    "Z5 · Max" : {
+      "comment" : "Heart-rate zone 5's row label (90 % of heart-rate reserve and more). Keep \"Z5\"; \"Max\" is the zone's name."
+    },
+    "Zone %1$lld, %2$@, %3$@" : {
+      "comment" : "VoiceOver in the zones tile's sentence: %1$lld the zone's number, %2$@ its name, %3$@ its minutes, e.g. \"Zone 2, Aerobic, 6 minutes\"."
+    },
+    "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld minutes" : {
+      "comment" : "VoiceOver on one heart-rate zone row: %1$lld the zone's number, %2$@ its name, %3$@ its heart-rate-reserve range, %4$lld its minutes. Plural on minutes: \"1 minute\".",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %#@minutes@"
+          },
+          "substitutions" : {
+            "minutes" : {
+              "argNum" : 4,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg minute"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg minutes"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Zones are in % of heart-rate reserve." : {
+      "comment" : "Under the heart-rate zones tile on Strain and on a workout: the zones' unit. The % sign is literal."
+    },
     "–" : {
       "comment" : "A placeholder text for a value field.",
       "isCommentAutoGenerated" : true,
@@ -4103,10 +4527,6 @@
     },
     "%@ kilograms" : {
       "comment" : "Text describing the weight of the exercise.",
-      "isCommentAutoGenerated" : true
-    },
-    "%@ nights" : {
-      "comment" : "The title of the section. The argument is the number of nights.",
       "isCommentAutoGenerated" : true
     },
     "%@, not scored" : {
@@ -4512,10 +4932,6 @@
       "comment" : "The name of the active energy trend metric.",
       "isCommentAutoGenerated" : true
     },
-    "Active kcal" : {
-      "comment" : "Label for the active energy (kcal) value in the movement section of the strain view.",
-      "isCommentAutoGenerated" : true
-    },
     "Activities" : {
       "comment" : "A heading for the list of activities.",
       "isCommentAutoGenerated" : true
@@ -4669,10 +5085,6 @@
       "comment" : "Title of the alert severity when the alert is of type warn.",
       "isCommentAutoGenerated" : true
     },
-    "Average %@" : {
-      "comment" : "A description of the average sleep duration for the given sleep range.",
-      "isCommentAutoGenerated" : true
-    },
     "Avg" : {
       "comment" : "A label for the average value of a trend metric.",
       "isCommentAutoGenerated" : true
@@ -4685,24 +5097,8 @@
       "comment" : "The title of the section that displays the user's average heart rate and a chart of their heart rate over time.",
       "isCommentAutoGenerated" : true
     },
-    "Avg HR" : {
-      "comment" : "A label for average heart rate.",
-      "isCommentAutoGenerated" : true
-    },
-    "Avg quality" : {
-      "comment" : "A label for the average sleep quality.",
-      "isCommentAutoGenerated" : true
-    },
-    "Avg sleep" : {
-      "comment" : "A label for the average sleep duration.",
-      "isCommentAutoGenerated" : true
-    },
     "Awake" : {
       "comment" : "Display name for the sleep stage \"awake\".",
-      "isCommentAutoGenerated" : true
-    },
-    "Band: 30-day range" : {
-      "comment" : "A label displayed under the chart that indicates the 30-day range.",
       "isCommentAutoGenerated" : true
     },
     "Bar" : {
@@ -4725,10 +5121,6 @@
       "comment" : "Label for the bedtime time in the sleep details.",
       "isCommentAutoGenerated" : true
     },
-    "Bedtime and wake time" : {
-      "comment" : "The title of a section that shows the user's bedtime and wake times.",
-      "isCommentAutoGenerated" : true
-    },
     "Bedtimes and wake times" : {
       "comment" : "A description of the accessibility element.",
       "isCommentAutoGenerated" : true
@@ -4737,20 +5129,12 @@
       "comment" : "A heading for the list of the user's behaviors.",
       "isCommentAutoGenerated" : true
     },
-    "Behaviors to track" : {
-      "comment" : "A heading for the list of behaviors to track in the journal.",
-      "isCommentAutoGenerated" : true
-    },
     "Biceps" : {
       "comment" : "Display name for a muscle group.",
       "isCommentAutoGenerated" : true
     },
     "Blood oxygen" : {
       "comment" : "Name of a physiological metric.",
-      "isCommentAutoGenerated" : true
-    },
-    "Body" : {
-      "comment" : "Section title for the body settings in the profile view.",
       "isCommentAutoGenerated" : true
     },
     "Bodyweight" : {
@@ -4778,10 +5162,6 @@
       "comment" : "The message for the confirmation dialog that logs out of RYFT.",
       "isCommentAutoGenerated" : true
     },
-    "Calories" : {
-      "comment" : "A label for the number of calories burned during a workout.",
-      "isCommentAutoGenerated" : true
-    },
     "Calves" : {
       "comment" : "Display name for a muscle group called \"calves\".",
       "isCommentAutoGenerated" : true
@@ -4805,10 +5185,6 @@
           }
         }
       }
-    },
-    "Categories and quiet hours" : {
-      "comment" : "A title for the settings related to notifications.",
-      "isCommentAutoGenerated" : true
     },
     "Category" : {
       "comment" : "The category of a behavior.",
@@ -4924,10 +5300,6 @@
       "comment" : "A button that creates a custom exercise.",
       "isCommentAutoGenerated" : true
     },
-    "Data" : {
-      "comment" : "Section title for the data settings in the profile view.",
-      "isCommentAutoGenerated" : true
-    },
     "Date" : {
       "comment" : "Label for the x-axis in a series chart.",
       "isCommentAutoGenerated" : true
@@ -4946,10 +5318,6 @@
     },
     "Day name" : {
       "comment" : "The label for the day name field in the plan builder.",
-      "isCommentAutoGenerated" : true
-    },
-    "Day strain" : {
-      "comment" : "Title of the gauge showing the day's strain.",
       "isCommentAutoGenerated" : true
     },
     "Days more than 14 days ago can't be changed." : {
@@ -5165,10 +5533,6 @@
       "comment" : "The name of the exercise.",
       "isCommentAutoGenerated" : true
     },
-    "Export my data" : {
-      "comment" : "Button title to export user data.",
-      "isCommentAutoGenerated" : true
-    },
     "Fair" : {
       "comment" : "Text describing a sleep quality level as \"fair\".",
       "isCommentAutoGenerated" : true
@@ -5232,10 +5596,6 @@
     },
     "Front delts" : {
       "comment" : "Display name for the front delts muscle group.",
-      "isCommentAutoGenerated" : true
-    },
-    "Full re-sync" : {
-      "comment" : "Button title to perform a full re-sync.",
       "isCommentAutoGenerated" : true
     },
     "Functional strength" : {
@@ -5337,10 +5697,6 @@
       "comment" : "The title of the screen that shows the user's training history.",
       "isCommentAutoGenerated" : true
     },
-    "Hours" : {
-      "comment" : "Label for the y-axis in the sleep per night chart.",
-      "isCommentAutoGenerated" : true
-    },
     "How did it feel?" : {
       "comment" : "A prompt for the user to describe how they felt during the session.",
       "isCommentAutoGenerated" : true
@@ -5382,9 +5738,6 @@
       "comment" : "A description of a superset.",
       "isCommentAutoGenerated" : true
     },
-    "In bed" : {
-      "shouldTranslate" : false
-    },
     "in range" : {
       "comment" : "A description of a value that is within the user's personal range.",
       "isCommentAutoGenerated" : true
@@ -5398,8 +5751,7 @@
       "isCommentAutoGenerated" : true
     },
     "Insights" : {
-      "comment" : "A tab for the app's insights features.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Tab bar: the Insights tab's name, in the bar and for VoiceOver."
     },
     "Irregular — bedtime varies by about %lld min. A steadier rhythm helps recovery." : {
       "comment" : "The last sentence is a suggestion to encourage users to improve their sleep hygiene.",
@@ -5635,10 +5987,6 @@
       "comment" : "A label for the maximum value of a trend.",
       "isCommentAutoGenerated" : true
     },
-    "Max HR" : {
-      "comment" : "Label for the maximum heart rate.",
-      "isCommentAutoGenerated" : true
-    },
     "Mean bedtime" : {
       "comment" : "Prefix for the bedtime value in the bedtime strip.",
       "isCommentAutoGenerated" : true
@@ -5680,8 +6028,7 @@
       "isCommentAutoGenerated" : true
     },
     "More" : {
-      "comment" : "A button in the header of a session view.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Label of a More button: the header button in a session, an activity's menu (Edit, Delete), and a stepper's plus circle (makes the value larger)."
     },
     "Morning score" : {
       "comment" : "Text for the \"Morning score\" notification category.",
@@ -6020,9 +6367,6 @@
       "comment" : "A contextual menu that appears when tapping the ellipsis icon in the exercise editor.",
       "isCommentAutoGenerated" : true
     },
-    "Out of bed" : {
-      "shouldTranslate" : false
-    },
     "Overall readiness, no data" : {
       "comment" : "OrbitGauge VoiceOver: no readiness yet, the first part of the sentence."
     },
@@ -6176,8 +6520,7 @@
       "isCommentAutoGenerated" : true
     },
     "Profile" : {
-      "comment" : "A tab for the user's profile.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Tab bar: the Profile tab's name, in the bar and for VoiceOver."
     },
     "Progression" : {
       "comment" : "A heading for the progression of a workout plan.",
@@ -6370,10 +6713,6 @@
     },
     "Ride" : {
       "comment" : "Display name for the \"ride\" activity.",
-      "isCommentAutoGenerated" : true
-    },
-    "Row" : {
-      "comment" : "The background colour of the hypnogram bar.",
       "isCommentAutoGenerated" : true
     },
     "RPE" : {
@@ -6579,8 +6918,7 @@
       "isCommentAutoGenerated" : true
     },
     "Sleep" : {
-      "comment" : "A label for the sleep tab.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Tab bar: the Sleep tab's name, in the bar and for VoiceOver."
     },
     "Sleep consistency" : {
       "comment" : "Title of a metric that shows how well you slept.",
@@ -6592,10 +6930,6 @@
     },
     "Sleep need" : {
       "comment" : "Label for the sleep need duration.",
-      "isCommentAutoGenerated" : true
-    },
-    "Sleep per night" : {
-      "comment" : "Title of the sleep per night chart.",
       "isCommentAutoGenerated" : true
     },
     "sleep performance" : {
@@ -6643,10 +6977,6 @@
       "comment" : "A hint for the user to see the split between heart-rate and strength load.",
       "isCommentAutoGenerated" : true
     },
-    "Stage" : {
-      "comment" : "Stage of a sleep stage.",
-      "isCommentAutoGenerated" : true
-    },
     "Stages, need and debt, every night." : {
       "comment" : "Text describing the sleep data tracked by the app.",
       "isCommentAutoGenerated" : true
@@ -6681,8 +7011,7 @@
       "comment" : "OrbitGauge VoiceOver: Strain on its 0 to 21 scale, then today's recommended strain range, e.g. 'Strain 9.6 of 21, today's recommended range 8 to 13'. The range is the platform's recommendation for the day, not a goal the user sets: don't translate it as Ziel. Not reached in the app until the platform serves the range (docs/API_REQUESTS.md, Charts and gauges #2); previews and tests pass one. Arguments in order: strain, range start, range end."
     },
     "Strain" : {
-      "comment" : "A tab for viewing the user's current strain.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Tab bar: the Strain tab's name, in the bar and for VoiceOver."
     },
     "Strain %@" : {
       "comment" : "A label for a pill that displays the name of a strain.",
@@ -6865,18 +7194,6 @@
       "comment" : "Label for the time in bed stat.",
       "isCommentAutoGenerated" : true
     },
-    "Time in bed %@ at %lld %% efficiency." : {
-      "comment" : "A description of the time in bed and the sleep efficiency.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Time in bed %1$@ at %2$lld %% efficiency."
-          }
-        }
-      }
-    },
     "Times are local. Equal times turn quiet hours off; a start later than the end spans midnight." : {
       "comment" : "A description of the times displayed in the quiet hours section.",
       "isCommentAutoGenerated" : true
@@ -6895,8 +7212,7 @@
       "isCommentAutoGenerated" : true
     },
     "Today" : {
-      "comment" : "Displayed instead of a date when it's the current day.",
-      "isCommentAutoGenerated" : true
+      "comment" : "Tab bar: the Today tab's name. Also shown instead of a date when it's the current day."
     },
     "Today: %@" : {
       "comment" : "A label that shows the name of the plan being done today. The argument is the name of the plan being done today.",
