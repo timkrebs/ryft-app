@@ -835,12 +835,12 @@ final class BodySettingsEditor {
     var isBusy: Bool { saving || rescoring }
 
     /// What `PATCH /v1/me` takes: 4–12 h, in the sheet's 15-minute steps.
-    static let sleepBaseRange = 240...720
-    static let sleepBaseStep = 15
-    static let defaultSleepBase = 460
+    nonisolated static let sleepBaseRange = 240...720
+    nonisolated static let sleepBaseStep = 15
+    nonisolated static let defaultSleepBase = 460
     /// 100–230 bpm.
-    static let maxHRRange = 100...230
-    static let defaultMaxHR = 190
+    nonisolated static let maxHRRange = 100...230
+    nonisolated static let defaultMaxHR = 190
 
     init(state: AppState) {
         self.state = state

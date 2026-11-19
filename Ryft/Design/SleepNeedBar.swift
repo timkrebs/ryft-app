@@ -39,7 +39,7 @@ struct SleepNeedBreakdown: Equatable {
                               comment: "VoiceOver: a top-up of the night's sleep need, e.g. \"Strain, plus 20 minutes\". 1: the term, 2: the time.")
             case .nap:
                 return String(localized: "\(title), minus \(amount)",
-                              comment: "VoiceOver: the nap credit taken off the night's sleep need, \"Nap credit, minus 25 minutes\". 1: the term, 2: the time.")
+                              comment: "VoiceOver: the nap credit off the night's need, \"Nap credit, minus 25 minutes\". 1: the term, 2: the time.")
             }
         }
     }

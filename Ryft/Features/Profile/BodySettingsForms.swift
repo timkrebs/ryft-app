@@ -127,6 +127,7 @@ extension BodySetting {
     var explanation: Text {
         switch self {
         case .sleepBase:
+            // swiftlint:disable:next line_length
             return Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it.")
         case .maxHR:
             return Text("Strain and heart-rate zones are measured against it. If you know yours from a test, set it here.")
@@ -186,7 +187,7 @@ struct BodySettingContent: Equatable {
         if loaded, let source {
             self.source = isChanged
                 ? [source, String(localized: "saved \(setting.text(saved))",
-                                  comment: "Body setting editors, after the source line while the numeral shows an unsaved value: the saved one, e.g. \"saved 7:30\".")]
+                                  comment: "Body setting editors, after the source while the value isn't saved: the saved one, \"saved 7:30\".")]
                     .joined(separator: " · ")
                 : source
         } else {
@@ -333,8 +334,9 @@ private struct BodySettingPage: View {
     /// Under the ruler, about the value: offline without the account; the last refusal; Saved, the rescore and how it went.
     @ViewBuilder private func notices(_ content: BodySettingContent) -> some View {
         if content.isOfflineWithoutAccount {
+            // swiftlint:disable:next line_length
             InlineMessage(message: String(localized: "You're offline and RYFT hasn't loaded your settings yet, so this shows the default. You can change it once you're back online.",
-                                          comment: "Body setting editors, offline with no account on this iPhone yet: the numeral is the default and Save is off."),
+                                          comment: "Body setting editors, offline with no account on this iPhone: the value is the default, Save is off."),
                           systemImage: "wifi.slash", announces: false, readsAsOne: true)
                 .accessibilityIdentifier("bodySettings.offline")
         }

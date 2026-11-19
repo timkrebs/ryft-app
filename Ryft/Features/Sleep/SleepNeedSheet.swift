@@ -146,12 +146,14 @@ struct SleepNeedSheet: View {
     private var baseline: some View {
         let row = SleepNeedSheetContent.BaselineRow(editor: editor)
         return GroupedCard {
-            GroupedRow.push(Text("Baseline sleep need"),
-                            value: Text(verbatim: row.value).accessibilityLabel(Text(verbatim: row.spokenValue)),
+            GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: row.value),
                             detail: row.detail.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: "sleepNeed.changeBaseline") {
                 editsBaseline = true
             }
+            // The row reads its value and detail as one Text, which drops a spoken label on the value: "7 hours 30 minutes,
+            // Set by you", not "7:30" read as a time of day.
+            .accessibilityValue(Text(verbatim: [row.spokenValue, row.detail].compactMap(\.self).joined(separator: ", ")))
         }
     }
 }
