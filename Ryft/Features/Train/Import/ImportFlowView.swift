@@ -98,6 +98,8 @@ struct ImportStepScaffold<Content: View, Bottom: View>: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        // Step 6 has no way back: the subpages' keeper refuses a back swipe on a page that hides its Back button.
+        .navigationBarBackButtonHidden(step == .result)
         .modifier(ImportBackSwipe(allowed: step != .result))
         .modifier(ImportPinnedBar(shows: showsBar, bar: bottom))
     }
@@ -132,8 +134,9 @@ private struct ImportPinnedBar<Bar: View>: ViewModifier {
     }
 }
 
-/// Steps 2 to 5 go back with a swipe (`keepsBackSwipe`, as every subpage). Step 6 switches the swipe off while it shows: the
-/// subpages' keeper would otherwise let it pop back to step 5 after the import has started.
+/// Steps 2 to 5 go back with a swipe (`keepsBackSwipe`, as every subpage). Step 6 switches both swipes off while it shows
+/// (the edge's and iOS 26's from anywhere in the content), as well as hiding its Back button: the import has started, so
+/// popping back to step 5 would offer it a second time.
 private struct ImportBackSwipe: ViewModifier {
     let allowed: Bool
 
@@ -157,12 +160,20 @@ private struct ImportBackSwipe: ViewModifier {
 
             override func viewWillAppear(_ animated: Bool) {
                 super.viewWillAppear(animated)
-                navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+                switchOff()
             }
 
             override func viewDidAppear(_ animated: Bool) {
                 super.viewDidAppear(animated)
-                navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+                switchOff()
+            }
+
+            private func switchOff() {
+                guard let navigationController else { return }
+                navigationController.interactivePopGestureRecognizer?.isEnabled = false
+                if #available(iOS 26.0, *) {
+                    navigationController.interactiveContentPopGestureRecognizer?.isEnabled = false
+                }
             }
         }
     }

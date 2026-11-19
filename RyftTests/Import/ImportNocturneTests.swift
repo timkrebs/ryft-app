@@ -95,6 +95,37 @@ struct ImportNocturneTests {
         }
     }
 
+    @Test("Step 6 has no way back: its Back is hidden and both back swipes are off; step 5 keeps them")
+    func step6NoWayBack() async throws {
+        try await host("6-done") { w in
+            let nav = try #require(Self.navigationController(w), "a navigation controller")
+            #expect(nav.viewControllers.count > 1, "step 6 is pushed: \(nav.viewControllers.count)")
+            #expect(nav.topViewController?.navigationItem.hidesBackButton == true, "the Back button is hidden")
+            try await w.wait("the swipes off") { nav.interactivePopGestureRecognizer?.isEnabled == false }
+            if #available(iOS 26.0, *) {
+                let content = try #require(nav.interactiveContentPopGestureRecognizer, "iOS 26's content swipe")
+                #expect(!content.isEnabled, "iOS 26's content swipe")
+            }
+        }
+        try await host("5-preview-plan") { w in
+            let nav = try #require(Self.navigationController(w), "a navigation controller")
+            #expect(nav.topViewController?.navigationItem.hidesBackButton == false)
+            #expect(nav.interactivePopGestureRecognizer?.isEnabled == true, "step 5 goes back with a swipe")
+            if #available(iOS 26.0, *) {
+                // On by default: step 6 is what turns it off.
+                #expect(nav.interactiveContentPopGestureRecognizer?.isEnabled == true, "iOS 26's content swipe on step 5")
+            }
+        }
+    }
+
+    private static func navigationController(_ w: HostedWindow) -> UINavigationController? {
+        func find(_ controller: UIViewController) -> UINavigationController? {
+            if let nav = controller as? UINavigationController { return nav }
+            return controller.children.lazy.compactMap(find).first ?? controller.presentedViewController.flatMap(find)
+        }
+        return find(w.host)
+    }
+
     // MARK: the pinned pill per state
 
     struct PillCase: CustomTestStringConvertible, Sendable {
