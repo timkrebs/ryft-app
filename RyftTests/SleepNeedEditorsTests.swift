@@ -102,12 +102,12 @@ struct BodySettingContentTests {
         let state = makeState()
         let editor = BodySettingsEditor(state: state)
         let estimate = BodySettingContent(.sleepBase, editor: editor, draft: 450).estimate
-        #expect(estimate == .init(title: "Use RYFT's estimate", value: "7:52", spokenValue: "7 hours 52 minutes"))
+        #expect(estimate == BodySettingContent.Estimate(title: "Use RYFT's estimate", value: "7:52", spokenValue: "7 hours 52 minutes"))
         var user = MockSleepNeedStates.user
         user.sleepBaseLearnedMin = nil
         state.user = user
         #expect(BodySettingContent(.sleepBase, editor: editor, draft: 450).estimate
-                == .init(title: "Use the default", value: nil, spokenValue: nil))
+                == BodySettingContent.Estimate(title: "Use the default", value: nil, spokenValue: nil))
         user.sleepBaseSource = .learned
         state.user = user
         #expect(BodySettingContent(.sleepBase, editor: editor, draft: 450).estimate == nil, "learned already")
@@ -116,7 +116,7 @@ struct BodySettingContentTests {
         manual.maxHrSource = .manual
         state.user = manual
         #expect(BodySettingContent(.maxHR, editor: editor, draft: 190).estimate
-                == .init(title: "Use the estimate", value: nil, spokenValue: nil))
+                == BodySettingContent.Estimate(title: "Use the estimate", value: nil, spokenValue: nil))
     }
 
     @Test("No account on this iPhone: the default, no source, Save off; offline it says so")
