@@ -188,14 +188,16 @@ struct APIClientStatusTests {
 
     @Test func conflictOnASessionPutReturnsTheServerCopy() async throws {
         let server = try Fixture.data("train_session")
-        StubURLProtocol.script([.init(status: 409, body: server)])
+        StubURLProtocol.script([.init(status: 409, headers: ["X-Request-ID": "req-409"], body: server)])
         let local = try Fixture.decode(TrainSession.self, "train_session")
         let result = try await client().putSession(local)
-        guard case .conflict(let copy) = result else {
+        guard case .conflict(let copy, let requestID) = result else {
             Issue.record("expected .conflict, got \(result)")
             return
         }
         #expect(copy.id == local.id)
+        // Kept for Details when the merge rounds run out (O2).
+        #expect(requestID == "req-409")
         #expect(StubURLProtocol.requests.first?.httpMethod == "PUT")
         #expect(tokens.rejections == 0)
     }

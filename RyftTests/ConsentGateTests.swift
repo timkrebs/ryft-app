@@ -34,7 +34,7 @@ private final class CountingPersistence: Persistence {
 }
 
 /// `Persistence` over a `TrainStore` whose document saves can be refused, as a store that takes no save at all
-/// (iOS 17 after demo data, T0.6): the consent record on disk stays as it was.
+/// (T0.6 did on iOS 17 after demo data; a failed save still can): the consent record on disk stays as it was.
 @MainActor
 private final class DocumentRefusingPersistence: Persistence {
     let base: TrainStore
@@ -122,7 +122,7 @@ private final class ConsentHarness {
 
     func config(_ version: String = MockData.policyVersion, ttl: Int = 21_600) -> RemoteConfig {
         RemoteConfig(flags: [:], evaluatedAt: clock.now(), ttlSec: ttl, privacyPolicyVersion: version,
-                     privacyPolicyUrl: "https://ryftapp.de/privacy/\(version)")
+                     privacyPolicyUrl: "https://ryftlab.de/privacy/\(version)")
     }
 
     /// A policy answer recorded now.
@@ -1093,7 +1093,8 @@ struct ConsentReleaseTests {
         -> (ScreenModels, SyncService) {
         let sync = SyncService.ungated(env: h.env)
         let store = TrainStore(inMemory: true)
-        let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, restore: false)
+        let outbox = trainSync ?? TrainSyncService.preview(store: store)
+        let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, outbox: { outbox }, restore: false)
         let screens = ScreenModels(state: h.state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: h.clock),
                                    store: store, library: library, apiStatus: h.status, trainSync: trainSync)
         return (screens, sync)
@@ -1289,7 +1290,7 @@ struct ConsentTrainTests {
         let api = MockPlatformAPI()
         let (sync, store) = outbox(api)
         sync.gate = { _ in .gate(.consentRequired) }
-        let library = TrainLibrary(store: store, remote: { api }, restore: false)
+        let library = TrainLibrary(store: store, remote: { api }, outbox: { sync }, restore: false)
         _ = await library.sessions()
         #expect(api.count("sessions") == 1)
     }
@@ -1575,8 +1576,8 @@ extension ConsentWriterTests {
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
     }
 
-    /// A withdrawal whose every save the store refuses (the user's and the consent record's: iOS 17 after demo data),
-    /// then the user's store and defaults for a relaunch. The store still has the consent and no refusal.
+    /// A withdrawal whose every save the store refuses (the user's and the consent record's, as iOS 17 did after demo
+    /// data), then the user's store and defaults for a relaunch. The store still has the consent and no refusal.
     private func aWithdrawalTheStoreKeptNothingOf() async throws -> (url: URL, defaults: UserDefaults, folder: URL) {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-consent-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -1625,7 +1626,7 @@ extension ConsentWriterTests {
     }
 
     /// The reviewer's iOS 17 path: the user with consent stored on a launch before; this launch's demo data makes the
-    /// account's store the older container (on iOS 17.0 it takes no save then, T0.6, and here the hook refuses every
+    /// account's store the older container (on iOS 17.0 it took no save then, T0.6, and here the hook refuses every
     /// save on any OS); Demo data off, the withdrawal, the platform out of reach; then Demo data on and off twice, each
     /// switch reading the store again, whose user still has the consent. The gate stays closed. Two things hold it: the
     /// withdrawal kept beside the store, and the refusal in the consent record's memory (its save refused too).

@@ -192,8 +192,9 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   check and returns a `WriteTicket`. `ReadModelDrain` applies the queue in submit order,
   one batch at a time, on the store's `ReadModelWriter` (a `@ModelActor`, private to the
   drain's file, so no main-actor code can make or await it). The drain does both on its own
-  executor: iOS 17 runs a model actor's jobs on the thread that made it, iOS 27 on the
-  thread that awaits it. A batch never spans a store, an epoch or a seed, and it saves once.
+  executor: on iOS 17.0 the thread that made a model actor ran its jobs, and iOS 18 is
+  reported to do the same (unmeasured on 18.6); on iOS 27.2 the thread that awaits it. A
+  batch never spans a store, an epoch or a seed, and it saves once.
   The drain runs at `.userInitiated` whoever submitted first: awaiting a ticket doesn't raise
   its priority.
 - At the commit the Repository replaces its read context (one per store, never written),
@@ -235,8 +236,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   expiry stops it. A HealthKit delivery's `completion()` doesn't wait: it comes right
   after the upload.
 - Debug asserts that each writer is made off main and that every job of it runs off main
-  (`ReadModelOffMainTests` proves both through the real path, on iOS 17.0 and 27.2);
-  `OSSignposter` interval `write` on `reads` covers each batch.
+  (`ReadModelOffMainTests` proves both through the real path, measured on 17.0 and 27.2; 18.6
+  is the oldest-runtime gate); `OSSignposter` interval `write` on `reads` covers each batch.
 
 **Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
 
@@ -269,6 +270,19 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   waits for a save. The first write after a wipe gets a new writer, so no context keeps a
   deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
   `StoreID`, which is never reused.
+- **A wipe that doesn't finish is a debt** (ADR 0020, `docs/work/2026-11-05-wipe-recovery/design.md`):
+  - The sign-out writes an entry to `WipeLedger` (a file in Application Support) before its first destructive step,
+    and a wipe that returns false leaves it. `auth.lastUserID` (`AccountScope`) only says whose data the store holds,
+    and follows the published session.
+  - At the next launch `AuthService.init` resolves the entry before anything opens the store, and `TrainStore.shared`'s
+    initializer replaces the store's files (`StoreReset`) before its first container exists, so no writer or read
+    context can hold them. A session expiry's parked rows within 30 days keep the object wipe instead, after the first
+    frame. The compaction retries too.
+  - No session is published over an entry (`AuthService.clearTheWay`): another account's sign-in makes one attempt and
+    is held if it fails, and Welcome says so. Once a pass was refused, nothing in that process ends the debt.
+  - The wipe's own turn lets go of what holds Train rows (`TrainCoordinator.releaseRows`, `SessionController.release`):
+    on iOS 18 and 26 reading a deleted row's relationship can be a fatal error. The demo's discard does the same, and
+    both, and an account change, drop a workout still opening from the start sheet (`TrainCoordinator.open`).
 - Demo data goes to a separate in-memory store, so it never mixes with an account's. The
   Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
   one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer
@@ -277,6 +291,46 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
+  - **A custom exercise is an op** (`exercise`, `POST /v1/exercises`), queued ahead of every other op, because a
+    queued `PUT` sends the session as it is when it goes. No consent gate or undo window holds it, but it's bound to
+    its account. A session's ops don't go while an exercise it uses is queued or refused, and a plan save waits for
+    the exercises it names, at most 10 s (`TrainLibrary.savePlan`).
+  - **A refusal is state, never a drop** ([ADR 0022](adr/0022-train-outbox-refusals.md)). A `400`, `409` after the
+    merge rounds, `413`, `422`, any other `4xx` but the holds, a `404` on `complete`, or a body the app can't encode
+    keeps the op and records an `UploadAttempt` (status, code, request ID, time) on the session, or on the op for an
+    exercise. That session's ops wait until Retry or an edit; other sessions' go. Every `403`, a `404` on `PUT` or
+    `POST`, `408`, `426`, `429` and `5xx` hold the queue (an exercise answered that way is passed over, so unrelated
+    sessions still go); a `2xx` the app can't read was delivered. `UploadAttempt.isRefusal` is the one definition,
+    the activities uploader's too, and `TrainSyncService.state(of:)` derives the session's `UploadState` from the rows
+    each time it's asked. While a session's `PUT` is refused or queued, a completion's answer brings only what the
+    platform owns (status, workout, PRs, scores, body weight), never the logged sets (`applyPlatformFields`).
+  - **The exceptions:** a refused `DELETE` is dropped and logged (its session is gone here); a `complete` answered
+    `409` means the platform discarded the session, so the op goes; a `complete` answered `404` before the session's
+    `PUT` arrived queues that `PUT` ahead of it.
+- **Ending the demo** (ADR 0019, `docs/work/2026-11-18-ios17-demo-exit/design.md`). Profile's switch is the only way out
+  in production. Train has no demo store of its own, so the workouts started in the demo are named by a list:
+  `TrainCoordinator.newSessionID()` adds a new session's id (`train.demoSessions` in defaults, ids only) when the
+  binding is demo's, before the factory saves the row, and `TrainSyncService` owns it (an observable copy feeds
+  Profile's VoiceOver hint). Turning the switch off with such a workout asks first (`ProfileViewModel.switchingDemoOff()`,
+  computed from the list and the store, never stored); cancel changes nothing, and a store that can't be read shows an
+  error under the switch instead of the dialog or the exit. `ProfileViewModel.endDemo()` then runs
+  one main-actor step with no `await` up to the refresh:
+  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes (released, as by the wipe)
+     and its Live Activity ends (checked against the list), every listed session goes with its ops and from Train's cached history list and
+     exercise histories (sessions, records, chart points), and nothing is sent (not even a `DELETE`). The list keeps only ids a fresh context still finds; a store in memory in
+     place of its file drops only what it deleted. If the store can't be read nothing changes, Demo data stays on and Profile says so.
+     An account's workout is never on the list, even if it went on during the demo.
+  2. The switch goes off, `reset()` drops what the demo showed (the demo's Train platform starts over too), with the
+     demo's sync status and tonight's bedtime.
+  3. The flags, the scoring words and the import's demo leftovers; then the widget is published from the account's
+     store, and the refresh runs.
+
+  At launch (`TrainCoordinator.demoAtLaunch`) the list is seeded once for workouts logged before it, and only with
+  protected data (before the first unlock `auth.lastUserID` reads nil): with nobody signed in, every stored session
+  (sign-out wipes Train), Demo data on or off; signed in, none. Then a launch with Demo data off and a non-empty list
+  (the demo ended outside the switch, or the seed just listed a demo's leftovers) discards without asking. A listed
+  session's ops are only ever bound to, and sent by, the demo. The iOS 17 reopen of the account's store
+  that ADR 0019 also decided isn't built: the minimum becomes iOS 18.6.
 
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
 (Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.
@@ -487,7 +541,7 @@ one exception to the 250 ms rule and never gates startup.
 
 **Routes.** `AppRoute(url:)` is the one parser for `.onOpenURL`, notification taps
 (`ryft.url`) and insight cards (`AppRoute.forInsight`). It accepts
-`https://ryftapp.de/<path>` (and `www.`) and `ryft://<path>`:
+`https://ryftlab.de/<path>` (and `www.`) and `ryft://<path>`:
 - `/day/YYYY-MM-DD`
 - `/sleep/YYYY-MM-DD`, `/sleep/plan`
 - `/insights/<metric>`, `/insights/behaviors`
@@ -629,10 +683,11 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
   - A withdrawal on this phone (`withdrew(at:)`) is recorded as the platform's `consent_required` refusal and kept
     beside the store, per account in `env.defaults` (`withdrawnAt`, a consent signal in `Facts.reported`): it holds
-    every data gate when the store refuses the withdrawal's saves (iOS 17 after demo data) and in a background launch
-    that never runs `check()`. It ends when this phone agrees again (`consented`) or a `GET /v1/me` asked for after
-    it shows consent to the policy in force (`heard`, from `Repository.store(fetchedUser:askedAt:)`). The
-    withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather than join reads begun before it.
+    every data gate when the store refuses the withdrawal's saves (any refused save; iOS 17 refused them all after demo
+    data) and in a background launch that never runs `check()`. It ends when this phone agrees again (`consented`)
+    or a `GET /v1/me` asked for after it shows consent to the policy in force (`heard`, from
+    `Repository.store(fetchedUser:askedAt:)`). The withdrawal's re-check asks `/v1/me` and `/v1/me/sync` again rather
+    than join reads begun before it.
   - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
     published, so a late `403` of theirs is never kept as the next account's refusal.
 - **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the

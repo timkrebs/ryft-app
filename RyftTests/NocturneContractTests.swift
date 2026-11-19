@@ -38,21 +38,23 @@ struct NocturneStringsTests {
         "Slept enough on %lld of the last 7 nights; the last is the night shown",
         "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data",
         // Sleep
-        "Last night · %@", "Yesterday · %@", "Asleep · %lld %% of your need", "%lld percent of your need", "Asleep",
+        "Last night · %@", "Yesterday · %@", "Asleep · %lld\u{00A0}%% of your need", "%lld percent of your need", "Asleep",
         "Sleep duration scale", "0 h", "need %@", "10 h", "%@, on a scale from 0 to 10 hours. Your need is %@.", "h",
         "Deep + REM", "No newer night to show", "No older night to show", "Loading this night",
         "The timeline isn't available for this night.", "Hypnogram, %@ to %@",
         // The neutral tiles' sentences, from their parts.
         "%lld of the last 7 nights were regular", "%lld percent of the target", "%@ of deep and REM sleep",
         "down %@ from the night before", "up %@ from the night before",
-        // Profile → Display
-        "Display", "Hero numbers", "Dots", "Thin", "Large numbers on Today, Sleep and Strain.",
+        // Profile → Hero numbers (PR 5's list has no "Display" heading, T5.4)
+        "Hero numbers", "Dots", "Thin", "Large numbers on Today, Sleep and Strain.",
     ]
 
     /// The keys the spec removes, with no other caller after the change.
     static let removed: [String] = [
         "Total sleep", "Performance", "asleep in bed", "of your need", "last 7 nights", "deep + REM",
         "Good morning,", "Good afternoon,", "Good evening,", "in bed %@ to %@",
+        // PR 5 (T5.4): Profile's list drops the Display heading.
+        "Display",
     ]
 
     /// Kept on purpose (§P4-9, last paragraph).

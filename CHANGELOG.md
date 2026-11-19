@@ -62,6 +62,8 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- RYFT's website, privacy policy, terms and support moved to ryftlab.de.
+- RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,
   lighter type, labels in sentence case, and a new app icon, the RYFT wordmark.
 - The app is called RYFT on the Home Screen, in notifications and in Settings, as on its icon.
@@ -112,12 +114,20 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 - Launch is smoother: saving data no longer holds up the screen.
+- Turning off Demo data now discards the workouts logged with it, after asking. If they can't be read, Demo data stays
+  on and Profile says so. Workouts logged with Demo data before this update are discarded too if nobody is signed in
+  when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- A workout that uses a custom exercise you made offline now syncs once you're back online, and a workout the server
+  turns down stays on your iPhone, queued, instead of being dropped.
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in
   the workout are no longer broken or cut, and the Start workout options show their whole detail.
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.
-- If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
+- A sign-out that RYFT couldn't finish on this iPhone, because the app was closed or the iPhone refused, finishes the
+  next time you open RYFT, and so does removing a deleted account's data once the deletion has gone through. Until it
+  has, a different account can't sign in on this iPhone, and RYFT says so.
+- A workout started just as you're signed out no longer opens afterwards.
 - Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
   and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate

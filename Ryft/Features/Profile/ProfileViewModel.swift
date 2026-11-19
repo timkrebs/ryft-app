@@ -13,6 +13,9 @@ final class ProfileViewModel {
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
     private let onboarding: OnboardingCoordinator?
+    /// The live workout's coordinator: what ending the demo would discard, and the discard (ADR 0019). Nil in previews
+    /// and tests that don't need it.
+    private let train: TrainCoordinator?
     /// Data → Sync details.
     let syncDetails: SyncDetailsModel
     /// About → Report a problem, and "Send to RYFT" from an error's Details.
@@ -21,11 +24,12 @@ final class ProfileViewModel {
     let devices: DevicesViewModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil) {
+         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil, train: TrainCoordinator? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.onboarding = onboarding
+        self.train = train
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
         let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
@@ -50,14 +54,18 @@ final class ProfileViewModel {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+    /// The platform's `User` while it is the account's. In demo mode the store holds the demo's (`MockData.user`), which
+    /// never stands in for a signed-in account: its name, email, provider and zone come from the session then.
+    private var accountUser: User? { env.isDemo ? nil : state.user }
+
     /// `User.name` → email → "Apple ID".
     var accountTitle: String {
-        if let name = state.user?.name, !name.isEmpty { return name }
+        if let name = accountUser?.name, !name.isEmpty { return name }
         return accountEmail ?? auth.identityDescription
     }
 
     var accountEmail: String? {
-        let email = state.user?.email ?? auth.user?.email
+        let email = accountUser?.email ?? auth.user?.email
         return email?.isEmpty == false ? email : nil
     }
 
@@ -67,8 +75,52 @@ final class ProfileViewModel {
         return email
     }
 
-    /// The platform's `User.provider`, else the session's `app_metadata.provider`.
-    var provider: String? { state.user?.provider ?? auth.provider }
+    // MARK: identity row (Nocturne, design.md §P5-6.1)
+
+    /// Today's strain for the avatar's ring; nil until today is scored (the ring's track only).
+    var strainToday: Double? {
+        state.today?.score.strain ?? state.score(for: env.clock.now())?.strain
+    }
+
+    /// The identity row: signed in, the account's (`accountTitle`'s fallbacks: name → email → the account's description,
+    /// never the demo's person); signed out, the demo's person ("Alex Doe"), else "Demo data". The initials and today's
+    /// strain follow.
+    var identity: ProfileIdentity {
+        guard isSignedIn else {
+            return ProfileIdentity.resolve(name: state.user?.name, email: state.user?.email,
+                                           fallback: String(localized: "Demo data"), strain: strainToday)
+        }
+        return ProfileIdentity.resolve(name: accountUser?.name, email: accountEmail, fallback: auth.identityDescription,
+                                       strain: strainToday)
+    }
+
+    /// The status row under the name for Today's line (`TodayViewModel.syncLine`): the word, the dot, the tap. Its ages
+    /// are the data's last load (`lastUpdated`) and Apple Health's last good upload (`Settings.lastSync`).
+    func status(line: SyncLine) -> ProfileStatus {
+        ProfileStatus.decide(line, isDemo: demoMode, lastUpdated: state.lastUpdated, lastSync: settings.lastSync)
+    }
+
+    /// The status row's tap, as Today's line does it: true asks the page to push Sync details (the page owns its
+    /// navigation); the gate's screen, the retry and signing in again start here (`statusWork`).
+    func tapStatus(_ tap: ProfileStatus.Tap) -> Bool {
+        switch tap {
+        case .syncDetails: return true
+        case .gate(let step): onboarding?.show(step)
+        case .retry: statusWork = Task { await syncNow() }
+        case .signIn: statusWork = Task { await state.signInAgain() }
+        case .none: break
+        }
+        return false
+    }
+
+    /// The status tap's work in flight (tests await it).
+    @ObservationIgnored private(set) var statusWork: Task<Void, Never>?
+
+    /// The Email row: only while the name is the title (an email title says it already; "Apple ID" has none).
+    var showsEmailRow: Bool { isSignedIn && identity.source == .name && accountEmail != nil }
+
+    /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
+    var provider: String? { accountUser?.provider ?? auth.provider }
     var canChangePassword: Bool { provider == "email" }
 
     struct Badge: Equatable {
@@ -84,7 +136,8 @@ final class ProfileViewModel {
         }
     }
 
-    var timezone: String? { state.user?.tz }
+    /// The account's zone; none in demo mode (the demo's person has its own).
+    var timezone: String? { accountUser?.tz }
 
     /// "Phone: Europe/Lisbon" when the phone is elsewhere than the account's zone.
     var timezoneDetail: String? {
@@ -161,16 +214,35 @@ final class ProfileViewModel {
 
     // MARK: privacy (consent to health-data processing)
 
-    /// Consent to the policy in force (`GET /v1/config`), from `User.consent`.
-    var consentIsCurrent: Bool { state.user?.hasConsented(to: onboarding?.policyVersion) ?? false }
+    /// The consent rows describe the signed-in account, and only outside Demo data. With it on, `state.user` is the demo's
+    /// person, `ConsentState` reads nothing and every consent call goes to the demo's platform (`AppEnvironment.api`):
+    /// the account's standing isn't known there, and Review or Withdraw would never reach it.
+    var showsAccountConsent: Bool { isSignedIn && !env.isDemo }
+
+    /// Consent to the policy in force (`GET /v1/config`), from the account's `User.consent`.
+    var consentIsCurrent: Bool {
+        showsAccountConsent && (state.user?.hasConsented(to: onboarding?.policyVersion) ?? false)
+    }
+
+    /// The consent row's value in `warning`: not given, or to an older policy.
+    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent }
 
     var consentText: String {
+        guard showsAccountConsent else {
+            return String(localized: "Not shown",
+                          comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
+        }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
-    /// "Agreed on 20 Oct 2026 · policy 2026-10-20".
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is.
     var consentDetail: String? {
+        guard isSignedIn else { return nil }
+        guard !env.isDemo else {
+            return String(localized: "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it.",
+                          comment: "Footer under Profile → Privacy with Demo data on while signed in.")
+        }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
         }
@@ -238,14 +310,6 @@ final class ProfileViewModel {
         await state.pullToRefresh(coordinator: coordinator)
     }
 
-    /// Forget the anchors, upload 90 days again, rescore them, reload.
-    func fullResync() async {
-        await sync.fullResync()
-        let now = env.clock.now()
-        try? await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
-        await state.refresh()
-    }
-
     // MARK: notifications
 
     /// The preferences belong to a platform account. With `push.enabled` off the
@@ -261,10 +325,79 @@ final class ProfileViewModel {
     /// Through the environment, so tests (which pin demo off) never see the simulator's setting.
     var demoMode: Bool { env.isDemo }
 
+    /// The switch. Off is `endDemo()`: whoever turns it off has confirmed already, or has nothing to confirm.
     func setDemoMode(_ on: Bool) async {
-        settings.demoMode = on
-        demoModeChanged(on)
+        guard on else {
+            await endDemo()
+            return
+        }
+        demoExitError = nil
+        settings.demoMode = true
+        demoModeChanged(true)
         state.reset()
+        await state.refresh()
+    }
+
+    /// Why the switch is still on after it was turned off (review R11): the store couldn't say which workouts the demo
+    /// logged, so nothing was discarded and Demo data stayed on. Shown under the switch; the next toggle that works
+    /// clears it.
+    private(set) var demoExitError: String?
+
+    static var demoExitFailed: String {
+        String(localized: "Demo data couldn't be turned off. Try again.",
+               comment: "Profile → Demo data, under the switch: shown when the workouts logged with Demo data couldn't be read. Demo data stays on.")
+    }
+
+    /// What turning the switch off does first (`ProfileView`'s setter).
+    enum DemoOff: Equatable {
+        /// Ask: these demo workouts would be discarded.
+        case confirm(DemoWorkouts)
+        /// Nothing to discard: the exit runs at once.
+        case exit
+        /// The list names workouts but the store couldn't be read: no dialog, no exit, and `demoExitError` says so
+        /// (review R12).
+        case refused
+    }
+
+    /// Worked out from the list and the store each time, never stored; asking changes nothing unless it's refused.
+    func switchingDemoOff() -> DemoOff {
+        guard let train else { return .exit }
+        do {
+            return try train.demoWorkouts().map(DemoOff.confirm) ?? .exit
+        } catch {
+            demoExitError = Self.demoExitFailed
+            return .refused
+        }
+    }
+
+    /// The switch's VoiceOver hint ("Turning it off discards …"): in the demo, while its list names a workout. It
+    /// follows the list as workouts start and go, Profile open or not, with no fetch per render.
+    var showsDemoExitHint: Bool { demoMode && train?.hasDemoWorkouts == true }
+
+    /// The demo ends (design.md §6.1, ADR 0019). Everything up to the refresh is one main-actor step with no `await`:
+    /// 1. the demo's workouts go, worked out again now (one a quick action started meanwhile goes too), and Train reads
+    ///    its open workout again: the account's, if one was in progress before the demo, or none. If the store can't be
+    ///    read, nothing changes, Demo data stays on and `demoExitError` says so: no half exit;
+    /// 2. the switch goes off;
+    /// 3. what the demo showed goes (`reset()`), with the demo's sync status and tonight's bedtime, as a wipe drops them;
+    /// 4. the flags, the scoring words and the import's demo leftovers, then the widget, from the account's store with
+    ///    none of the demo's scoring state (review R7, R16);
+    /// 5. the account's first read after the demo, the refresh.
+    func endDemo() async {
+        if let train, !train.discardDemoWorkouts() {
+            demoExitError = Self.demoExitFailed
+            return
+        }
+        demoExitError = nil
+        settings.demoMode = false
+        state.reset()
+        // What the widget takes from the demo besides the store (`AppState.forgetActivityState`): bedtime first, so
+        // every publish in between carries less, not more.
+        state.repository.tonightBedtime = nil
+        state.syncStatus = nil
+        demoModeChanged(false)
+        // After the scoring words went: the widget reads them too.
+        state.repository.publishWidget()
         await state.refresh()
     }
 

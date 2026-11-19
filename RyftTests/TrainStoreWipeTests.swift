@@ -17,21 +17,43 @@ final class StoreOnDisk {
         static let none = Rows(sessions: 0, exercises: 0, sets: 0)
     }
 
+    /// The folder stands for the App Group's.
     let folder: URL
     let url: URL
-    private(set) var store: TrainStore
+    /// Where the app container's copy of the store goes, created by the test that wants one. Outside `folder`.
+    let appContainer: URL
+    /// Nil only from a `close()` until the launch's `open`.
+    private(set) var store: TrainStore!
 
     init() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-train-wipe-\(UUID().uuidString)")
+        let id = UUID().uuidString
+        folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-train-wipe-\(id)")
+        appContainer = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-train-wipe-app-\(id)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         url = folder.appendingPathComponent("Train.store")
         store = TrainStore(url: url)
     }
 
-    deinit { try? FileManager.default.removeItem(at: folder) }
+    deinit {
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.removeItem(at: appContainer)
+    }
 
     /// A relaunch: the rows of the next fetch hold no values yet.
     func relaunch() { store = TrainStore(url: url) }
+
+    /// A kill: nothing has the store open, as at the start of a launch.
+    func close() { store = nil }
+
+    var isOpen: Bool { store != nil }
+
+    var orphans: OrphanedStoreCleanup.Locations { .init(orphanFolder: appContainer, groupContainer: folder) }
+
+    /// The launch's way in, as in `TrainStore.shared`. Whatever opens first wins.
+    func open(ledger: WipeLedger, now: Date) {
+        guard store == nil else { return }
+        store = TrainStore(url: url, ledger: ledger, orphans: orphans, now: now)
+    }
 
     static func rows(in context: ModelContext) throws -> Rows {
         try Rows(sessions: context.fetchCount(FetchDescriptor<LocalSession>()),
@@ -136,7 +158,10 @@ enum WipedTable: String, CaseIterable {
         let account = "account-b", date = WipeValues.earlier, data = Data([1]), id = WipeValues.accountB
         switch self {
         case .localSession:
-            context.insert(LocalSession(title: "Upper"))
+            // Refused, as O2 keeps it: the attempt goes with the row.
+            let session = LocalSession(title: "Upper")
+            session.lastAttempt = WipeValues.refusal(.put)
+            context.insert(session)
         case .localSessionExercise:
             context.insert(LocalSessionExercise(exerciseId: id, name: "Row", kind: .machine, loadType: .weight, position: 0))
         case .localSet:
@@ -146,7 +171,10 @@ enum WipedTable: String, CaseIterable {
         case .cachedPlan:
             context.insert(CachedPlan(MockTrain.upperLower))
         case .pendingTrainOp:
-            context.insert(PendingTrainOp(seq: 1, kind: .put, sessionId: id, account: account))
+            // O1's kind, refused (O2): a custom exercise's `POST`, with its attempt on the op.
+            let op = PendingTrainOp(seq: 1, kind: .exercise, sessionId: id, account: account)
+            op.lastAttempt = WipeValues.refusal(.create)
+            context.insert(op)
         case .importMapping:
             context.insert(ImportMapping(account: account, source: .alphaProgression,
                                          key: SourceExerciseKey(name: "bench press", equipment: "barbell"),
@@ -215,7 +243,19 @@ enum WipeValues {
     /// How a session ends with nobody signed in afterwards.
     static let endings: [AuthService.SignOutReason] = [.user, .sessionExpired, .accountDeleted(background: false)]
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
+    static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
+    /// What O2 records when the platform refuses a Train op.
+    static func refusal(_ request: UploadAttempt.Request) -> UploadAttempt {
+        UploadAttempt(at: earlier, request: request, status: 422, code: nil, requestID: "req-wipe", kind: .other)
+    }
+    /// A deleted, saved row's relationships: iOS 27 answers them. 18 and 26 trap, even when they were read before the
+    /// delete: 18.0 on the relationship ("Context is missing"), 18.6 and 26.0 on a row it yields that nothing held
+    /// ("Never access a full future backing data"; on 26.0 in one run of two).
+    static var deletedRowsAnswerRelationships: Bool {
+        if #available(iOS 27, *) { return true }
+        return false
+    }
 }
 
 @MainActor
@@ -395,12 +435,7 @@ struct TrainStoreWipeTests {
 
         disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        withKnownIssue("iOS 17: ModelContext.didSave carries no deleted identifiers, so this can't see the deletes") {
-            #expect(deleted.isSuperset(of: rows))
-        } when: {
-            if #unavailable(iOS 18) { return true }
-            return false
-        }
+        #expect(deleted.isSuperset(of: rows))
     }
 
     /// The throw behind `try?` leaves nothing but this log line, so the log is where it can be seen. A failed batch
@@ -460,7 +495,9 @@ struct TrainStoreWipeTests {
 
     /// Until the app's account-change handler runs, a live workout's controller and screens hold deleted rows, and
     /// deleting the object tells their observers, which a batch delete didn't. SwiftData answers for a deleted row from
-    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them.
+    /// what it resolved, and `deletedSetIDs` and `deletedExerciseIDs` are a fatal error unless the wipe read them. On iOS
+    /// 18 and 26 a relationship is one whatever was read before the delete, so there nothing may draw one
+    /// (`TrainCoordinator.releaseRows`); attributes and writes still answer.
     @Test(arguments: WipeValues.parkings)
     func aRowStillHeldStaysUsableAndNothingComesBack(_ parking: String?) throws {
         let disk = try StoreOnDisk()
@@ -473,12 +510,14 @@ struct TrainStoreWipeTests {
 
         disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
-        // Its relationships may answer empty or with the deleted rows, so only the reads themselves are pinned.
         #expect(session.title == "Upper")
-        #expect(session.wire.id == session.id)
         #expect(session.deletedSetIDs.isEmpty && session.deletedExerciseIDs.isEmpty)
-        #expect(exercise.wire.id == exercise.id)
         #expect(set.wire.id == set.id)
+        if WipeValues.deletedRowsAnswerRelationships {
+            // They may answer empty or with the deleted rows, so only the reads themselves are pinned.
+            #expect(session.wire.id == session.id)
+            #expect(exercise.wire.id == exercise.id)
+        }
         // What `SessionController` does with a row a sheet still shows.
         session.deletedSetIDs.append(set.id)
         session.deletedExerciseIDs.append(exercise.id)
@@ -487,6 +526,57 @@ struct TrainStoreWipeTests {
         set.reps = 3
         disk.store.save()
         try disk.expectNothingLeft()
+    }
+
+    /// The wipe's memory step (`AuthService.wipeSharedLocalData`): in the same turn the open workout and the banner's
+    /// session go, and the controller stops for good. The account change a runloop later brings nothing back.
+    @Test
+    func theWipesTurnLetsGoOfTheOpenWorkout() throws {
+        let rig = ReplaceRig()
+        let coordinator = TrainCoordinator(sync: rig.sync, library: TrainLibrary.preview(store: rig.store, outbox: rig.sync),
+                                           liveActivities: false)
+        coordinator.live = rig.controller
+        coordinator.refreshActive()
+        try #require(coordinator.active != nil)
+
+        rig.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now)
+        coordinator.releaseRows()
+
+        #expect(coordinator.live == nil)
+        #expect(coordinator.active == nil)
+        #expect(rig.controller.isReleased)
+        coordinator.accountChanged()
+        #expect(coordinator.live == nil && coordinator.active == nil)
+    }
+
+    /// The workout's screen through the wipe's turn, a rest running: the rest bar draws twice a second and reads the next
+    /// set, a relationship of a deleted row. On iOS 18.0 that trapped ("Context is missing") until the screen drew none.
+    @Test
+    func anOpenWorkoutDrawsNoDeletedRow() async throws {
+        let disk = try StoreOnDisk()
+        disk.session()
+        disk.relaunch()
+        let sync = TrainSyncService(store: disk.store, remote: { MockPlatformAPI() }, owner: { "test" },
+                                    debounce: .seconds(3600), monitorsNetwork: false)
+        let coordinator = TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: disk.store, outbox: sync),
+                                           liveActivities: false)
+        coordinator.sessionLayout = { .list }
+        coordinator.resume()
+        let controller = try #require(coordinator.live)
+        let exercise = try #require(controller.exercises.first)
+
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { w in
+            controller.startRest(for: exercise, seconds: 120)
+            try await w.wait("the rest bar") { w.node("Skip rest", exactly: true) != nil }
+            disk.store.wipe(parkingActivitiesOf: nil, at: WipeValues.now)
+            coordinator.releaseRows()
+            // The released screen has drawn, and nothing on it moves any more.
+            try await w.wait("the released screen") { w.nodes().isEmpty }
+            try await w.settle()
+        }
+
+        #expect(controller.isReleased)
+        #expect(coordinator.live == nil)
     }
 
     // MARK: the sync side
@@ -510,6 +600,41 @@ struct TrainStoreWipeTests {
         await rig.sync.flush()
         #expect(rig.api.count("putSession") == 0)
         #expect(rig.api.count("deleteSession") == 0)
+    }
+
+    /// O1 and O2: a custom exercise's `POST` and a refused workout, each kept with its attempt, go with the wipe, and
+    /// nothing of them is sent afterwards.
+    @Test(arguments: WipeValues.parkings)
+    func aWipeTakesQueuedExercisesAndRefusals(_ parking: String?) async throws {
+        let rig = ReplaceRig()
+        let id = rig.session.id
+        let custom = Exercise(slug: "landmine-press", name: "Landmine press", kind: .barbell, primaryMuscles: [.frontDelts],
+                              isCustom: true)
+        rig.store.cache(exercises: [custom])
+        rig.api.failNext = APIError.http(422, "invalid", requestID: "req-exercise")
+        rig.sync.queueExercise(custom)
+        await rig.sync.flush()
+        rig.api.failNext = APIError.http(422, "invalid", requestID: "req-put")
+        rig.sync.sessionChanged(rig.session)
+        await rig.sync.flush()
+        #expect(rig.store.pendingOps().map(\.kind) == [.exercise, .put])
+        #expect(rig.store.pendingOps().first?.lastAttempt?.requestID == "req-exercise")
+        let refused = try #require(rig.session.lastAttempt)
+        #expect(rig.sync.state(of: id) == .failed(refused))
+        let generation = rig.sync.generation
+
+        rig.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
+
+        #expect(rig.sync.generation != generation)
+        #expect(rig.store.pendingOps().isEmpty)
+        let fresh = ModelContext(rig.store.container)
+        let sessions = try fresh.fetchCount(FetchDescriptor<LocalSession>())
+        let ops = try fresh.fetchCount(FetchDescriptor<PendingTrainOp>())
+        #expect(sessions == 0 && ops == 0)
+        #expect(rig.store.exercise(id: custom.id) == nil)
+        #expect(rig.sync.state(of: id) == .confirmed)
+        await rig.sync.flush()
+        #expect(rig.api.count("createExercise") == 1 && rig.api.count("putSession") == 1)
     }
 
     // MARK: a wipe that doesn't reach the file
@@ -645,8 +770,8 @@ struct TrainStoreWipeTests {
         try rig.disk.expectNothingLeft()
     }
 
-    /// The app acts wiped, and may be killed before anything saves again. The kept id is all that's left to say so: a
-    /// sign-in that found none wouldn't wipe, and the next account would get this workout and upload it as its own.
+    /// The app acts wiped, and may be killed before anything saves again. Without the id a sign-in on a ledger that
+    /// couldn't be written wouldn't wipe, and the next account would get this workout and upload it as its own.
     @Test(arguments: WipeValues.endings)
     func aRefusedWipeKeepsTheAccountSoTheNextOneWipesAgain(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
@@ -658,8 +783,8 @@ struct TrainStoreWipeTests {
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
         #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
 
-        rig.relaunch(signedInAs: nil)
         try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
         await rig.signIn(WipeValues.accountB)
 
         #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
@@ -679,8 +804,8 @@ struct TrainStoreWipeTests {
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
         #expect(try rig.disk.inFile[.cachedDay] == 1)
 
-        rig.relaunch(signedInAs: nil)
         try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
         await rig.signIn(WipeValues.accountB)
 
         #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
@@ -688,30 +813,57 @@ struct TrainStoreWipeTests {
         #expect(try rig.disk.inFile[.cachedDay] == 0)
     }
 
-    /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
-    /// launch wipe again.
+    /// #107's owed wipe with O1 and O2's rows: a custom exercise's op and a refused workout, each with its attempt. The
+    /// store keeps the op through a refused wipe, and the debt takes it before the next account gets the store.
+    @Test(arguments: WipeValues.endings)
+    func anOwedWipeTakesQueuedExercisesAndRefusals(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.fill([.localSession, .pendingTrainOp])
+        try rig.disk.refuseDeletes(of: .pendingTrainOp)
+
+        await rig.end(ending)
+        #expect(rig.auth.accountID == nil)
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        // Read through a context of its own (what the file holds), kept alive while its rows are read.
+        let context = ModelContext(rig.disk.store.container)
+        let kept = try withExtendedLifetime(context) {
+            try context.fetch(FetchDescriptor<PendingTrainOp>()).map { ($0.kind, $0.lastAttempt?.requestID) }
+        }
+        #expect(kept.map(\.0) == [.exercise] && kept.first?.1 == "req-wipe")
+
+        try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
+        await rig.signIn(WipeValues.accountB)
+
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        let left = try rig.disk.inFile
+        #expect(left[.pendingTrainOp] == 0 && left[.localSession] == 0)
+    }
+
+    /// B is held over A's refused wipe, a token refresh that's refused too changes nothing, and the next launch's
+    /// replace lets it in.
     @Test func aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         try rig.disk.refuseDeletes()
 
         await rig.signIn(WipeValues.accountB)
-        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        #expect(rig.auth.accountID == nil)
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
         rig.client.emit(.tokenRefreshed, .preview(id: WipeValues.accountB))
         await rig.settle()
+        #expect(rig.auth.accountID == nil)
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
 
         rig.relaunch(signedInAs: WipeValues.accountB)
-        try rig.disk.allowDeletes()
-        rig.relaunch(signedInAs: WipeValues.accountB)
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
         #expect(rig.lastUser == WipeValues.accountB.uuidString)
         try rig.disk.expectNothingLeft()
     }
 
-    /// The session ended while the platform deleted: its wipe cleared the id, and the deletion's own wipe, refused,
-    /// puts it back.
-    @Test func aRefusedWipeAfterADeletionKeepsTheAccount() async throws {
+    /// The session ended while the platform deleted: its wipe cleared the id, and the deletion's own wipe, refused, is a
+    /// debt with no id. The entry alone has to stop the next account.
+    @Test func aRefusedWipeAfterADeletionStillHoldsTheNextAccount() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.duringDeletion = { [weak rig] in
             await rig?.auth.rejectedAfterRefresh()
@@ -720,7 +872,11 @@ struct TrainStoreWipeTests {
             try? rig?.disk.refuseDeletes()
         }
         #expect(await rig.auth.deleteAccount())
-        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        #expect(rig.lastUser == nil)
+        #expect(rig.ledgerOnDisk?.wipe.account == WipeValues.accountA.uuidString)
+
+        await rig.signIn(WipeValues.accountB)
+        #expect(rig.auth.accountID == nil)
     }
 }
 
@@ -733,9 +889,22 @@ final class WipingAuth {
     let clock = TestClock(now: WipeValues.now)
     private(set) var client: MockAuthClient
     private(set) var auth: AuthService
+    private var ledger = WipeLedger(file: nil)
     var duringDeletion: (@MainActor () async -> Void)?
     /// Runs as the store's wipe starts, with what it was asked for.
     var atTheWipe: (@MainActor (AuthService.Wipe) -> Void)?
+    /// Runs once that wipe has opened the store, before the store's own wipe.
+    var atThePass: (@MainActor () -> Void)?
+    /// Every wipe asked for, over relaunches.
+    private(set) var wipes: [AuthService.Wipe] = []
+    /// What each one answered.
+    private(set) var answers: [Bool] = []
+    /// What every wipe answers instead of the store, which isn't touched.
+    var wipesAnswer: Bool?
+    /// The Apple authorization codes sent to the platform.
+    private(set) var appleCodes: [String] = []
+    /// The widget's file, for a wipe that goes through the app's own steps.
+    var widget: URL?
 
     init(signedInAs account: UUID) throws {
         let disk = try StoreOnDisk()
@@ -754,28 +923,64 @@ final class WipingAuth {
     var ledgerFile: URL { disk.folder.appendingPathComponent("account-wipe.json") }
     /// What the next launch would read.
     var ledgerOnDisk: OwedWipe? { WipeLedger(file: ledgerFile).entry }
+    /// The service of this launch has read its ledger (`TrainStore.shared`'s launch-order check).
+    var ledgerResolvedAtLaunch: Bool { ledger.resolvedAtLaunch }
 
     /// The hooks read `duringDeletion` and `atTheWipe` when they run. A new ledger, as in a new process: nothing of the
     /// old one's memory carries over.
-    private func rewire() {
-        let disk = disk, clock = clock
+    private func rewire(_ ledger: WipeLedger? = nil) {
+        let disk = disk, clock = clock, ledger = ledger ?? WipeLedger(file: ledgerFile)
+        self.ledger = ledger
         auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
                            wipeLocalData: { [weak self] wipe in
                                self?.atTheWipe?(wipe)
-                               return disk.store.wipe(wipe)
+                               self?.wipes.append(wipe)
+                               if let answer = self?.wipesAnswer {
+                                   self?.answers.append(answer)
+                                   return answer
+                               }
+                               // As in the app: at launch it's this wipe that first opens the store.
+                               disk.open(ledger: ledger, now: clock.now())
+                               self?.atThePass?()
+                               let widget = self?.widget
+                               let answer = widget == nil ? disk.store.wipe(wipe) : AuthService.steps(of: wipe, before: {}, store: {
+                                   AuthService.storeStep($0, widget: widget, store: { disk.store.wipe($0) }, memory: {})
+                               }, after: {})
+                               self?.answers.append(answer)
+                               return answer
                            },
                            deleteRemoteAccount: { [weak self] in
                                await self?.duringDeletion?()
                                return AccountDeleted(status: "deleted", authUserDeleted: true)
                            },
-                           postAppleAuthorization: { _ in },
-                           ledger: WipeLedger(file: ledgerFile), now: { clock.now() })
+                           postAppleAuthorization: { [weak self] in self?.appleCodes.append($0) },
+                           ledger: ledger, now: { clock.now() })
     }
 
-    func relaunch(signedInAs account: UUID?) {
-        disk.relaunch()
+    /// As in the app: the service first, whose launch step may open the store, and then the store.
+    func relaunch(signedInAs account: UUID?, onSignOut: (@Sendable () async -> Void)? = nil) {
+        disk.close()
         client = MockAuthClient(session: account.map { .preview(id: $0) })
+        client.onSignOut = onSignOut
         rewire()
+        disk.open(ledger: ledger, now: clock.now())
+    }
+
+    /// The store first, which isn't how the app starts: `AuthService.init` hasn't resolved anything for it.
+    func relaunchWithTheStoreFirst(signedInAs account: UUID?) {
+        disk.close()
+        let ledger = WipeLedger(file: ledgerFile)
+        disk.open(ledger: ledger, now: clock.now())
+        client = MockAuthClient(session: account.map { .preview(id: $0) })
+        rewire(ledger)
+    }
+
+    /// What `RyftApp`'s first-frame task does.
+    @discardableResult
+    func firstFrame() async -> Bool {
+        let resumed = auth.finishOwedWipe()
+        await settle()
+        return resumed
     }
 
     func settle() async {

@@ -47,7 +47,8 @@ struct ChartStyleTests {
         let d = try #require(MetricDelta.vsSevenDayMean(points))
         #expect(d.value == 10)
         #expect(d.percent == 20)
-        #expect(DeltaLabel.text(d, spec: .hrv) == "▲ +10 ms · +20 %")
+        // No-break spaces hold the arrow to the number and the number to its unit (it wraps only after "·").
+        #expect(DeltaLabel.text(d, spec: .hrv) == "▲\u{00A0}+10\u{00A0}ms · +20\u{00A0}%")
         #expect(DeltaLabel.color(d, spec: .hrv) == Theme.accent)
         #expect(DeltaLabel.color(d, spec: .rhr) == Theme.alert)
     }
@@ -59,8 +60,29 @@ struct ChartStyleTests {
     }
 
     @Test func scoresChangeInPointsWithoutPercent() {
-        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness) == "▲ +6")
-        #expect(DeltaLabel.text(MetricDelta(current: 41, reference: 63), spec: .recovery) == "▼ −22")
+        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness) == "▲\u{00A0}+6")
+        #expect(DeltaLabel.text(MetricDelta(current: 41, reference: 63), spec: .recovery) == "▼\u{00A0}−22")
+    }
+
+    /// N3 (T5.3 review): a change whose size rounds to nothing as written is flat, not "▲ +0", whatever its percentage.
+    @Test func aChangeThatRoundsToZeroIsSteady() {
+        let tiny = MetricDelta(current: 3.4, reference: 3)          // +13 %, but "+0" in whole points
+        #expect(!tiny.isFlat && DeltaLabel.isFlat(tiny, spec: .readiness))
+        #expect(DeltaLabel.text(tiny, spec: .readiness) == String(localized: "Steady"))
+        #expect(DeltaLabel.color(tiny, spec: .readiness) == Theme.textSecondary)
+        #expect(DeltaLabel.spoken(tiny, spec: .readiness, reference: nil) == String(localized: "No change"))
+        let nap = MetricDelta(current: 0.4, reference: 0.1)          // +300 %, "0m"
+        #expect(DeltaLabel.text(nap, spec: .napMin) == String(localized: "Steady"))
+        // One decimal place: 0.06 rounds to "0.1", a change.
+        #expect(!DeltaLabel.isFlat(MetricDelta(current: 0.36, reference: 0.3), spec: .strain))
+    }
+
+    /// N4 (T5.3 review): VoiceOver hears "vs 7 d" as "versus 7 days"; another reference as written.
+    @Test func theSevenDayReferenceIsSpokenInFull() {
+        let up = MetricDelta(current: 84, reference: 78)
+        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: String(localized: "vs 7 d"))
+                == "\(String(localized: "Up \("6")")) \(String(localized: "versus 7 days"))")
+        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: "vs baseline").hasSuffix(" vs baseline"))
     }
 
     @Test func rangeBarDerivesItsBandFromTheTrend() throws {
@@ -75,7 +97,7 @@ struct ChartStyleTests {
     // MARK: T0 item 4: "— vs 7 d" next to a full line
 
     /// Today's Trends card: 7 readiness points, the newest 80. `vsSevenDayMean` is NOT nil here (it needs one
-    /// earlier point inside the 7 days before the newest); the delta is "flat" (< 2 %). It used to render as "—"
+    /// earlier point in the 7 days that end on the newest); the delta is "flat" (< 2 %). It used to render as "—"
     /// followed by "vs 7 d", which read as a missing value; it reads "Steady vs 7 d" now (ui.md §4, decision UI-2).
     /// A nil delta renders nothing at all (`if let delta`).
     @Test func aFlatSevenDayDeltaReadsSteady() throws {
@@ -86,9 +108,9 @@ struct ChartStyleTests {
         #expect(DeltaLabel.text(delta, spec: .readiness) == String(localized: "Steady"))
         #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
         #expect(DeltaLabel.color(delta, spec: .readiness) == Theme.textSecondary)
-        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change vs 7 d")
+        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change versus 7 days")
         // A real change keeps its arrow and sign.
-        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲ +"))
+        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲\u{00A0}+"))
     }
 
     @Test func theDeltaIsNilOnlyWithoutAnEarlierPointInTheWeek() {
@@ -99,5 +121,15 @@ struct ChartStyleTests {
         let gaps = [TrendPoint(day: "2026-10-15", value: nil), TrendPoint(day: "2026-10-20", value: 70),
                     TrendPoint(day: "2026-10-21", value: 80)]
         #expect(MetricDelta.vsSevenDayMean(gaps) != nil)
+    }
+
+    /// T5.7 S3: the one "vs 7 d" rule (Today's, now Strain's too): the window is the newest day and the 6 before it, in
+    /// any order; 6 days back counts, 7 back doesn't.
+    @Test func theWindowIsTheSevenDaysEndingOnTheNewest() {
+        let points = [TrendPoint(day: "2026-10-21", value: 80), TrendPoint(day: "2026-10-14", value: 50),
+                      TrendPoint(day: "2026-10-15", value: 70)]
+        #expect(MetricDelta.vsSevenDayMean(points) == MetricDelta(current: 80, reference: 70))
+        #expect(MetricDelta.vsSevenDayMean(points.reversed()) == MetricDelta(current: 80, reference: 70))
+        #expect(MetricDelta.windowDays == 7)
     }
 }

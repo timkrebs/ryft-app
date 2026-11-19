@@ -109,7 +109,9 @@ struct WipeLedgerTests {
         try FileManager.default.removeItem(at: folder.file)
         WipeLedger(file: folder.file).begin(Wipe(reason: .user, account: Ledger.b), at: Ledger.first)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.file)) as? [String: Any]
-        #expect(Set(object?.keys.map { $0 } ?? []) == ["wipe", "deviceStepsDone", "scrubOnly"], "both flags from the start")
+        #expect(Set(object?.keys.map { $0 } ?? []) == ["wipe", "deviceStepsDone", "scrubOnly", "endsOwnSession", "publishedOver"],
+                "every flag from the start")
+        #expect(object?["endsOwnSession"] as? Bool == true, "the difference between this build and a W1 build")
         let wipe = object?["wipe"] as? [String: Any]
         #expect(Set(wipe?.keys.map { $0 } ?? []) == ["reason", "account", "since", "storeOnly"])
     }
@@ -353,7 +355,7 @@ private final class Seen {
 }
 
 /// Holds `MockAuthClient.signOut()` where it is: the process is gone as far as the test cares.
-private final class Hold: Sendable {
+final class Hold: Sendable {
     private let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
@@ -528,9 +530,8 @@ struct WipeLedgerAuthTests {
         await rig.end(ending)
 
         #expect(rig.auth.accountID == nil)
-        #expect(rig.lastUser == a, "the kept id stays until the sign-in side moves to the ledger")
-        rig.relaunch(signedInAs: nil)
-        let entry = try #require(rig.ledgerOnDisk)
+        #expect(rig.lastUser == a, "whose data the store holds")
+        let entry = try #require(rig.ledgerOnDisk, "a new ledger on the same file: a launch reads what this one finds")
         #expect(entry.wipe.reason == ending && entry.wipe.account == a)
         #expect(entry.since == WipeValues.now)
     }
@@ -551,19 +552,16 @@ struct WipeLedgerAuthTests {
         #expect(entry.wipe.account == a)
     }
 
-    /// The retry that `lastUserKey` still drives ends the debt too.
+    /// The launch's retry ends the debt a held sign-in was waiting on.
     @Test func aRefusedWipeAtSignInEndsWithItsRetry() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         try rig.disk.refuseDeletes()
 
         await rig.signIn(WipeValues.accountB)
-        #expect(rig.auth.accountID == b, "today's behaviour, until the hold")
+        #expect(rig.auth.accountID == nil)
         #expect(rig.ledgerOnDisk?.wipe.account == a)
 
-        rig.relaunch(signedInAs: WipeValues.accountB)
-        #expect(rig.ledgerOnDisk != nil, "refused again")
-        try rig.disk.allowDeletes()
         rig.relaunch(signedInAs: WipeValues.accountB)
         #expect(rig.ledgerOnDisk == nil)
         try rig.disk.expectNothingLeft()
@@ -590,81 +588,50 @@ struct WipeLedgerAuthTests {
     // MARK: a kill between `begin` and the wipe
 
     @Test(arguments: WipeValues.endings)
-    func aKillAfterTheSDKDroppedTheSessionLeavesTheDebt(_ ending: AuthService.SignOutReason) async throws {
+    func aKillAfterTheSDKDroppedTheSessionResumes(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         let (hold, task) = await signOutStopped(rig, reason: ending)
+        let entry = try #require(rig.ledgerOnDisk)
+        #expect(entry.wipe.reason == ending && entry.wipe.account == a)
 
         rig.relaunch(signedInAs: nil)
+        await rig.firstFrame()
 
-        let entry = try #require(rig.ledgerOnDisk)
-        #expect(entry.wipe.reason == ending && entry.wipe.account == a)
         #expect(rig.auth.accountID == nil)
-        #expect(rig.lastUser == a)
-        #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6), "this ticket resumes nothing")
-
-        await rig.signIn(WipeValues.accountB)
-        #expect(rig.auth.accountID == b)
+        #expect(rig.lastUser == nil)
         #expect(rig.ledgerOnDisk == nil)
-        try rig.disk.expectNothingLeft()
+        #expect(try rig.disk.inFreshContext == .none)
 
         hold.open()
         await task.value
     }
 
-    /// The session survived, so the account is still signed in, as it was before there was a ledger. The entry stays:
-    /// after a deletion it's all that says this account's rows are owed, and nothing else would resume the wipe.
+    /// The session survived, and this build wrote the entry: a sign-out a kill interrupted. It finishes, whoever asked.
     @Test(arguments: WipeValues.endings)
-    func aKillBeforeTheSDKDroppedTheSessionKeepsTheDebt(_ ending: AuthService.SignOutReason) async throws {
+    func aKillBeforeTheSDKDroppedTheSessionFinishesTheSignOut(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         let (hold, task) = await signOutStopped(rig, reason: ending)
-        #expect(rig.ledgerOnDisk != nil)
 
         rig.relaunch(signedInAs: WipeValues.accountA)
-        let seen = watchWipes(rig)
-        await rig.settle()
+        await rig.firstFrame()
 
-        #expect(rig.auth.accountID == a)
-        #expect(seen.wipes.isEmpty)
-        let entry = try #require(rig.ledgerOnDisk)
-        #expect(entry.wipe.reason == ending && entry.wipe.account == a)
-        #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
-
-        rig.relaunch(signedInAs: WipeValues.accountA)
-        await rig.settle()
-        #expect(rig.ledgerOnDisk == entry, "and over every launch after it")
-
-        rig.atTheWipe = nil
-        hold.open()
-        await task.value
-    }
-
-    /// The price of keeping that entry, accepted: it can date this account's next parking from the kill, so the row
-    /// expires sooner than 30 days from now. Bounded, and shorter retention is the safe direction. W2 resolves the entry
-    /// at launch, which ends this.
-    @Test func aDebtThatSurvivedALaunchDatesTheNextParking() async throws {
-        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
-        let (hold, task) = await signOutStopped(rig, reason: .sessionExpired)
-        rig.relaunch(signedInAs: WipeValues.accountA)
-
-        rig.clock.advance(by: .seconds(10 * 86_400))
-        let unsent = unsentActivity(of: a)
-        let id = unsent.id
-        insert(unsent, into: rig)
-        await rig.end(.sessionExpired)
-
-        #expect(try parkedDates(rig)[id] == WipeValues.now)
-        #expect(rig.ledgerOnDisk == nil, "the wipe that returned true ends it")
+        #expect(rig.auth.accountID == nil)
+        #expect(rig.client.signOutCount == 1)
+        #expect(rig.ledgerOnDisk == nil)
+        #expect(try rig.disk.inFreshContext == .none)
 
         hold.open()
         await task.value
     }
 
-    /// Only an entry that parks the same account has a date to pass on.
-    @Test func aDebtWithoutParkingDoesntDateTheNextParking() async throws {
+    /// A later launch of the same account: a W1 build's entry over a live session is over at the first launch, so it
+    /// dates nothing. `aDebtThatSurvivedALaunchDatesTheNextParking` pinned the opposite until W2.
+    @Test(arguments: [AuthService.SignOutReason.user, .sessionExpired])
+    func aStaleEntryDoesntDateTheNextParking(_ reason: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
-        let (hold, task) = await signOutStopped(rig, reason: .user)
+        try WipeEntries.fromAW1Build(reason: reason, account: a, since: WipeValues.now).write(to: rig.ledgerFile)
         rig.relaunch(signedInAs: WipeValues.accountA)
 
         rig.clock.advance(by: .seconds(10 * 86_400))
@@ -674,19 +641,17 @@ struct WipeLedgerAuthTests {
         await rig.end(.sessionExpired)
 
         #expect(try parkedDates(rig)[id] == rig.clock.now())
-
-        hold.open()
-        await task.value
     }
 
     // MARK: the same account comes back
 
-    /// No attempt and no wipe: what a sign-in does today, with the debt over.
-    @Test func theEntrysOwnAccountSigningInEndsItAndWipesNothing() async throws {
+    /// One attempt with the entry's own parking, in a process with no refused pass, and the debt is over. The refused
+    /// case is `SignInHoldTests`.
+    @Test func theEntrysOwnAccountSigningInGetsOneAttempt() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.fill([.cachedDay])
         try rig.disk.refuseDeletes(of: .cachedDay)
-        await rig.end(.user)
+        await rig.end(.sessionExpired)
         #expect(rig.ledgerOnDisk != nil)
 
         rig.relaunch(signedInAs: nil)
@@ -696,10 +661,10 @@ struct WipeLedgerAuthTests {
         await rig.signIn(WipeValues.accountA)
 
         #expect(rig.auth.accountID == a)
-        #expect(seen.wipes.isEmpty)
+        #expect(seen.wipes.map(\.parking) == [a])
         #expect(rig.ledgerOnDisk == nil)
         #expect(rig.lastUser == a)
-        #expect(try rig.disk.inFile[.cachedDay] == 1)
+        #expect(try rig.disk.inFile[.cachedDay] == 0)
     }
 
     /// Another account signing in over the entry's: that isn't its return, and that entry stays with the refused wipe.
@@ -722,7 +687,10 @@ struct WipeLedgerAuthTests {
         try rig.disk.refuseDeletes(of: .cachedDay)
         await rig.end(.sessionExpired)
         try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
+        await rig.settle() // past the splash
         await rig.signIn(WipeValues.accountA)
+        #expect(rig.ledgerOnDisk == nil)
 
         rig.clock.advance(by: .seconds(40 * 86_400))
         let unsent = unsentActivity(of: a)
@@ -781,16 +749,13 @@ struct WipeLedgerAuthTests {
         #expect(dates[freshID] == WipeValues.now)
     }
 
-    /// What's still owed is the earlier account's: this expiry's rows park as they do today, at their own date, and
-    /// the wipe that took everything else ends the debt.
+    /// An entry only a build before the hold can leave under a published account. What's still owed is the earlier
+    /// account's: this expiry's rows park as they do today, at their own date, and the wipe that took everything else
+    /// ends the debt.
     @Test func anotherDebtsDateIsntThisExpirysAndItsRowsStillPark() async throws {
-        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
-        rig.disk.fill([.cachedDay])
-        try rig.disk.refuseDeletes(of: .cachedDay)
-        await rig.end(.user)
-        await rig.signIn(WipeValues.accountB)
+        let rig = try WipingAuth(signedInAs: WipeValues.accountB)
+        WipeLedger(file: rig.ledgerFile).begin(Wipe(reason: .user, account: a), at: rig.clock.now())
         #expect(rig.auth.accountID == b)
-        try rig.disk.allowDeletes()
 
         rig.clock.advance(by: .seconds(86_400))
         let unsent = unsentActivity(of: b)

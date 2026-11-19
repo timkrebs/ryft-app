@@ -2,7 +2,7 @@
 import Foundation
 
 enum ReadinessCopy {
-    /// "Good morning, Tim" (05–12), "Good afternoon, Tim" (12–18), "Good evening, Tim" otherwise (Nocturne, design.md
+    /// "Good morning, Alex" (05–12), "Good afternoon, Alex" (12–18), "Good evening, Alex" otherwise (Nocturne, design.md
     /// §P4-1 row 2). Without a name (`firstName(_:)` found none: Sign in with Apple may deliver none, R-N2) the same words
     /// with no comma: "Good evening".
     static func greeting(at date: Date = .now, name: String? = nil, calendar: Calendar = .current) -> String {
@@ -28,7 +28,7 @@ enum ReadinessCopy {
         }
     }
 
-    /// The first word of the account's name (`User.name`, the sign-in's `full_name`), trimmed: "Tim" of "Tim Krebs".
+    /// The first word of the account's name (`User.name`, the sign-in's `full_name`), trimmed: "Alex" of "Alex Doe".
     /// nil for an empty or blank name, so the greeting goes without one (R-N2).
     static func firstName(_ fullName: String?) -> String? {
         guard let word = fullName?.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).first else { return nil }

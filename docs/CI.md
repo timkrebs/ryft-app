@@ -67,7 +67,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   | Plan | Runs | Settings |
   | --- | --- | --- |
   | `Unit` | PRs, `main` | `RyftTests` without `PerformanceTests`; parallel, random order, 60 s per test, coverage of the `Ryft` target only |
-  | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them `JumpToNextUITests` and four of `FocusedSessionUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 15 minutes and took about 8 in November 2026, so a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
+  | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them `JumpToNextUITests` and four of `FocusedSessionUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 25 minutes. Green runs took 11–13 minutes in mid-November 2026, and one timed out at 15 with every test so far passing, because the runner is the Mac the agents build on. Still, a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
   | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
 
   - Swift Testing parallelism is capped at 4 tests in flight (`Unit` and `Full`,
@@ -81,7 +81,9 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     created fresh on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
     the newest runtime's first regular iPhone, never "iPhone Duo") and deleted at the end of the job with its clones. A fresh device has no paired Apple
     Watch: parallel testing clones the device, and cloning a paired one fails on runner
-    images without the watchOS runtime. It is booted before the tests start.
+    images without the watchOS runtime. It is booted before the tests start. CI runs only this newest runtime; the iOS 18.6 gate
+    (ADR 0021) is a manual run outside CI, with the explicit destination
+    `platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`, because `scripts/ci-simulator.sh` always takes the newest runtime.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
     artifacts
 - **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run, writes

@@ -15,7 +15,7 @@ and do not edit the pbxproj by hand. Sources in `Ryft/`:
 is `../ROADMAP.md`; the user pastes one milestone per session.
 
 ## Rules
-- Swift 5.10, SwiftUI, iOS 17+, async/await, Swift Charts. Dependencies: only
+- Swift 5.10, SwiftUI, iOS 18.6+ (ADR 0021), async/await, Swift Charts. Dependencies: only
   `supabase-swift`. Dark only (ADR 0016); palette and type live in `Design/Theme.swift`.
 - Wire models in `Networking/Models.swift` mirror `docs/API.md` exactly (snake_case via
   the shared decoder). For every new shape add a fixture-decoding test using the JSON
@@ -34,7 +34,7 @@ is `../ROADMAP.md`; the user pastes one milestone per session.
 - Signing: capabilities are added only through Signing & Capabilities → + Capability,
   never by editing `Ryft.entitlements` by hand, and every key in it must have a matching
   capability (`make check-entitlements`, part of `make lint`). No `associated-domains` key
-  until the AASA on ryftapp.de lists the app's paths — an empty array once stopped iOS from
+  until the AASA on ryftlab.de lists the app's paths — an empty array once stopped iOS from
   launching the app.
 - Never put keys in Swift: Supabase URL/anon key come from git-ignored xcconfig files.
 - End each session with `docs/STATUS.md` (done / open / blocked-on-Apple-or-Supabase

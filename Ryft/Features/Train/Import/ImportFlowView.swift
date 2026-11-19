@@ -273,11 +273,11 @@ struct ImportReplaceAlert: ViewModifier {
 }
 
 #Preview("Import unavailable · dark") {
-    Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }
+    Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet().presentedRoot() }
         .preferredColorScheme(.dark)
 }
 
 #Preview("Import unavailable · light") {
-    Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }
+    Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet().presentedRoot() }
         .preferredColorScheme(.light)
 }

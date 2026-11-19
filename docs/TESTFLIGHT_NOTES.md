@@ -1,7 +1,20 @@
 # TestFlight — What to test
 
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
-Test (English and German).
+Test. RYFT is English only: new entries have an English section only (older entries still carry a
+German one, kept as history).
+
+## Next build — Train keeps every workout (en)
+
+Merge these lines into the next build's entry (O1 + O2, ADR 0022).
+
+```text
+WHAT'S NEW
+- A workout that uses a custom exercise you made offline now syncs once you're back online, and a workout the server turns down stays on your iPhone instead of being dropped. For now it still reads "Will sync"; a coming build shows "Couldn't sync" with Retry.
+
+WHAT'S KNOWN
+- Installing an older build over this one (TestFlight → Previous Builds) keeps your workouts on this iPhone, but one that's still waiting to sync may not reach RYFT from the older build. It stays here, and a coming build sends it.
+```
 
 ## When `train.focused_session` is on — the focused workout screen (en + de)
 

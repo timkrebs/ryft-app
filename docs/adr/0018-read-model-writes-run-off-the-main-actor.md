@@ -1,6 +1,12 @@
 # 0018 — Read-model writes run off the main actor, in order, through one writer per store
 
 - Status: accepted (2026-11-17, `docs/work/2026-11-17-persistence-off-main/design.md`; Nocturne PR 3 review row 22)
+- Amended by: ADR 0019 (2026-11-18), as built in P1b: nothing here changes. Ending the demo discards its workouts and
+  then resets as before; the account's `ModelContainer` stays one instance for the life of the process. The iOS 17
+  reopen ADR 0019 first decided isn't built (minimum iOS 18.6; `docs/work/2026-11-18-ios17-demo-exit/design.md`).
+- Amended by: ADR 0020 (2026-11-18, #107). An owed account wipe can remove the account store's files
+  (`StoreReset`), the one deletion outside decision 2's ownership: only in `TrainStore.shared`'s initializer, before
+  the first `ModelContainer`, so no writer, batch or read context exists yet. The epoch starts fresh with the store.
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer builds it
 - Applies to: `Ryft/Persistence/` (`Repository`, `ReadModels.swift`, `ReadModelWrite.swift`, `ReadModelWriter.swift`,
   `StoreEpoch.swift`), `Ryft/Environment/Seams.swift` (`Persistence`), `Ryft/Train/Model/TrainStore.swift` (`epoch`,

@@ -51,7 +51,7 @@ final class SessionController: Identifiable {
     @ObservationIgnored private var restOverTask: Task<Void, Never>?
     /// How long the pill says "Rest over" (design.md §2.7).
     static let restOverHold: Duration = .seconds(1)
-    private let liveActivity: RestActivityController?
+    private let liveActivity: (any WorkoutLiveActivity)?
 
     // MARK: replace and undo state (SessionController+Replace.swift)
 
@@ -74,7 +74,7 @@ final class SessionController: Identifiable {
     private nonisolated let sessionID: UUID
 
     /// `liveActivity` is nil in previews and tests.
-    init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
+    init(session: LocalSession, sync: TrainSyncService, liveActivity: (any WorkoutLiveActivity)?,
          clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: SessionLayout = .list,
          settings: Settings = .shared) {
         self.session = session
@@ -175,6 +175,15 @@ final class SessionController: Identifiable {
         restOverTask = nil
         cancelAdvance()
         dropUndo()
+    }
+
+    /// Its rows are going (the wipe's `TrainCoordinator.releaseRows`, or the demo's discard): stopped for good, and its
+    /// screen draws none of them.
+    private(set) var isReleased = false
+
+    func release() {
+        stop()
+        isReleased = true
     }
 
     // MARK: derived

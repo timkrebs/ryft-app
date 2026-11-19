@@ -593,7 +593,7 @@ struct RefreshIssueCard: View {
                       retryTitle: action.title, retry: action.button(retry: retry, signIn: signIn), caption: age,
                       retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
-            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
+            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue).presentedRoot() }
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
@@ -1009,7 +1009,7 @@ struct TrackerSetupCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tracker.card.\(tracker.id)")
-        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea() }
+        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea().presentedRoot() }
     }
 
     // MARK: header

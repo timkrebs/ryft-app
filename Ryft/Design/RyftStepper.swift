@@ -37,7 +37,9 @@ enum RyftStepperSpec {
         return value
     }
 
-    /// The circles' labels, for Voice Control and the Large Content Viewer (VoiceOver adjusts the whole element instead).
+    /// The circles' labels, which their Large Content Viewer shows. The stepper is one adjustable element
+    /// (`stepperAccessibility` ignores its children), so neither VoiceOver nor Voice Control reaches a circle: VoiceOver
+    /// adjusts the element by swiping up and down, and Voice Control knows the element by the stepper's label.
     static var decrementLabel: Text { Text("Less", comment: "The minus circle of a stepper: makes the value smaller.") }
     static var incrementLabel: Text { Text("More", comment: "The plus circle of a stepper: makes the value larger.") }
 }

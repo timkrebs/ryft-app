@@ -121,7 +121,7 @@ import UIKit
                     CircleButton(systemImage: "chevron.right", accessibilityLabel: Text(verbatim: "Next night")) {}
                         .disabled(true)
                 }
-                Card { HeroNumeralsRow(selection: .constant(.dots)) }
+                GroupedCard(Text(verbatim: "Settings")) { HeroNumbersMenuRow(selection: .constant(.dots)) }
             }
         }
     }

@@ -347,128 +347,169 @@ enum MockTrainScoring {
 
     static func records(for id: UUID, in entries: [ExerciseHistorySession]) -> [PersonalRecord] {
         var out: [PersonalRecord] = []
-        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e.startedAt, $0) } }
+        // Each record names its set and session, as the platform's do (API.md, `prs`).
+        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e, $0) } }
+        func record(_ kind: PRKind, _ value: Double, _ at: (ExerciseHistorySession, SessionSet)) -> PersonalRecord {
+            PersonalRecord(exerciseId: id, kind: kind, value: value, setId: at.1.id, sessionId: at.0.sessionId,
+                           achievedAt: at.0.startedAt)
+        }
         if let best = all.max(by: { (E1RM.estimate(weightKg: $0.1.weightKg, reps: $0.1.reps) ?? 0)
                                     < (E1RM.estimate(weightKg: $1.1.weightKg, reps: $1.1.reps) ?? 0) }),
            let v = E1RM.estimate(weightKg: best.1.weightKg, reps: best.1.reps) {
-            out.append(PersonalRecord(exerciseId: id, kind: .e1rm, value: E1RM.rounded(v), achievedAt: best.0))
+            out.append(record(.e1rm, E1RM.rounded(v), best))
         }
         if let heavy = all.max(by: { ($0.1.weightKg ?? 0) < ($1.1.weightKg ?? 0) }), let kg = heavy.1.weightKg {
-            out.append(PersonalRecord(exerciseId: id, kind: .maxWeight, value: kg, achievedAt: heavy.0))
+            out.append(record(.maxWeight, kg, heavy))
         }
         if let reps = all.max(by: { ($0.1.reps ?? 0) < ($1.1.reps ?? 0) }), let r = reps.1.reps {
-            out.append(PersonalRecord(exerciseId: id, kind: .maxReps, value: Double(r), achievedAt: reps.0))
+            out.append(record(.maxReps, Double(r), reps))
         }
         return out
     }
 }
 
-/// `TrainDataSource` for previews and demo mode: the platform's behaviour in memory.
-actor MockTrainSource: TrainDataSource {
+/// `TrainDataSource` for previews and demo mode: the platform's behaviour in memory. A class behind a lock, like the
+/// other demo sources, so `reset()` is done when it returns.
+final class MockTrainSource: TrainDataSource, @unchecked Sendable {
     static let shared = MockTrainSource()
 
-    private var customExercises: [Exercise] = []
-    private var myPlans: [Plan] = MockTrain.plans.filter { !$0.isBuiltin }
-    private var enrollment: Enrollment? = MockTrain.enrollment
-    private var sessions: [UUID: TrainSession] = Dictionary(MockTrain.history.map { ($0.id, $0) },
-                                                             uniquingKeysWith: { a, _ in a })
+    /// What the demo can change: as at launch until it does.
+    private struct State {
+        var customExercises: [Exercise] = []
+        var myPlans: [Plan] = MockTrain.plans.filter { !$0.isBuiltin }
+        var enrollment: Enrollment? = MockTrain.enrollment
+        var sessions: [UUID: TrainSession] = Dictionary(MockTrain.history.map { ($0.id, $0) },
+                                                        uniquingKeysWith: { a, _ in a })
 
-    func exercises() async throws -> [Exercise] { MockTrain.exercises + customExercises }
+        var allPlans: [Plan] { MockTrain.plans.filter(\.isBuiltin) + myPlans }
+    }
+
+    private let lock = NSLock()
+    private var state = State()
+
+    private func locked<T>(_ body: (inout State) throws -> T) rethrows -> T {
+        try lock.withLock { try body(&state) }
+    }
+
+    /// Back to launch (`AppState.reset`: Demo data switched, the account changed): what the demo logged, saved, created
+    /// or enrolled in goes, so a workout the exit discarded doesn't come back with Demo data on again.
+    func reset() { locked { $0 = State() } }
+
+    func exercises() async throws -> [Exercise] { locked { MockTrain.exercises + $0.customExercises } }
 
     func createExercise(_ e: Exercise) async throws -> Exercise {
         var custom = e
         custom.isCustom = true
-        customExercises.removeAll { $0.id == e.id }
-        customExercises.append(custom)
-        return custom
+        return locked {
+            $0.customExercises.removeAll { $0.id == e.id }
+            $0.customExercises.append(custom)
+            return custom
+        }
     }
 
     func exerciseHistory(id: UUID) async throws -> ExerciseHistory {
-        MockTrain.exerciseHistory(for: id, sessions: Array(sessions.values))
+        locked { MockTrain.exerciseHistory(for: id, sessions: Array($0.sessions.values)) }
     }
 
-    private var allPlans: [Plan] { MockTrain.plans.filter(\.isBuiltin) + myPlans }
-
     func plans() async throws -> PlansOverview {
-        PlansOverview(builtin: allPlans.filter(\.isBuiltin).map(PlanSummary.init),
-                      mine: myPlans.map(PlanSummary.init),
-                      active: enrollment?.status == .active ? enrollment : nil)
+        locked { s in
+            PlansOverview(builtin: s.allPlans.filter(\.isBuiltin).map(PlanSummary.init),
+                          mine: s.myPlans.map(PlanSummary.init),
+                          active: s.enrollment?.status == .active ? s.enrollment : nil)
+        }
     }
 
     func plan(id: UUID) async throws -> Plan {
-        guard let p = allPlans.first(where: { $0.id == id }) else { throw APIError.http(404, "plan not found") }
+        guard let p = locked({ $0.allPlans.first { $0.id == id } }) else { throw APIError.http(404, "plan not found") }
         return p
     }
 
     func savePlan(_ p: Plan) async throws -> Plan {
         var mine = p
         mine.isBuiltin = false
-        myPlans.removeAll { $0.id == p.id }
-        myPlans.append(mine)
-        return mine
+        return locked {
+            $0.myPlans.removeAll { $0.id == p.id }
+            $0.myPlans.append(mine)
+            return mine
+        }
     }
 
     func deletePlan(id: UUID) async throws {
-        myPlans.removeAll { $0.id == id }
-        if enrollment?.planId == id { enrollment = nil }
+        locked {
+            $0.myPlans.removeAll { $0.id == id }
+            if $0.enrollment?.planId == id { $0.enrollment = nil }
+        }
     }
 
     /// A paused enrolment in the same plan resumes where it stopped (200), else week 1 day 0 (201).
     func enroll(planID: UUID) async throws -> Enrollment {
-        if var e = enrollment, e.planId == planID {
-            e.status = .active
-            enrollment = e
+        locked { s in
+            if var e = s.enrollment, e.planId == planID {
+                e.status = .active
+                s.enrollment = e
+                return e
+            }
+            let e = Enrollment(id: UUID(), planId: planID, startedAt: .now, currentWeek: 1, currentDayIndex: 0,
+                               status: .active)
+            s.enrollment = e
             return e
         }
-        let e = Enrollment(id: UUID(), planId: planID, startedAt: .now, currentWeek: 1, currentDayIndex: 0, status: .active)
-        enrollment = e
-        return e
     }
 
     func pauseEnrollment() async throws {
-        enrollment?.status = .paused
+        locked { $0.enrollment?.status = .paused }
     }
 
     func planToday() async throws -> PlanToday? {
-        guard let e = enrollment, e.status == .active,
-              let plan = allPlans.first(where: { $0.id == e.planId }) else { return nil }
-        let days = plan.days.filter { $0.week == nil || $0.week == e.currentWeek }
-        guard !days.isEmpty else { return nil }
-        // Done for today once a session of this plan finished today.
-        let doneToday = sessions.values.contains { s in
-            s.status == .completed && Calendar.current.isDateInToday(s.startedAt)
-                && plan.days.contains { $0.id == s.planDayId }
+        locked { s in
+            guard let e = s.enrollment, e.status == .active,
+                  let plan = s.allPlans.first(where: { $0.id == e.planId }) else { return nil }
+            let days = plan.days.filter { $0.week == nil || $0.week == e.currentWeek }
+            guard !days.isEmpty else { return nil }
+            // Done for today once a session of this plan finished today.
+            let doneToday = s.sessions.values.contains { session in
+                session.status == .completed && Calendar.current.isDateInToday(session.startedAt)
+                    && plan.days.contains { $0.id == session.planDayId }
+            }
+            guard !doneToday else { return nil }
+            let day = days[e.currentDayIndex % days.count]
+            return MockTrain.planToday(for: day, enrollment: e)
         }
-        guard !doneToday else { return nil }
-        let day = days[e.currentDayIndex % days.count]
-        return MockTrain.planToday(for: day, enrollment: e)
     }
 
     func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
-        sessions.values.filter { $0.startedAt >= from && $0.startedAt <= to }
-            .sorted { $0.startedAt > $1.startedAt }.map(SessionSummary.init)
+        locked { s in
+            s.sessions.values.filter { $0.startedAt >= from && $0.startedAt <= to }
+                .sorted { $0.startedAt > $1.startedAt }.map(SessionSummary.init)
+        }
     }
 
     func session(id: UUID) async throws -> TrainSession {
-        guard let s = sessions[id] else { throw APIError.http(404, "session not found") }
+        guard let s = locked({ $0.sessions[id] }) else { throw APIError.http(404, "session not found") }
         return s
     }
 
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
-        // `completed` only for a session that already is (API.md); finishing is `…/complete`.
-        if s.status == .completed, sessions[s.id]?.status != .completed {
-            throw APIError.http(422, "use /complete to finish a session")
+        try locked { state in
+            // `completed` only for a session that already is (API.md); finishing is `…/complete`.
+            if s.status == .completed, state.sessions[s.id]?.status != .completed {
+                throw APIError.http(422, "use /complete to finish a session")
+            }
+            // The platform merges by set id while in progress.
+            let merged = state.sessions[s.id].map { SessionMerge.merge(local: s, server: $0) } ?? s
+            state.sessions[s.id] = merged
+            return .saved
         }
-        // The platform merges by set id while in progress.
-        let merged = sessions[s.id].map { SessionMerge.merge(local: s, server: $0) } ?? s
-        sessions[s.id] = merged
-        return .saved(merged)
     }
 
     func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
-        guard var s = sessions[id] else { throw APIError.http(404, "session not found") }
+        try locked { state in try Self.complete(id: id, body, in: &state) }
+    }
+
+    private static func complete(id: UUID, _ body: SessionComplete, in state: inout State) throws -> TrainSession {
+        guard var s = state.sessions[id] else { throw APIError.http(404, "session not found") }
         guard s.status != .discarded else { throw APIError.http(409, "session discarded") }
-        let before = Array(sessions.values.filter { $0.id != id && $0.status == .completed })
+        let before = Array(state.sessions.values.filter { $0.id != id && $0.status == .completed })
         s.status = .completed
         s.endedAt = body.endedAt ?? s.endedAt ?? .now
         s.bodyweightKg = body.bodyweightKg ?? s.bodyweightKg
@@ -476,7 +517,7 @@ actor MockTrainSource: TrainDataSource {
         s.muscularTrimp = load
         s.strain = MockTrainScoring.strain(forTrimp: load)
         s.volumeKg = Volume.of(s.exercises.flatMap(\.sets))
-        sessions[id] = s
+        state.sessions[id] = s
         var prs: [PersonalRecord] = []
         for e in s.exercises {
             let earlier = before.flatMap { $0.exercises.filter { $0.exerciseId == e.exerciseId }.flatMap(\.sets) }
@@ -489,15 +530,15 @@ actor MockTrainSource: TrainDataSource {
                 prs.append(PersonalRecord(exerciseId: e.exerciseId, kind: .maxWeight, value: kg, sessionId: id, achievedAt: .now))
             }
         }
-        if var e = enrollment, let day = s.planDayId,
-           let plan = allPlans.first(where: { $0.id == e.planId }), plan.days.contains(where: { $0.id == day }) {
+        if var e = state.enrollment, let day = s.planDayId,
+           let plan = state.allPlans.first(where: { $0.id == e.planId }), plan.days.contains(where: { $0.id == day }) {
             e.currentDayIndex += 1
-            enrollment = e
+            state.enrollment = e
         }
         s.prs = prs
-        sessions[id] = s
+        state.sessions[id] = s
         return s
     }
 
-    func deleteSession(id: UUID) async throws { sessions[id] = nil }
+    func deleteSession(id: UUID) async throws { locked { $0.sessions[id] = nil } }
 }

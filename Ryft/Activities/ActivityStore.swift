@@ -359,7 +359,7 @@ final class ActivityStore {
 
     /// How long a session expiry keeps an account's unconfirmed rows (design.md §8.4). An account deleted on the
     /// web looks exactly like an expiry (a final `401`), so this limit is what removes its data from the phone.
-    static let parkingLimit: TimeInterval = 30 * 86_400
+    nonisolated static let parkingLimit: TimeInterval = 30 * 86_400
 
     /// The same account signed in again after its session expired: its parked rows and nights are its own again
     /// (the uploader then sends them). Always the account's store. Returns how many came back.

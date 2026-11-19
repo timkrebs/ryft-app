@@ -28,10 +28,10 @@ struct SupabaseConfig: Equatable {
     /// the project's redirect URLs (Authentication → URL Configuration).
     static let redirectURL = URL(string: "ryft://auth/callback")!
 
-    /// The universal-link form (Associated Domains `applinks:ryftapp.de`). Accepted
-    /// already; becomes `redirectURL` once ryftapp.de serves the
+    /// The universal-link form (Associated Domains `applinks:ryftlab.de`). Accepted
+    /// already; becomes `redirectURL` once ryftlab.de serves the
     /// apple-app-site-association file and Supabase allows it (docs/APP_STORE.md).
-    static let universalRedirectURL = URL(string: "https://ryftapp.de/auth/callback")!
+    static let universalRedirectURL = URL(string: "https://ryftlab.de/auth/callback")!
 
     /// A confirmation or reset link, in either form.
     static func isAuthCallback(_ url: URL) -> Bool {

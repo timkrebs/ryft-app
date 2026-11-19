@@ -45,7 +45,7 @@ struct LargeTextHostedTests {
         try await run(s, WelcomeView().environment(AuthService.preview(signedIn: false))) { w in
             try await w.settle()
             let line = try #require(w.node(Self.privacyLine), "\(w.nodes().map(\.label))")
-            let text = Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftapp.de/privacy)")
+            let text = Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftlab.de/privacy)")
                 .font(.ryft(.caption))
                 .multilineTextAlignment(.center)
             let whole = needs(text, width: line.frame.width, size: s.size).height
@@ -94,18 +94,20 @@ struct LargeTextHostedTests {
         try await run(s, StartWorkoutSheet()) { w in
             try await w.settle()
             let option = try #require(w.nodes().first { $0.label.contains("From today's plan") }, "\(w.nodes().map(\.label))")
-            // The option as `StartWorkoutSheet.option` lays it out (icon, title over detail, the room after them), with the
-            // detail free to take every line it needs.
-            let whole = HStack(spacing: 14) {
-                Color.clear.frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 3) {
+            // The option as `StartWorkoutSheet.option` lays it out (the glyph circle, title over detail, the arrow circle), with
+            // the detail free to take every line it needs.
+            let whole = HStack(spacing: StartOptionSpec.spacing) {
+                Color.clear.frame(width: StartOptionSpec.circle, height: StartOptionSpec.circle)
+                VStack(alignment: .leading, spacing: StartOptionSpec.detailGap) {
                     Text("From today's plan").font(.ryft(.headline))
                     Text(verbatim: detail).font(.ryft(.caption))
                 }
-                Spacer()
+                Spacer(minLength: 0)
+                Color.clear.frame(width: StartOptionSpec.circle, height: StartOptionSpec.circle)
             }
-            .padding(14)
-            .frame(minHeight: 64)
+            .padding(.horizontal, StartOptionSpec.sidePadding)
+            .padding(.vertical, StartOptionSpec.verticalPadding)
+            .frame(minHeight: StartOptionSpec.minHeight)
             let height = needs(whole, width: option.frame.width, size: s.size).height
             #expect(option.frame.height >= height - 1, "cut short: \(option.frame), the option needs \(height)")
         }

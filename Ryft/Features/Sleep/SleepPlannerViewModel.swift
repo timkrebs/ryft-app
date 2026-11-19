@@ -5,9 +5,11 @@ import UserNotifications
 import AlarmKit
 #endif
 
-/// Sleep → Planner (`GET /v1/sleep/plan?wake=HH:MM`, behind `sleep.planner`):
-/// three bedtimes for a wake time and the need behind them. A wake-time change
-/// asks again after 300 ms of quiet; offline, the last plan stays with its time.
+/// Sleep → Bedtime (`GET /v1/sleep/plan?wake=HH:MM`, behind `sleep.planner`):
+/// three bedtimes for a wake time and the need behind them. With Bedtime & wake set
+/// up, the wake time is its next one (`follow`), so the numeral is tonight's bedtime,
+/// Today's and the widget's, until the picker moves. A wake-time change asks again
+/// after 300 ms of quiet; offline, the last plan stays with its time.
 @MainActor
 @Observable
 final class SleepPlannerViewModel {
@@ -23,14 +25,25 @@ final class SleepPlannerViewModel {
         let fetchedAt: Date
     }
 
-    /// The wake time asked for, local.
+    /// The wake time asked for, local: Bedtime & wake's next one while the board follows it, else the picker's.
     private(set) var wake: Date
     private(set) var plan: SleepPlan?
     /// Set when `plan` is a cached one (offline or the request failed).
     private(set) var asOf: Date?
     private(set) var isLoading = false
-    private(set) var error: String?
+    /// Why the plan couldn't load with nothing cached: the app's calm sentence, the Details and the button
+    /// (`SleepLoadFailure`), never the system's error text.
+    private(set) var failure: SleepLoadFailure?
+    /// The failure's sentence.
+    var error: String? { failure?.message }
     @ObservationIgnored private var pending: Task<Void, Never>?
+    /// Bedtime & wake's next wake while the board follows it: answers are aligned to it as Tonight's are
+    /// (`BedtimePlanner.align`). `nil` once the picker moved, and without a schedule.
+    @ObservationIgnored private var followed: Date?
+    /// The schedule `follow` saw last: another one is followed even after the picker moved.
+    @ObservationIgnored private var followedSchedule: SleepSchedule?
+    /// The picker moved since Bedtime was entered or the schedule changed: the board shows the picker's wake time.
+    @ObservationIgnored private(set) var pickerMoved = false
 
     init(state: AppState) {
         self.state = state
@@ -81,9 +94,54 @@ final class SleepPlannerViewModel {
         await fetch()
     }
 
+    /// Bedtime & wake's next wake (design.md §P5-7.3): on entering Bedtime and whenever the schedule changes, the board
+    /// shows tonight's bedtime, the one Today's Tonight card, the reminder and the widget show, until the picker moves.
+    /// `tonight` is Bedtime & wake's plan (`BedtimePlanner.plan`), taken when it is for that wake, so the numbers match at
+    /// once and offline. Without a schedule nothing changes: the picker's wake (or the last one slept) stays.
+    func follow(_ schedule: SleepSchedule?, tonight: SleepPlan? = nil, tonightAsOf: Date? = nil) {
+        if schedule != followedSchedule {
+            followedSchedule = schedule
+            resumeFollowing()
+        }
+        guard let schedule else {
+            followed = nil
+            return
+        }
+        guard !pickerMoved else { return }
+        let next = schedule.nextWake(after: state.env.clock.now())
+        followed = next
+        wake = next
+        if let plan, Self.isPlan(plan, for: next) { return }
+        if let tonight, Self.isPlan(tonight, for: next) {
+            plan = tonight
+            asOf = tonightAsOf
+            failure = nil
+        } else {
+            // Another night's plan (the picker's, or one from yesterday) isn't tonight's bedtime.
+            plan = nil
+            asOf = nil
+        }
+    }
+
+    /// Leaving Bedtime (or a new schedule): the schedule is followed again, and the picker's pending request dropped.
+    func resumeFollowing() {
+        guard pickerMoved else { return }
+        pickerMoved = false
+        pending?.cancel()
+        pending = nil
+    }
+
+    /// `plan` answers for `wake` (within the minute, as `BedtimePlanner` takes a stored plan).
+    private static func isPlan(_ plan: SleepPlan, for wake: Date) -> Bool {
+        abs(plan.wake.timeIntervalSince(wake)) <= 60
+    }
+
     /// The picker moved: ask again once it has been still for 300 ms.
     func setWake(_ date: Date) {
+        guard date != wake else { return }
         wake = date
+        pickerMoved = true
+        followed = nil
         pending?.cancel()
         let clock = state.env.clock
         pending = Task { [weak self] in
@@ -97,6 +155,7 @@ final class SleepPlannerViewModel {
 
     private func fetch() async {
         let hhmm = wakeText
+        let target = followed
         guard state.hasDataSource else { return }
         guard state.env.connectivity.isOnline else {
             if plan != nil, asOf == nil { asOf = state.env.clock.now() }
@@ -105,11 +164,13 @@ final class SleepPlannerViewModel {
         isLoading = plan == nil
         defer { isLoading = false }
         do {
-            let fresh = try await state.env.api.sleepPlan(wake: hhmm)
-            guard hhmm == wakeText else { return }   // superseded by a newer wake time
+            var fresh = try await state.env.api.sleepPlan(wake: hhmm)
+            guard hhmm == wakeText, target == followed else { return }   // superseded by a newer wake time
+            // The API answers for the next `HH:MM`; tonight's wake may be a day later (Friday 07:30 → Saturday 08:00).
+            if let target { fresh = BedtimePlanner.align(fresh, to: target) ?? fresh }
             plan = fresh
             asOf = nil
-            error = nil
+            failure = nil
             state.env.persistence.saveDocument(Cached(plan: fresh, wake: hhmm, fetchedAt: state.env.clock.now()),
                                                key: Self.cacheKey, at: state.env.clock.now())
         } catch where error.isCancellation {
@@ -117,8 +178,10 @@ final class SleepPlannerViewModel {
         } catch {
             // 422 only for a malformed time, which the picker can't make.
             assert((error as? APIError)?.status != 422, "sleep/plan rejected wake \(hhmm)")
+            guard hhmm == wakeText else { return }
             if plan == nil {
-                self.error = error.localizedDescription
+                failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
+                                           isDemo: state.isDemo, at: state.env.clock.now())
             } else if asOf == nil {
                 asOf = state.env.persistence.document(Cached.self, key: Self.cacheKey)?.fetchedAt ?? state.env.clock.now()
             }
@@ -188,6 +251,13 @@ struct SleepSchedule: Codable, Equatable, Sendable {
         let parts = hhmm.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return day }
         return calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: day) ?? day
+    }
+
+    /// "HH:MM" as the locale writes a time ("6:30 AM", "06:30"); a malformed one as it is.
+    static func clock(_ hhmm: String, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) -> String {
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return hhmm }
+        return Fmt.time(hour: parts[0], minute: parts[1], locale: locale, calendar: calendar)
     }
 
     /// Weekdays get the first one's time, the weekend Saturday's (two-time editing).
@@ -286,11 +356,18 @@ final class BedtimePlanner {
     /// Tonight's bedtime for the goal.
     var bedtime: Date? { plan.flatMap { p in schedule.map { $0.goal.bedtime(in: p) } } }
 
-    /// Profile's row: "06:30" (weekdays) or "Off".
-    var summary: String {
+    /// Profile's row and Bedtime's settings card: "6:30 AM", "6:30 AM · weekend 8:00 AM" ("06:30 · weekend 08:00" on a
+    /// 24-hour clock), or "Off".
+    var summary: String { Self.summary(schedule) }
+
+    /// `summary` in `locale`: the weekdays' wake time, and the weekend's when it differs, as `Fmt.time` writes a time.
+    static func summary(_ schedule: SleepSchedule?, locale: Locale = .autoupdatingCurrent,
+                        calendar: Calendar = .current) -> String {
         guard let schedule else { return String(localized: "Off") }
-        return schedule.wake[0] == schedule.wake[5] ? schedule.wake[0]
-            : String(localized: "\(schedule.wake[0]) · weekend \(schedule.wake[5])")
+        let weekdays = SleepSchedule.clock(schedule.wake[0], locale: locale, calendar: calendar)
+        guard schedule.wake[0] != schedule.wake[5] else { return weekdays }
+        let weekend = SleepSchedule.clock(schedule.wake[5], locale: locale, calendar: calendar)
+        return String(localized: "\(weekdays) · weekend \(weekend)")
     }
 
     /// "Peak · reminder · alarm".

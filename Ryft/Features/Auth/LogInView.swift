@@ -85,6 +85,15 @@ struct LogInView: View {
     .preferredColorScheme(.dark)
 }
 
+/// A held sign-in shows here too: Log in is where it was tried.
+#Preview("Log in · sign-in held") {
+    NavigationStack {
+        LogInView(path: .constant([]))
+    }
+    .environment(AuthService.previewHeld())
+    .preferredColorScheme(.dark)
+}
+
 #Preview("Log in · AX3") {
     NavigationStack {
         LogInView(path: .constant([]))

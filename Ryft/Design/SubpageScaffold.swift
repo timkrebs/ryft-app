@@ -90,7 +90,7 @@ struct SubpageScaffold<Trailing: View, Content: View>: View {
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .background { InteractivePopGesture().accessibilityHidden(true) }
+        .keepsBackSwipe()
         .modifier(SheetPresentation(isSheet: isSheet))
     }
 }
@@ -303,6 +303,14 @@ extension View {
 }
 
 // MARK: - the back swipe
+
+extension View {
+    /// Keeps the edge swipe that pops this page while it hides the navigation bar (`InteractivePopGesture`): every page
+    /// with its own header and `.toolbar(.hidden, for: .navigationBar)` (`SubpageScaffold`, the workout detail).
+    func keepsBackSwipe() -> some View {
+        background { InteractivePopGesture().accessibilityHidden(true) }
+    }
+}
 
 /// Keeps the edge swipe that pops a page working while the navigation bar is hidden (A D6A-6, C §2.1). UIKit's own delegate
 /// refuses the swipe without a bar, so each back-swipe recognizer of the page's navigation controller gets an

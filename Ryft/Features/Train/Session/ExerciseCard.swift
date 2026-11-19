@@ -565,12 +565,13 @@ struct ExerciseCard: View {
                 Task { await controller.replace(ex, with: picked, alsoChangePlan: alsoChangePlan, window: window) }
             }
             .presentationDetents([.large])
+            .presentedRoot()
         }
         .sheet(isPresented: $showsTargets) {
-            EditTargetsSheet(controller: controller, exercise: exercise)
+            EditTargetsSheet(controller: controller, exercise: exercise).presentedRoot()
         }
         .sheet(isPresented: $showsNotes) {
-            ExerciseNotesSheet(controller: controller, exercise: exercise)
+            ExerciseNotesSheet(controller: controller, exercise: exercise).presentedRoot()
         }
     }
 

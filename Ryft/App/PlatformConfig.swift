@@ -1,26 +1,31 @@
-// The three build-time values every build needs: the RYFT platform URL and
-// the Supabase project (URL + publishable key). They come from
+// The four build-time values every build needs: the RYFT platform's two hosts
+// (API and ingest) and the Supabase project (URL + publishable key). They come from
 // Config/Production.xcconfig (Debug: Config/Debug.xcconfig, which includes it)
-// through Info.plist (RyftAPIURL, RyftSupabaseURL, RyftSupabasePublishableKey).
+// through Info.plist (RyftAPIURL, RyftIngestURL, RyftSupabaseURL, RyftSupabasePublishableKey).
 //
 // A build without them is a broken build, never a silent fallback host:
 // Debug stops at launch, Release shows `MisconfiguredBuildView` and nothing else.
 import SwiftUI
 
 enum PlatformConfig {
-    /// One base URL for every route, `/v1/sync` included.
+    /// The base URL of every route except `POST /v1/sync`.
     static let apiURL: URL? = url(Bundle.configValue("RyftAPIURL"))
+
+    /// The base URL of `POST /v1/sync`, and of nothing else.
+    static let ingestURL: URL? = url(Bundle.configValue("RyftIngestURL"))
 
     static let supabase: SupabaseConfig? = SupabaseConfig.current
 
     /// Build settings that are missing or invalid, by their xcconfig name.
     static func problems(info: [String: Any]? = Bundle.main.infoDictionary, release: Bool = isRelease) -> [String] {
         var out: [String] = []
-        let api = url(Bundle.configValue("RyftAPIURL", in: info))
-        if api == nil {
-            out.append("RYFT_API_URL")
-        } else if release, api?.scheme != "https" {
-            out.append("RYFT_API_URL (HTTPS only in Release)")
+        for (key, setting) in [("RyftAPIURL", "RYFT_API_URL"), ("RyftIngestURL", "RYFT_INGEST_URL")] {
+            let host = url(Bundle.configValue(key, in: info))
+            if host == nil {
+                out.append(setting)
+            } else if release, host?.scheme != "https" {
+                out.append("\(setting) (HTTPS only in Release)")
+            }
         }
         if url(Bundle.configValue("RyftSupabaseURL", in: info)) == nil { out.append("RYFT_SUPABASE_URL") }
         if Bundle.configValue("RyftSupabasePublishableKey", in: info) == nil { out.append("RYFT_SUPABASE_PUBLISHABLE_KEY") }

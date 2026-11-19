@@ -40,8 +40,8 @@ struct AccountHintSheet: View {
                 PillButton(Text("Continue with this one"), style: .secondary) { keep() }
                     .padding(.top, AccountHintSpec.buttonGap)
                     .accessibilityIdentifier("hint.keep")
-                // Plain text: the address is for reading out, not a link (the domain chore owns its spelling).
-                Text("Data in both accounts? Support can merge them: ryftapp.de/support")
+                // Plain text: the address is for reading out, not a link.
+                Text("Data in both accounts? Support can merge them: ryftlab.de/support")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

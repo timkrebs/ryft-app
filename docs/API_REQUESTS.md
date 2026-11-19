@@ -3,6 +3,26 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Offline-first (open, 2026-11-19)
+
+From the offline-first plan (`docs/work/2026-11-19-offline-first/plan.md`, §(d)). The owner's rule: everything shows
+offline, and every write made offline is kept and sent once the API is reachable.
+
+1. **P1: `sync.deletions` in `GET /v1/config`.** Already filed under "Sync and performance" §2. Please add the flag row
+   and turn it on per environment after the ingest deploy (ADR 0011). The app's O11 sends deletions only behind it.
+2. **P2: late writes keep their window.**
+   - `PUT /v1/journal/{day}` answers `422` once the day is past `editable` (14 days). Manual activities may start at
+     most 14 days back (R15).
+   - An item saved offline in time can arrive after the window.
+   - **Proposal:** accept an optional `saved_at` (RFC 3339, the phone's time of the edit) and check the window against
+     it, bounded by `now` and a short grace (for example 3 days).
+   - **Until then:** the app shows such an item as refused, with Retry and Discard. It never drops it silently.
+3. **P3: consent on journal writes.** Please answer `PUT /v1/journal/{day}` and `PATCH /v1/behaviors` with
+   `403 consent_required` without a current consent, as `POST /v1/sync` does (extends R25(1)). The app also gates them
+   in its outbox.
+4. **P4 (optional): one report per resend.** `POST /v1/feedback` takes an optional client `id` (uuid), and a repeat
+   answers `204`, so a resend after a lost answer files one report.
+
 ## Nocturne restyle (open, 2026-11-17)
 
 From Nocturne PR 4 (`docs/work/2026-11-16-nocturne/design.md` §P4-4, rows R-N1 and R-N2). The screens ship without
@@ -14,7 +34,7 @@ these; each has a fallback that invents nothing.
    - **Proposal:** `DailyScore.strain_target_min` and `strain_target_max` (number?, the day's recommended strain range;
      `null` until the baselines exist).
    - **Until then:** the fixed moderate band, labelled as a band. Nothing waits on this.
-2. **R-N2: an editable display name.** Today greets with the first word of `User.name` ("Good evening, Tim"). For a
+2. **R-N2: an editable display name.** Today greets with the first word of `User.name` ("Good evening, Alex"). For a
    Sign in with Apple account the platform stores `""` when Apple sent no name, and `PATCH /v1/me` can't set one.
    - **Proposal:** `PATCH /v1/me` accepts `name` (string, trimmed, 1–40 characters, `422` otherwise). Profile (Nocturne
      PR 5) would offer to edit it.
@@ -320,7 +340,7 @@ for the platform; nothing here is sent before the platform says it takes it.
 
 ## Universal links: the AASA (open, 2026-10-20)
 
-1. **`applinks` for the app's paths.** `https://ryftapp.de/.well-known/apple-app-site-association`
+1. **`applinks` for the app's paths.** `https://ryftlab.de/.well-known/apple-app-site-association`
    lists `applinks` only for `/auth/*` (OPERATIONS.md → Apex site). The app parses
    these paths with one `AppRoute` parser, for links, push `ryft.url`s and insights:
    - `/day/*`
@@ -342,7 +362,7 @@ for the platform; nothing here is sent before the platform says it takes it.
    **Until then:** the app has no `associated-domains` entitlement at all; an empty array made iOS refuse to launch it.
    `https://` links open in Safari. `ryft://…` links and notification taps (the app
    reads `ryft.url` itself) work today. Once the AASA is live, the app adds
-   `applinks:ryftapp.de` in Xcode (Signing & Capabilities); no code change is needed.
+   `applinks:ryftlab.de` in Xcode (Signing & Capabilities); no code change is needed.
 
 ## Bedtime & wake (open, 2026-10-21)
 
@@ -413,7 +433,7 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
 2. **`User.trackers: [string]` via `PATCH /v1/me`:** what the user says they wear, the ids from `trackers.json`
    (`apple_watch`, `garmin`, `oura`, …, `other`, `iphone`), validated against a closed set. Shown in
    `GET /v1/admin/users` and `beta_report.sh`. The app stores the choice locally until this exists.
-3. **Serve `https://ryftapp.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
+3. **Serve `https://ryftlab.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.

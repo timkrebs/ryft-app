@@ -9,7 +9,10 @@ import OSLog
 /// tests, previews and demo data. Everything runs on the main context; documents are small.
 @MainActor
 final class TrainStore {
-    static let shared = TrainStore()
+    /// Every route to the store passes the launch's store step first: an owed wipe that can't wait for the object wipe
+    /// replaces the files before the container opens (`StoreReset`).
+    static let shared = TrainStore(opening: liveConfiguration(), ledger: .live, orphans: .current(), now: Date(),
+                                   checksLaunchOrder: true)
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
@@ -20,10 +23,15 @@ final class TrainStore {
     var context: ModelContext { container.mainContext }
     /// On disk. False in memory: asked for (tests, previews, demo data), or the file couldn't be opened.
     let isDurable: Bool
-    /// Asked for a file and got memory (`init`): what's in that file is out of reach, so a wipe can't take it.
-    private let lostItsFile: Bool
+    /// Asked for a file and got memory (`init`): what's in that file is out of reach, so a wipe can't take it, and
+    /// what this store doesn't find may still be there (the demo's list isn't pruned against it, ADR 0019).
+    let lostItsFile: Bool
 
     convenience init(inMemory: Bool = false) {
+        self.init(configuration: Self.liveConfiguration(inMemory: inMemory))
+    }
+
+    static func liveConfiguration(inMemory: Bool = false) -> ModelConfiguration {
         // In memory, each instance gets its own name, so tests and previews never share a store.
         //
         // On disk the store lives in the App Group container: the app has the `group.dev.timkrebs.ryft` entitlement,
@@ -35,15 +43,40 @@ final class TrainStore {
         //
         // Never CloudKit: `.automatic` would start mirroring the health read models to iCloud the day the app gets an
         // iCloud capability.
-        let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
-                                        isStoredInMemoryOnly: inMemory, groupContainer: .automatic, cloudKitDatabase: .none)
-        self.init(configuration: config)
+        ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: schema, isStoredInMemoryOnly: inMemory,
+                           groupContainer: .automatic, cloudKitDatabase: .none)
     }
 
     /// Tests: a store on disk at `url` (its own folder), never CloudKit. What only a file shows (external storage,
     /// a wipe's leftovers) is tested on it, never on the app's own store.
     convenience init(url: URL) {
         self.init(configuration: ModelConfiguration(schema: Self.schema, url: url, cloudKitDatabase: .none))
+    }
+
+    /// Tests: the launch's way in, on a store of their own.
+    convenience init(url: URL, ledger: WipeLedger, orphans: OrphanedStoreCleanup.Locations, now: Date) {
+        self.init(opening: ModelConfiguration(schema: Self.schema, url: url, cloudKitDatabase: .none), ledger: ledger,
+                  orphans: orphans, now: now)
+    }
+
+    private convenience init(opening config: ModelConfiguration, ledger: WipeLedger,
+                             orphans: OrphanedStoreCleanup.Locations, now: Date, checksLaunchOrder: Bool = false) {
+        // The launch order, in Debug: `AuthService.shared` resolves the ledger before anything opens the app's store.
+        // Opened first, the store step replaces nothing (`forStoreStep` is still nil), and whatever opened it could
+        // build on it, a Repository included, before the launch's pass inside `AuthService.init`, which runs without
+        // `onWipe`. UISmoke launches this way.
+        assert(!checksLaunchOrder || Self.opensInLaunchOrder(ledger.resolvedAtLaunch,
+                                                             environment: ProcessInfo.processInfo.environment),
+               "TrainStore.shared opened before AuthService.shared resolved the wipe ledger")
+        ledger.storeStepLeftFiles = StoreReset.run(entry: ledger.forStoreStep, store: config.url, orphans: orphans,
+                                                   now: now).leftFiles
+        self.init(configuration: config)
+    }
+
+    /// Debug's launch-order check. The unit-test host and previews open the store in any order: they never launch the
+    /// app (`AppLauncher`).
+    nonisolated static func opensInLaunchOrder(_ ledgerResolved: Bool, environment: [String: String]) -> Bool {
+        ledgerResolved || environment["XCTestConfigurationFilePath"] != nil || environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
     private init(configuration config: ModelConfiguration) {
@@ -193,6 +226,14 @@ final class TrainStore {
         save()
     }
 
+    /// Ahead of every op queued (a custom exercise's `POST`, O1): it depends on nothing, and a session's `PUT` sends the
+    /// document as it is when it goes, so one queued before the exercise was made may already carry it.
+    func enqueueAhead(_ kind: PendingTrainOp.Kind, subject: UUID, account: String?) {
+        let first = (pendingOps().first?.seq ?? 1) - 1
+        context.insert(PendingTrainOp(seq: first, kind: kind, sessionId: subject, account: account))
+        save()
+    }
+
     func dequeue(_ op: PendingTrainOp) {
         context.delete(op)
         save()
@@ -237,7 +278,7 @@ final class TrainStore {
     ///
     /// True when the store took every step: each delete and fetch here succeeded, the final save was accepted, and the
     /// store is on the file it was asked for. False: the file may still hold the account's data, and `AuthService` keeps
-    /// the account's id so the next account wipes again. A step that fails doesn't stop the ones after it, with one
+    /// the ledger's entry, so no account is published over it. A step that fails doesn't stop the ones after it, with one
     /// exception: when parking can't read the activities, every chunk stays, because a kept chunk is the only copy of a
     /// track. Those rows carry no `parkedAt`, so the 30-day limit doesn't reach them until an account signs in.
     ///
@@ -267,7 +308,7 @@ final class TrainStore {
             batchDelete(ImportMapping.self),
             // And its import job, never uploaded for another account (design §7). One by one: its payload is external
             // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
-            // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
+            // the iOS 27 simulator SwiftData's batch delete removed it too; on iOS 18.6 that's unmeasured.
             deleteEach(PendingImport.self),
             batchDelete(CachedDay.self),
             batchDelete(CachedTrend.self),

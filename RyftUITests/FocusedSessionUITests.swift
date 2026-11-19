@@ -96,12 +96,16 @@ final class FocusedSessionUITests: XCTestCase {
         app.tab("Profile").tap()
         let toggle = element(app, "profile.jumpToNext")
         requireExists(toggle, "Profile → Training")
-        var swipes = 0
-        while !toggle.isHittable && swipes < 10 {
-            app.swipeUp()
-            swipes += 1
-        }
+        reveal(toggle, in: app)
         return toggle
+    }
+
+    /// Scrolls until `element` is above the tab bar: the bar floats over the page, so a row under it is "hittable" while a
+    /// tap lands on the bar.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let bottom = app.tabBar.frame.minY
+        for _ in 0..<12 where !element.isHittable || element.frame.maxY >= bottom { app.swipeUp() }
+        XCTAssertLessThan(element.frame.maxY, bottom, "\(element.identifier) is above the tab bar")
     }
 
     /// T5, L4, L5: the toggle's new name in both states, and the layout's picker only with the flag on, where it decides the
@@ -114,8 +118,14 @@ final class FocusedSessionUITests: XCTestCase {
 
         app = launch(extra: Self.focusedOn)
         XCTAssertTrue(training(in: app).label.contains("Advance to the next exercise"))
-        requireExists(element(app, "profile.sessionLayout"), "the choice with the flag on")
-        app.buttons["List"].tap()
+        // Nocturne (T5.4): a menu row, its items the choices.
+        let layout = element(app, "profile.sessionLayout")
+        requireExists(layout, "the choice with the flag on")
+        reveal(layout, in: app)
+        layout.tap()
+        let list = app.buttons["List"]
+        requireExists(list, "the menu's List")
+        list.tap()
         app.tab("Strain").tap()
         startTodaysPlan(in: app)
         requireExists(element(app, "set.0.1"), "List's first set row")

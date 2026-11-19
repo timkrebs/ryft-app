@@ -1,7 +1,7 @@
 # RYFT — iOS app
 
 *Engineered for peak.* RYFT reads your watch's data out of Apple Health, syncs it to the
-RYFT platform (`https://api.ryftapp.de`, source in `../plattform`) and shows daily
+RYFT platform (`https://ingest.ryftlab.de` and `https://api.ryftlab.de`, source in `../plattform`) and shows daily
 **Readiness, Sleep, Recovery and Strain**. You create an account (email + password, or
 **Continue with Apple**), allow Health access, and see your data: no server address, no
 API key, no settings.
@@ -15,7 +15,7 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 
 ## Requirements
 
-- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.2), iOS 17+
+- Xcode 26.1 or newer (AlarmKit needs the iOS 26.1 SDK; built and tested with Xcode 27.2, see `.xcode-version`), iOS 18.6+
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
@@ -48,24 +48,26 @@ builds a Release archive with a timestamp build number and exports an App Store 
 
 ### Production configuration
 
-Three build-time values, all publishable, committed in **`Config/Production.xcconfig`**
-(all three are set):
+Four build-time values, all publishable, committed in **`Config/Production.xcconfig`**
+(all four are set):
 
 | Setting | Value / where from |
 |---|---|
-| `RYFT_API_URL` | `https://api.ryftapp.de`: serves `/v1/sync` and every other `/v1/*` route |
+| `RYFT_API_URL` | `https://api.ryftlab.de`: serves every other `/v1/*` route |
+| `RYFT_INGEST_URL` | `https://ingest.ryftlab.de`: serves `POST /v1/sync` only |
 | `RYFT_SUPABASE_URL` | `https://ydgbemufggwnegbnjhkm.supabase.co` (Supabase → Project Settings → API) |
 | `RYFT_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…` (Supabase → Project Settings → API Keys) |
 
+Each host answers `404` to the other's routes, and the app never falls back from one to the other.
 `//` starts a comment in xcconfig files, so URLs are written `https:/$()/host`. `Info.plist`
-exposes them as `RyftAPIURL`, `RyftSupabaseURL` and `RyftSupabasePublishableKey`; nothing is
-hard-coded in Swift. Committing them is fine: the platform's RLS and revoked grants mean
+exposes them as `RyftAPIURL`, `RyftIngestURL`, `RyftSupabaseURL` and `RyftSupabasePublishableKey`;
+nothing is hard-coded in Swift. Committing them is fine: the platform's RLS and revoked grants mean
 Supabase's Data API exposes nothing, and the app talks only to Supabase Auth.
 
 A build without them is broken, never silently pointed elsewhere (`App/PlatformConfig.swift`):
 - **Debug** stops at launch with the missing setting's name.
 - **Release** shows only a "This build is misconfigured" screen.
-- Release also requires `RYFT_API_URL` to be HTTPS.
+- Release also requires `RYFT_API_URL` and `RYFT_INGEST_URL` to be HTTPS.
 
 **App Transport Security** is HTTPS-only in Release. `Info.plist` is preprocessed
 (`INFOPLIST_PREPROCESS` in `Production.xcconfig`), and the `NSAllowsLocalNetworking` exception
@@ -131,9 +133,9 @@ Already in the project:
 
 **Associated Domains** is not in the project, and `Ryft.entitlements` has no
 `associated-domains` key: an empty array there made iOS refuse to launch the app
-("inadequate entitlements"). Once `curl -sI https://ryftapp.de/.well-known/apple-app-site-association`
+("inadequate entitlements"). Once `curl -sI https://ryftlab.de/.well-known/apple-app-site-association`
 serves the app's paths, add it through Signing & Capabilities → + Capability →
-Associated Domains, `applinks:ryftapp.de`. The `AppRoute` parser needs no change.
+Associated Domains, `applinks:ryftlab.de`. The `AppRoute` parser needs no change.
 Until then, `ryft://…` links and notification taps work. `make check-entitlements`
 guards the file.
 
@@ -147,7 +149,7 @@ The sandbox APNs key on the platform serves Debug builds; TestFlight uses produc
 
 **Live Activities** (the Train rest timer) need no capability and no push: the app sets
 `NSSupportsLiveActivities = YES` in `Info.plist` and starts, updates and ends the activity
-locally. The UI lives in the **RyftWidgetsExtension** target (`RyftWidgets/`, iOS 17), which is
+locally. The UI lives in the **RyftWidgetsExtension** target (`RyftWidgets/`, iOS 18.6), which is
 embedded in the app. For device builds the extension needs its own App ID,
 `dev.timkrebs.ryft.RyftWidgets`, under the same team. `RestTimerAttributes` is declared in
 both targets (`Ryft/Train/RestActivity.swift` and `RyftWidgets/RestTimerAttributes.swift`) and
@@ -212,7 +214,9 @@ Debug builds have **Profile → Developer** (not compiled into Release). With
    `AUTH_MODE=apikey` with `ALLOW_INSECURE_APIKEY_AUTH=true`.
 2. In **Profile → Developer**:
    - **API URL override**: `http://<lan-ip>:8082` (the api service)
-   - **Ingest URL override**: `http://<lan-ip>:8081` (compose serves ingest on its own port)
+   - **Ingest URL override**: `http://<lan-ip>:8081` (the ingest service). The two come as a
+     pair: with an API override alone the sync has no host and fails, so it never reaches
+     production ingest.
    - **API key mode** on, **API key** = the compose `API_KEY` (default `dev-api-key-change-me`;
      `<API_KEY>:<uuid>` acts as another user)
    - **Test connection**, then pull to refresh on Today
@@ -228,8 +232,9 @@ Debug builds have **Profile → Developer** (not compiled into Release). With
 
 Plain `http://` works for local addresses in Debug only: `Config/Debug.xcconfig` (from the
 `.example`) turns on `NSAllowsLocalNetworking`. A public host over plain HTTP is still blocked,
-so keep `RYFT_API_URL` on `https://` unless it's a LAN address. Find the IP with
-`ipconfig getifaddr en0`. You can also set `RYFT_API_URL` in `Config/Debug.xcconfig`.
+so keep `RYFT_API_URL` and `RYFT_INGEST_URL` on `https://` unless they're LAN addresses. Find
+the IP with `ipconfig getifaddr en0`. You can also set both in `Config/Debug.xcconfig` (set them
+together: `RYFT_API_URL` alone sends the sync to production ingest).
 
 ## Repository
 

@@ -45,8 +45,8 @@ struct CreateAccountView: View {
                 .disabled(!isValid)
                 .padding(.top, auth.errorMessage == nil ? AuthScreenSpec.primaryGap : AuthScreenSpec.actionGap)
                 .accessibilityIdentifier("createAccount.submit")
-            // Links must be literal for Markdown; the pages have to exist on ryftapp.de (STATUS.md). They open in-app.
-            Text(inlineLinks: "By creating an account you agree to the [Terms](https://ryftapp.de/terms) and the [Privacy Policy](https://ryftapp.de/privacy).")
+            // Links must be literal for Markdown; the pages have to exist on ryftlab.de (STATUS.md). They open in-app.
+            Text(inlineLinks: "By creating an account you agree to the [Terms](https://ryftlab.de/terms) and the [Privacy Policy](https://ryftlab.de/privacy).")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

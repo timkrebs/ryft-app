@@ -3,9 +3,10 @@ import SwiftUI
 /// "▲ +4 ms · +8 %": arrow, signed change, and the percentage for raw
 /// physiology. The colour comes from direction × the metric's polarity (design.md §P5-5.2): the metric's own colour when
 /// the change is good (the legend: recovery teal, sleep violet), `alert` when it's bad, secondary ink when the metric has no
-/// good direction. Under 2 % it reads "Steady" (spoken "No change"); without a delta
-/// nothing renders, so no "—" ever stands in for a value. The arrow and sign carry the
-/// meaning, so it never rests on colour alone.
+/// good direction. Under 2 %, or when its size rounds to nothing as written ("+0"), it reads "Steady" (spoken "No change");
+/// without a delta nothing renders, so no "—" ever stands in for a value. The arrow and sign carry the
+/// meaning, so it never rests on colour alone. No-break spaces hold the arrow to the number and a number to its unit, so a
+/// long line wraps only after "·" (AX3); VoiceOver hears "vs 7 d" as "versus 7 days".
 struct DeltaLabel: View {
     let spec: MetricSpec
     let delta: MetricDelta?
@@ -38,18 +39,30 @@ struct DeltaLabel: View {
         }
     }
 
+    /// U+00A0: between the arrow and the number, and between a number and its unit.
+    nonisolated static let noBreakSpace = "\u{00A0}"
+
+    /// The reference every 7-day change carries.
+    static var sevenDayReference: String { String(localized: "vs 7 d") }
+
+    /// Flat: under 2 % (`MetricDelta.isFlat`), or a size that rounds to nothing as written ("+0", "+0m").
+    static func isFlat(_ d: MetricDelta, spec: MetricSpec) -> Bool {
+        d.isFlat || spec.deltaMagnitude(abs(d.value)) == spec.deltaMagnitude(0)
+    }
+
     static func text(_ d: MetricDelta, spec: MetricSpec) -> String {
-        if d.isFlat { return String(localized: "Steady", comment: "A change under 2 %, before \"vs 7 d\".") }
+        if isFlat(d, spec: spec) { return String(localized: "Steady", comment: "A change under 2 %, before \"vs 7 d\".") }
         let up = d.value > 0
-        var s = "\(up ? "▲" : "▼") \(up ? "+" : "−")\(spec.deltaMagnitude(abs(d.value)))"
+        let size = spec.deltaMagnitude(abs(d.value)).replacingOccurrences(of: " ", with: noBreakSpace)
+        var s = (up ? "▲" : "▼") + noBreakSpace + (up ? "+" : "−") + size
         if spec.deltaShowsPercent, let p = d.percent {
-            s += " · \(up ? "+" : "−")\(Int(abs(p).rounded())) %"
+            s += " · \(up ? "+" : "−")\(Int(abs(p).rounded()))\(noBreakSpace)%"
         }
         return s
     }
 
     static func color(_ d: MetricDelta, spec: MetricSpec) -> Color {
-        if d.isFlat { return Theme.textSecondary }
+        if isFlat(d, spec: spec) { return Theme.textSecondary }
         switch spec.polarity {
         case .neutral: return Theme.textSecondary
         case .higherIsBetter: return d.value > 0 ? goodColor(spec) : Theme.alert
@@ -66,7 +79,7 @@ struct DeltaLabel: View {
 
     static func spoken(_ d: MetricDelta, spec: MetricSpec, reference: String?) -> String {
         var s: String
-        if d.isFlat {
+        if isFlat(d, spec: spec) {
             s = String(localized: "No change")
         } else {
             let magnitude = spec.deltaMagnitude(abs(d.value))
@@ -75,8 +88,14 @@ struct DeltaLabel: View {
                 s += ", " + String(localized: "\(Int(abs(p).rounded())) percent")
             }
         }
-        if let reference { s += " " + reference }
+        if let reference { s += " " + spokenReference(reference) }
         return s
+    }
+
+    /// "vs 7 d" as VoiceOver says it: "versus 7 days". Another reference is read as written.
+    static func spokenReference(_ reference: String) -> String {
+        guard reference == sevenDayReference else { return reference }
+        return String(localized: "versus 7 days", comment: "VoiceOver: \"vs 7 d\" after a change, e.g. \"Up 11 versus 7 days\".")
     }
 }
 

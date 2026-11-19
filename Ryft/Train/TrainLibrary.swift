@@ -6,7 +6,7 @@ import Observation
 @MainActor
 @Observable
 final class TrainLibrary {
-    static let shared = TrainLibrary()
+    static let shared = TrainLibrary(outbox: { .shared })
 
     private(set) var exercises: [Exercise] = []
     private(set) var catalog: PlansOverview?
@@ -20,11 +20,22 @@ final class TrainLibrary {
     /// and per-resource record. Without one (tests) each read goes straight to the source.
     @ObservationIgnored var reads: ReadScheduler?
     private let remoteProvider: () -> TrainDataSource
+    /// Train's outbox on the same store, where a custom exercise's `POST` is queued (O1) and a plan save waits for it.
+    private let outbox: @MainActor () -> TrainSyncService
+    /// How long a plan save waits for the custom exercises it names (`savePlan`).
+    private let exerciseWait: Duration
     private var histories: [UUID: ExerciseHistory] = [:]
 
-    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, restore: Bool = true) {
+    /// The longest custom exercise name the platform takes (API.md: `name` 1–80 characters; it counts Unicode scalars
+    /// of the trimmed name).
+    nonisolated static let maxExerciseName = 80
+
+    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, outbox: @escaping @MainActor () -> TrainSyncService,
+         exerciseWait: Duration = .seconds(10), restore: Bool = true) {
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
+        self.outbox = outbox
+        self.exerciseWait = exerciseWait
         if restore {
             exercises = self.store.exercises()
             catalog = self.store.document(PlansOverview.self, key: Self.catalogKey)
@@ -184,6 +195,34 @@ final class TrainLibrary {
                     remote: store.document([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
+    /// The demo's discard (ADR 0019, `TrainCoordinator.discardDemoWorkouts`): these sessions leave what Train shows
+    /// offline, the cached list (history, "Last: …") and every exercise history (its sessions and records), in the store
+    /// and in memory. Only these ids; the rest of each document, and when it was fetched, stay.
+    func forgetSessions(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        if let list = store.document([SessionSummary].self, key: Self.sessionsKey) {
+            let kept = list.filter { !ids.contains($0.id) }
+            if kept.count != list.count { resave(kept, key: Self.sessionsKey) }
+        }
+        for key in store.documentKeys(prefix: Self.historyPrefix) {
+            guard var history = store.document(ExerciseHistory.self, key: key) else { continue }
+            let before = (history.sessions.count, history.prs.count, history.e1rm.count)
+            // A chart point has only its day: a day one of them was on goes (another workout that day comes back with
+            // the next fetch), so the chart and "current" never show their numbers.
+            let days = Set(history.sessions.filter { ids.contains($0.sessionId) }.map(\.date))
+            history.sessions.removeAll { ids.contains($0.sessionId) }
+            history.prs.removeAll { $0.sessionId.map(ids.contains) == true }
+            history.e1rm.removeAll { days.contains($0.day) }
+            if (history.sessions.count, history.prs.count, history.e1rm.count) != before { resave(history, key: key) }
+        }
+        // The in-memory copies are read again, from the documents just filtered or the platform.
+        invalidateHistories()
+    }
+
+    private func resave<T: Encodable>(_ value: T, key: String) {
+        store.saveDocument(value, key: key, at: store.documentFetchedAt(key: key) ?? .now)
+    }
+
     /// Pure (My Day's assembler calls it off the main actor).
     nonisolated static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
         let localIDs = Set(local.map(\.id))
@@ -205,33 +244,73 @@ final class TrainLibrary {
         return await session(id: latest.id)
     }
 
-    // MARK: actions (online; the screen shows the error)
+    // MARK: a custom exercise (queued)
 
-    func createExercise(_ e: Exercise) async -> Exercise? {
-        // Saved locally first so it can be logged right away, even offline.
+    /// Cached first, so it can be logged at once, offline too. Train's outbox sends it, ahead of every workout that uses
+    /// it, and the answer replaces the cached row (O1); a refusal is kept there, never shown here. Returns the cached
+    /// copy at once (the sheet adds it to the workout). Nil, with `error`, for a name the platform would refuse (empty,
+    /// or over 80 characters): nothing is cached or queued. A NUL in the names is dropped first (API.md → Text: the
+    /// platform answers `422` to it).
+    func createExercise(_ exercise: Exercise) async -> Exercise? {
+        var e = exercise
+        e.name = Self.withoutNUL(e.name)
+        e.nameEn = Self.withoutNUL(e.nameEn)
+        e.nameDe = Self.withoutNUL(e.nameDe)
+        guard Self.isValidName(e.name) else {
+            error = String(localized: "Give the exercise a name of up to 80 characters.")
+            errorDetails = nil
+            return nil
+        }
+        let outbox = outbox()
+        assert(outbox.store === store, "the library and its outbox share one store")
         store.cache(exercises: [e])
         exercises = store.exercises()
-        do {
-            let saved = try await remote.createExercise(e)
-            store.cache(exercises: [saved])
-            exercises = store.exercises()
-            return saved
-        } catch where error.isCancellation {
-            return e
-        } catch {
-            self.error = error.localizedDescription
-            return e
+        // The outbox caches it too: the row its `POST` sends.
+        let replay = outbox.queueExercise(e)
+        if let replay {
+            // The platform's copy once the replay ends, however it ended.
+            Task { [weak self] in
+                await replay.value
+                guard let self else { return }
+                exercises = store.exercises()
+            }
         }
+        return e
     }
 
+    /// Without NUL, trimmed, not empty and at most `maxExerciseName` Unicode scalars, as the platform counts.
+    nonisolated static func isValidName(_ name: String) -> Bool {
+        let trimmed = withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.unicodeScalars.count <= maxExerciseName
+    }
+
+    /// `text` without U+0000, which the platform can't store (API.md → Text): what the app sends of typed text.
+    nonisolated static func withoutNUL(_ text: String) -> String {
+        guard text.unicodeScalars.contains("\u{0}") else { return text }
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: text.unicodeScalars.filter { $0 != "\u{0}" })
+        return String(scalars)
+    }
+
+    // MARK: actions (online; the screen shows the error)
+
+    /// A custom exercise the plan names that's still queued goes first, for at most `exerciseWait`: the platform refuses
+    /// a plan with an exercise it doesn't have (ADR 0022 §7). Offline, or after the wait, the plan goes as before. The
+    /// client and the binding are read before the wait: a sign-out, another account or the Demo data switch meanwhile
+    /// (or a cancelled caller) drops the save, and its answer is cached only for the binding that sent it.
     @discardableResult
     func savePlan(_ p: Plan) async -> Bool {
+        let named = Set(p.days.flatMap { $0.exercises.map(\.exercise.id) })
+        let outbox = outbox(), src = remote, binding = outbox.binding
+        await outbox.exercisesSent(named, upTo: exerciseWait)
+        guard outbox.binding == binding, !Task.isCancelled else { return false }
         do {
-            let saved = try await remote.savePlan(p)
+            let saved = try await src.savePlan(p)
+            guard outbox.binding == binding else { return false }
             store.cache(plans: [saved])
             await reloadCatalog()
             return true
-        } catch where error.isCancellation {
+        } catch where error.isCancellation || outbox.binding != binding {
             return false
         } catch {
             self.error = error.localizedDescription
@@ -326,7 +405,8 @@ final class TrainLibrary {
     }
 
     private static let sessionsKey = "train.sessions"
-    private static func historyKey(_ id: UUID) -> String { "train.history.\(id.uuidString)" }
+    private static let historyPrefix = "train.history."
+    private static func historyKey(_ id: UUID) -> String { historyPrefix + id.uuidString }
     private static let pausedKey = "train.pausedPlanID"
     private static let catalogKey = "train.plans"
     private static let todayKey = "train.today"
@@ -335,9 +415,10 @@ final class TrainLibrary {
 // MARK: - previews
 
 extension TrainLibrary {
-    /// Filled from `MockTrain`, in an in-memory store.
-    static func preview(store: TrainStore, enrolled: Bool = true) -> TrainLibrary {
-        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, restore: false)
+    /// Filled from `MockTrain`, in an in-memory store. `outbox`: the caller's service on `store`, so no queue has two
+    /// replayers.
+    static func preview(store: TrainStore, outbox: TrainSyncService, enrolled: Bool = true) -> TrainLibrary {
+        let lib = TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { outbox }, restore: false)
         store.cache(exercises: MockTrain.exercises)
         store.cache(plans: MockTrain.plans)
         lib.exercises = store.exercises()
