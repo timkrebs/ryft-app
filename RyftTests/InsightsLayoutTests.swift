@@ -84,7 +84,9 @@ struct InsightsLayoutTests {
         let tile = InsightsPreview.content(insights: InsightsPreview.onlyTile)
         #expect(tile.blocks == [.tile, .trends, .moreTrends] && tile.tileOnly)
         #expect(InsightsPreview.content(insights: []).blocks == [.empty, .trends, .moreTrends])
-        #expect(InsightsPreview.content(issue: InsightsPreview.offline).blocks.first == .issue)
+        #expect(InsightsPreview.content(issue: InsightsPreview.unreachable).blocks.first == .issue)
+        // Offline: the status line in the card's place (S4, T5.7).
+        #expect(InsightsPreview.content(offline: true).blocks.first == .issue)
         #expect(InsightsPreview.content(hasDataSource: false).blocks.isEmpty)
     }
 

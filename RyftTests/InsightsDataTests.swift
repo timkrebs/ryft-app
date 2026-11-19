@@ -337,6 +337,32 @@ struct InsightsDataTests {
         #expect(DeltaLabel.text(insights, spec: .strain) == DeltaLabel.text(try #require(strain.board.hero.delta), spec: .strain))
     }
 
+    // MARK: S4 (T5.7): offline
+
+    @Test("S4: offline, not demo: the offline line in the card's place, \"As of\" on the cards; demo counts as online")
+    func offlineSaysSo() {
+        // An account graph (demo is online everywhere): signed in, airplane mode.
+        let clock = TestClock()
+        let state = AppState(env: .test(clock: clock, online: false))
+        state.user = MockData.user
+        let vm = InsightsViewModel(state: state)
+        #expect(vm.refreshIssue == nil, "the refresh card never shows offline")
+        #expect(vm.isOffline && vm.cardsAreStale)
+        let content = InsightsPageContent(vm)
+        #expect(content.isOffline && content.issue == nil)
+        #expect(content.blocks.first == .issue, "the line under the header: \(content.blocks)")
+        // A cached series reads "As of" its last day, as on Strain's stale copy.
+        let day = Self.today.formatted(.dateTime.month(.abbreviated).day())
+        #expect(Self.make(.readiness, series: Self.series(.readiness, [70]), stale: vm.cardsAreStale).note
+                == String(localized: "As of \(day)"))
+        // Online again: no line, no "As of".
+        state.env.connectivityMonitor.update(true)
+        #expect(!vm.isOffline && !vm.cardsAreStale && !InsightsPageContent(vm).blocks.contains(.issue))
+        // Demo data, offline: online as far as the page goes.
+        let demo = InsightsViewModel(state: AppState.preview(online: false))
+        #expect(!demo.isOffline && !InsightsPageContent(demo).blocks.contains(.issue))
+    }
+
     @Test("S2, S4: in 7 D the band comes from the 30-day series (7 and 8 days back count), the change doesn't (they don't)", .timeLimit(.minutes(1)))
     func weekBandAndDelta() async {
         // The newest 56; six days of 50; 40 seven days back, 60 eight back: 8 values before the newest, mean 50, SD 5.

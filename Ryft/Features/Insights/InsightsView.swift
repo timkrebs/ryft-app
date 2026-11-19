@@ -56,8 +56,10 @@ struct InsightsView: View {
 struct InsightsPageContent {
     var hasDataSource = true
     var isDemo = false
-    /// The shared offline / error card under the header; the cards below keep their cached data.
+    /// The shared error card under the header; the cards below keep their cached data.
     var issue: RefreshIssue?
+    /// Offline (never with `issue`): Strain's offline line in the card's place, "As of" on the cards.
+    var isOffline = false
     var arrangement: InsightsArrangement
     /// "Nothing stands out today…" / "All caught up for today." when no insight is visible.
     var emptyMessage: String?
@@ -66,12 +68,13 @@ struct InsightsPageContent {
     var moreCards: [TrendCardContent]
     var expanded: Set<TrendMetric> = []
 
-    init(hasDataSource: Bool = true, isDemo: Bool = false, issue: RefreshIssue? = nil, arrangement: InsightsArrangement,
-         emptyMessage: String? = nil, impacts: BehaviorImpacts? = nil, boardCards: [TrendCardContent],
-         moreCards: [TrendCardContent], expanded: Set<TrendMetric> = []) {
+    init(hasDataSource: Bool = true, isDemo: Bool = false, issue: RefreshIssue? = nil, isOffline: Bool = false,
+         arrangement: InsightsArrangement, emptyMessage: String? = nil, impacts: BehaviorImpacts? = nil,
+         boardCards: [TrendCardContent], moreCards: [TrendCardContent], expanded: Set<TrendMetric> = []) {
         self.hasDataSource = hasDataSource
         self.isDemo = isDemo
         self.issue = issue
+        self.isOffline = isOffline
         self.arrangement = arrangement
         self.emptyMessage = emptyMessage
         self.impacts = impacts
@@ -83,7 +86,7 @@ struct InsightsPageContent {
     @MainActor
     init(_ model: InsightsViewModel) {
         self.init(hasDataSource: model.hasDataSource, isDemo: model.isDemo, issue: model.refreshIssue,
-                  arrangement: model.arrangement, emptyMessage: model.emptyMessage, impacts: model.impacts,
+                  isOffline: model.isOffline, arrangement: model.arrangement, emptyMessage: model.emptyMessage, impacts: model.impacts,
                   boardCards: model.boardCards, moreCards: model.moreCards, expanded: model.expanded)
     }
 
@@ -91,7 +94,8 @@ struct InsightsPageContent {
     var blocks: [InsightsLayout.Block] {
         guard hasDataSource else { return [] }
         var blocks: [InsightsLayout.Block] = []
-        if issue != nil { blocks.append(.issue) }
+        // The refresh card, or offline the status line in its place.
+        if issue != nil || isOffline { blocks.append(.issue) }
         if !arrangement.attention.isEmpty { blocks.append(.attention) }
         if arrangement.tile != nil { blocks.append(.tile) }
         if arrangement.isEmpty, emptyMessage != nil { blocks.append(.empty) }
@@ -175,6 +179,10 @@ struct InsightsPage: View {
         case .issue:
             if let issue = content.issue {
                 RefreshIssueCard(issue: issue, isDemo: content.isDemo, retry: actions.retry, signIn: actions.signIn)
+            } else if content.isOffline {
+                // Strain's offline line (`StrainStatus`'s `.line(.offline)`): the cards keep their copies, "As of" their day.
+                SyncStatusLineView(line: .offline, retry: actions.retry, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .attention:
             insightCards(content.arrangement.attention)
@@ -264,10 +272,11 @@ enum InsightsPreview {
     /// - Parameters:
     ///   - loading: nothing cached, this page's read in flight (pending cards).
     ///   - notLoaded: nothing cached, and the read answered with nothing (offline, or it failed): "Not loaded".
-    ///   - bands: `false` gives the banded cards 6 days of history: "Band needs 7 days of data".
+    ///   - bands: `false` gives the banded cards 6 days of history: "Usual range needs 7 days of data".
+    ///   - offline: airplane mode (no refresh card then): the offline line, "As of" on the cards.
     static func content(range: TrendRange = .month, insights: [Insight] = MockData.insights, dismissedAll: Bool = false,
                         loading: Bool = false, notLoaded: Bool = false, hrvSeries: TrendSeries?? = nil, bands: Bool = true,
-                        issue: RefreshIssue? = nil, hasDataSource: Bool = true,
+                        issue: RefreshIssue? = nil, offline: Bool = false, hasDataSource: Bool = true,
                         expanded: Set<TrendMetric> = []) -> InsightsPageContent {
         let today = Date.now
         func card(_ metric: TrendMetric) -> TrendCardContent {
@@ -276,22 +285,23 @@ enum InsightsPreview {
             var monthly = series == nil ? nil : MockData.trend(metric, range: .month)
             if !bands { monthly?.points = Array(MockData.trend(metric, range: .month).points.suffix(7)) }
             return .make(metric, range: range, series: series, monthly: metric.hasBand ? monthly : nil, isLoading: loading,
-                         isStale: issue != nil, today: today)
+                         isStale: issue != nil || offline, today: today)
         }
         let visible = dismissedAll ? [] : insights
         let empty = visible.isEmpty
             ? (insights.isEmpty ? String(localized: "Nothing stands out today. Insights appear when your data shifts.")
                                 : String(localized: "All caught up for today."))
             : nil
-        return InsightsPageContent(hasDataSource: hasDataSource, issue: issue, arrangement: InsightsArrangement(visible),
+        return InsightsPageContent(hasDataSource: hasDataSource, issue: offline ? nil : issue, isOffline: offline,
+                                   arrangement: InsightsArrangement(visible),
                                    emptyMessage: empty, boardCards: TrendMetric.boardOrder.map(card),
                                    moreCards: TrendMetric.moreOrder.map(card), expanded: expanded)
     }
 
     static let onlyTile = MockData.insights.filter { $0.severity == .info }
 
-    /// The trends could not be read for a while: no response since 14:05.
-    static var offline: RefreshIssue {
+    /// Online, but the platform hasn't answered for a while: no response since 14:05 (the refresh card; offline has none).
+    static var unreachable: RefreshIssue {
         let at = Calendar.current.date(bySettingHour: 14, minute: 7, second: 0, of: .now) ?? .now
         let error = ResourceError(kind: .transient, status: nil, code: nil, requestID: nil, transport: "timedOut", attempts: 3,
                                   at: at)
@@ -346,11 +356,15 @@ private struct InsightsPagePreview: View {
 }
 
 #Preview("Insights · offline") {
-    InsightsPagePreview(content: InsightsPreview.content(issue: InsightsPreview.offline))
+    InsightsPagePreview(content: InsightsPreview.content(offline: true))
 }
 
 #Preview("Insights · offline, not loaded") {
-    InsightsPagePreview(content: InsightsPreview.content(notLoaded: true, issue: InsightsPreview.offline))
+    InsightsPagePreview(content: InsightsPreview.content(notLoaded: true, offline: true))
+}
+
+#Preview("Insights · platform unreachable") {
+    InsightsPagePreview(content: InsightsPreview.content(issue: InsightsPreview.unreachable))
 }
 
 #Preview("Insights · expanded card") {
