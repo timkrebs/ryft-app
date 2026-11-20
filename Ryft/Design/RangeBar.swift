@@ -29,10 +29,14 @@ struct RangeBar: View {
         return value < ref.lowerBound ? .below : value > ref.upperBound ? .above : .inRange
     }
 
-    private var statusColor: Color {
-        switch (status, spec.polarity) {
+    private var statusColor: Color { Self.statusColor(status, polarity: spec.polarity) }
+
+    /// The status word's ink: `textSecondary` in range, without a value or a direction; the good side `recovery` (a personal
+    /// range is a recovery metric's, accent map D); the bad side `alert`.
+    static func statusColor(_ status: Status?, polarity: MetricPolarity) -> Color {
+        switch (status, polarity) {
         case (.inRange?, _), (nil, _), (_, .neutral): return Theme.textSecondary
-        case (.above?, .higherIsBetter), (.below?, .lowerIsBetter): return Theme.accent
+        case (.above?, .higherIsBetter), (.below?, .lowerIsBetter): return Theme.recovery
         default: return Theme.alert
         }
     }
@@ -127,8 +131,8 @@ extension RangeBar {
     }
 }
 
-#Preview("RangeBar", traits: .sizeThatFitsLayout) {
-    SchemePair {
+private struct RangeBarPreviews: View {
+    var body: some View {
         VStack(spacing: 18) {
             RangeBar(spec: .hrv, value: 58.2, range: 41...66, typical: 48...56, baseline: 53.1)
             RangeBar(spec: .rhr, value: 48.9, range: 46...55, typical: 48...51, baseline: 50.2)
@@ -136,4 +140,13 @@ extension RangeBar {
             RangeBar(spec: .spo2, value: nil, range: 94...98)
         }
     }
+}
+
+#Preview("RangeBar", traits: .sizeThatFitsLayout) {
+    DarkPreview { RangeBarPreviews() }
+}
+
+#Preview("RangeBar · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { RangeBarPreviews() }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }

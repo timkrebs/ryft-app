@@ -47,8 +47,8 @@ struct ProfileSubpagesRulesTests {
           arguments: ["recovery", "hrv", "sleepPerformance"])
     func impactColours(_ metric: String) {
         let (spec, good): (MetricSpec, Color) = switch metric {
-        case "recovery": (.recovery, Theme.accent)
-        case "hrv": (.hrv, Theme.accent)
+        case "recovery": (.recovery, Theme.recovery)
+        case "hrv": (.hrv, Theme.recovery)
         default: (.sleepPerformance, Theme.metricSleep)
         }
         #expect(BehaviorsSection.color(BehaviorEffect.significantTest(delta: 3), spec: spec) == good)

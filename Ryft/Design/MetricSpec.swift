@@ -87,10 +87,10 @@ extension MetricSpec {
         return (label, Theme.metricStrain)
     }
 
-    static let readiness = MetricSpec(title: String(localized: "Readiness"), color: Theme.accent,
+    static let readiness = MetricSpec(title: String(localized: "Readiness"), color: Theme.recovery,
                                       polarity: .higherIsBetter, scale: 0...100, thresholds: [33, 67],
                                       scaleLabel: "/ 100", band: scoreBand)
-    static let recovery = MetricSpec(title: String(localized: "Recovery"), unit: "%", color: Theme.accent,
+    static let recovery = MetricSpec(title: String(localized: "Recovery"), unit: "%", color: Theme.recovery,
                                      polarity: .higherIsBetter, scale: 0...100, thresholds: [33, 67],
                                      scaleLabel: "%", band: scoreBand)
     static let strain = MetricSpec(title: String(localized: "Strain"), color: Theme.metricStrain,
@@ -104,7 +104,7 @@ extension MetricSpec {
                                      axisUnit: "h",
                                      custom: { Fmt.duration(minutes: Int($0.rounded())) },
                                      axisLabel: { ($0 / 60).formatted(.number.precision(.fractionLength(0...1))) })
-    static let hrv = MetricSpec(title: String(localized: "HRV"), unit: "ms", color: Theme.accent,
+    static let hrv = MetricSpec(title: String(localized: "HRV"), unit: "ms", color: Theme.recovery,
                                 polarity: .higherIsBetter)
     static let rhr = MetricSpec(title: String(localized: "Resting HR"), unit: "bpm", color: Theme.alert,
                                 polarity: .lowerIsBetter)
