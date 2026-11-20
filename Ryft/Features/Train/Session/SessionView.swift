@@ -298,14 +298,7 @@ struct SessionView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 14) {
-                    if !sync.isOnline {
-                        Label("Offline — every set is saved on this phone and syncs later.",
-                              systemImage: "wifi.slash")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                    }
+                    if !sync.isOnline { SessionOfflineLine() }
                     exerciseList
                     if controller.exercises.isEmpty {
                         InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
