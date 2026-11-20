@@ -3764,7 +3764,7 @@
     },
     "RYFT hasn't asked for Health access yet." : {},
     "RYFT is busy right now. Your data is safe; try again in a moment." : {
-      "comment" : "Error card on Today and Sleep → Day's failed night. Server busy or failing (429, 5xx, 408) after retries. Try again."
+      "comment" : "Error card on Today, Sleep → Day's failed night, and Train's History, an exercise, a session, Plans and a plan when nothing is cached. Server busy or failing (429, 5xx, 408) after retries. Try again."
     },
     "RYFT is invite-only during the beta. Enter your invite code to continue." : {},
     "RYFT is invite-only during the beta. The person who invited you has a code for you, like RYFT-7K3M-QX9P." : {},
@@ -3905,7 +3905,7 @@
     "Should arrive, nothing yet. Fix available" : {},
     "Show details" : {},
     "Show rest timer" : {
-      "comment" : "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer."
+      "comment" : "VoiceOver action on the rest bar's small pill (large text sizes): opens the rest sheet."
     },
     "Showing data from" : {},
     "Showing data from %@" : {},
