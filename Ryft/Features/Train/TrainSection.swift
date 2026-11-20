@@ -242,7 +242,7 @@ struct StartWorkoutSheet: View {
 
 /// Today's Train card (PR 6 B §3.2, `b-17`): "Train" with its dumbbell, then today's plan and "Start strength workout"; without
 /// a plan "Quick start" with "Empty workout" and "Repeat last" side by side (stacked from AX1) and the last session under them;
-/// after a session "Done · load 84.6 · 2 PRs"; while one runs, the resume banner.
+/// after a session "Done · load 84.6 · 2 PRs" (from AX1 one part per line); while one runs, the resume banner.
 struct TrainTodayCard: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(TrainCoordinator.self) private var coordinator
@@ -262,10 +262,15 @@ struct TrainTodayCard: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(done.title).ryftLabelStyle()
-                        Text(TrainTodayViewModel.doneText(done))
-                            .font(.ryft(.callout))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textPrimary)
+                        // From AX1 one part per line, as an activity row's meta (T5.8).
+                        let lines = ActivityListRow.metaLines(TrainTodayViewModel.doneText(done),
+                                                              stacked: typeSize.isAccessibilitySize)
+                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                            Text(verbatim: line)
+                                .font(.ryft(.callout))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.textPrimary)
+                        }
                         if done.pendingCompletion { WillSyncNote() }
                     }
                     .fixedSize(horizontal: false, vertical: true)

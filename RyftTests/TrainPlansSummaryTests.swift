@@ -166,6 +166,23 @@ struct TrainPlansSummaryTests {
         #expect(other.row.meta == MockTrain.fullBody.summaryText)
     }
 
+    /// PR 6 combine: Train's meta lines join as My Day's and Strain's (`MyDayText.join`), so T5.8's rule holds there too: a part
+    /// never breaks inside, the "·" ends its line, and from AX1 an activity row (a plan row) or the done card stands the parts
+    /// one per line, without the "·".
+    @Test("Plans' summary and Today's done line join as My Day's: one part per line from AX1")
+    func metaLinesJoinAsMyDays() {
+        let summary = MockTrain.fullBody.summaryText
+        #expect(!summary.contains(" · ") && summary.contains(ActivityListRowSpec.metaSeparator), "\(summary.debugDescription)")
+        #expect(ActivityListRow.metaLines(summary, stacked: true) == ["Strength", "3\u{00A0}days/week", "12\u{00A0}weeks"])
+        #expect(ActivityListRow.metaLines(summary, stacked: false) == [summary])
+        let session = LocalSession(title: "Upper A")
+        session.strain = 11.2
+        let done = TrainTodayViewModel.doneText(session)
+        #expect(!done.contains(" · ") && done.hasPrefix("Done\u{00A0}· "), "\(done.debugDescription)")
+        let lines = ActivityListRow.metaLines(done, stacked: true)
+        #expect(lines.count == 2 && lines.first == "Done" && lines.last?.hasPrefix("load\u{00A0}") == true, "\(lines)")
+    }
+
     @Test func theViewModelBuildsTheTileFromTheLibrary() {
         TrainShotFixtures.withPausedPlan(nil) {
             let active = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog()))

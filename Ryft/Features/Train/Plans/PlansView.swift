@@ -14,10 +14,11 @@ extension PlanExercise {
     }
 }
 
-/// "Hypertrophy · 4 days/week · repeating".
+/// "Hypertrophy · 4 days/week · repeating", joined as My Day's and Strain's meta lines (`MyDayText.join`): a plan row
+/// (`ActivityListRow`) stands its parts one per line from AX1, and no line ends on a lone "·" before that.
 private func planSummaryText(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> String {
     let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
-    return [goal.title, String(localized: "\(daysPerWeek) days/week"), length].joined(separator: " · ")
+    return MyDayText.join([goal.title, String(localized: "\(daysPerWeek) days/week"), length])
 }
 
 extension PlanSummary {

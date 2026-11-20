@@ -574,13 +574,15 @@ final class TrainTodayViewModel {
         store.completedSessions(from: Calendar.current.startOfDay(for: clock.now())).first
     }
 
-    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale.
+    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale. Joined as My Day's and
+    /// Strain's meta lines (`MyDayText.join`): a part never breaks inside, the "·" ends its line, and from AX1 the card stands
+    /// the parts one per line (`ActivityListRow.metaLines`).
     static func doneText(_ s: LocalSession) -> String {
         var parts = [String(localized: "Done")]
         if let load = s.strain { parts.append(String(localized: "load \(Fmt.load(load))")) }
         let prs = s.prs.count
         if prs > 0 { parts.append(String(localized: "\(prs) PRs")) }
-        return parts.joined(separator: " · ")
+        return MyDayText.join(parts)
     }
 
     /// The active plan's days, ordered by week then day.
