@@ -96,19 +96,19 @@ struct AuthServiceTests {
     @Test func signUpWithSessionSignsIn() async {
         let client = MockAuthClient(signInSession: .preview(provider: "email"))
         let auth = make(client)
-        let outcome = await auth.signUp(name: "  Tim Krebs ", email: " Tim@Example.com ", password: "0123456789")
+        let outcome = await auth.signUp(name: "  Alex Doe ", email: " Alex@Example.com ", password: "0123456789")
         #expect(outcome == .signedIn)
         #expect(auth.isSignedIn)
         #expect(auth.provider == "email")
-        #expect(client.signUps.first?.email == "tim@example.com")
-        #expect(client.signUps.first?.fullName == "Tim Krebs")
+        #expect(client.signUps.first?.email == "alex@example.com")
+        #expect(client.signUps.first?.fullName == "Alex Doe")
     }
 
     @Test func signUpNeedingConfirmationWaitsForTheLink() async {
         let client = MockAuthClient()
         client.requiresEmailConfirmation = true
         let auth = make(client)
-        let outcome = await auth.signUp(name: "Tim", email: "tim@example.com", password: "0123456789")
+        let outcome = await auth.signUp(name: "Alex", email: "alex@example.com", password: "0123456789")
         #expect(outcome == .confirmEmail)
         #expect(!auth.isSignedIn)
 
@@ -121,7 +121,7 @@ struct AuthServiceTests {
 
     @Test func logIn() async {
         let auth = make(MockAuthClient())
-        #expect(await auth.logIn(email: "tim@example.com", password: "secret-password"))
+        #expect(await auth.logIn(email: "alex@example.com", password: "secret-password"))
         #expect(auth.isSignedIn)
         #expect(auth.errorMessage == nil)
     }
@@ -130,7 +130,7 @@ struct AuthServiceTests {
         let client = MockAuthClient()
         client.emailError = Self.apiError(.invalidCredentials, status: 400)
         let auth = make(client)
-        #expect(await auth.logIn(email: "tim@example.com", password: "wrong") == false)
+        #expect(await auth.logIn(email: "alex@example.com", password: "wrong") == false)
         #expect(!auth.isSignedIn)
         #expect(auth.errorMessage == "Email or password is wrong.")
     }
@@ -139,7 +139,7 @@ struct AuthServiceTests {
         let client = MockAuthClient()
         client.emailError = URLError(.notConnectedToInternet)
         let auth = make(client)
-        await auth.logIn(email: "tim@example.com", password: "whatever")
+        await auth.logIn(email: "alex@example.com", password: "whatever")
         #expect(auth.errorMessage == "No connection. Check your internet and try again.")
     }
 
@@ -147,11 +147,11 @@ struct AuthServiceTests {
         let client = MockAuthClient()
         let auth = make(client)
         var name = PersonNameComponents()
-        name.givenName = "Tim"
-        name.familyName = "Krebs"
+        name.givenName = "Alex"
+        name.familyName = "Doe"
         await auth.signInWithApple(idToken: "id", nonce: "n", fullName: name)
         #expect(auth.isSignedIn)
-        #expect(client.savedFullNames == ["Tim Krebs"])
+        #expect(client.savedFullNames == ["Alex Doe"])
         #expect(client.refreshCount == 1) // the new token carries full_name
 
         // Later authorisations don't include the name.
@@ -164,8 +164,8 @@ struct AuthServiceTests {
     @Test func resetLinkAsksForNewPassword() async {
         let client = MockAuthClient()
         let auth = make(client)
-        #expect(await auth.sendPasswordReset(email: "Tim@example.com"))
-        #expect(client.resetEmails == ["tim@example.com"])
+        #expect(await auth.sendPasswordReset(email: "Alex@example.com"))
+        #expect(client.resetEmails == ["alex@example.com"])
 
         await auth.handle(URL(string: "ryft://auth/callback?code=xyz")!)
         #expect(auth.isSignedIn)
@@ -371,7 +371,7 @@ struct AuthServiceTests {
     @Test func noticeClearsOnTheNextSignIn() async {
         let auth = make(MockAuthClient(session: .preview()))
         await auth.rejectedAfterRefresh()
-        #expect(await auth.logIn(email: "tim@example.com", password: "correct horse battery"))
+        #expect(await auth.logIn(email: "alex@example.com", password: "correct horse battery"))
         #expect(auth.signOutNotice == nil)
     }
 

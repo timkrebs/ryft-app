@@ -21,10 +21,9 @@ final class StoreSmokeUITests: XCTestCase {
 
     /// Visits every tab and checks it became the selected one.
     private func walkTabs(_ app: XCUIApplication) {
-        let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.waitForExistence(timeout: 15), "signed in, tabs visible")
+        XCTAssertTrue(app.tabBar.waitForExistence(timeout: 15), "signed in, tabs visible")
         for name in tabs {
-            let tab = bar.buttons[name]
+            let tab = app.tab(name)
             XCTAssertTrue(tab.waitForExistence(timeout: 5), name)
             tab.tap()
             XCTAssertTrue(tab.isSelected, "\(name) selected")
@@ -58,9 +57,8 @@ final class StoreSmokeUITests: XCTestCase {
         let app = launch(demo: false)
 
         // A stored session from an earlier run: log out to start at Welcome.
-        let bar = app.tabBars.firstMatch
-        if bar.waitForExistence(timeout: 5) {
-            bar.buttons["Profile"].tap()
+        if app.tabBar.waitForExistence(timeout: 5) {
+            app.tab("Profile").tap()
             let logOut = app.buttons["Log out"]
             reveal(logOut, in: app)
             logOut.tap()
@@ -95,6 +93,6 @@ final class StoreSmokeUITests: XCTestCase {
 
         XCTAssertFalse(alert.exists)
         XCTAssertTrue(app.buttons["Delete account"].exists, "still signed in")
-        XCTAssertTrue(bar.buttons["Profile"].isSelected)
+        XCTAssertTrue(app.tab("Profile").isSelected)
     }
 }

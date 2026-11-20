@@ -129,10 +129,12 @@ struct AddExerciseSheet: View {
                         onImportDraft(draft)
                         dismiss()
                     }
+                    .presentedRoot()
                 } else {
                     CustomExerciseForm(name: query) { e in
                         pick(e)
                     }
+                    .presentedRoot()
                 }
             }
             .onAppear {

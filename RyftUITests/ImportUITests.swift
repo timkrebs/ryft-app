@@ -18,7 +18,7 @@ final class ImportUITests: XCTestCase {
 
     /// Strain → My plans → New plan → Import from file, with both menu items there.
     private func openImport(_ app: XCUIApplication) {
-        let strain = app.tabBars.buttons["Strain"]
+        let strain = app.tab("Strain")
         XCTAssertTrue(strain.waitForExistence(timeout: wait), "the Strain tab")
         strain.tap()
         let plans = app.buttons["train.plans"]

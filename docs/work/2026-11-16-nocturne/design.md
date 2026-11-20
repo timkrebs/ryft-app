@@ -1450,3 +1450,827 @@ Derived, not measured (do not tune without asking): the series' and dots' place 
 8. **Thin-digit switch.** Profile → Display (recommended) or on Today.
 9. **`DotRow.Mark.noData`** is an addition to a PR 2 component (T4.0), so a night without data is not drawn as a miss. OK?
 10. **MockData** gets the board's night (T4.0), which changes today's mock values (performance 87 → 94, need 538 → 498, debt 137 → 30, consistency 81 → 86, stages), and with them existing tests that pin them.
+
+## PR 5 — the accent change, tab bar, Strain, Insights, Profile, Sleep modes
+
+Scope (plan.md "After the screen audit", L27–L30): **T5.0** the accent change (teal is recovery only; the light pill is the primary
+button); the **dot tab bar**; **Strain** and the **Workout detail**; **Insights**; **Profile's main list**; **Sleep → Week, Month and
+Bedtime** with the mode picker. Not here: Profile's subpages, Sleep's editors and sheets, Train, Auth, onboarding, My Day (PR 6; T5.0
+only swaps their buttons and tints). No model, sync or API change: data the boards show and the app lacks is inventoried in §P5-9.
+Inputs: `plan.md` L27–L30 and the PR 4 carry-overs, `review.md` (PR 4 row 21; PR 2 rows 9–13, 17), `audit.md`, the lead's board
+measurements (`pr5-boards.md`, 2026-11-18), and the PR 1–4 sections above. Companion file: **`accent-map.md`** (every `Theme.accent`
+use with its replacement, and the D3 preview list). Draft renders for the four screens without a board (L28) and the tab bar are in the
+lead's scratchpad (`pr5-drafts/`, listed in §P5-13); they were built from the real components on the demo data.
+
+Conventions are PR 4's (390 pt boards, **350 pt** content, 20 pt sides; "ink" is `textPrimary`; the boards' **0.62 is `textSecondary`,
+0.55 and 0.45 are `textTertiary`** (48 %), **0.78 is a glow label**; gaps are bottom of one element to top of the next; fixed heights are
+exact, a text line is its natural height). Layout constants are `nonisolated static let`s on `StrainLayout`, `InsightsLayout`,
+`ProfileLayout`, `SleepModesLayout` (P2-D9). Contrast is WCAG 2.x on sRGB composites, the worst pixel over the padded text rect, as in
+§P4-3; the numbers below come from a script (`make contrast` in the lead's scratchpad, which reproduces §P4-3's hypnogram row, 7.21 and
+5.13, to the hundredth) and are reproduced by tests 6–12.
+
+### P5-0. Decisions in one table
+
+| # | Decision | Where |
+|---|---|---|
+| 1 | **`PrimaryButton` and `TealButtonStyle` are deleted, not kept for Auth.** `PillButton` gains `.destructive`, `busy`, an `async` action and an icon table, which were the only reasons P2-9 kept `PrimaryButton`. 58 call sites + 4 catalog entries and 32 + 14 (`ImportPrimaryButton`) move. | §P5-1.2 |
+| 2 | **`Theme.accent`, `onAccent` and `teal` are deleted** after the sweep; the compiler finds every site. The legend is `recovery`, `metricSleep`, `metricStrain`. The app-wide `.tint` becomes `textPrimary`. | §P5-1.3, `accent-map.md` |
+| 3 | Toggles: a new `RyftToggleStyle` (light track, dark knob). Links: `ryftLink()` (`textPrimary`, underlined). Icon tints: `IconDisc`. Selected states change shape, not hue. | §P5-1.4 |
+| 4 | **The tab bar is a custom `RyftTabBar`** in the `TabView`'s bottom safe-area inset, the system bar hidden. The system bar cannot be flattened on iOS 26+ (tried on 27.2: the glass capsule stays, only the dot and colours change). | §P5-2 |
+| 5 | The zone block is one `ZoneBlock` over five `TickRow`s that share one label column, or all stack. `TickRow` gets an `arrangement`. | §P5-3.4 |
+| 6 | Strain keeps its week selection as a new `DayStrip` (44 pt under the header); the board has none. | §P5-3.1 |
+| 7 | **The HRV card is teal (recovery), not the board's strain blue.** "The rings are the legend". | §P5-5.2 |
+| 8 | Insights' glow tile shows the first visible **info** insight under its own severity word ("Insight"); notice and warn insights are neutral cards above it. The board's "An idea" promises advice the rules do not give. | §P5-5.1 |
+| 9 | Profile: the app's real rows in seven grouped cards; the display name falls back to the email, initials to its first letter (R-N2 open). The status dot is neutral, not teal. | §P5-6 |
+| 10 | Sleep Week, Month and Bedtime use Day's header, picker and components; stage tints are the sleep violet at 100 / 80 / 62 %, no blue. | §P5-7 |
+| 11 | The Workout detail is the Strain screen for one workout (numeral, ruler, zone tile) with stat tiles and a neutral heart-rate chart; no red. | §P5-4 |
+| 12 | The `SegmentedPicker` is restyled in place (board: surface, ink-filled selection, 34 pt segments); Sleep's AX menu keeps its behaviour. | §P5-7.1 |
+
+### P5-1. T5.0 — the accent change
+
+**1. What teal is.** `Theme.recovery` (`#63D2B4`, the asset `Accent`) is the colour of the recovery metric: the ring, the recovery
+glow tile, the readiness delta, the HRV line, the readiness band. It is not the app's interactive colour. After T5.0 nothing that is
+not a recovery value is teal. Volt stays the marked thing (§1 of the brief). Everything else that was teal is `textPrimary` (a
+glyph, a link, a selected state, a control) or `textSecondary` (a spinner).
+
+**2. Buttons.** `PillButton` (P2-4) becomes the one button. Additions, all additive:
+
+```swift
+enum PillButton.Style { case primary, secondary, destructive }
+init(_ title: Text, style: Style = .primary, systemImage: String? = nil /* nil = the table below */, busy: Bool = false,
+     action: @escaping () -> Void)
+init(_ title: Text, style: Style = .primary, systemImage: String? = nil, busy: Bool = false,
+     action: @escaping () async -> Void)                  // PrimaryButton's shape: the pill runs it in a Task
+init(verbatim title: String, ...)                          // a title from outside (a tracker's app name), never parsed
+static let destructiveOutlineOpacity = 0.70               // alert at 70 % over background: 3.47:1 (surface 3.37), the 3:1 for a boundary
+```
+
+| Style | Look | States |
+|---|---|---|
+| `.primary` | as P2-4: `textPrimary` fill, `.button` title in `background`, the 40 pt `background` icon circle, trailing | **busy:** the circle's glyph is replaced by a `ProgressView` (`textPrimary`, `.small`), the title stays, the pill is disabled for taps and keeps its width; VoiceOver value "In progress" |
+| `.secondary` | as P2-4: 1 pt outline `textPrimary` 20 %, title centred in `textPrimary`, no icon | **busy:** the title is replaced by a `ProgressView` (`textPrimary`), the label stays "Sync now" for VoiceOver, value "In progress"; the width does not change |
+| `.destructive` | outline 1 pt `alert` at 70 %, title in `alert` (6.09 on background, 5.70 on surface), no icon, centred | busy as secondary with an `alert` spinner. A destructive action that shares a row with a primary (Delete account) is never the primary |
+
+Disabled is P2-4's: the whole pill at 35 %. `PillButton` stays 52 pt and grows with Dynamic Type; the 38 secondary and 4 destructive
+sites are `PrimaryButton`'s 44 pt capsules today, so every button row grows by 8 pt (accepted: D5-1). Two pills side by side
+("Allow access", "Open Health"; "Sync now", "Full re-sync") are both `.secondary` or `.destructive` (no icon, so 169 pt is enough);
+from AX1 the pair stacks. A `.primary` is full width, or fills a row beside one outline pill (Profile's "Export data" and "Log out").
+
+*Icon table* (the primary's circle glyph; the call site passes nothing unless it differs):
+
+| Glyph | Titles |
+|---|---|
+| `arrow.right` (default) | Log in, Create account, Continue, Use the other account, Start workout's plan row |
+| `checkmark` | Save password, Agree and continue, Review and agree, Done, Save |
+| `arrow.up` | Send reset link, Send |
+| `arrow.up.right` | Open Mail, Open Health, any link out |
+| `arrow.down` | Export data |
+| `play.fill` | Start workout |
+| `arrow.clockwise` | Check again, Try again |
+
+**Why `PrimaryButton` does not survive** (P2-9 said it stays for Auth, `.destructive`, `busy`): L27 moves Auth to the Nocturne buttons, and
+the two features it kept are now in `PillButton`. Keeping it would leave a teal button in the app. It is deleted in the last ticket
+(T5.9) when the grep is empty.
+
+*`PrimaryButton`, 58 call sites (+ 4 in the catalog), by file*
+
+| Replacement | Count | Sites |
+|---|---|---|
+| `PillButton(.primary)` | 15 | Auth: `SetNewPasswordView` Save password, `CheckInboxView` Open Mail, `LogInView` Log in, `CreateAccountView` Create account, `ForgotPasswordView` Send reset link, `AuthComponents` Use the other account; Onboarding (`HealthPermissionView`): Continue ×5 (700, 861, 872, 1053), Agree and continue (770), Done (1117); Profile: Review and agree (383), Send (2045) |
+| `PillButton(.primary)` or `.secondary` | 1 | `ProfileView` Check again (1556): `.secondary` when `embedded`, else `.primary` |
+| `PillButton(.secondary)` | 38 | `StatusViews` ×3 (Copy details, "… in the App Store", Add a tracker); `CheckInboxView` Resend; `WelcomeView` Create account; `MyDayCard`, `MyDayView` Add activity; `ProfileView` ×22 (Change password, Log out, Test connection, Rescore ×2, Allow access ×4, Open Health ×4, Open Health permissions, Sync now, Export my data, Sync last 3 days again, Copy diagnostics, "… in the App Store", Done, Choose); `AuthComponents` Continue with this one; `FeatureFlagsDebugView` ×3; `NotificationSettingsView` ×2; `AddActivitySheet`, `ActivityDetailView` ×2 (Log in Train, Edit); `HealthPermissionView` Use another account, Check sync; `SportPicker` Use Other. (Profile's main-list rows are action rows now, §P5-6; the others stay pills in their subpages until PR 6) |
+| `PillButton(.destructive)` | 4 | `ProfileView`: Delete account (180), Withdraw consent (379), Full re-sync (480), Full resync (786) |
+| `busy:` kept | 18 | the same sites; `PillButton(busy:)` |
+
+*`TealButtonStyle`, 32 uses (13 default, 5 `prominent: true`, 2 `prominent: paused / model.isPaused`, 12 `prominent: false`), + 14 call sites of
+`ImportPrimaryButton`*
+
+| Replacement | Count | Sites |
+|---|---|---|
+| `PillButton(.primary)` | 20 | `TrainSection` ×3 (Start workout 21, 207, 226), `TodayView` Start (704, `Label` kept as the title with `play.fill`), `PlansView` ×2 (286; 171 and 281 when `paused`/`isPaused`: Resume plan), `RestTimerView` 180, `RestSheet` 133 and 146, `SessionView` 597 and 638, `AllSetsDoneCard` 28, `PushPrePromptCard` 20, `HealthPermissionView` 1308, `CoachMarks` 147, `ImportFlowView` 139 (`ImportPrimaryButton`, so its 14 call sites follow) and 242 |
+| `PillButton(.secondary)` | 12 | `TodayView` 706, `PlansView` 112, 120, 171 / 281 when not `paused`, `PlanBuilderView` 41, `TrainSection` 234, `ImportResultView` 392, `AddExerciseSheet` 110, `SessionView` 327 and 641, `HealthPermissionView` 1377, `PushPrePromptCard` 24 |
+
+`ImportPrimaryButton` keeps its identifier and its disabled caption wiring and wraps `PillButton`. The live workout's Finish (`SessionView`
+289–297, `controller.finishIsFilled`) is a hand-built capsule, not `TealButtonStyle`: T5.0 swaps its token (filled: `textPrimary` fill,
+`background` ink; outline: `textPrimary`), PR 6 restyles it with the AX layout of L30 intact (the AX3 tests of `SessionView` must stay green).
+
+**3. Tokens.** `Theme.accent`/`recovery`: `recovery` stays (alias of the `Accent` asset); `accent`, `onAccent` (25 uses → `Theme.background`)
+and `teal` are removed; `band(forScore:)` returns `recovery`; `color(for severity)` returns `textSecondary` / `warning` / `alert`;
+`zones` is removed with `ZoneBar` (§P5-3). `Theme.accentSecondary` (sage `#6EA89A`), the one hue off the legend (PR 1 §2 "PR 5 reworks the
+zones"): its zone use goes with `ZoneBar`, its info-insight use becomes `textSecondary`, `MetricSpec.steps` and `respRate` become
+`textPrimary`; `LoadChip` (Train) still uses it, so **the token goes in PR 6**, when Train is restyled. `MetricSpec.activeKcal` (`warning`)
+and `rhr` / `heartRate` (`alert`) become `textPrimary`: amber and red mean "attention" only. `StageDeep/Light/REM/Awake` (the blue stage
+tokens) lose their last callers in §P5-7 (`StageRow`, Sleep range) and are deleted with them; `StageAwake`'s one remaining use, the zone
+colours, goes with `zones`.
+
+The sweep over the 229 `Theme.accent` uses is `accent-map.md`: 12 spinners, 38 tints, 23 medallions, 15 solid fills, 25 graphics, 16
+selected states, 74 glyphs or link texts, 26 data or special cases, each with its replacement and its file and line.
+
+**4. The new primitives** (all in `Design/`, token-only, dark previews at default size and AX3, catalog entries, no strings):
+
+| Component | Spec |
+|---|---|
+| `RyftToggleStyle` (`.toggleStyle(.ryft)`) | A 51 × 31 pill. **On:** `textPrimary` track, a 25 pt `background` knob at the trailing end (17.35:1). **Off:** 1.5 pt `textTertiary` outline on the ground (4.54:1: a boundary needs 3:1; the filled-grey system off state would be 2.5:1), a 25 pt `textTertiary` knob at the leading end. Both knobs have an inset of 3. 250 ms knob slide, none under Reduce Motion. The row is the target (≥ 44 high); disabled 35 %. It stays a `Toggle`: `ToggleStyle` keeps the switch accessibility (label, value "on / off", `isToggle`), so no hand-made traits. |
+| `ryftLink()` | `View` modifier for a text that is a control on its own line: `.callout`, `textPrimary`, underline in `textPrimary` at 50 % (the same ink as the body text would not be a cue by colour: 17.35 against `textSecondary` 6.95 is 2.5:1, so the underline is the cue, WCAG 1.4.1), `frame(minHeight: 44)`, `contentShape`. Inside running text a link is the same with the link on its own words. |
+| `IconDisc(systemImage:size:)` | 36 pt disc (40 for a row's leading icon), no fill, a 1 pt ring `textPrimary` at 16 % (the circle button's), the glyph `textPrimary` at 16 pt `.light` (≈ 1.2 pt stroke, the board's). Not a button; hidden from VoiceOver unless the caller labels it. |
+| Selection | A selectable row or chip: selected = `textPrimary` ring 1.5 pt (or an inverse fill: `textPrimary` with `background` ink for a chip) and a filled glyph (`checkmark.circle.fill`); unselected = the `separator` ring and `circle`. Hue never carries the state. `Card`'s selectable row, `EffortScale`, `BodyweightQuestion`, `ImportSessionRow` and `AddExerciseSheet`'s chips (the 16 **S** uses) follow it. |
+| App tint | `RyftApp`: `.tint(Theme.textPrimary)`; `PreviewSupport` the same. Menus, date pickers and steppers inherit it. |
+
+**5. Contrast of every new pairing** (WCAG 2.x, sRGB; text 4.5, boundaries and graphics 3)
+
+| Pairing | Ratio | Needs |
+|---|---|---|
+| `background` on the primary fill `textPrimary` (title, icon circle glyph's ground) | 17.35 | 4.5 |
+| Pressed primary (fill 85 %): `background` text | 12.52 | 4.5 |
+| `textPrimary` title on `background` / `surface` (secondary) | 17.35 / 16.24 | 4.5 |
+| Secondary outline `textPrimary` 20 % / circle border 16 % on `background` | 1.71 / 1.49 | accepted, PR 2 row 14: the title or glyph names the control |
+| `alert` title on `background` / `surface` | 6.09 / 5.70 | 4.5 |
+| Destructive outline `alert` 70 % on `background` / `surface` | 3.47 / 3.37 | 3 |
+| `ryftLink` text on `surface` | 16.24 | 4.5 |
+| Toggle on: knob `background` on the `textPrimary` track | 17.35 | 3 |
+| Toggle off: `textTertiary` outline and knob on `surface` / `background` | 4.54 / 4.54 | 3 |
+| Spinner `textSecondary` on `surface` | 6.78 | 3 |
+| Selected chip: `background` on `textPrimary` | 17.35 | 4.5 |
+| Disabled controls (35 %) | exempt | — |
+| `textTertiary` on a raised fill (`#2F312F`) | 3.94 | the PR 1 rule stands: no `textTertiary` text on a raised fill |
+
+**6. Where T5.0 lands before its screens.** It lands on every screen first, including those PR 6 restyles later: a Welcome with a light
+"Log in" pill and an outline "Create account" pill, an onboarding with ink glyphs and pills, the Train screens with ink progress, rest
+rings and check marks. These screens keep their layouts and their 44 pt rows; only the colours and the buttons change (and the 8 pt per
+button row, D5-1). The AX3 layouts of Welcome and the live workout (L30, merged in #115) are the regression tests for it.
+
+### P5-2. The dot tab bar
+
+**Board** (`pr5-boards.md`): 76 high, pinned, `background`, a top hairline 1 pt ink 8 %; five items space-around, padding 14 top / 16 sides;
+each a column: dot 6, gap 6, label 11 pt, min width 44. Unselected: dot ink 30 %, label ink 50 %. Selected: dot Volt, label full ink. 76 =
+42 of content + the 34 pt home-indicator inset of an iPhone with one.
+
+**Approach: a custom bar, not the system bar restyled.** Tried on iOS 27.2 with `UITabBarAppearance` (opaque background, template dot
+images, Volt `tintColor`, 11 pt title attributes): the dot, the colours and the labels work, but the bar stays Liquid Glass: a
+floating capsule with a selection pill, translucent over the content, 70 pt from the screen's sides. There is no supported way to
+make it the board's flat, pinned, full-width bar. So `RyftTabBar` (`Design/RyftTabBar.swift`, written with this spec, see §P5-13) is
+drawn in the `TabView`'s bottom safe-area inset and the system bar is hidden:
+
+```swift
+TabView(selection: Bindable(state).selectedTab) { … }            // five tabs as today, .tag(AppTab.x)
+    .toolbar(.hidden, for: .tabBar)                              // iOS 16+: no system bar
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+        RyftTabBar(items: AppTab.allCases.map { … identifier: "tab.\($0.rawValue)" },
+                   selection: state.selectedTab.rawValue, select: { state.selectedTab = … }, reselect: { state.reselect($0) })
+            .ignoresSafeArea(.keyboard, edges: .bottom)          // the keyboard covers it, as it covers the system bar
+    }
+```
+
+What the system bar gave, and where each thing now lives:
+
+| Behaviour | Now |
+|---|---|
+| Tab state kept (each tab's stack, scroll) | Unchanged: it is still a `TabView`, only its bar is hidden. A hosted test pins it (test 38) |
+| Selection, `-RyftTab`, the launch arguments | `AppState.selectedTab` is the single source; `-RyftTab <name>` selects the first tab (`AppState.init`), unchanged. There is no state restoration to keep: the system bar did not persist the selection and neither does the app |
+| Tapping the selected tab: scroll to top / pop to root | **Reimplemented.** `AppState.tabStackIDs: [AppTab: Int]`; `reselect(tab)` bumps it; each tab's `NavigationStack` carries `.id(state.tabStackIDs[tab])`, so a re-tap rebuilds the stack at its root and its scroll at the top. Models live in `ScreenModels`, not in the views, so nothing but view-local `@State` (a dialog flag, a path) is dropped, which is what a deliberate re-tap means. `StrainView`'s `path` is the only stack with a binding; the `.id` pops it too |
+| VoiceOver "tab, 2 of 5", `app.tabBars` in UI tests | SwiftUI has no tab-bar trait (`isTabBar` does not exist), so: the bar is an accessibility container ("Tab bar", identifier `tab.bar`); each item is a button with the label "Sleep", the value "Tab 2 of 5", the `isSelected` trait on the current one, identifier `tab.sleep`. UI tests: `app.tabBars.buttons["Sleep"]` (11 sites in `MyDayUITests`, `DevicesUITests` ×2, `FocusedSessionUITests` ×3, `ImportUITests`, `NocturneTodaySleepUITests`, `RefreshResilienceUITests`, `StoreSmokeUITests` ×2 uses `.tabBars.firstMatch`) become `app.tab("Sleep")` (a helper in `RyftUITests/Support/UITestSupport.swift`: `app.buttons["tab.sleep"]`) and `app.otherElements["tab.bar"]` |
+| Hides under the keyboard | `.ignoresSafeArea(.keyboard, edges: .bottom)` on the bar: the keyboard covers it. Profile's developer fields and the report form are the cases |
+| Visible on pushed screens | Yes, as the system bar was (the bar is outside the stacks) |
+| Over sheets and the live-workout cover | Under them, as before (sheets and `fullScreenCover` present above the root) |
+| The launch overlay | Covers the root and the bar; the matched move's header target is measured in `.global` and does not depend on the inset |
+
+**Component** (`RyftTabBar`, non-generic: a generic view cannot hold static stored properties; items are `String` ids):
+
+| Quantity | Spec |
+|---|---|
+| Item | `VStack(spacing: 6)`: `Circle` 6 pt + the title in `.tab` (11 pt). Padding 14 top, **4** bottom (the board's 2: the item is then 44 high on a phone without a home indicator), `minHeight 44`, `minWidth 44`, the whole item is the tap target |
+| Bar | items space-around inside 16 pt side padding, the hairline `Theme.separator` (8 %; the board's 8 %) on top, `background` extended under the home indicator (`ignoresSafeArea(.bottom)`). Height = 44 + the inset: **78** with an indicator (the board's 76 + 2, D5-3) |
+| Selected | dot `Theme.signal`, label `textPrimary` in **Medium** (a second cue besides brightness and the dot: Volt is never alone), `isSelected` |
+| Unselected | dot `textPrimary` 30 % (2.45:1: the dot is a mark, the label identifies the tab; the label is `textTertiary` 48 %, 4.54:1, the board's 50 % mapped to the token), label Regular |
+| Press | the item at 60 % opacity, no scale |
+| Motion | dot colour and label weight change in 250 ms (`Theme.Motion.quick`), none under Reduce Motion |
+| Dynamic Type | labels scale with `.caption2` **up to `xxLarge`** (`dynamicTypeSize(...xxLarge)`), as the system bar does; at 390 an item is 71.6 wide, "Insights" is about 46 pt at 11 and 56 at `xxLarge`, so it never truncates. From `accessibility1` the Large Content Viewer shows the label (`accessibilityShowsLargeContentViewer`). The bar's height does not grow beyond `xxLarge`'s one line |
+| Safe area | the bar is the bottom inset: every tab's content, pushed screens included, ends above it. `ScreenScaffold`'s own `padding(.bottom, 32)` stays as the air under the last card |
+| VoiceOver order | content first, the bar last (the bar is in the inset, after the tab's content in the tree, as the system bar was); within it left to right |
+
+**Today's strain tile (PR 4 review row 21 / D4-19).** With the bar in the inset the viewport ends at the bar's top, so nothing is under
+it any more. At 402 × 874 (iPhone 17 Pro) the whole strain tile fits at the scroll top, 4 pt above the bar (`pr5-drafts/tab-bar-today.png`);
+at the board's 390 × 844 the tile's lower edge is cut by the scroll viewport, its ruler 15 pt above the bar, and the rest scrolls in
+(`tab-bar-today-390.png`). Both are the normal behaviour of a scroll view, not a bar over content. No change to Today's layout.
+
+**Tests** (T5.1): `RyftTabBarTests` (pure: the constants 14 / 6 / 6 / 4 / 16 / 44, `contentHeight` 44, the unselected dot opacity 0.30,
+the label cap `xxLarge`); a hosted test with a bottom inset of 34 (bar 78 high, items ≥ 44 × 44, the accessibility tree: container
+"Tab bar", five buttons, the selected one `isSelected`, values "Tab 1 of 5" …, identifiers); a hosted test that a `TabView` with the bar
+keeps its second tab's `@State` across selection changes; `reselect` bumps only that tab's id; UI: the five tabs open their screens
+(`-RyftTab` for each), a re-tap on Strain with a pushed workout returns to Strain's root. The existing UI tests change only in how they
+find the bar (the helper).
+
+### P5-3. Strain
+
+`ScreenScaffold(showsHeader: false)`, `NavigationStack` and every destination as today (`Workout`, `ActivityRoute`, `trainDestinations()`,
+the start sheet, `-RyftOpenWorkout`, the deep link to a session or plan). The board is for the selected day; the screen is Today's by
+default and any of the last seven days by `DayStrip`.
+
+**P5-3.1 Layout** (all gaps bottom to top; `StrainLayout`):
+
+| # | Element | Built from | Size and gap |
+|---|---|---|---|
+| 1 | **Header** | `ScreenHeader(title: "Strain", trailing:)` (new init: the lock-up style row with a title leading): "Strain" `.ryft(.title)` (26 Light, tracking −0.26), header trait; trailing `CircleButton("plus", "Add activity", iconSize: 14)` opens `AddActivitySheet` for the shown day. Hidden, row height kept, when `screens.myDay.isEnabled` is false (as Today's calendar) | 40 high |
+| 2 | **Day strip** | `DayStrip` (new): the last seven days, ending today | 12 below, 44 high (**D5-2**: the board has none; today's week strip is the way to see an earlier day) |
+| 3 | **Numeral** | `DotNumeral(Fmt.strain(v), style: heroNumerals.style, glyphGap: glyphGapDetail, placeholder: "00.0", label "Strain 12.4 of 21")`, 125 × 47, centred (Light from AX1) | 22 below the strip |
+| 4 | **Caption** | "of 21 · moderate" `.label` (13) `textSecondary`, centred, wraps; the band word per `MetricSpec.strainBand` (light, moderate, high, all out; R-N1 not filed: never "in target") | 12 below |
+| 5 | **Split** | `model.strainSplitText` "Cardio 9.2 · Strength 4.1", `.caption` (12) `textTertiary`, centred; only with a strength session; hint "Split by heart-rate and strength load" kept | 4 below the caption |
+| 6 | **Ruler** | `RulerScale(range: 0...21, value: strain, zone: RulerScale.zone(lo: 10, hi: 14), zoneStyle: .strain, tickCount: Ticks.strain (64), labels: ["0", "moderate 10–14", "21"], size: .regular)`; no needle without a strain | 14 below (the previous row), 36 high |
+| 7 | **Zones tile** | `GlowTile(Theme.metricStrain, kind: .zones)`, 350 × 176 min, radius 28, padding 14 / 16: §P5-3.4 | tile top at ruler top + **56** (`RulerScale(followingGap:)`, as Sleep's hypnogram, review row 11; the board's 20 below the ruler's labels) |
+| 8 | **Steps, Active energy** | two neutral tiles, `HStack(spacing: 12)`, each 169 × 80, `surface`, radius 22, padding 14 / 16 / 12: label `.label` `textSecondary`, value `ryftNumber(size: 24)` Light bottom-left at 16 / 10 (+ "kcal" `.caption` `textTertiary`, 3 after); not buttons | 12 below the tile |
+| 9 | **Train** | `TrainSection` (today only, `train.enabled`): §P5-3.5 | 24 below (`sectionSpacing`) |
+| 10 | **Activities** | "Activities" `.label` `textSecondary`; 10 below, the rows (gap 8): §P5-3.6 | 24 below row 9 (18 below the tiles when there is no Train section: the board's) |
+| 11 | **Footer cards** | `HealthAccessHint` and the error / offline card (§P5-3.7) | 12 below |
+
+`DayStrip` (new, `Design/DayStrip.swift`; My Day keeps `DateStrip` until PR 6): seven cells, each 50 × 44, tap target the cell. A cell:
+the weekday initial in `.axis` (11) `textTertiary` (`textSecondary` for today), the day number in `.label` (13) tabular below it, 2 apart.
+The selected day's number sits in a 28 pt disc: `textPrimary` fill, `background` ink (the segmented control's selection, so one idea of
+"selected"). A day with no score has its number in `textTertiary`. No future days. One element per cell: "Monday, November 16, strain 9.8",
+"…, no data", the selected one `isSelected`; the strip is a container ("Days of this week"). Contrast: `textTertiary` on `background` 4.54.
+Selecting a day cross-fades the numeral (250 ms; none under Reduce Motion) as Sleep's night step does, and posts an announcement.
+
+**P5-3.2 What goes where** (audit rows 47–49; nothing is dropped)
+
+| Today | In Nocturne |
+|---|---|
+| Title + date sub-line | Header title; the date is in the strip's selection (and "Yesterday" etc. in the announcement and VoiceOver); `model.title` stays as the header's spoken value |
+| `DateStrip` rings | `DayStrip` (no ring; the day's strain is in the numeral when selected and in the cell's spoken label) |
+| `MetricGauge` ring + delta vs the prior 7 days | The numeral and the ruler. **The delta `model.strainDelta` is not on the board**; it stays as the VoiceOver value and as a caption line "▲ +1.2 vs 7 d" (`DeltaLabel`, strain is neutral polarity so `textSecondary`) after the caption, same row (**D5-4**; since T5.7 Today's "vs 7 d" rule, `MetricDelta.vsSevenDayMean`: one of the 6 days before is enough) |
+| Split text | row 5 |
+| Steps, Active kcal `MetricTile`s (teal icons) | row 8 (no icons: the colour is the legend); `MetricTile` is deleted (its only caller) |
+| `ZoneBar` (five hues, HRR ranges, legend) | The zones tile; `ZoneBar`, `Theme.zones` and `MetricGauge` (only user: `StrainView`) are deleted. The HRR ranges ("50–60 %" …) move to each row's spoken label and a footnote line under the tile |
+| "TRIMP 112" in the card header | The tile's head row: "82 min · TRIMP 112" |
+| Train card (Start workout, plan, plans, history) | row 9 |
+| Activities list (`ActivityRow`, `SessionActivityRow`; My Day list with `MyDayRow(.tile)` behind `today.my_day`) | row 10, one row component for all three |
+| `InlineMessage` / `ProgressView` / `HealthAccessHint` | §P5-3.7 |
+
+**P5-3.3 The zones tile and the glow.** `GlowTileSpec.Kind` gets **`.zones`** (strain, radius 28, min height 176, padding 14 / 16,
+the ellipse of `.hypnogram`: 90 % × 95 % at 50 % / 55 %, stops 0.97 / 0.92 @ 34 % / 0.55 @ 68 % / 0.10, which is the board's). Text in it: `textPrimary`
+(numerals, minutes) and the label rule (78 %); the board's 0.62 on the row labels is not used (it fails in the tile's corners).
+
+| Tile (worst pixel, padded 14 / 16 / 14 / 16) | `textPrimary` | label 78 % | the board's 62 % | needs |
+|---|---|---|---|---|
+| Zones 350 × 176 | 7.77 | **5.46** | 4.09 | 4.5 |
+| 335 × 176 / 362 × 176 / 400 × 176 | 7.80 / 7.74 / 7.67 | 5.48 / 5.44 / 5.40 | 4.11 / 4.08 / 4.05 | 4.5 |
+| AX3, stacked rows: 350 × 240 / 300 / 420 | 7.42 / 7.23 / 7.02 | 5.25 / 5.13 / 5.01 | 3.96 / 3.88 / 3.80 | 4.5 (labels go to 100 % from AX1, `labelOpacity`) |
+| Lit ticks (`textPrimary`) over the glow at the ticks' rect | 11.72 | | | 3 |
+
+**P5-3.4 The zone block** (review rows 13 and 17, plan PR 5 hook). A new `Design/ZoneBlock.swift` holds five `TickRow`s and decides the
+arrangement for all of them:
+
+```swift
+enum TickRowArrangement: Equatable { case automatic                       // today's: each row decides (ViewThatFits)
+                                     case aligned(labelColumn: CGFloat)   // one line, the label column fixed to this width
+                                     case stacked }                       // label + value above, ticks below (177 wide, leading)
+extension EnvironmentValues { var tickRowArrangement: TickRowArrangement }   // default .automatic; TickRow reads it
+struct ZoneBlock: View { init(zones: [ZoneBlock.Zone], scaleMax: Double = 40, accessibilityLabel: Text) }
+```
+
+`ZoneBlock` measures the five labels' ideal widths (a hidden `Text` with a `PreferenceKey`, at the current Dynamic Type), takes
+`labelColumn = max(74 scaled, the widest label)`, and picks **aligned** if `labelColumn + 12 + 177 + 12 + valueColumn ≤ the available width`,
+else **stacked for all five**. At 390 the widest label, "Z4 · Threshold", is 76 pt, so the row is 76 + 12 + 177 + 12 + 40 = **317 ≤ 318** (350 −
+32): aligned, one tick column, with 1 pt to spare. At 375 (SE, 303 available) and from AX1 the block stacks. The ticks are 3 × 12 with
+radius 1.5 and a 3 pt gap, 30 of them, lit = `round(min / 40 × 30)` clamped (a zone of 40 minutes or more lights all 30; its minutes are in
+the value column), on `textPrimary`, unlit `textPrimary` 12 % (decoration). **AX3:** each row is label · value on one line, the ticks
+below, **177 pt wide and leading-aligned** (they do not stretch: tick pitch and lit counts stay comparable with the default size,
+PR 2 row 13's question answered). The tile grows (about 14 + 20 + 5 × 42 + 4 × 9 + 14 = 294); rows keep a 9 pt gap. The row's accessibility
+label is the caller's: "Zone 3, tempo, 70 to 80 percent of heart-rate reserve, 20 minutes".
+
+Zone names: "Z5 · Max", "Z4 · Threshold", "Z3 · Tempo", "Z2 · Aerobic", "Z1 · Easy" (top to bottom, as the board); generic training terms, not a
+brand's. Footnote (not in the tile, 8 below it, `.axis` `textTertiary`): "Zones are in % of heart-rate reserve." (the old `ZoneBar` line).
+
+**P5-3.5 The Train section** (today's, `train.enabled`; between the tiles and Activities, as before). It is not on the board, so it is
+composed from the new parts:
+
+| Part | Spec |
+|---|---|
+| Title | "Train" `.label` `textSecondary` (`TrainSectionTitle`, 13) |
+| Start workout | `PillButton(Text("Start workout"), systemImage: "play.fill")`, `.primary`, full width, 52; or, with a session running, the in-progress card: `surface`, radius 22, a 6 pt `textPrimary` dot that pulses (the pulse is off under Reduce Motion; the dot is `textPrimary`, no longer teal), "Workout in progress · 23 min" 15 + "Upper body · 12 sets done" 12 `textTertiary`, trailing "Resume" chip (`textPrimary` fill, `background` ink, 40 high, padding 16: the inverse fill) |
+| Plan, My plans, History | one grouped card `surface`, radius 22, rows 56 high (padding 0 16, gap 12): `IconDisc` 36 (calendar / list.bullet.rectangle / clock.arrow.circlepath), title 15, detail 12 `textTertiary`, chevron.right 12 at `textTertiary`; hairline `separator` between rows. Each row is a `NavigationLink(value:)` as today, identifiers `train.plans` etc. kept |
+
+**P5-3.6 Activity rows** (`ActivityListRow`, one view for `ActivityItem.workout`, `.session`, and `MyDayItem` behind `today.my_day`; the
+board): 60 high, radius 20, `surface`, padding 0 / 16, gap 12; leading `IconDisc` 36 (the sport glyph, 16 pt `.light`; the dumbbell for a
+logged session); title `.callout` (15) `textPrimary`; 2 below, the meta `.caption` (12) `textTertiary`: "07:10 · 42 min · 7.8 km" (start · duration
+· distance, else average heart rate "148 bpm"; a logged session "· Load 84.6" replaces the `LoadChip`); trailing the strain `ryftNumber(size: 20)` Light
+`textPrimary` ("–" without one, `textSecondary`). The whole row is the link (`NavigationLink(value: Workout / TrainRoute.session / ActivityRoute)`);
+no chevron (the board has none; hint "Opens the workout" carries it). A My Day item that does not open a detail is the same row without
+a hint. `StrainPill`, `ActivityRow`'s chevron and `SessionActivityRow`'s teal disc are deleted. AX1+: the strain moves under the title
+(row grows, `minHeight` 60), the title wraps.
+
+**P5-3.7 States**
+
+| State | Trigger | Look |
+|---|---|---|
+| Scored day | `strain != nil` | §P5-3.1 |
+| Loading | `isLoading && detail == nil` | Unlit numeral (`placeholder`), ruler ticks without needle, the zones tile as a flat `surface` outline (1 pt `separator`, its five rows unlit with "–"), two tile outlines, two row outlines; VoiceOver "Loading this day"; **no spinner** (today's `ProgressView` is removed) |
+| No strain / no data for the day | `strain == nil`, `detail` loaded | Numeral "–" unlit, caption "No strain recorded for this day.", ruler without needle, zones tile with "–", tiles "–" or the score's steps / energy, the activities empty state |
+| No zone data | `zoneMinutes == nil` | The tile keeps its head ("Heart-rate zones", "–") and says "Your watch didn't record heart-rate zones for this day." in place of the rows (96 high) |
+| No workouts | `items.isEmpty` | `InlineMessage` "No workouts recorded on this day." (figure.walk) + `HealthAccessHint` if there is no Health data at all; the Add activity button stays |
+| Load error, nothing cached | `model.error` | As loading, plus the app's calm sentence (the shared `LoadFailure` helper of Sleep, R3-N3: never `localizedDescription`) in the zones tile's place, with Details and Today's action ("Sign in", none, "Try again") |
+| Offline / stale / gated | `state.refreshIssue != nil` | The shared **`RefreshIssueCard`** (Today's, `Card` surface) 12 below the header row, with its Try again and Details; offline with cached values keeps them in full ink and shows only a one-line status ("Offline — will sync when back", the shared `SyncStatusLineView`, leading) under the strip, because the data is the day's cache |
+| Another day | a strip cell other than today | The numeral cross-fades; the Train section is hidden (today only, as now); the caption is unchanged; Add activity opens for that day |
+| Demo | `isDemo` | The board's day from `MockData` (§P5-9): 82 min in the zones, 9,412 steps, 612 kcal |
+| Refreshing | `isRefreshing` | Pull-to-refresh as today; no inline indicator |
+
+**P5-3.8 Accessibility.** Reading order: "Strain" (header; trailing "Add activity", hint "Opens the add-activity sheet") · the strip ·
+numeral "Strain 12.4 of 21" · the caption (with the split, hidden: it is in the numeral's value) · ruler ("Strain scale", "12.4, moderate, on a scale from 0 to 21. The
+moderate range is 10 to 14.") · the zones tile (one element: label "Heart-rate zones", value "82 minutes. Zone 5, max, 6 minutes; …; zone 1, easy, 11 minutes. TRIMP 112. Zones are in percent of heart-rate reserve.") · Steps ·
+Active energy · Train (buttons) · "Activities" (header) · each row ("Run, 7:10 AM, 42 minutes, 7.8 kilometres, strain 9.8", hint "Opens the workout"). Volt is the needle's
+position only. Dynamic Type: header, strip, numeral (Light from AX1), ruler as P4; tiles stack to one column (350) from AX1; rows stack as above; the zone block as §P5-3.4.
+Reduce Motion: no needle move, no numeral cross-fade. Reduce Transparency: `GlowTile` flat `surface` + 2 pt `metricStrain` border (§P4-3).
+
+### P5-4. Workout detail (Strain family; no board; draft renders `pr5-drafts/draft-workout-top.png`, `-bottom.png`)
+
+The pushed screen (`WorkoutDetailView`, `-RyftOpenWorkout YES`). `ScreenScaffold`-style scroll, no navigation bar (`.toolbar(.hidden)`; the
+back button is in the header, the swipe-back gesture stays: the pushed view keeps `navigationBarBackButtonHidden`).
+
+| # | Element | Spec |
+|---|---|---|
+| 1 | **Header** (`ScreenHeader` three-slot) | `CircleButton("chevron.left", "Back")` · centre: the sport name `.callout` (15, header trait) and 2 below "Wed, Nov 18 · 6:40 AM–7:32 AM" `.caption` `textTertiary` · an empty trailing slot (a 40 pt spacer). 40 high |
+| 2 | Numeral | `DotNumeral(Fmt.strain(workout.strain), glyphGap: glyphGapDetail)`, 22 below; caption "Strain · of 21 · moderate" 12 below; ruler 0–21, zone 10–14, 14 below: Strain's rows 3–6, for this workout |
+| 3 | Zones tile | `GlowTile(metricStrain, kind: .zones)` with the `ZoneBlock`, its head "Heart-rate zones" and "48 min" (the workout's zone minutes), tile top at ruler top + 56. No zone data: the short tile with "No heart-rate zones for this workout." |
+| 4 | Stat tiles | `LazyVGrid`, two columns, gap 12, 80 high, radius 22: Duration "52 min", TRIMP "114", Average heart rate "148 bpm", Max heart rate "176 bpm", Energy "540 kcal", Distance "5.2 mi" (only with a distance). Odd count: the last tile alone, left. Labels `.label` `textSecondary`, values 24 Light | 
+| 5 | Logged session | Only with `sessionId`: a row as §P5-3.6 (dumbbell `IconDisc`, "Logged session", "Load 84.6", chevron), `NavigationLink(value: TrainRoute.session)`; 12 below the tiles |
+| 6 | Heart-rate chart | `surface` card radius 22, padding 14 / 16 / 14: "Heart rate" `.label` `textSecondary` leading, "avg 148 bpm" `.caption` `textTertiary` trailing; 8 below, the chart 150 high: **the line in `textPrimary`, 1.4 pt, round joins (not `alert`: red means attention, and the heart rate is not a metric of the rings)**; the average a dashed rule 1 pt `textTertiary`; the peak a 3 pt `textPrimary` dot with "peak 159" `.axis` `textSecondary`; the y-axis on the trailing side (three ticks, `textTertiary`, gridlines `textPrimary` 8 %), x clock ticks every 15 min. Scrubbing and the Charts accessibility descriptor stay |
+| 7 | Source | "Recorded by Garmin Connect" `.caption` `textTertiary`, leading, 14 below |
+
+The ticks' footnote "Zones are in % of heart-rate reserve." sits 8 below the zones tile. States: loading (`isLoading`): the numeral from the
+list's `workout.strain`, the zones tile and chart as outlines, no spinner; no heart-rate series: the chart card says "No heart-rate series
+available for this workout." (existing string) at `textTertiary`; offline: cached detail shown, the shared status line under the header. Accessibility:
+header ("Run", value "Wednesday, November 18, 6:40 AM to 7:32 AM"), numeral, ruler, zones tile, each stat tile one element, the session row, the chart (label
+"Heart rate over time", value "Average 148 beats per minute, peak 159"). The zone tile and chart contrast as §P5-3.3; the chart line `textPrimary` 11.7 on `surface`
+over its rules.
+
+### P5-5. Insights
+
+`ScreenScaffold(showsHeader: false)`, a `NavigationStack` as today, `focusedMetric` and `focusesBehaviors` scrolling kept.
+
+**P5-5.1 Layout** (`InsightsLayout`)
+
+| # | Element | Built from | Size and gap |
+|---|---|---|---|
+| 1 | **Header** | `ScreenHeader(title: "Insights", trailing:)` with the range control as the trailing view (not a circle button): the restyled `SegmentedPicker` (§P5-7.1) with the titles "7 D", "30 D", "90 D" (VoiceOver "7 days" …), about 168 × 40. From AX1 the control goes under the title, full width, 44 high | 40 high |
+| 2 | **Attention cards** | the visible insights of severity `notice` and `warn`, each `InsightCardView` (§below) | 22 below the header, 12 apart; none if there are none |
+| 3 | **Insight tile** | `GlowTile(Theme.recovery, kind: .idea)` for the first visible `info` insight: 120 high minimum, radius 28, padding 16 top / 18 sides. Row 1: a Volt dot 6 pt, 8, "Insight" `.label` (13, full `textPrimary`); trailing the dismiss "×" (44 pt target, 14 pt glyph, `textPrimary`). 10 below: `insight.title` `ryftNumber`-style 17 Light, line height 1.4, `textPrimary`. 8 below: `insight.body` `.label` (13) in full `textPrimary` (recovery tiles set labels at 100 %, §P4-3). Last: "Show the chart" / "See behaviors" / "See the session" as `ryftLink()` (44 high), only with a route | 22 below the header (12 below row 2 cards) |
+| 4 | **More insights** | the remaining visible `info` insights as neutral cards (below) | 12 below, 12 apart |
+| 5 | **Behaviors** | `BehaviorsSection` (journal live), restyled by T5.0's token swap; its layout is PR 6 | 24 below |
+| 6 | **Trend cards** | the three board cards, then the rest, §P5-5.2 | 24 below (the board: 12 under the tile with no other sections; 12 when rows 2, 4 and 5 are empty) |
+| 7 | **Footer** | the wellness disclaimer: "RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns." with the stethoscope glyph, `.caption` `textTertiary` | 24 below the last card (**D5-5**: it was under the title; it stays on the screen, last, because the board's header has no room for it) |
+
+*Insight cards* (rows 2 and 4; the existing `InsightCard` restyled, no coloured stripe): `surface`, radius 24, padding 16 / 18; row 1: a 6 pt dot (`warning` for
+notice, `alert` for warn, hollow `textTertiary` ring for info) + the severity word ("Notice", "Attention", "Insight") in `.label`, the colour only on the dot, the word in
+`textSecondary`; the kind's glyph is dropped (it was the second hue); the dismiss ×; `title` `.headline` (17 Medium), `body` `.callout` (15) `textSecondary`, the link `ryftLink()`.
+A severity is never colour alone: dot shape (filled / hollow), the word, VoiceOver "Attention: …".
+
+**Why the tile is "Insight", not "An idea".** The board's Volt dot and "An idea" promise advice. The platform's insights are rule
+observations (`hrv-low-3d`, `readiness-up`, `hrv-best-30d`, `baseline-learned`, `pr`, `behavior-impact`…) with a title and a body; calling one an
+idea would be wrong for "HRV is above your range" and for a personal record. The glow tile is the recovery colour, so it carries
+only `info` insights (good news and neutral facts); a `notice` or `warn` is never in the teal tile (D5-6). The Volt dot is the brief's
+"hint dot on Insights", kept on the tile.
+
+**Contrast, the insight tile** (recovery glow, padded rect 16 / 18, worst pixel): `textPrimary` and the 100 % label
+
+| Tile | `textPrimary` | 78 % (not used in recovery) | the board's 62 % |
+|---|---|---|---|
+| 350 × 120 | **6.21** | 4.50 | 3.47 |
+| 335 × 120 / 362 × 120 / 400 × 120 | 6.25 / 6.18 / 6.11 | 4.53 / 4.49 / 4.44 | |
+| 350 × 150 / 200 / 260 | 5.85 / 5.43 / 5.15 | 4.28 / 4.01 / 3.83 | |
+| 350 × 320 / 420 (AX3) | 4.98 / **4.81** | 3.72 / 3.61 | |
+| Volt dot at its corner | 6.13 | | 3 |
+
+So **all text in the tile is full `textPrimary`** (the label rule for recovery, §P4-3, makes this the default) and the board's 0.78 and 0.62 do not exist
+in it (D5-7). 4.81:1 at 420 pt is the limit: **`GlowTileSpec` draws a `.idea` tile flat (`surface` + a 2 pt recovery border, the Reduce Transparency look) when
+it is taller than 420 pt**, so a long body at AX3 never reaches the corners where the ratio would pass under 4.5 (`paddedRectContrast` is extended to this kind and
+size, plan carry-over). `GlowTileSpec.Kind` gets **`.idea`**: the `.hypnogram` ellipse and stops, radius 28, min height 120, padding 16 / 18 / 16 / 18.
+
+**P5-5.2 Trend cards.** Three first, in the board's order: **Readiness, HRV, Sleep per night** (`TrendMetric.readiness`, `.hrv`, `.sleepMin`); then
+the other eleven (`recovery`, `strain`, `sleep`, `rhr`, `steps`, `active_kcal`, `strength_min`, `volume_kg`, `sleep_quality`, `sleep_consistency`, `nap_min`)
+under a "More trends" label (`.label`, 24 above), as today's list, so every deep link still lands (`focusedMetric` scrolls to its card and opens it).
+
+`TrendCard` (new layout, replaces `TrendCard`+`TrendChart` in the list): 350 wide, **132 high** minimum, radius 24, `surface`, padding 14 top / 16 sides / 14.
+
+| Part | Spec |
+|---|---|
+| Head row (first baselines aligned) | the name `.label` (13) `textSecondary`; trailing a note `.caption` (12) `textTertiary`, then a 12 pt `chevron.down` (D5-8: the card opens in place) |
+| Value row (2 below) | the latest value `.metric` (26 Light) `textPrimary` + the unit `.caption` `textTertiary` (3 after), 8, then the delta (`DeltaLabel`, 12): "▲ 11 vs 7 d" in the **metric colour** for the good direction, `alert` for the bad, `textSecondary` for flat or neutral |
+| Chart (6 below) | `TrendLine`: 318 × 48 (the card's inner width), the series as a 1.4 pt line, round caps and joins, a missing day breaks the line, a lone point draws a 3 pt dot; the y scale spans the series and the band, with a 2 pt inset; the 30-day range as a rectangle behind it |
+| Expanded | the card grows by the detailed chart (`TrendChart`: 150 high, axes, scrub, baseline, restyled to the tokens) and the Avg · Min · Max row; tap toggles; `focusedMetric` opens it |
+
+| Metric | Line | Band (30-day range) | Delta colour | Note |
+|---|---|---|---|---|
+| Readiness | `textPrimary` | `textPrimary` 6 % | `recovery` ("▲ 11 vs 7 d") | "Band: 30-day range" |
+| **HRV** | **`recovery`** | **`recovery` 12 %** | `recovery` ("▲ 6 ms") | **"SDNN"** |
+| Sleep per night | `metricSleep` | `metricSleep` 12 % | `metricSleep` ("▲ 0:17") | "Avg 7:31 h" |
+| Recovery | `recovery` | none | `recovery` | "Avg 78 %" |
+| Strain, strength, volume | `metricStrain` | none | `textSecondary` (strain has no polarity) | "Avg …" |
+| Sleep (performance), quality, consistency, naps | `metricSleep` | none | `metricSleep` | "Avg …" |
+| Resting HR, steps, active energy | `textPrimary` | resting HR: `textPrimary` 6 % | `textPrimary` good / `alert` bad (resting HR lower is better) | "Avg …" |
+
+**The HRV decision (D5-9).** The board draws the HRV card in strain blue. The brief's rule is "the rings are the legend": one colour per
+metric, everywhere. HRV is a recovery input (Today's recovery tile carries its sparkline; `MetricSpec.hrv` is the recovery teal), and blue means strain: a blue HRV line
+would read as a strain trend. So **HRV is `recovery` teal**: its line, its 12 % band and its delta. Readiness is the composite, so it keeps the board's ink line
+with a teal delta; that makes HRV the one teal line on the screen, which is right. The card's note is "SDNN" rather than the board's "Morning, RMSSD": the platform and
+Apple Health deliver SDNN (`API.md`: "HRV in ms (SDNN)"), and the note must say what the number is.
+
+| Pairing on `surface` | Ratio | Needs |
+|---|---|---|
+| `recovery` / `metricSleep` / `metricStrain` line or delta text | 9.98 / 6.38 / 5.56 | 3 (line), 4.5 (the 12 pt delta) |
+| Line over its own 12 % band: recovery / sleep / strain | 7.96 / 5.40 / 4.79 | 3 |
+| Readiness: `textPrimary` line over the 6 % band | 14.15 | 3 |
+| The band against `surface` (decoration; the note and the spoken label name it) | 1.25 / 1.18 / 1.16 | none |
+| Note and unit `textTertiary` | 4.54 | 4.5 |
+
+**Data.** Value = the latest non-nil point of the selected range; delta = `MetricDelta.against(latest, prior: the 7 days before)` (Strain's rule; no delta
+under 3 priors); "Avg" from `series.avg`. The band needs the 30-day series: `InsightsViewModel.monthly` is extended from `showsPersonalRange` (HRV, resting HR) to
+**readiness, HRV, sleep (min) and resting HR**, fetched with the range's series (the month's own series when the range is 30 D; one more cached request each otherwise,
+`state.trend` skips a fresh one). No band without a 30-day series (note "Band needs 30 days of data"). No new endpoint.
+
+**VoiceOver.** The chart: "Readiness over 30 days, ending above its usual range" (ending above / within / below the band; "…, ending at 78" without a band); the card is one
+element: name, value, delta ("up 11 versus 7 days"), note, the chart's sentence; hint "Shows the detailed chart"; `isButton`; in the expanded card the detailed chart's descriptor
+(`accessibilityChartDescriptor`) and Avg · Min · Max follow.
+
+**P5-5.3 States**
+
+| State | Trigger | Look |
+|---|---|---|
+| Scored | series present | as above |
+| Loading, nothing cached | `series[metric] == nil && isLoading` | name, "–", a flat 1 pt `textPrimary` 22 % line across the chart box, the note empty; **no spinner**; VoiceOver "Loading" |
+| No data for a metric | a series with no non-nil point | value "–", note "No data in this range", the flat line |
+| Calibrating (band missing) | no 30-day series | the line without a band, note "Band needs 30 days of data" |
+| No insights | `visibleInsights.isEmpty` | a neutral card, `textSecondary`: "Nothing stands out today. Insights appear when your data shifts." / "All caught up for today." (the existing strings), no tile |
+| Offline / stale | `state.refreshIssue != nil` | the shared `RefreshIssueCard` 12 under the header; cached cards stay in full ink with the data's date in the card (the stale series' `to` day is spoken) |
+| Not set up | `!state.hasDataSource` | the header and a neutral card "Connect a data source to see trends." (`SetupCard`'s sentence); no tile, no cards |
+| Demo | `isDemo` | the board's cards from `MockData` (§P5-9) |
+
+### P5-6. Profile — the main list
+
+`ScreenScaffold(showsHeader: false)`; one `NavigationStack`; every sheet, dialog and subpage as today (the subpages are PR 6: they keep their code, with T5.0's
+tokens and pills). **The app's real rows are the content; the board gives the look.**
+
+**P5-6.1 Layout** (`ProfileLayout`)
+
+| # | Element | Spec | Gap |
+|---|---|---|---|
+| 1 | Header | `ScreenHeader(title: "Profile")`, no trailing | 40 high |
+| 2 | **Identity row** | `HStack(spacing: 16)`: the avatar (72 × 72) and a `VStack(alignment: .leading, spacing: 6)`: the name `ryftNumber(size: 20)` Light `textPrimary` (the title, 1 line, middle truncation; wraps at AX), and the status row: a 6 pt dot, 6, the line `.caption` (12) `textSecondary` | 18 below the header |
+| 3 | Group title + card | the title `.label` (13) `textTertiary`; 8 below, the card: `surface`, radius 22, rows ≥ 46 high, padding 0 / 16, row title `.callout` (15), the value trailing `textTertiary` (the board's 0.55), a `separator` hairline between rows | 24 below the identity row, then groups **18** apart (the board) |
+| 4 | **Buttons row** | `HStack(spacing: 12)`: `PillButton(Text("Export data"), systemImage: "arrow.down")` primary, fills; `PillButton(Text("Log out"), style: .secondary)` with `padding(.horizontal, 22)`-sized width (≈ 108). Each only when it applies (export: `canExport`; Log out: signed in) | 18 below the last group (before Developer) |
+
+**The avatar:** a 72 pt frame; a **strain ring** of radius 34, stroke 1.6, round cap, `metricStrain`, from 12 o'clock clockwise by the share `strain / 21` of today's score (the board's
+59 % reaches about 7:30), ending in a dot r 3.4 `metricStrain` with a 1.6 `background` ring (as the gauge's end dots); the track (derived, not measured) `textPrimary` 10 %; inside, at inset 8, a `surface`
+disc with the initials `ryftNumber(size: 20)` Light `textPrimary`, tracking 0.04 em. No strain today: the track only, no arc and no dot. The avatar is `accessibilityHidden`; the identity row is one element.
+
+**The display name (R-N2, no editable name yet).** `accountTitle` as today: the platform's `User.name` if not empty, else the account's email (`accountEmail`, middle truncation), else
+`auth.identityDescription` (the account's provider description). Initials from the displayed title: for a name, the first letters of its first two words, upper case ("Alex Doe" → "AD"; one word → one letter);
+for an email, the first letter of its local part; for neither (signed out, demo without a name) the `person` glyph at 20 pt Light. The name is read-only until R-N2: no edit affordance, nothing that says it
+cannot be changed. When R-N2 lands the row becomes a button to a rename sheet. Today's greeting already falls back to nothing (D4-14).
+
+**The status row.** Dot + `"{source} · {state}"`: the source is "Apple Health" (the sync's source); the state is the shared `SyncLine`'s word: "up to date" (a filled `textPrimary` dot), "updating…" (a hollow ring),
+"offline" or "updated 5 h ago" (a `warning` dot), "action needed" (an `alert` dot). **The dot is not teal** (the board's recovery-teal dot is overruled by L27: teal is recovery only); the word carries the state, the dot's shape and the
+amber / red are secondary cues. Demo: "Demo data · up to date". The row is tappable like Today's status row (Sync details, the gate's step, Try again), 44 pt target.
+
+**P5-6.2 The groups and where every real row goes** (every row of today's `ProfileView` has a place; "→ sub" = a pushed subpage that PR 6 restyles)
+
+| Group (title) | Rows (type) | From today's section |
+|---|---|---|
+| **About you** | Birth year (menu: value, a `Picker(.menu)` with the tint inherited; error `InlineMessage` under the card) · Maximum heart rate (value + source as the row's detail; opens the sheet, `editing = .maxHR`) · Baseline sleep need (value; sheet `.sleepBase`) · Rescore the last 90 days (an action row, `busy` shows a small spinner; `RescoreStatus` as the card's footer, the line "Changing a setting doesn't rescore past days on its own." under the card as footer text) | Body, Sleep |
+| **Devices and sync** | Devices & sync (→ sub; value `devices.summary`; with `devices.setup`) · Apple Health (value `healthStatusText`; tapping asks (`canAskForHealth`) or opens Health ↗; the steps text as the footer) · Last sync (value) · Sync now (action row, busy) · Sync details (→ sub; "Full re-sync" is already in there) · Import training data and the file rows (`ImportProfileRows`, restyled rows) · Demo data (toggle, footer "Show a realistic sample history instead of your server.") | Data |
+| **Training** (`showsTraining`) | Advance to the next exercise (toggle) · Session layout (menu row; `showsSessionLayout`) · Save strength workouts to Apple Health (toggle; the `HealthWriteAccessHint` under the card) | Training, Data |
+| **Settings** | Notifications (→ sub; `showsNotifications`) · Journal (→ sub; `journal.isLive`; **the row's title is "Journal"**, the app's own feature, not the board's "Behaviors to track": the subpage's title is PR 6's, see question 3) · Hero numbers (menu row: Dots / Thin; PR 4 §P4-6, footer "Large numbers on Today, Sleep and Strain.") · Bedtime & wake (→ sub; value `bedtime.summary`; `bedtime.isEnabled`) | Notifications, Journal, Display, Sleep |
+| **Privacy** | Health-data consent (value; the detail as the footer) · Review and agree (action row, when not current) or Withdraw consent (a destructive action row, `alert` ink, confirm dialog as today) | Privacy |
+| **Account** (signed in) | Timezone (value, the phone's difference as the detail) · Sign-in methods (→ sub) · Change password (action row; `canChangePassword`) · Delete account (destructive action row, `alert` ink; the alert as today). Signed out: "Signed in: No" and "Turn off Demo data to log in or create an account." | Account |
+| **About** | Version (value) · Report a problem (→ sub; the waiting count as its value) · Privacy Policy ↗ · Terms of Use ↗ · Licences (→ sub); the wellness-tool sentence as the footer; the brand lock-up above the group (as today) | About, Privacy (the duplicate link goes) |
+| **Developer** (Debug builds) | the same rows, `ryftField` fields on `surface`, toggles `.ryft` | Developer |
+
+Row types (`ProfileRow`): **value** (title, value trailing); **link** (title, value, `chevron.right` 12 pt `textTertiary` at the board's 0.35 look = `textTertiary` at 70 %); **link-out** (title, `arrow.up.right` 12 pt, opens the URL); **toggle**
+(`.ryft`, the row is the target); **menu** (title, the current value and `chevron.up.chevron.down` as a `Menu`); **action** (title in `textPrimary`, trailing a spinner when busy; destructive: `alert`). Every row is ≥ 46 high and a full-width
+target (≥ 44). Errors (`InlineMessage`) and footers sit under their card, 8 below. The Profile board's other rows ("Behaviors to track", the board's own wording) are not adopted.
+
+**P5-6.3 States**
+
+| State | Trigger | Look |
+|---|---|---|
+| Signed in, up to date | `isSignedIn`, sync fine | as above |
+| Signed out / demo | `!isSignedIn` | the identity row shows `identityDescription` (or "Demo data"), the person glyph; the Account group is the two-row "Signed in: No" version; Log out and Export hidden |
+| No strain today | `strain == nil` | the avatar ring is the track only |
+| Syncing | `isSyncing` | the status line "updating…" (hollow dot); the Sync now row shows its spinner and `syncProgress` as its detail |
+| Offline / stale / sync failed | `syncNotice`, `state.refreshIssue` | the status dot `warning` + "offline" or the age; the `InlineMessage` (retrying / failed with Details) under the Devices and sync card, as today |
+| Health access needed | `healthNeedsAttention` | the Apple Health row's value in `warning` with the words ("Not requested") |
+| Consent outdated | `!consentIsCurrent` | the consent value in `warning`; "Review and agree" as the first action row |
+| Exporting | `model.exporting` | the Export pill `busy`; the share sheet as today; `exportError` under the buttons row |
+| Logging out with unsent items | `sendsFirst` | the Log out pill `busy`; the dialog as today |
+
+**P5-6.4 Accessibility.** Reading order: "Profile" (header) · the identity row ("Alex Doe. Apple Health, up to date. Strain today 12.4 of 21.", header trait on the name) · each group's title as a header, then its rows in order (one element each: "Birth year, 1990",
+"Maximum heart rate, 190 beats per minute, from your age", "Notifications, button"; the toggles read "on / off" through `Toggle`) · the buttons ("Export data", "Log out"). Link-outs say "opens in the browser". Destructive rows say "Delete account, button" and keep their dialogs.
+Dynamic Type: rows grow (≥ 46, wrapping titles, the value under the title from AX1), the identity row stacks the avatar over the name (avatar fixed 72), the buttons row stacks (Export over Log out). Contrast: initials 16.24 on `surface`; the strain ring 5.94 on `background`;
+values `textTertiary` 4.54 on `surface`; the hairlines are decoration.
+
+### P5-7. Sleep — Week, Month and Bedtime (no board; draft renders `pr5-drafts/draft-sleep-*.png`)
+
+Day is the board and is not touched here except the colours listed in §P5-7.4. The three modes live under Day's header (`SleepHeader`, buttons hidden and disabled outside Day, subtitle "Last 7 nights" / "Last 30 nights" / "Tonight") and the picker.
+
+**P5-7.1 The mode picker and `SegmentedPicker` (restyled in place)**
+
+| Part | Spec |
+|---|---|
+| Control | `surface`, padding 3, segment gap 4, radius 20 (the board's Insights control), full width in Sleep (equal segments), content width in the Insights header; segments **34 high**, radius 17, `.label` (13); selected = `textPrimary` fill with `background` text (17.35:1), others transparent with `textTertiary` text (4.54 on `surface`); the control is 40 high. Selection slides (`matchedGeometryEffect`, 250 ms; none under Reduce Motion). Each segment is ≥ 44 wide and **the segment's tap box is 44 high** (the 3 pt padding is inside it) |
+| Sleep | Day · Week · Month · Bedtime, 12 below the header. **40 high** (was 52 with its 44 pt segments): Day's content moves up 12 pt (`SleepLayout`'s numeral gap is measured from the picker, 22, so Day's board offset becomes +52 against the board, D5-10) |
+| AX1+ | the one-row `Menu` of PR 4 (§P4-8) restyled: `surface`, radius 20, 44 high, "Week ▾" in `.label` `textPrimary`; its items as today with the checkmark on the current one |
+| Other callers | Insights' range (3 segments), Profile's session layout (becomes a menu row, §P5-6.2) |
+| VoiceOver | a container; each segment a button with `isSelected`; Insights' segments are labelled "7 days" … |
+
+**P5-7.2 Week and Month** (`SleepRangeSection` restyled; the data and the view model's `SleepRangeSummary` are unchanged)
+
+| # | Element | Spec |
+|---|---|---|
+| 1 | **Numeral** | `DotNumeral(Fmt.clock(avgTotalMin), glyphGap: glyphGapDetail, placeholder: "0:00", style: heroNumerals.style)`, 22 below the picker (`SleepLayout.numeralGap`), centred; caption 12 below: "Average · last 7 nights" / "Average · last 30 nights" `.label` `textSecondary` |
+| 2 | **Bed and wake glow tile** | `GlowTile(metricSleep, kind: .hypnogram, min height 168)`; head row: "Bed and wake times" (glow label) leading, "7 nights" `.caption` trailing; 8 below, `BedtimeStrip` (the existing chart: a bar per night from bedtime to wake on a 20:00–10:00 axis, bars `metricSleep`, dashed mean rules): **Week** row 14 pt with the dates on the rows; **Month** row 7 pt, **no row labels** (30 labels collide, seen in the draft), the clock axis kept; 8 below the strip the consistency hint (`.caption`, the glow label colour: 78 %, wraps). The tile grows with the rows (Week about 228, Month about 300) | 20 below the caption (+56 from a ruler is not applicable: no ruler) |
+| 3 | **Two neutral tiles** | `HStack(spacing: 12)`, 169 × 88, radius 22, as Day's tiles: **Quality** "91" + "%" (`averageQuality`) · **Consistency** "72" (`averageConsistency`) + a `DotRow` of the last 7 nights bottom-right (full ≥ 60, `.missed` below, `.noData` without; the last mark is `.today` = the newest night, the label says so, as Today's) | 12 below the tile |
+| 4 | **Stage card** | `surface`, radius 22, padding 14 / 16 / 14: head "Time asleep per night" `.label` + "avg 7h 58m" `.caption` `textTertiary`; the chart 150 high (`Chart`, `BarMark` per stage per night: **Deep at the bottom, then Light, REM on top**, 1.5 pt `surface` gaps between the segments via a 1.5 pt `surface` stroke, `cornerRadius` 1.5; Week bars `ratio 0.55`, Month `0.7`; weekday initials (Week) or weekly dates (Month) `textTertiary`; the y axis trailing, 0 / 3 / 6 / 9 / 12 h, gridlines `textPrimary` 8 %; the average a dashed rule 1 pt `textTertiary`); the legend 10 below: three 10 pt squares + "Deep", "REM", "Light" `.caption` `textSecondary`. **Tints: Deep `metricSleep` 100 %, REM 80 %, Light 62 %; unstaged "Asleep" 62 %**. No blue anywhere (the stage tokens `StageDeep/Light/REM` are not used) | 12 below |
+| 5 | **Nights list** | one grouped card, rows 46 high, padding 0 / 16: the night's title `.callout` `textPrimary` · a nap `Label` (`powersleep`, `.caption` `textSecondary`) · the total `.callout` tabular · the consistency `.caption` `textTertiary` (44 wide, trailing); `separator` hairlines. Month shows every night (30 rows), as today | 12 below |
+
+Contrast: tints over `surface` 100 / 80 / 62 % = **6.38 / 4.50 / 3.19** (graphics need 3); neighbours are 1.42 / 1.41 apart, so stage identity is **never by tint alone**: the fixed
+stack order, the legend and the chart's accessibility descriptor (per night: "Wednesday 18: deep 1:35, REM 1:45, light 4:28") carry it, and the 1.5 pt gaps separate the segments. The bars in the glow tile: `metricSleep` 100 % over the glow at its worst pixel in the plot = **3.68**
+(Day's deep bars are the same colour in the same tile kind); the tile's text 7.21 / 5.13 at 350 × 168, 6.84 / 4.90 at 350 × 230, 6.62 / 4.77 at 350 × 300, 6.50 / 4.69 at 350 × 360 (needs 4.5). The old red delta text ("▼ −12m · −2 %") of the range header is gone: Week and Month show no delta (the header's value moved into
+the numeral; the old header's "vs 7 d" delta is `DeltaLabel` with `metricSleep` for a good change if the lead wants it back: question 6).
+
+**P5-7.3 Bedtime** (`SleepPlannerSection` + `TonightCard`; numbers from `GET /v1/sleep/plan` and `BedtimePlanner`; the editor `SleepScheduleView` is PR 6)
+
+| # | Element | Spec |
+|---|---|---|
+| 1 | **Bedtime numeral** | `DotNumeral` of tonight's bedtime for the goal (`planner.options.first`), the digits only ("10:06"), + the meridiem ("PM") as `.label` `textSecondary` at the numeral's baseline, 8 after, centred as a pair; 22 below the picker. **`Fmt.clockParts(_ date:) -> (digits: String, meridiem: String?)`** splits on any whitespace, including U+202F: `Fmt.time` returns "10:06 PM" with a narrow no-break space, which sent the draft's first render to the Light fallback. 24-hour locales have no meridiem |
+| 2 | Caption | "In bed by · 100 % of your need" `.label`, 12 below; no schedule: see states |
+| 3 | **Planned-sleep ruler** | `RulerScale(range: 0...10, value: option.sleepMin / 60, zone: zone(lo: 0.9 × need, hi: need), zoneStyle: .sleep, labels: ["0 h", "need 8:01", "10 h"])`, 14 below: the same ruler as Day's, the needle at the sleep the shown bedtime gives |
+| 4 | **Go-to-bed glow tile** | `GlowTile(metricSleep, kind: .hypnogram, min height 176)`, head: "Go to bed" (glow label) + "wake 7:00 AM" `.caption`; then three rows (12, 10, 10 apart): a 6 pt marker (filled `textPrimary` = your goal, hollow 1 pt ring = the other two: shape, not colour), the bedtime `ryftNumber(size: 24)` Light, and trailing "100 % of your need" (`.label`) over "8h 01m asleep" (`.caption`), both at the glow label colour. 20 below the ruler (+56 from the ruler's top, as Day) |
+| 5 | **Two neutral tiles** | Need "8:01" + "h" · Time in bed "8:54" + "h" with "90 %" (efficiency) as the note; 12 below |
+| 6 | **Settings card** | one grouped card, rows 46: "Wake up at" + the compact `DatePicker` (system chip, tint inherited) · "Why this need" (a disclosure row: expands `NeedBasisRows` inside the card) · "Bedtime & wake" (→ `SleepScheduleView`, the value = the schedule summary); 12 below. The footer "As of 10:44 AM" `.caption` `textTertiary`, 12 below |
+
+Replaces today's `TonightCard` (Tonight, "In bed by 9:36 PM for 100 %", the goals, the disclosure, the teal "Bedtime & wake" link) and the "Try another wake time" card, "Go to bed", "Why this need" cards. The three goals (100 / 85 / 70 %) are the glow tile's rows.
+
+States (Week, Month, Bedtime):
+
+| State | Trigger | Look |
+|---|---|---|
+| Loaded | `range` / `plan` | as above |
+| Loading, nothing cached | `isLoading && range == nil` | the numeral unlit ("0:00"), the tile and cards as `surface` outlines (1 pt `separator`), values "–"; VoiceOver "Loading"; no spinner (the draft's `ProgressView` goes) |
+| No sleep in the range | `range` nil, not loading | `InlineMessage` "No sleep data for this range yet." + `HealthAccessHint` when there is no Health data; the numeral "–" |
+| Fewer nights than the range | `nights < 7` / `< 30` | the numeral and tiles from what exists; the caption says "Average · 4 nights" |
+| Load error | `model.error` | the calm sentence with Details and Today's action, as Day (`SleepLoadFailure`) |
+| Bedtime: no schedule | `planner.schedule == nil` | the numeral unlit ("–:––"); "Tell RYFT when you want to wake up. It tells you when to go to bed, with what today's strain and your sleep debt add." `.callout` `textSecondary`; `PillButton(Text("Set up Bedtime & wake"), systemImage: "arrow.right")` → the editor; no ruler, no tile |
+| Bedtime: planning | `plan == nil && isLoading` | unlit numeral, ruler ticks without needle, the tile an outline with three unlit rows |
+| Bedtime: failed | `planner.error` | `InlineMessage` with retry in place of the tile |
+| Bedtime: alarm problem | `planner.alarmProblem` | `InlineMessage` (alarm) under the settings card |
+| Offline / stale | `state.refreshIssue` | the shared `RefreshIssueCard` under the picker; cached values in full ink |
+| Demo | `isDemo` | `MockData`'s week, month and plan |
+
+**P5-7.4 Day's lower cards (the leftovers of the blue)**: `SleepNeedBar` (strain top-up `metricStrain`, debt `warning`) becomes: baseline `metricSleep` 100 %, the strain top-up `metricSleep` 62 %, debt `textSecondary`, nap credit a 1 pt `textPrimary` outline segment (shape, not hue), the legend as text; `StageRow` (the stages card) draws its share bars in the 100 / 80 / 62 % tints and Awake `textTertiary`. `ProgressBar`'s default colour is `metricSleep`.
+`SleepScheduleView`, the Need sheet and the baseline editor are PR 6.
+
+**P5-7.5 Accessibility.** Header, picker (a container, `isSelected`), the numeral ("7 hours 58 minutes average sleep"), the tile (one element: "Bed and wake times, 7 nights. Average bedtime 10:48 PM, average wake 6:50 AM. Fairly regular."), each tile, the stage chart (descriptor per night), each night row ("Wednesday, November 18, 7 hours 48 minutes asleep, quality 91, consistency 86, nap 25 minutes"). Bedtime: the numeral ("Go to bed at 10:06 PM"), the ruler, the tile (one element, the three options with "your goal" on the first), the tiles, the rows. Dynamic Type: the picker becomes the menu from AX1; the 2-up tiles stack from AX1; the stage chart's legend wraps; the nights list rows stack the total under the title; the tile grows; labels in glow tiles go to 100 % from AX1 (`labelOpacity`). Reduce Motion: no needle move, no selection slide.
+
+### P5-8. Motion and the cross-cutting accessibility rules
+
+Every UI animation is `Theme.Motion.quick` (250 ms): the toggle knob, the segmented selection, the tab dot and weight, the day-strip selection and numeral cross-fade, the card
+expansion (`standard` is not used), the needle (PR 2). **Reduce Motion** turns every one off (they jump); the Strain and Insights screens add no other motion. No launch-style exception is needed in PR 5.
+**Reduce Transparency:** `GlowTile` is flat `surface` with a 2 pt metric border, as PR 2 and §P4-3 say; the `.zones` and `.idea` tiles follow. **Volt** appears only as the needle, the "today" dot in a `DotRow`, the active tab's dot and the Insights tile's hint dot, and each has a position or a word beside it.
+**Header traits** on every screen's title; focus order is top to bottom, the tab bar last. A state is never colour alone: dot shape, the word, the glyph, the position. **Dark only**; every preview and render here is dark.
+
+### P5-9. Data inventory and requests
+
+"Exists" means a view-model property or cached API field today (checked against `Models.swift`, `API.md` and the view models). A missing value is a pending look, never a number.
+
+| # | Board element | Source today | Status | When absent |
+|---|---|---|---|---|
+| ST1 | Strain value, band word | `DailyScore.strain`, `MetricSpec.strainBand` | exists | "–", unlit numeral, no needle |
+| ST2 | Zone 10–14 and "in today's target" | the fixed moderate band | **partly** (R-N1 open) | labelled with the band word, never "target" |
+| ST3 | Zone minutes Z1–Z5, total, TRIMP | `DayStrain.zoneMin`, `trimp` | exists | "–" per row; the sentence in §P5-3.7 |
+| ST4 | Zone names and HRR ranges | hard-coded in the app (`ZoneBar.ranges`) | **partly** (R-N3, optional) | the app's names |
+| ST5 | Steps, active energy | `DayStrain.steps/activeKcal`, the score | exists | "–" |
+| ST6 | Activities: time, duration, distance, strain | `Workout`, `SessionSummary`, `MyDayItem` | exists | "–" |
+| ST7 | 7-day strain delta | `StrainViewModel.strainDelta` | exists (not on the board) | no caption |
+| WK1 | The workout: strain, duration, TRIMP, avg / max HR, energy, distance, HR series, zones, source, session | `Workout`, `WorkoutDetail` | exists | per §P5-4 |
+| IN1 | 7 D / 30 D / 90 D | `TrendRange` | exists | — |
+| IN2 | The insight tile and cards | `Insight` (`severity`, `title`, `body`, `metric`) | exists; **no advice type** (R-N4, optional) | §P5-5.3 |
+| IN3 | Trend value, delta, average | `TrendSeries` (`points`, `avg`) | exists | "–" |
+| IN4 | The 30-day band | `min`/`max` of the 30-day series; the σ request exists (Charts #3) | exists (derived, as today's HRV and RHR bands) | no band, note "Band needs 30 days of data" |
+| IN5 | The HRV card's note | the platform's unit (SDNN) | exists | — |
+| PR1 | Name | `User.name` | **partly** (R-N2 open) | email, then `identityDescription` |
+| PR2 | Initials, strain share, status | derived from the title; today's `DailyScore.strain`; `SyncLine` | exists | person glyph; track only; the sync word |
+| PR3 | Rows | `ProfileViewModel` and the editors | exists | per §P5-6.3 |
+| SL1 | Week / Month: average, quality, consistency, bars, bedtimes, nights | `SleepRange`, `SleepRangeSummary` | exists | §P5-7.3 |
+| SL2 | Bedtime: options, need, in bed, efficiency, wake | `SleepPlan`, `BedtimePlanner` | exists | §P5-7.3 |
+
+**`MockData` placeholders** (T5.0 owns the file; previews and demo only; tests that pin today's values are re-pinned, each listed in the PR): the demo user is **"Alex Doe", `alex@example.com`**, and the source names "Alex's Apple Watch / iPhone" (today's mock carries the owner's real first name; the public repo should
+not: a finding, see question 7); today's `DayStrain`: `zoneMin` Z1–Z5 = 11, 24, 27, 14, 6 (82 min), `steps` 9,412, `activeKcal` 612, TRIMP 112; the demo workouts keep their times (a 06:40 run of 52 min); trends: a readiness series ending above its 30-day range with a +11 delta,
+an HRV series ending at 66 ms (+6), a sleep series averaging 7:31 with 7:48 last (+0:17), the other metrics as today; `MockData.insights` gets one `info`, one `notice` and one `warn` so the tile and both card kinds are previewable.
+
+**Requests** (`docs/API_REQUESTS.md`, "Nocturne restyle" block; T5.7 files them; R-N1 and R-N2 are open from PR 4; R-N3 "slept enough" stays unfiled):
+
+3. **R-N3 (optional): the heart-rate zone definitions.** The app hard-codes "Z1 Easy … Z5 Max" and the HRR ranges (50–60, 60–70, 70–80, 80–90, ≥ 90 %); `DayStrain.zone_min` carries five numbers and no meaning. *Proposal:* `DayStrain.zone_bounds_pct` (`[[50, 60], …]`, % of heart-rate reserve, the bounds the platform scored with) in `GET /v1/days/{day}` and `WorkoutDetail`. *Until then:* the app's constants, labelled "Zones are in % of heart-rate reserve."
+4. **R-N4 (optional): advice versus observation.** Strain and Insights' tile is called "Insight" because every `Insight` is a rule's observation. *Proposal:* `Insight.type` (`observation` | `suggestion`); the app labels the tile "An idea" for a `suggestion` and "Insight" otherwise. *Until then:* the tile is "Insight".
+5. **R-N5 (optional): the usual range for readiness and sleep.** Charts #3 asks for baseline ± σ for HRV and resting HR; Insights now draws a band on readiness and sleep too. *Proposal:* extend it: `baseline_lo` / `baseline_hi` (or σ) on the `/v1/trends` series for `readiness`, `sleep_min`. *Until then:* the 30-day min–max, labelled "Band: 30-day range".
+
+### P5-10. Strings (English only; `Localizable.xcstrings`, targeted edits, a `--stat` check; localization-editor finalises)
+
+| Key (English) | Where / comment |
+|---|---|
+| `Tab bar` · `Tab %lld of %lld` | VoiceOver: the bar's label, an item's position (the component's only strings) |
+| `Opens the add-activity sheet` · `Days of this week` · `%1$@, strain %2$@` · `%@, no data` | Strain: header hint, the strip's container, a day cell |
+| `moderate 10–14` · `Z5 · Max` · `Z4 · Threshold` · `Z3 · Tempo` · `Z2 · Aerobic` · `Z1 · Easy` · `%lld min` · `Zones are in % of heart-rate reserve.` | Strain's ruler label and zone block. **Replaces** `Zones in % of heart-rate reserve` |
+| `Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld minutes` | the zone row's spoken label |
+| `Your watch didn't record heart-rate zones for this day.` · `No strain recorded for this day.` · `Loading this day` (exists) | Strain states |
+| `Recorded by %@` · `Average heart rate` · `Max heart rate` · `Energy` · `No heart-rate zones for this workout.` | Workout detail. **Replaces** `Avg HR`, `Max HR`, `Calories` |
+| `7 D` · `30 D` · `90 D` | Insights' segments (VoiceOver keeps `7 days` …) |
+| `More trends` · `SDNN` · `Avg %@` · `Band needs 30 days of data` · `No data in this range` · `Shows the detailed chart` | Insights' cards. `Band: 30-day range` exists |
+| `%1$@ over %2$lld days, ending above its usual range` · `…, ending within…` · `…, ending below…` · `%1$@ over %2$lld days, ending at %3$@` | a trend chart's spoken label |
+| `Connect a data source to see trends.` | Insights, not set up |
+| `About you` · `Devices and sync` · `Training` · `Settings` · `Privacy` · `Account` · `About` · `Export data` · `Journal` | Profile's group titles and rows. **Replaces** `Body`, `Sleep` (the group titles), `Export my data` |
+| `%1$@ · %2$@` with `up to date` · `updating…` · `offline` · `updated %@` · `action needed` | Profile's status row (the source and the sync word) |
+| `Alex Doe. %@, %@. Strain today %@ of 21.` (a template) | the identity row's spoken sentence |
+| `Average · last %lld nights` · `Average · %lld nights` · `Bed and wake times` · `%lld nights` | Sleep Week and Month. **Replaces** `Avg sleep`, `Avg quality` |
+| `In bed by · %lld %% of your need` · `wake %@` · `Need` · `Time in bed` · `Planned sleep` | Sleep Bedtime |
+
+**Remove** (grep first): `Day strain`, `Active kcal`, `Try another wake time`, `Trends` (the label before the picker), `Show the chart` stays; the keys of the deleted views (`MetricGauge`, `ZoneBar`, `StrainPill`). The strings of `PrimaryButton` callers are unchanged.
+
+### P5-11. Previews and catalog
+
+Dark only (D3), default size and AX3 (`"<View> · <state>"`, `"… · AX3"`). `DebugComponentCatalog` gets, after "Nocturne · rows": `Nocturne · buttons` (primary, secondary, destructive, busy, disabled; icons), `Nocturne · toggle` (on, off, disabled, in a row), `Nocturne · icon disc and link`, `Nocturne · zone block` (aligned, stacked, no data), `Nocturne · day strip`, `Nocturne · trend line` (band above, within, below; broken; lone point; pending), `Nocturne · tab bar` (selected each; AX3), and the glow kinds section gets `.zones` and `.idea` (incl. the flat fallback at 420+).
+
+| Screen | Previews (each × default, AX3) |
+|---|---|
+| Strain | scored · thin digits · strength split · another day · loading · no data · no zones · no workouts · error · offline with `RefreshIssueCard` · Train section (idle, in progress) · My Day list (`today.my_day`) · Reduce Transparency |
+| Workout detail | run · strength (session linked) · no heart-rate series · no zones · loading |
+| Insights | scored (all three card kinds) · only the tile · no insights · loading · no data for HRV · calibrating band · offline · expanded card · 7 D, 90 D · Reduce Transparency |
+| Profile | signed in · no name (email) · no strain today · signed out / demo · syncing · offline · consent outdated · exporting · the Developer group (Debug) |
+| Sleep modes | Week · Month · Bedtime · Bedtime no schedule · loading · no sleep · the picker (default, AX1 menu) · Day with the new picker |
+| Tab bar | five selected states; AX3; keyboard up (hidden) |
+
+### P5-12. Tests
+
+Swift Testing, `@MainActor`; pure first. Files: `StrainLayoutTests`, `InsightsLayoutTests`, `ProfileLayoutTests`, `SleepModesLayoutTests`, `RyftTabBarTests`, `PillButtonNocturneTests`, `NocturneP5ComponentTests`, `GlowTileKindP5Tests`, `StrainDataTests`, `InsightsDataTests`, `ProfileDataTests`, `SleepModesDataTests`, `NocturneP5A11yTests`; `RyftUITests` for 52. Mutation-check each new assertion (PR 4's rule).
+
+**Layout constants**
+1. `StrainLayout`: header 40, strip gap 12 and height 44, strip→numeral 22, numeral→caption 12, caption→split 4, caption→ruler 14, ruler→tile (`followingGap`) 56, zones tile 176 min / radius 28, tile→tiles 12, tile height 80 / gap 12 / radius 22 / padding 14 / 16 / 12, tiles→Train 24, row 60 / radius 20 / gap 8 / padding 16 / `IconDisc` 36.
+2. `InsightsLayout`: header 40, header→first block 22, tile min 120 / radius 28 / padding 16 / 18, tile→cards 12, trend card min 132 / radius 24 / gap 12, padding 14 / 16, head→value 2, value→chart 6, chart 318 × 48 (350 − 32), band opacities 0.06 / 0.12.
+3. `ProfileLayout`: header 40, header→identity 18, avatar 72 / ring radius 34 / stroke 1.6 / dot 3.4 / ring 1.6 / inset 8, row gap 16, name→status 6, group title→card 8, identity→first group 24, groups 18, card radius 22, row min 46, buttons 18 below / 52 high / 12 gap.
+4. `SleepModesLayout`: picker 40 (padding 3, gap 4, segment 34, radius 17, control radius 20), numeral gap 22, caption gap 12, tile gap 20, tiles gap 12, stage card height 150 (chart), tints 1.0 / 0.80 / 0.62, 1.5 pt segment gap; `SleepLayout.pickerHeight` 40 so Day is +52 against the board.
+5. `RyftTabBar`: top 14, dot 6, gap 6, bottom 4, sides 16, item min 44 × 44, `contentHeight` 44, unselected dot 0.30, label cap `xxLarge`.
+
+**Contrast** (computed from `GlowTileSpec.overlayOpacity`, rendered where it says)
+6. `PillButton`: `background` on `textPrimary` ≥ 17; pressed 85 % ≥ 12; `alert` title on `background` ≥ 6.0 and on `surface` ≥ 5.6; destructive outline (`alert` 70 %) ≥ 3.3 on both.
+7. Toggle: knob on track ≥ 17; off outline and knob (`textTertiary`) ≥ 4.5 on `surface` and `background`.
+8. `.zones` (strain, padded 14 / 16): 350 × 176 `textPrimary` ≥ 7.7, 78 % label ≥ 5.4; 335 / 362 / 400 wide; AX3 350 × 240 / 300 / 420 ≥ 7.0 and ≥ 5.0; lit ticks ≥ 11.
+9. `.idea` (recovery, padded 16 / 18): `textPrimary` at 350 × 120 ≥ 6.2, 150 ≥ 5.8, 260 ≥ 5.1, 420 ≥ 4.8; every size ≥ 4.5; above 420 the tile is flat (test the switch) and flat `surface` gives ≥ 16; the board's 78 % label **fails** at 350 × 200 (4.01) and the test documents why labels are full ink; the Volt dot ≥ 6.
+10. Trend: line over band recovery ≥ 7.9, sleep ≥ 5.4, strain ≥ 4.7; readiness ink over its 6 % band ≥ 14; `textTertiary` note on `surface` ≥ 4.5.
+11. Stage tints over `surface`: 100 % ≥ 6.3, 80 % ≥ 4.5, 62 % ≥ 3.1 (graphics need 3); the bars in the `.hypnogram` glow ≥ 3.6; text in a 350 × 230 / 300 / 360 sleep tile ≥ 6.5 / 6.6 / 6.5 and the label ≥ 4.6.
+12. Tab bar: label `textTertiary` ≥ 4.5 on `background`; selected `textPrimary` ≥ 17; the unselected dot (0.30) is **documented as under 3** (2.45) and not asserted as a boundary.
+13. `GlowTileSpec.shape(for: .zones / .idea)`: ellipse (0.90, 0.95, 0.55), stops, radius 28, min height 176 / 120, padding 14 / 16 and 16 / 18; `.idea` flat above 420; `overlayOpacity` per kind at the stops.
+
+**Components**
+14. `ZoneBlock`: five labels measured; at 318 available and the real label widths (76 pt for "Z4 · Threshold") → `.aligned(labelColumn: 76)`; at 303 → `.stacked`; from AX1 → `.stacked`; **all five rows' ticks start at the same x** (hosted, ±0.5 pt) when aligned; `TickRow` under `.stacked` keeps 177 pt ticks leading-aligned; `.automatic` is today's behaviour (the PR 2 tests unchanged).
+15. `TickRow.litCount(minutes:scaleMax: 40)` for the board's zones: 11 → 8, 24 → 18, 27 → 20, 14 → 11, 6 → 5; 40 → 30; 90 → 30.
+16. `RyftToggleStyle` (hosted): still a switch (label, value "on" / "off", `isToggle`), frame ≥ 51 × 31 and the row ≥ 44, `activate()` toggles, disabled does not.
+17. `PillButton`: `.destructive`; `busy` disables the action, keeps the label, adds the value "In progress", width unchanged between busy and idle; the `async` init runs the action once; `systemImage: nil` takes the default; AX3 grows without clipping (PR 2 tests 25 extended).
+18. `IconDisc`: 36 / 40, ring 16 %, no fill; hidden unless labelled. `ryftLink()`: 44 high, underline.
+19. `DayStrip`: seven cells ending today, each 50 × 44, the selected cell's disc, no-data number `textTertiary`, spoken labels ("Monday, November 16, strain 9.8", "…, no data"), `isSelected`, the container label; selecting calls back with the day.
+20. `TrendLine`: y domain = series ∪ band with a 2 pt inset, a `nil` breaks the path, a lone point draws a dot, a flat series is at mid height, the pending look is a flat 1 pt line; the spoken ending ("above / within / below").
+21. `ScreenHeader(title:trailing:)`: 40 high, the title leading with the header trait, the trailing slot at the inset; the trailing `SegmentedPicker` at 390 and stacked at AX1.
+22. A source scan (`scripts/check-accent.sh`, part of `make lint`): no `Theme.accent`, `Theme.onAccent`, `Theme.teal`, `PrimaryButton`, `TealButtonStyle`, `SchemePair` and no `.tint(Theme.` other than `textPrimary` / `textSecondary` in `Ryft/`; fails on a planted one.
+23. `Theme.band(forScore:)` returns `recovery` ≥ 67; `DeltaLabel.color`: good = the spec colour, bad = `alert`, flat = `textSecondary`; `MetricSpec.hrv` is `recovery`, `rhr`, `heartRate`, `activeKcal`, `steps` are `textPrimary`; `Theme.color(for: .info)` is `textSecondary`.
+
+**Data and states**
+24. Strain: `week` has seven days ending today; `select` clamps to the week; the band word at 9.9 / 10 / 13.9 / 14 / 17.9 / 18; the zone ticks for 10–14 = 30…42; `strainDelta` shown only with ≥ 3 priors; the split text only with a strength session.
+25. Activity row meta: "07:10 · 42 min · 7.8 km", the avg-HR variant, the session variant "· Load 84.6", "–" for no strain; one view for the three item kinds.
+26. Strain states: loading, no strain, no zones, no workouts, error (the calm sentence, never `localizedDescription`), offline / stale (`RefreshIssueCard`), another day (Train hidden), each by the pure decision and the identifiers (`strain.numeral`, `strain.ruler`, `strain.zones`, `strain.tile.steps` / `.energy`, `strain.activities`, `strain.row.<id>`, `strain.header.add`, `strain.day.<yyyy-MM-dd>`).
+27. Workout: the numeral and ruler from `workout.strain`; zones scale 40; the stat tile list with and without a distance; the session row only with `sessionId`; no-series, no-zones and loading variants.
+28. Insights tile rule: the first visible `info` insight; none with only notice / warn; notice and warn above, other `info` below; dismissing the tile promotes the next; the route link text per kind ("Show the chart", "See behaviors", "See the session").
+29. Trend data: latest value, delta vs the 7 before (none under 3), `avg`, the band from the 30-day series for readiness, HRV, sleep (min), resting HR; `monthly` fetches those four; no band without a series; the HRV line / band / delta are `recovery`; readiness line `textPrimary`; the note "SDNN".
+30. Trend states: loading (flat line, "–"), no data, no band, expanded (`focusedMetric` opens its card), the order (Readiness, HRV, Sleep, then the rest, no card lost: 14 in all).
+31. Profile identity: initials for "Alex Doe" → "AD", "alex" → "A", "Alex" → "A", "  " → glyph, "alex@example.com" → "A", nil → glyph, "Åsa Öhman" → "ÅÖ"; the title falls back name → email → `identityDescription`; the strain arc for 12.4 / 21 ends at 212.6° from 12 o'clock; no strain → no arc and no dot.
+32. Profile status: the sync word and dot kind for up to date, updating, offline, stale, action needed, demo; never teal.
+33. **Row inventory:** every identifier of today's Profile (`profile.signInMethods`, `.logOut`, `.logOut.sendFirst`, `.logOut.anyway`, `.bedtime`, `.devices`, `.saveWorkouts`, `.sleepBase`, `.syncDetails`, `.notifications`, `.journal`, `.reportProblem`, `.jumpToNext`, `.sessionLayout`, `dev.catalog`, `dev.flags`) is present or deliberately mapped; the groups' visibility follows `showsTraining`, `showsNotifications`, `journal.isLive`, `bedtime.isEnabled`, `devices.isEnabled`, `canExport`, `isSignedIn`; the Display → Hero numbers row exists (PR 4 §P4-6 tests 46–47 stay green).
+34. Sleep modes: the picker constants; Day's numeral top is +52 against the board; Week / Month numeral from `avgTotalMin`; the consistency `DotRow` marks (≥ 60 full, < 60 missed, nil no data, last today); the stage order (Deep, Light, REM bottom to top) and tints; Month has no row labels; "Average · 4 nights" below the range.
+35. `Fmt.clockParts`: "10:06 PM" (U+202F) → ("10:06", "PM"), the same with U+00A0 and a plain space, "22:06" → ("22:06", nil), "" → ("", nil); a 24-hour locale; the numeral renders dots (not the Light fallback) for the digits.
+36. Bedtime: the numeral from the first option, the ruler zone 90–100 % of the need, the three rows with the goal's marker, the no-schedule / planning / failed / alarm states, the settings card rows.
+37. Day's lower cards: `SleepNeedBar` and `StageRow` use no stage-blue and no `metricStrain`; the stage tokens have no callers (a grep test).
+
+**Tab bar, accessibility, hosted**
+38. The bar in a `TabView` with a 34 pt inset: 78 high; a tab's content ends at the bar's top (the last element's frame ≤ the bar's minY); the keyboard hides it; a tab keeps its `@State` across selection changes.
+39. VoiceOver order and labels per §P5-3.8, §P5-5, §P5-6.4, §P5-7.5 (hosted): header traits, one element per tile, ruler, chart, row, the buttons labelled, the disabled ones hinted.
+40. AX3 (hosted): nothing clipped (frames inside the width) on Strain, the Workout, Insights, Profile, Sleep Week / Month / Bedtime; the zone block stacked at 177 pt; the picker is the menu; the tab bar's labels capped.
+41. Strings: the catalog has every key of §P5-10 with a comment and none of the removed ones; `make lint` strings green.
+42. `reselect` bumps only that tab's stack id; re-tapping Strain with a pushed workout returns to the root (UI).
+43. Reduce Motion: no needle move, no selection slide, no card-expansion animation; Reduce Transparency: the new glow kinds flat with a 2 pt border.
+44. Regression: Welcome and the live workout at AX3 (L30) with the new pills; the launch test; the Today and Sleep PR 4 tests that pin `SegmentedPicker`'s height (52) are re-pinned to 40 and listed.
+45. `Fixture decode`: nothing in `Models.swift` changes (R-N3 … R-N5 are not decoded).
+46. Previews exist for every row of §P5-11 (a hosted smoke that instantiates them is optional).
+47–51. **UI (`UISmoke`)**: each tab via `app.tab(...)`; Strain: pick the previous day, the numeral changes, the plus opens the sheet, a row opens the workout and back; Insights: 7 D, 90 D, the tile's dismiss, a card expands; Profile: the groups exist, Log out shows the dialog, the Hero numbers row; Sleep: Week, Month and Bedtime each show their numeral and the picker keeps the selection.
+52. The five tabs open under `-RyftTab <name>` (the launch argument contract).
+
+### P5-13. Files, the split into tickets, and the draft renders
+
+**Order.** T5.0 (shared parts) first; T5.1 (tab bar) can run beside it; then T5.2–T5.5 and the three sweeps in parallel worktrees on disjoint file sets; strings, docs and tests after; the gate last.
+
+| Ticket | Owner | Files (owned: no other ticket edits them) | Depends on | Parallel-safe with |
+|---|---|---|---|---|
+| **T5.0 Foundation** | ios-developer | New `Design/RyftToggleStyle.swift`, `IconDisc.swift`, `InlineLink.swift` (`ryftLink`), `ZoneBlock.swift`, `DayStrip.swift`, `TrendLine.swift`; changed `Design/PillButton.swift`, `SegmentedPicker.swift`, `ScreenHeader.swift` (`init(title:trailing:)`), `GlowTile.swift` (`.zones`, `.idea`, flat above 420, `paddedRectContrast`), `TickRow.swift` (`arrangement`), `DeltaLabel.swift`, `MetricSpec.swift`, `Theme.swift` (`band`, `color(for severity)`; `accent` stays until T5.9), the **Design sweep** of `accent-map.md` (`Card`, `EffortScale`, `ImportProgressBar`, `InsightCard` colours only, `RangeBar`, `ScoreRing`, `StepRule`, `UndoToast`, `StatusViews.swift` except `ScreenScaffold`, `CoachMarks`), `App/Formatting.swift` (`Fmt.clockParts`), `Preview/MockData.swift` (+ `MockActivities.swift`), `Preview/PreviewSupport.swift` (tint), `DebugComponentCatalog.swift` (§P5-11 entries; **the only ticket that edits it**), tests 6, 7, 13–21, 23, 35, `check-accent.sh` as a script (wired in T5.9) | — | T5.1; T5.5's reading of the spec |
+| **T5.1 Tab bar** | ios-developer | `Design/RyftTabBar.swift` (exists; tests, finish), `App/RyftApp.swift` (`RootView.tabView`, the app `.tint`, `AppTab.title`), `App/AppState.swift` (`tabStackIDs`, `reselect`), `Design/StatusViews.swift` → **`ScreenScaffold` only** (a different hunk from T5.0's sweep; rebase), `RyftUITests/Support/UITestSupport.swift` and the nine UI-test files' tab lookups (§P5-2); tests 5, 12, 38, 42, 52 | — | T5.0, T5.2–T5.5, the sweeps |
+| **T5.2 Strain + Workout** | ios-developer | `Features/Strain/*` (view, view model, components, `WorkoutDetailView`), new `StrainLayout.swift`, `ActivityListRow.swift`, `Features/Train/TrainSection.swift` (all of it); **deletes** `MetricGauge.swift`, `MetricTile.swift`, `ZoneBar.swift`, `StrainPill`; tests 1, 15, 24–27 | T5.0 | T5.3, T5.4, T5.5, T5.0b-*, T5.1 |
+| **T5.3 Insights** | ios-developer | `Features/Insights/*`, `Design/InsightCard.swift` (layout), `Design/TrendChart.swift` (restyle, expanded use), new `InsightsLayout.swift`, `TrendCard.swift`, `InsightTile.swift`; tests 2, 28–30 | T5.0 | T5.2, T5.4, T5.5, T5.0b-*, T5.1 |
+| **T5.4 Profile (main list)** | ios-developer | `Features/Profile/ProfileView.swift` (**the whole file, including the `PrimaryButton` swaps inside the subpages' code**), `ProfileViewModel.swift` (identity, status), new `ProfileLayout.swift`, `ProfileIdentity.swift`, `ProfileRows.swift`; tests 3, 31–33 | T5.0 | T5.2, T5.3, T5.5, T5.0b-*, T5.1 |
+| **T5.5 Sleep modes** | ios-developer | `Features/Sleep/SleepView.swift`, `SleepPlannerView.swift` (the planner section and `TonightCard`; the editor's code is PR 6), `SleepViewModel.swift`, new `SleepRangeSection.swift`, `SleepBedtimeSection.swift`, `SleepModesLayout.swift`; `Design/SleepNeedBar.swift`, `StageRow.swift`, `BedtimeStrip.swift` (no row labels for 30 nights); tests 4, 34, 36, 37 | T5.0 (`SegmentedPicker`, `DayStrip` not needed) | T5.2, T5.3, T5.4, T5.0b-*, T5.1 |
+| **T5.0b-1 Sweep A** | ios-developer | `Features/Auth/*`, `Features/Onboarding/*`, `Push/*`, `Features/Journal/*`, `Features/Activities/*`, `Features/MyDay/*`: the `accent-map.md` rows and the `PrimaryButton` sites of those files; their light previews | T5.0 | all but T5.0b-1 |
+| **T5.0b-2 Sweep B** | ios-developer | `Features/Train/**` (incl. `Import/*`, `ImportPrimaryButton`, `TrainComponents.swift` with `TrainLinkRow` and `WorkoutInProgressBanner` as §P5-3.5), **not** `TrainSection.swift`; the AX3 tests of the live workout stay green | T5.0 | all but T5.0b-2 |
+| **T5.0b-3 Sweep C** | ios-developer | `Features/Today/*` (the `TealButtonStyle` sites, `TodayView.swift`), `Features/Profile/NotificationSettingsView.swift`, `FeatureFlagsDebugView.swift`, `LicensesView.swift`, `DataExport.swift` | T5.0 | all but T5.0b-3 |
+| **T5.6 Strings** | localization-editor | `Resources/Localizable.xcstrings` (targeted edits, `--stat`) | T5.2–T5.5 | T5.7 |
+| **T5.7 Docs and requests** | api-contract-keeper | `docs/API_REQUESTS.md` (R-N3 … R-N5, §P5-9), `CHANGELOG.md`, `docs/STATUS.md` | — | everything |
+| **T5.8 Tests** | test-engineer | the files and cases of §P5-12 not written by the owning ticket; the mutation checks; the UI tests 47–51 | each screen ticket | the next screen's |
+| **T5.9 Gate** | ios-developer | Deletes `PrimaryButton`, `TealButtonStyle`, `Theme.accent`, `onAccent`, `teal`, `Theme.zones`, `StageDeep/Light/REM/Awake`, `SchemePair`; wires `check-accent.sh` into `make lint`; removes the leftover light previews (`accent-map.md`, D3) and the 74 `-light` screenshots; re-shoots `make screenshots`; zero warnings, Unit, UISmoke, `make lint`, `make style` green | all | — |
+
+Shared files and their owners: **the catalog** (`Localizable.xcstrings`) T5.6; **`MockData`** T5.0; **`GlowTileSpec`** T5.0; **`Theme.swift`** T5.0 (additions and changes) then T5.9 (deletions); **the tab bar host** (`RyftApp.swift`, `AppState.swift`, `ScreenScaffold`) T5.1;
+**`DebugComponentCatalog.swift`** T5.0; **`ProfileView.swift`** T5.4 alone; **`TrainSection.swift`** T5.2 alone; **`Train/**` otherwise** T5.0b-2. A sweep ticket that finds a line in a file it does not own sends it to the owner. Not touched in PR 5: `OrbitGauge`, `RyftMark`, `LaunchStage`, the model, sync, API, `Models.swift`.
+
+**Draft renders** (L28; the lead shows them to the user before the screens are built). Dark, English, demo data, composed from the real components on the iPhone 16e simulator (390 × 844, iOS 27.2), no real data (the demo user was renamed to "Alex Doe" for the renders). They are scratch code
+(a debug-only view file and launch arguments, **not committed**); the one committed piece is `Design/RyftTabBar.swift`, the real component. Where a draft stands in for a component that does not exist yet it says so: the zone rows in the Workout draft emulate the aligned label column of §P5-3.4; the Sleep draft's picker is the restyle of §P5-7.1.
+
+| File (scratchpad `pr5-drafts/`) | Shows |
+|---|---|
+| `draft-workout-top.png`, `draft-workout-bottom.png` | Workout detail: header, numeral, ruler, zones tile, stat tiles; the session row, the heart-rate card (ink line), the source |
+| `draft-sleep-week-top.png`, `-bottom.png` | Sleep → Week: numeral, bed-and-wake glow tile, Quality and Consistency tiles; stage card (100 / 80 / 62 % violet), the nights list |
+| `draft-sleep-month-top.png`, `-bottom.png` | Sleep → Month: the same at 30 nights (no row labels, thinner bars) |
+| `draft-sleep-bedtime.png` | Sleep → Bedtime (one screen): the bedtime numeral with its meridiem, planned-sleep ruler, the go-to-bed tile, Need and Time in bed, the settings card |
+| `tab-bar-today.png` (402 × 874), `tab-bar-today-390.png` (390 × 844) | The dot tab bar on Today at the scroll top: the strain tile and its ruler clear of the bar |
+
+Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars and show one night too few labels for eight bars (the existing chart; T5.5 checks the data and the alignment before the labels are relied on). Not drawn (the board or an existing screen covers them): Strain, Insights, Profile (their boards), the Insights expanded card, the day strip, the Profile groups beyond the board's look. If the lead wants any of these drawn for approval, they are cheap to add.
+
+### P5-14. Deviations
+
+| # | Board / brief | Spec | Why |
+|---|---|---|---|
+| D5-1 | Pill buttons 52; the app's `PrimaryButton` 44 | Every button row is 52 pt (+8) | L27: one button, the board's size |
+| D5-2 | Strain has no day selection | A 44 pt `DayStrip` under the header (+56 against the board) | Today's week strip is the only way to see an earlier day; Sleep has the same kind of step |
+| D5-3 | Tab bar 76 | 78 on a phone with an indicator (content 44, not 42) | An item must be a 44 pt target on a phone without an indicator |
+| D5-4 | No delta on Strain | "▲ +1.2 vs 7 d" after the caption, by Today's rule (`MetricDelta.vsSevenDayMean`, one of the 6 days before is enough; T5.7, was 3 or more of the 7 before) | `strainDelta` exists today; the numbers-first rule keeps the baseline; one rule for "vs 7 d" everywhere (T5.3) |
+| D5-5 | Insights header has no disclaimer | The wellness sentence is the page's last line | Guideline 1.4.1 content stays on the screen; the header has no room |
+| D5-6 | Tile "An idea" | "Insight", only for `info` insights; notice and warn are neutral cards above | The rules produce observations; teal is not a warning's colour (R-N4) |
+| D5-7 | Glow text at 0.78 / 0.62 / 0.55 | Full `textPrimary` and the label rule (78 %, 100 % in recovery) | 4.5:1 in the core: the board's 62 % is 4.09 (zones) and 3.47 (idea) |
+| D5-8 | Trend card without a chevron | A chevron; the card opens in place to the detailed chart | The detailed chart and Avg · Min · Max exist today and must stay reachable (the "Show the chart" link) |
+| D5-9 | HRV card in strain blue, "Morning, RMSSD" | `recovery` teal; note "SDNN" | The rings are the legend; the platform delivers SDNN |
+| D5-10 | Sleep has no picker (PR 4, L20) | A 40 pt restyled picker; Day is +52 against the board | The picker is 12 pt shorter than PR 4's (+64) |
+| D5-11 | Profile status dot in recovery teal | `textPrimary` filled dot (up to date), hollow, `warning`, `alert` | L27: teal is recovery only; the word carries the state |
+| D5-12 | Three groups; "Behaviors to track" | Seven groups of the app's real rows; "Journal" | The board gives the look; no other brand's words |
+| D5-13 | Zone labels in a 74 pt column | The column is the widest label (76 pt for "Z4 · Threshold"), else all rows stack | One tick column; 317 of 318 pt at 390 |
+| D5-14 | Zone rows 0.62 labels | 78 % labels | D5-7 |
+| D5-15 | Tab dot 30 %, label 50 % | The dot 30 % (decoration, 2.45), the label `textTertiary` 48 % (4.54) | PR 1 D-a |
+| D5-16 | Selected label full ink | Also Medium | Volt and brightness are not the only cue |
+| D5-17 | "82 min" in the zones tile head | "82 min · TRIMP 112" | TRIMP is on the screen today |
+| D5-18 | "in today's target" | "of 21 · moderate" | R-N1 is unfiled: no target exists, so never "target" |
+| D5-19 | Three trend cards | Fourteen: the board's three first, "More trends" after | Every metric and deep link exists today |
+| D5-20 | Glow tile at any height | The `.idea` tile is flat `surface` + a 2 pt border above 420 pt | 4.81:1 at 420; the corners fail beyond |
+| D5-21 | Ruler label "target 10–14" | "moderate 10–14" | R-N1 |
+| D5-22 | Strain activity rows without a chevron | Same (board); the hint carries the link | — |
+| D5-23 | Profile Privacy Policy twice | Once, in About | The duplicate is dropped |
+| D5-24 | §P5-3.5: the Train links in one grouped card | Separate `ActivityListRow`s with a chevron, 12 apart (T5.2) | b-23 draws them so; one row look for the page's lists |
+| D5-25 | F7: a `DayStrip`, ids `strain.day.*` | The shared `DateStrip` (My Day's), ids `datestrip.day.<yyyy-MM-dd>` (T5.2) | One strip in the app, the same 44 pt cells |
+| D5-26 | The strip is the only way to another day; no date on the page | A tap stays in the strip's week; a deep link opens any past day (older than the strip: no cell selected). On another day than today a date line ("Mon 16 Nov", 13 Regular `textSecondary`) sits 2 under the header; today has none, as the draft. The header's title speaks the day ("Strain, Yesterday"), and a deep link's day is announced once it has loaded (T5.2 review) | Push and widget links name days older than a week; the shown day must be named |
+| D5-27 | "52 min" | Under an hour "42 min"; from an hour "1:05 h" (T5.2) | The tile's value stays one short line |
+| D5-28 | The chart's y ticks 120 / 150 / 180 | Three ticks a round step apart covering the curve: 120 / 150 / 180 for the draft's series, 120 / 140 / 160 for the demo's (T5.2) | The scale follows the data |
+| D5-29 | Zones head and row meta at 0.55 | The glow-label ink (78 %) or `textTertiary` (T5.2) | No 0.55 token; 0.55 fails 4.5:1 in the glow tile (D5-7) |
+| D5-30 | The heart-rate chart at one size | From AX1: 200 pt tall, every other clock tick, "peak 159" in the card's head instead of over its dot (T5.2) | At AX3 the clock labels collide and the peak note overlaps the head |
+| D5-31 | The HRV note "Morning, RMSSD" | "SDNN" (T5.3) | The HRV RYFT reads from Apple Health is SDNN |
+| D5-32 | A change on every trend card in the metric's colour | Grey for metrics with no good direction: naps, active energy, strain (T5.3) | Inventing a direction would turn less activity red |
+| D5-33 | A 30-day min–max band | The usual range: mean ± 1 SD of the 30-day values before the newest, from 7 of them; below that "Band needs 7 days of data". The expanded chart draws it at TrendChart's 10 % (T5.3 review) | Min–max with the newest inside filled the chart box and could never read above or below |
+| D5-34 | "vs 7 d" from each range's own series | Today's rule (`MetricDelta.vsSevenDayMean`) over the 7 days ending on the newest value, the same in every range; duration changes keep `DeltaLabel`'s "+17m" style, not the board's "0:17" (T5.3 review, lead) | Insights, Today and Sleep agree on one number and one format |
+| D5-35 | Range control always shown; no stale note | "Not set up" hides the range control; a failed refresh shows "As of <MMM d>"; nothing loaded and nothing in flight shows "Not loaded" (T5.3) | Nothing to range over; never claim "no data" for a read that didn't happen |
+| D5-36 | Week/Month tiles as `NeutralTile`; a `TrendLine` | `SleepNeutralTile`/`SleepTileGrid` (88 pt, Day's dot row); no TrendLine (T5.5) | They match Day's tiles; the spec gives TrendLine no place |
+| D5-37 | Week/Month without a delta | "<night> ▲/▼ … vs 7 d": the newest night against the six before it in its seven (Today's and Insights' rule), the same in Week and Month; "Last night" only for this morning's night, else the weekday (T5.5, F6, review) | F6; one rule app-wide; never call an older night "last night" |
+| D5-38 | The date row as chart axis labels | An overlay `Layout` under the plot; colliding labels drop, the newest stays (T5.5) | Charts can't centre the last label; the plot doesn't move |
+| D5-39 | Stage segments with surface-coloured gaps | Gaps in data units (1.5 pt at the 128 pt plot) (T5.5) | No stroke over the glow; a stage shorter than the gap collapses harmlessly |
+| D5-40 | Bedtime's numeral from `options.first` | The schedule's goal for its next wake (as Today, the reminder and the widget) until the picker moves; "As of" only for a cached plan (T5.5 review B1) | Sleep → Bedtime and Today must name the same bedtime |
+| D5-41 | No schedule → invitation only | The invitation over the three bedtimes and the settings card; no numeral, ruler, tiles or "your goal" (T5.5 review S7, lead) | Keeps the planner the old mode offered to everyone |
+| D5-42 | "–" / "–:––" placeholders | Unlit "0:00" / "00:00" (T5.5) | `DotNumeral`'s pending look; its Light fallback still shows "–:––" |
+| D5-43 | `ProgressBar` in accent | Defaults to `metricSleep` (T5.5) | Its only caller is Sleep's details card |
+| D5-44 | No staleness note on Week/Month | "As of <day>" footer when offline, after a failed read, or when the range doesn't end today (T5.5 review S5) | A days-old week mustn't read as current |
+| D5-45 | "updated 5 h ago" | The system relative format: "updated 5 hr. ago"; "updated now" under a minute (T5.4) | One formatter, localized by the system |
+| D5-46 | Demo state "Demo data" + glyph | Signed out in the demo: the demo person ("Alex Doe", "AD"); signed in with Demo data on: the session's account, with "Demo data" as the status source (T5.4, security review) | Account rows must describe the account they act on |
+| D5-47 | Apple Health as one link-out row with a value | A value row (`warning` when it needs attention), "Allow access" while RYFT can still ask, and "Open Health" ↗ (T5.4) | `GroupedRow` has no link-out kind with a value |
+| D5-48 | No Device ID row | Device ID kept as a value row in Devices and sync (T5.4) | Support asks for it |
+| D5-49 | — | Full re-sync removed from Profile; it stays in Sync details with its confirmation (T5.4) | §P5-6.2 lists no re-sync row |
+| D5-50 | Demo data's sentence as the card footer | The toggle's detail line; the footer carries the sync notices, the demo-exit error and the Health steps (T5.4) | The footer belongs to the whole card |
+| D5-51 | Baseline-need sentence under the row | Only in its editor (T5.4) | The editor explains it at length |
+| D5-52 | Export hidden in the demo | Shown whenever `canExport` (signed in or demo) (T5.4) | Same rule as before; the demo exports its sample |
+| D5-53 | Account: no email row; a provider badge | An Email row when the name is the title; Sign-in methods shows the provider as its value; Change password is an action row (T5.4) | Keeps what the old account card showed |
+| D5-54 | — | About keeps "Apple Health privacy" ↗, plus "Garmin Connect and Apple Health" ↗ without `devices.setup`; legal pages open in RYFT (T5.4) | Those links were on the page before |
+| D5-55 | Save strength workouts under Data, ungated | In Training, behind `train.enabled` (T5.4, lead) | Without Train no strength workout is logged, so nothing is written to Health |
+| D5-56 | "updated …" from the last read | The status row's age is the last good upload (`lastSync`); none → "not updated yet"; a locked phone never says "updating…" (T5.4 review) | The row must never claim freshness the upload doesn't have |
+
+### Questions for the lead
+
+1. **Draft renders (L28).** Please show the user `pr5-drafts/draft-workout-*`, `draft-sleep-week-*`, `-month-*`, `draft-sleep-bedtime.png`: approve or what to change?
+2. **Tab bar.** A custom flat bar (the board's) instead of the system bar, whose glass capsule cannot be flattened on iOS 26+ (tried on 27.2). Re-tap (scroll to top, pop to root) is reimplemented. OK?
+3. **"Behaviors to track".** The app already has it as the Journal subpage's title; the Profile row says "Journal". Rename the subpage too (PR 6), or keep the app's own word?
+4. **"An idea".** The Insights tile says "Insight" and only carries `info` insights (D5-6); R-N4 would let the platform mark real suggestions. OK, or file R-N4 as required?
+5. **HRV colour.** Teal (recovery) against the board's blue (D5-9). Confirm.
+6. **Sleep Week and Month** lose the old header's red delta ("▼ −12m · −2 %"). Keep a `metricSleep` "vs 7 d" delta in the caption instead?
+7. **The demo user** in `MockData` is the owner's real first name ("Tim", `tim@example.com`, "Tim's Apple Watch") in a public repo. Change it to "Alex Doe" (T5.0)?
+8. **Strain's day strip** (D5-2) and the Insights disclaimer at the bottom (D5-5): both OK against the board?

@@ -7,6 +7,8 @@ import SwiftUI
 struct SleepTile: Equatable, Identifiable {
     enum Kind: String, CaseIterable {
         case consistency, debt, efficiency, restorative
+        /// Week and Month (§P5-7.2): the average quality; Bedtime (§P5-7.3): tonight's need and time in bed.
+        case quality, need, timeInBed
 
         /// The UI tests' handle: `sleep.tile.consistency` …
         var identifier: String { "sleep.tile.\(rawValue)" }
@@ -17,6 +19,9 @@ struct SleepTile: Equatable, Identifiable {
             case .debt: return String(localized: "Sleep debt")
             case .efficiency: return String(localized: "Efficiency")
             case .restorative: return String(localized: "Restorative")
+            case .quality: return String(localized: "Quality")
+            case .need: return String(localized: "Sleep need", comment: "Sleep → Bedtime's tile: tonight's sleep need (\"8:01 h\").")
+            case .timeInBed: return String(localized: "Time in bed")
             }
         }
     }
@@ -229,8 +234,11 @@ struct SleepNeutralTile: View {
         .padding(padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            shape.fill(Theme.surface)
-            if isOutline { shape.strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline) }
+            if isOutline {
+                PlaceholderOutline(shape)
+            } else {
+                shape.fill(Theme.surface)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(tile.title))

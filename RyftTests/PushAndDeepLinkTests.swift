@@ -36,7 +36,7 @@ struct AppRouteTests {
     @Test func foreignURLsAreNotOurs() {
         #expect(link("https://example.com/day/2026-10-19") == nil)
         #expect(link("http://ryftlab.de/day/2026-10-19") == nil)
-        #expect(link("mailto:tim@example.com") == nil)
+        #expect(link("mailto:alex@example.com") == nil)
     }
 
     @Test func unknownOrMalformedPathsOpenToday() {

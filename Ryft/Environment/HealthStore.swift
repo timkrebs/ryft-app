@@ -82,7 +82,7 @@ struct RawNight: Equatable, Sendable {
 
 /// The newest record one source wrote to Apple Health, for "your watch hasn't synced".
 struct SourceFreshness: Equatable, Sendable {
-    /// As HealthKit names it ("Connect", "Tim's Apple Watch"); Today shows the display name.
+    /// As HealthKit names it ("Connect", "Alex's Apple Watch"); Today shows the display name.
     let source: String
     /// `com.apple.health.…` for an Apple device; the writing app's otherwise.
     let bundleID: String?

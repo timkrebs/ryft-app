@@ -74,7 +74,7 @@ struct ActivityDetailScreen: View {
                 }
             }
         }
-        .sheet(item: $editing) { AddActivitySheet(model: $0) }
+        .sheet(item: $editing) { AddActivitySheet(model: $0).presentedRoot() }
         .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
         .confirmationDialog(Text("Delete this activity?"), isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button(role: .destructive) {

@@ -14,8 +14,8 @@ struct DecodingTests {
 
     @Test func me() throws {
         let u = try Fixture.decode(User.self, "me")
-        #expect(u.name == "Tim K")
-        #expect(u.email == "tim@example.com")
+        #expect(u.name == "Alex D")
+        #expect(u.email == "alex@example.com")
         #expect(u.provider == "apple")
         #expect(u.tz == "Europe/Berlin")
         #expect(u.maxHr == 190)
@@ -616,7 +616,7 @@ struct TrackerCatalogTests {
             $0["app_store_id"] = "1"
         })
         #expect(hijack == .invalid(rule: "bundle.apple", path: "trackers[0].healthkit.bundle_id_prefixes[0]"))
-        #expect(TrackerCatalog.bundled.displayName(ref("Tim's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Tim's Apple Watch")
+        #expect(TrackerCatalog.bundled.displayName(ref("Alex's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Alex's Apple Watch")
     }
 
     @Test func dotSegmentsAndEncodedSlashesNeverPassAPathPrefix() throws {
@@ -816,11 +816,11 @@ struct TrackerCatalogTests {
 
     @Test func appleDevicesAreToldApartByTheirModel() {
         let c = TrackerCatalog.bundled
-        #expect(c.match(ref("Tim's Apple Watch", "com.apple.health.4B1C2D3E", "Watch"))?.id == "apple_watch")
-        #expect(c.match(ref("Tim's iPhone", "com.apple.health.3F0A9B8C", "iPhone"))?.id == "iphone")
+        #expect(c.match(ref("Alex's Apple Watch", "com.apple.health.4B1C2D3E", "Watch"))?.id == "apple_watch")
+        #expect(c.match(ref("Alex's iPhone", "com.apple.health.3F0A9B8C", "iPhone"))?.id == "iphone")
         // Without a device model (a platform `User.sources` row), neither: HealthKit's name stays.
-        #expect(c.match(ref("Tim's Apple Watch", "com.apple.health.4B1C2D3E")) == nil)
-        #expect(c.match(ref("Tim's iPad", "com.apple.health.77AA", "iPad")) == nil)
+        #expect(c.match(ref("Alex's Apple Watch", "com.apple.health.4B1C2D3E")) == nil)
+        #expect(c.match(ref("Alex's iPad", "com.apple.health.77AA", "iPad")) == nil)
     }
 
     @Test func namesMatchOnlyWithoutABundleID() {
@@ -839,7 +839,7 @@ struct TrackerCatalogTests {
         #expect(c.displayName(ref("Connect", "com.garmin.connect.mobile")) == "Garmin Connect")
         #expect(c.displayName(ref("Connect", nil)) == "Garmin Connect")
         #expect(c.displayName(ref("Fitbit", "com.fitbit.FitbitMobile")) == "Google Health")
-        #expect(c.displayName(ref("Tim's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Tim's Apple Watch")
+        #expect(c.displayName(ref("Alex's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Alex's Apple Watch")
         // Unknown sources keep HealthKit's name.
         #expect(c.displayName(ref("Sleep Diary", "com.example.sleep")) == "Sleep Diary")
         #expect(c.displayName(ref("Connect", "com.garmin.connect.mobile2")) == "Connect")

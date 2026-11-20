@@ -25,7 +25,7 @@ struct ImportPreviewView: View {
             bottomBar
         }
         .sheet(item: $detail) { preview in
-            ImportSessionDetailSheet(preview: preview, names: exerciseNames, zone: model.deps.zone)
+            ImportSessionDetailSheet(preview: preview, names: exerciseNames, zone: model.deps.zone).presentedRoot()
         }
     }
 

@@ -37,7 +37,9 @@
         "AddActivityUITests\/testAddActivitySavesAPendingRowAddedByYouWithoutItsNotes",
         "ImportUITests\/testImportPlanAndHistoryFromDemoFiles",
         "LaunchSequenceUITests\/testUITestLaunchesSkipIt",
-        "NocturneTodaySleepUITests"
+        "NocturneTodaySleepUITests",
+        "TabBarUITests\/testEachTabOpensUnderItsLaunchArgument",
+        "TabBarUITests\/testReTappingStrainReturnsAPushedWorkoutToTheRoot"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",

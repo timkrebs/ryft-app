@@ -617,7 +617,7 @@ struct MyDayOrderTests {
         TrackerName(source: "Connect", bundle: "com.garmin.connect.mobile", name: "Garmin Connect", trackerID: "garmin"),
         TrackerName(source: "Connect", bundle: nil, name: "Garmin Connect", trackerID: "garmin"),
         TrackerName(source: "Garmin Connect", bundle: nil, name: "Garmin Connect", trackerID: "garmin"),
-        TrackerName(source: "Tim's Apple Watch", bundle: "com.apple.health.9F2C1A", name: "Tim's Apple Watch",
+        TrackerName(source: "Alex's Apple Watch", bundle: "com.apple.health.9F2C1A", name: "Alex's Apple Watch",
                     trackerID: "apple_watch", checksGlyph: false),
         TrackerName(source: "Strava", bundle: nil, name: "Strava", trackerID: nil),
         TrackerName(source: "", bundle: nil, name: MyDayAssembler.appleHealth, trackerID: nil),
@@ -648,13 +648,13 @@ struct MyDayOrderTests {
 
     @Test func theCatalogNamesTheTrackerOnAMergedRowToo() throws {
         let a = activity(1, .running, from: at(7), strain: 9, mergedWith: uuid(10))
-        let w = workout(10, from: at(7), source: "Tim's Apple Watch", bundle: "com.apple.health.9F2C1A")
+        let w = workout(10, from: at(7), source: "Alex's Apple Watch", bundle: "com.apple.health.9F2C1A")
         let row = try item(activityID(1), in: rows(input(detail(workouts: [w]), activities: [a])))
         guard case .tracker(let name, _) = row.sources.first else {
             Issue.record("the tracker's badge isn't first: \(row.sources)")
             return
         }
-        #expect(name == "Tim's Apple Watch")
+        #expect(name == "Alex's Apple Watch")
     }
 }
 

@@ -38,6 +38,10 @@ final class SleepViewModel {
     private(set) var failure: SleepLoadFailure?
     /// The failure's sentence, which the board shows in the hypnogram's place.
     var error: String? { failure?.message }
+    /// Week or Month whose last read failed while a copy was cached: the copy shows "As of" its day until a read succeeds.
+    private(set) var staleRanges: Set<SleepRangeKind> = []
+    /// Bumped by every load: a load that another one replaced (a mode switch, a step) writes nothing when it ends.
+    @ObservationIgnored private var loadGeneration = 0
 
     /// Sleep → Planner, behind `sleep.planner`.
     let planner: SleepPlannerViewModel
@@ -129,6 +133,36 @@ final class SleepViewModel {
     /// The hero numeral's style (Profile → Display → Hero numbers, design.md §P4-6).
     var numeralStyle: DotNumeral.Style { state.env.settings.heroNumerals.style }
 
+    /// Week or Month as the screen shows it (design.md §P5-7.2); Week's while another mode is on. "As of" its day offline,
+    /// after a failed read, or when the range doesn't end today.
+    var rangeBoard: SleepRangeBoard { rangeBoard(locale: .autoupdatingCurrent) }
+
+    func rangeBoard(locale: Locale) -> SleepRangeBoard {
+        let kind = mode.rangeKind ?? .week
+        return SleepRangeBoard(range: range, kind: kind, isLoading: isLoading, failure: failure,
+                               isStale: !isOnline || staleRanges.contains(kind), today: state.env.clock.now(), locale: locale)
+    }
+
+    /// Bedtime as the screen shows it (design.md §P5-7.3): the numbers from the planner (`GET /v1/sleep/plan` for the wake
+    /// time asked: Bedtime & wake's next one until the picker moves), the goal, the alarm and the summary from Bedtime & wake.
+    func bedtimeBoard(_ bedtime: BedtimePlanner, locale: Locale = .autoupdatingCurrent) -> SleepBedtimeBoard {
+        SleepBedtimeBoard(plan: planner.plan, wake: planner.wake, goal: bedtime.schedule?.goal, isLoading: planner.isLoading,
+                          failure: planner.failure, isOnline: isOnline, asOf: planner.asOf, alarmProblem: bedtime.alarmProblem,
+                          summary: BedtimePlanner.summary(bedtime.schedule, locale: locale), locale: locale)
+    }
+
+    /// Week, Month and Bedtime show Today's calm card under the picker while reads fail or the data is old (§P5-7 states);
+    /// Day has its own failure in the hypnogram's place.
+    var refreshIssue: RefreshIssue? { mode == .day ? nil : state.refreshIssue }
+    var isDemo: Bool { state.isDemo }
+    var isOnline: Bool { state.isDemo || state.env.connectivity.isOnline }
+
+    /// The refresh issue's Try again: a forced refresh, then the mode again.
+    func retryRefresh() async {
+        await state.refresh(force: true)
+        await load()
+    }
+
     /// What VoiceOver hears after a step (design.md §P4-8): the night as the title says it ("…, not scored yet" while
     /// pending), then its duration or what is known of it.
     var stepAnnouncement: String {
@@ -156,31 +190,54 @@ final class SleepViewModel {
         await load()
     }
 
-    /// Revalidates what the mode shows (no request when cached and fresh).
-    func load() async {
+    /// Revalidates what the mode shows (no request when cached and fresh). Only the newest load writes when it ends: one
+    /// for another mode or night that answers late (or fails) leaves the screen to the load that replaced it.
+    /// - Parameter bedtime: Bedtime & wake, which Bedtime's wake time follows (`SleepPlannerViewModel.follow`).
+    func load(bedtime: BedtimePlanner? = nil) async {
+        loadGeneration += 1
+        let generation = loadGeneration
         failure = nil
+        isLoading = false
         guard state.hasDataSource else { return }
         if mode == .plan {
+            if let bedtime { planner.follow(bedtime.schedule, tonight: bedtime.plan, tonightAsOf: bedtime.asOf) }
             await planner.load()
             return
         }
+        planner.resumeFollowing()
         if let kind = mode.rangeKind {
             isLoading = range == nil
-            _ = await state.sleepRange(kind)
-            isLoading = false
+            defer { if generation == loadGeneration { isLoading = false } }
+            do {
+                try await state.repository.refreshSleepRange(kind)
+                // A read that was held back (or not needed) leaves an earlier failure standing.
+                if generation == loadGeneration, (state.env.reads.states[.sleepRange]?.consecutiveFailures ?? 0) == 0 {
+                    staleRanges.remove(kind)
+                }
+            } catch where error.isCancellation {
+                return
+            } catch {
+                guard generation == loadGeneration, mode.rangeKind == kind else { return }
+                // Week and Month say why as Day does (§P5-7 states) when nothing is cached; a cached copy stays, "As of".
+                if range == nil {
+                    failure = SleepLoadFailure(error, isOnline: isOnline, isDemo: state.isDemo, at: state.env.clock.now())
+                } else {
+                    staleRanges.insert(kind)
+                }
+            }
             return
         }
         isLoading = detail == nil
-        defer { isLoading = false }
+        defer { if generation == loadGeneration { isLoading = false } }
         do {
             _ = try await state.dayDetail(for: date)
         } catch where error.isCancellation {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return
         } catch {
+            guard generation == loadGeneration, mode == .day else { return }
             if detail == nil {
-                failure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
-                                           isDemo: state.isDemo, at: state.env.clock.now())
+                failure = SleepLoadFailure(error, isOnline: isOnline, isDemo: state.isDemo, at: state.env.clock.now())
             }
         }
     }
@@ -474,7 +531,7 @@ struct SleepBoard: Equatable {
             String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) asleep")
         }
         if let performance = scored?.sleepPerformance {
-            caption = String(localized: "Asleep · \(performance) % of your need",
+            caption = String(localized: "Asleep · \(performance)\u{00A0}% of your need",
                              comment: "Under Sleep's numeral: the night's time asleep as a share of its sleep need (\"Asleep · 94 % of your need\").")
             spokenCaption = String(localized: "\(performance) percent of your need",
                                    comment: "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\").")
@@ -506,7 +563,9 @@ struct SleepRuler: Equatable {
     let labels: [String]
     let spokenValue: String
 
-    init(totalMin: Int?, needMin: Int?, locale: Locale = .autoupdatingCurrent) {
+    /// - Parameter unknown: what VoiceOver says with neither a time asleep nor a need (Bedtime's own sentence); Day's
+    ///   "No time asleep yet, …" by default.
+    init(totalMin: Int?, needMin: Int?, unknown: String? = nil, locale: Locale = .autoupdatingCurrent) {
         let need = needMin.flatMap { $0 > 0 ? $0 : nil }
         value = totalMin.map { Double($0) / 60 }
         zone = need.flatMap { RulerScale.zone(lo: Self.zoneShare * Double($0) / 60, hi: Double($0) / 60) }
@@ -531,7 +590,7 @@ struct SleepRuler: Equatable {
             spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10 hours. Your need is \(need).",
                                  comment: "VoiceOver on Sleep's duration ruler before the night is known, with the sleep need (\"8 hours 18 minutes\").")
         case (nil, nil):
-            spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10 hours.",
+            spokenValue = unknown ?? String(localized: "No time asleep yet, on a scale from 0 to 10 hours.",
                                  comment: "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need.")
         }
     }
@@ -576,13 +635,16 @@ struct SleepNightSummary: Equatable {
     }
 }
 
-/// Week / Month: the stacked nightly bars, averages and bedtime consistency.
+/// Week / Month: each night's stages, the averages and the bedtime consistency (`SleepRangeBoard` lays them out).
 struct SleepRangeSummary {
+    /// One stage of one night: Deep, Light and REM bottom to top, or the night's total as "Asleep" without stages.
     struct Bar: Identifiable, Equatable {
+        let day: String
         let date: Date
-        let stage: String
+        /// `nil`: a night without stages ("Asleep").
+        let stage: SleepStageKind?
         let hours: Double
-        var id: String { "\(date.timeIntervalSince1970)-\(stage)" }
+        var id: String { "\(day)-\(stage?.rawValue ?? "asleep")" }
     }
 
     /// How regular bedtimes were: < 30 min steady, < 60 fair, else irregular.
@@ -591,12 +653,9 @@ struct SleepRangeSummary {
     static let asleep = String(localized: "Asleep")
     static let stageOrder = [SleepStageKind.deep, .light, .rem]
 
+    /// Every night's stages, oldest night first, each night bottom to top.
     let bars: [Bar]
-    /// A stage without per-night stages ("Asleep") is in the legend only when it occurs.
-    let hasUnstaged: Bool
     let averageSleep: String
-    let averageQuality: String
-    let nights: String
     let averageHours: Double?
     let window: ChartWindow
     let end: Date
@@ -619,27 +678,19 @@ struct SleepRangeSummary {
         let quality: String
         let consistency: String?
         let nap: String?
+        /// VoiceOver: "Wednesday, November 18" and "7 hours 48 minutes asleep, quality 91, consistency 86, nap 25 minutes".
+        var spokenTitle: String = ""
+        var spokenValue: String = ""
         var id: String { day }
     }
 
-    init(range: SleepRange) {
-        bars = range.days.flatMap { night -> [Bar] in
-            let staged = Self.stageOrder.compactMap { s -> Bar? in
-                let m = night.minutes(for: s)
-                return m > 0 ? Bar(date: night.date, stage: s.title, hours: Double(m) / 60) : nil
-            }
-            if !staged.isEmpty { return staged }
-            guard let total = night.totalMin, total > 0 else { return [] }
-            return [Bar(date: night.date, stage: Self.asleep, hours: Double(total) / 60)]
-        }
-        hasUnstaged = bars.contains { $0.stage == Self.asleep }
+    init(range: SleepRange, locale: Locale = .autoupdatingCurrent) {
+        bars = range.days.flatMap(Self.bars)
         averageSleep = Fmt.duration(minutes: range.avgTotalMin)
-        averageQuality = Fmt.percent(range.avgQuality)
-        nights = "\(range.nights)"
         averageHours = range.avgTotalMin.map { Double($0) / 60 }
         window = range.range == SleepRangeKind.month.rawValue ? .month : .week
         end = range.to.flatMap(DayFormat.date(from:)) ?? range.days.last?.date ?? .now
-        tallestNight = Dictionary(grouping: bars, by: \.date).values.map { $0.reduce(0) { $0 + $1.hours } }.max() ?? 0
+        tallestNight = Dictionary(grouping: bars, by: \.day).values.map { $0.reduce(0) { $0 + $1.hours } }.max() ?? 0
         // The platform's consistency (bedtime and wake σ), else the local bedtime spread.
         if let c = range.avgConsistency {
             regularity = c >= 80 ? .steady : c >= 60 ? .fair : .irregular
@@ -653,11 +704,29 @@ struct SleepRangeSummary {
         averageConsistency = range.avgConsistency.map(String.init) ?? Fmt.placeholder
         bedtimes = range.bedtimes
         nightRows = range.days.reversed().map { n in
-            NightRow(day: n.day, title: n.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)),
-                     total: Fmt.duration(minutes: n.totalMin), quality: n.quality.map(String.init) ?? Fmt.placeholder,
-                     consistency: n.consistency.map(String.init),
-                     nap: n.napMin.flatMap { $0 > 0 ? Fmt.duration(minutes: $0) : nil })
+            let quality = n.quality.map(String.init) ?? Fmt.placeholder
+            let nap = n.napMin.flatMap { $0 > 0 ? $0 : nil }
+            let total = n.totalMin.map { Fmt.spokenDuration(minutes: $0, locale: locale) } ?? Fmt.placeholder
+            var spoken = String(localized: "\(total) asleep, quality \(quality)")
+            if let c = n.consistency { spoken += ", " + String(localized: "consistency \(String(c))") }
+            if let nap { spoken += ", " + String(localized: "nap \(Fmt.spokenDuration(minutes: nap, locale: locale))") }
+            return NightRow(day: n.day, title: n.date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)),
+                            total: Fmt.duration(minutes: n.totalMin), quality: quality,
+                            consistency: n.consistency.map(String.init), nap: nap.map { Fmt.duration(minutes: $0) },
+                            spokenTitle: n.date.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.wide).day()),
+                            spokenValue: spoken)
         }
+    }
+
+    /// A night's stages bottom to top (`stageOrder`: Deep, Light, REM), or its total as "Asleep"; none without sleep.
+    static func bars(_ night: SleepNight) -> [Bar] {
+        let staged = stageOrder.compactMap { stage -> Bar? in
+            let minutes = night.minutes(for: stage)
+            return minutes > 0 ? Bar(day: night.day, date: night.date, stage: stage, hours: Double(minutes) / 60) : nil
+        }
+        if !staged.isEmpty { return staged }
+        guard let total = night.totalMin, total > 0 else { return [] }
+        return [Bar(day: night.day, date: night.date, stage: nil, hours: Double(total) / 60)]
     }
 
     /// Bands of the platform's 0–100 consistency: ≥ 80 steady, ≥ 60 fair (the
