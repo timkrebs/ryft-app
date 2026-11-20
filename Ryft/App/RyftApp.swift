@@ -121,6 +121,7 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
+        TrainCoordinator.shared.analytics = { [env = AppEnvironment.live] in env.analytics.track($0) }
         // The demo's workouts (ADR 0019): the list's one-time seed for workouts logged before it, then, with Demo data
         // off, the sweep. "Signed in" also counts the account `auth.lastUserID` still names (`AccountScope`): its wipe may
         // have failed, and its workouts must never be seeded as the demo's. Before the first unlock that id (and the
@@ -252,8 +253,10 @@ struct RyftApp: App {
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
+                .onChange(of: state.selectedTab) { _, tab in env.analytics.track(.screenViewed(AnalyticsScreen(tab))) }
                 // The first successful sync unlocks the push pre-prompt on Today.
                 .onChange(of: sync.phase) { _, phase in
+                    if phase == .done, !screens.push.hasSynced { env.analytics.track(.firstSyncCompleted) }
                     if phase == .done { screens.push.syncSucceeded() }
                 }
                 // Today was fetched again (after a sync that touched it): tonight's bedtime moves
@@ -265,6 +268,8 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    // Usage analytics from the cached config (its sink starts only if the user opted in).
+                    env.analytics.reevaluate()
                     await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
@@ -500,8 +505,21 @@ struct RootView: View {
 
     /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
     private var presentsSomething: Bool {
+        presentsBesidesAnalytics || env.analytics.showsPrompt
+    }
+
+    /// The other root presentations: the analytics prompt waits for them (`analyticsOptInPrompt(blocked:)`).
+    private var presentsBesidesAnalytics: Bool {
         onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
             || screens.importer.flow != nil || screens.importer.showsUnavailable
+    }
+
+    /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode.
+    private var analyticsStep: OnboardingStepName? {
+        guard !settings.demoMode, auth.state == .signedIn, !onboarding.holdsFirstRun else { return nil }
+        if let step = onboarding.flowStep ?? onboarding.sheetStep { return OnboardingStepName(step) }
+        if needsHealthIntro { return .health }
+        return onboarding.showsTrackerSetup ? .trackerSetup : nil
     }
 
     /// Report a problem, pre-filled with what failed, pushed onto the Details sheet's stack.
@@ -547,6 +565,7 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
         .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
         .animation(.easeInOut(duration: 0.3), value: onboarding.showsTrackerSetup)
+        .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
@@ -577,6 +596,8 @@ struct RootView: View {
         tabBar
             .onAppear { Task { await WorkoutLauncher.tabsAppeared() } }
             .onDisappear { WorkoutLauncher.tabsDisappeared() }
+            .onAppear { env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab))) }
+            .analyticsOptInPrompt(blocked: presentsBesidesAnalytics)
     }
 
     /// E6: a file opened while signed out waits in memory for the sign-in.
@@ -649,6 +670,8 @@ enum DebugScreen: String {
     case syncCheck = "sync-check"
     /// Welcome after a session expiry, with a parked run and night on a preview store (`activities.manual` off).
     case welcomeParked = "welcome-parked"
+    /// The usage analytics prompt, and Profile → Privacy's switch (phase 1 shows neither to anyone).
+    case analyticsPrompt = "analytics-prompt", analyticsRow = "analytics-row"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -685,6 +708,8 @@ enum DebugScreen: String {
             DebugSyncCheck()
         case .welcomeParked:
             DebugWelcomeParked()
+        case .analyticsPrompt: AnalyticsOptInSheet { _ in }
+        case .analyticsRow: AnalyticsOptInRowCapture()
         }
     }
 

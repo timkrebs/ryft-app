@@ -279,6 +279,7 @@ struct SleepScheduleView: View {
             // A change made just before leaving still counts.
             if edited, draft != planner.schedule { Task { [draft] in await planner.update(draft) } }
         }
+        .analyticsScreen(.sleepSchedule)
     }
 
     /// Back to "Off": no reminders, no alarms, no Tonight.

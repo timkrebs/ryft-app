@@ -518,6 +518,7 @@ struct RefreshIssueCard: View {
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
+            .analyticsError(issue.error)
     }
 
     private var age: String? {

@@ -113,6 +113,7 @@ struct SessionView: View {
             Theme.background.ignoresSafeArea()
         } else {
             workout
+                .analyticsScreen(.trainSession)
         }
     }
 

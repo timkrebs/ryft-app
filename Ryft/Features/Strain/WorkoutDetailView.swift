@@ -8,6 +8,7 @@ struct WorkoutDetailView: View {
 
     var body: some View {
         WorkoutDetailScreen(model: WorkoutDetailViewModel(workout: workout, state: state))
+            .analyticsScreen(.workoutDetail)
     }
 }
 

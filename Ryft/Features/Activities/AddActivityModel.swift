@@ -222,6 +222,7 @@ final class AddActivityModel: Identifiable {
             guard let saved = env.activities.save(manual: draft) else { return false }
             env.uploader.saved(saved.id)
             ActivityPreferences(env: env).noteUsed(sport)
+            env.analytics.track(.featureUsed(.activityAdded))
         case .edit(let id):
             // One of the platform's activities this iPhone has no row for becomes the account's row first.
             if env.activities.snapshot(id: id) == nil {

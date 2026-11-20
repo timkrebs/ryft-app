@@ -31,6 +31,7 @@ struct SyncDetailsView: View {
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
+        .analyticsScreen(.syncDetails)
     }
 
     private var engine: some View {

@@ -62,6 +62,7 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 - RYFT proves to its servers that requests come from the genuine app on your iPhone (Apple's App Attest). Nothing
   changes until the servers start checking; a workout or sync they refuse for it stays queued and goes again.
+- Optional, anonymous usage analytics, off unless you opt in (not active yet).
 
 ### Changed
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.

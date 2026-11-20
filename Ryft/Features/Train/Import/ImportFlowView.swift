@@ -43,6 +43,7 @@ struct ImportFlowView: View {
             Text("RYFT forgets what it read from the file and your choices here. The file itself is not changed.",
                  comment: "Training import: the cancel confirmation's message (N1).")
         }
+        .analyticsScreen(.trainImport)
     }
 }
 

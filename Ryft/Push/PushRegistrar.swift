@@ -108,6 +108,7 @@ final class PushRegistrar {
         let granted = (try? await env.notifier.requestAuthorization()) ?? false
         status = await env.notifier.authorizationStatus()
         if granted { env.notifier.registerForRemoteNotifications() }
+        if granted { env.analytics.track(.featureUsed(.notificationsAllowed)) }
         revision += 1
     }
 

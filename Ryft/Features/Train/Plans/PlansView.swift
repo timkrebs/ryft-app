@@ -52,6 +52,7 @@ struct PlansView: View {
 
     var body: some View {
         PlansScreen(model: PlansViewModel(library: library))
+            .analyticsScreen(.trainPlans)
     }
 }
 

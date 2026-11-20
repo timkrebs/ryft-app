@@ -36,6 +36,7 @@ struct DevicesAndSyncView: View {
             if let check { TrackerCheckView(model: check) }
         }
         .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
+        .analyticsScreen(.devicesAndSync)
     }
 
     // MARK: your trackers

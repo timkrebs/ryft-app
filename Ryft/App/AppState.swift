@@ -404,6 +404,8 @@ final class AppState {
     /// Inside every wipe (sign-out, expiry, deletion, another account), a runloop before `accountChanged(from:)`.
     func wiped(_ wipe: AuthService.Wipe) {
         forgetActivityState()
+        // Usage analytics: the queue and the random id go, and whoever signs in next is asked again.
+        env.analytics.accountLeft()
     }
 
     /// The uploader stops (answers in flight are dropped), decoded read models go (the wipe changed the store

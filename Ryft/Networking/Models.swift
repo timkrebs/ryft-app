@@ -1274,6 +1274,22 @@ struct RemoteConfig: Codable, Hashable {   // GET /v1/config
     /// `nil` only in a config cached before the Beta.
     var privacyPolicyVersion: String? = nil
     var privacyPolicyUrl: String? = nil
+    /// Where opted-in usage analytics go (PostHog EU), or `null` while none may be sent. A config cached before
+    /// it existed decodes as nil too. Never logged with its key (`AnalyticsConfig`'s descriptions redact it).
+    var analytics: AnalyticsConfig? = nil
+}
+
+/// `GET /v1/config` → `analytics`: the PostHog host and the project's public key. `Analytics` checks both before
+/// anything is sent (`AnalyticsDestination`); every description of it redacts the key.
+struct AnalyticsConfig: Codable, Hashable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    let host: String
+    let projectKey: String
+
+    var description: String { "AnalyticsConfig(host: \(host), project_key: <redacted>)" }
+    var debugDescription: String { description }
+    var customMirror: Mirror {
+        Mirror(self, children: ["host": host, "project_key": "<redacted>"], displayStyle: .struct)
+    }
 }
 
 enum NotificationCategory: String, Codable, CaseIterable, Identifiable {

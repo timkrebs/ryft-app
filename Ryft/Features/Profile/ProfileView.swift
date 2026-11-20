@@ -408,6 +408,7 @@ struct ProfileView: View {
             if let error = model.consentError {
                 InlineMessage(message: error, systemImage: "exclamationmark.circle")
             }
+            AnalyticsOptInRow()
             Button {
                 legal = model.policyPage
             } label: {

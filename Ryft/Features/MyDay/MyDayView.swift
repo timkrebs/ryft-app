@@ -45,6 +45,7 @@ struct MyDayView: View {
             .task(id: TaskKey(day: day, refreshed: state.lastUpdated)) { await model.load(day) }
             // Today: the app's pull, the activities beside it; a past day: its reads, the spinner capped.
             .refreshable { await model.refresh(model.date) { await screens.pullToRefresh() } }
+            .analyticsScreen(.myDay)
     }
 
     private struct TaskKey: Equatable {

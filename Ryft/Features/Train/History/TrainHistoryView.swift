@@ -6,6 +6,7 @@ struct TrainHistoryView: View {
 
     var body: some View {
         TrainHistoryScreen(model: TrainHistoryViewModel(library: library))
+            .analyticsScreen(.trainHistory)
     }
 }
 
