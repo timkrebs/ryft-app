@@ -1,7 +1,7 @@
 // The grouped list (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2; design.md §P5-6.1–6.2; PR 6 B §1.3 S4, C §2.2,
 // A's `ListGroup`): a group title, a `surface` card of rows with a hairline between them, and an optional footer. One row type
-// with seven kinds, so Profile's list, its subpages and every form in PR 6 read as the same list. It replaces `ProfileSection`,
-// `SettingRow`, `SettingRowLabel` and `LinkRow` (their callers move in the screen tickets).
+// with seven kinds, so Profile's list, its subpages and every form in PR 6 read as the same list. It replaced `ProfileSection`,
+// `SettingRow`, `SettingRowLabel` and `LinkRow`, which went once their callers had moved.
 import SwiftUI
 
 /// The grouped list's numbers (a separate, non-generic type: `GroupedCard` is generic).
