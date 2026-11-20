@@ -1,4 +1,4 @@
-# Train reads and the account/side binding (RYFT app) — as of PR 6 @ a0bd5c2 (2026-11-20)
+# Train reads and the account/side binding (RYFT app) — as of PR 6 @ 145c91a (2026-11-20, after R4)
 
 - TrainLibrary.fetch(_:from:): `Client` = (source, outbox, outbox.binding) read in one main-actor step before the await;
   through `reads.run(ReadKey(.train, id:))` when `reads` is set (ScreenModels.swift:116), else straight to the source (tests).
@@ -17,12 +17,14 @@
 - LEFT (ADR 0019): exercise library (memory+store), plans' details (store.plans / plan(id:)), train.pausedPlanID (global
   UserDefaults), LocalSession rows (account's logged workouts show in Demo: History, Today Last/Done, My Day, Strain).
   docs/APP_STORE.md:67 says Demo "never mixed with an account's data | ok" — not true for Train.
-- OPEN S (found 2026-11-20, pre-existing since 4316f5b, widened by R1): ScreenModels.trainToday (TrainTodayViewModel) is
-  process-lived, no forgetter; lastSession/activePlan survive sign-out/account switch/Demo; loadStartOptions only replaces
-  activePlan when the new side has an enrolment AND the read returns a plan -> B's Start sheet shows/starts A's plan days
-  and (briefly) "Repeat last session" of A.
-- OPEN N: TrainLibrary.error/errorDetails not cleared by wipe()/demoModeChanged(); deletePlan/perform/setPaused write
-  error + pausedKey after the await with no binding check.
+- CLOSED @145c91a (R4T): TrainTodayViewModel.forget() is a forgetter (ScreenModels:127); loadStartOptions checks
+  library.binding after each await; activePlan only while loadedPlan.id == activeEnrollment.planId. Demo residual: the
+  account's LocalSession rows still feed Repeat last session / Last: / Done in Demo (ADR 0019, same person).
+- CLOSED @145c91a (R4T): perform(client first, isCurrent before `then` and the error), deletePlan/enroll/setPaused via
+  it; wipe()/demoModeChanged() clear error, errorDetails, plansDeclined. fetch: `guard client.isCurrent` BEFORE sending
+  (code S1), keys `TrainLibrary.readKey` = "<owner>/<id>" (owner = account UUID or "demo"; memory only, signposts log the
+  resource). Held-back Details = readDetails(reads.states[.train]) at read time; states reloaded per account by reset().
+  pausedKey still global across Demo (ADR 0019): a Demo pause shows on the account and Resume POSTs the demo plan id (404).
 - Tests: TrainReadsReviewTests (wipe/Demo with HeldTrainSource, reads == nil, unstructured Tasks, load() not
   userInitiated). Not covered: quiet loadPlan Task, reloadCatalog/loadToday/refreshToday, TrainTodayViewModel, RyftApp wiring.
 - App Attest (#128): token on every api/ingest request via APIClient.exchange except 3 attest routes; exempt (held token, no

@@ -3,8 +3,8 @@
 - [account-switch-invariants.md](account-switch-invariants.md): where account/demo switches are handled, the
   AccountBinding pattern, APIClient epoch retries, Journal/plan caches demo split (closed a819ff5), Bedtime & wake demo
   shelf (closed round 3), TrainLibrary unbound reads + unstructured Try again, busy-rule once-only guarantees.
-- [train-reads-binding.md](train-reads-binding.md): TrainLibrary `Client`/`fetch` binding guard (S-1 fix, R1), which
-  reads bypass ReadScheduler, Demo switch clear (`demoModeChanged`), process-lived TrainTodayViewModel gap, App Attest surface.
+- [train-reads-binding.md](train-reads-binding.md): TrainLibrary `Client`/`fetch` binding guard (S-1 fix, R1; send guard +
+  owner keys R4), reads bypassing ReadScheduler, Demo switch clear, TrainTodayViewModel forget (R4), ADR 0019 residue, App Attest.
 - [widget-privacy.md](widget-privacy.md): snapshot contents/protection, WidgetConcealment, gallery, Live Activity
   redaction status, notification placeholders.
 
@@ -23,3 +23,7 @@ Review history:
   sheet (no forgetter). New N: TrainLibrary.error/errorDetails + pausedKey written after await unbound, not cleared by
   wipe/demoModeChanged; withdrawConsent shares perform's !isWorking guard (silent drop). #128: only entitlements change,
   check-entitlements 7 keys ok, no token/key-ID logging in PR 6.
+- 2026-11-20 PR 6 R4 close-out (wt-rev @ 145c91a): S-A, N-A, N-C, code S1 CLOSED; N-B closed as scoped. 0 B, 0 S. New N:
+  inviteCode survives account change (R4O late-success skip widened it; test overwrites the field); waiting/sent withdrawal
+  ends without a word on sign-out or Demo flip. Nit: onboarding error + request ID under Privacy survive the Demo flip.
+  No logging/pasteboard/URL/entitlement/xcprivacy change; APP_STORE.md:67 Demo line now 'open' (accurate).

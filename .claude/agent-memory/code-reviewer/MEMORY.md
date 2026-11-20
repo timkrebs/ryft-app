@@ -49,4 +49,4 @@
 - [Presented-root styles + shared rules](review-checks-presented-styles.md) — root tint/toggleStyle miss sheets (iOS 27.2), no app AccentColor, one "vs 7 d" rule, demo-aware online
 - [Demo/account split rounds](review-checks-side-split-rounds.md) — read-backs after unsent refreshes, 3 forgetter wirings, .test previews lose coach-done, isLive rows vanish
 - [Combine guards + token lints](review-checks-combine-guards-and-lints.md) — side guard at Save only after a merge, Demo keeps sheets up, lint snippet probes, duplicate formatters
-- [Fix-round re-verification](review-checks-fix-round-reverify.md) — caller-vs-flight binding, read chains past a reset, merged vetted sentences, scan scope, shared error fields
+- [Fix-round re-verification](review-checks-fix-round-reverify.md) — caller-vs-flight binding, read chains past a reset, scan scope, shared error fields, waiter resume sites, forgetters w/o generation

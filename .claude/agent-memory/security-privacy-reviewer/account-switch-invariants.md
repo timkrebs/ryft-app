@@ -40,5 +40,10 @@
 - TrainLibrary memory (`histories`, exercises, catalog, today) is NOT reset on the Demo switch (only sign-out wipe and
   demo-discard with sessions call invalidateHistories) -> ADR 0019 follow-up territory.
 - Busy rule (360b9f1) only swapped titles. Auth views guard `!isBusy` at function start + AuthService.run sets busy before
-  its first await (model-level once). OnboardingCoordinator.perform has NO re-entrancy guard: invite/consent once-only rests
-  on PillButton's render-time `busy` (PillButton.run guards a captured value; async actions run in an untracked Task).
+  its first await. OnboardingCoordinator.perform (R4O @145c91a): `!isWorking` guard + `Flight(AccountBinding, turn)`;
+  `answered(sent)` after every await; switchAccount bumps turn, frees isWorking/isWithdrawing, resumes waiters (only when
+  self.account != nil). withdrawConsent waits (perform(waitsForTurn:)); ends unsent on any binding change INCLUDING the Demo
+  flip (Flight has the demo flag; switchAccount isn't called on Demo). inviteCode is NEVER cleared on account change.
+  ConsentState.withdrew(at:) is a no-op in Demo. Onboarding errorMessage/errorDetails (Profile Privacy footer) survive Demo.
+- Root view: the Demo flip changes the root branch (RyftApp ~508 vs ~531) -> whole tab tree + per-page @State VMs rebuilt.
+  Any wipe sets healthIntroDone=false -> HealthPermissionView replaces tabs on HealthKit devices (direct A->B too).

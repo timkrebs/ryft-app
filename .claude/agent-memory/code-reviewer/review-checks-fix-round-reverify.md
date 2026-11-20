@@ -27,3 +27,14 @@ From the PR 6 re-verification (a0bd5c2, read-only, no build, 2026-11-20). Every 
 **Why:** the fix authors' tests and the per-round reviews were green; these needed the scheduler's join rule, the merge's other side,
 or a repo-wide run of the scan. **How to apply:** any re-verification of fix rounds that touch reads, side and account guards, or a
 main merge. See [[review-checks-side-split-rounds]], [[review-checks-combine-guards-and-lints]], [[review-checks-area-integration]].
+
+Added after the R4 re-check (145c91a, 2026-11-20). All R4 items held; what the fixes left:
+- **Continuation waiters on an @MainActor coordinator** (`OnboardingCoordinator.perform(waitsForTurn:)`): list every resume site (the
+  step's `defer` under the same `turn`, and the account switch), and check that the busy flag can only be true while a perform of
+  the current turn is running. A suspended waiter's frame keeps `self` alive, so "resumed on deinit" can't happen. Check what
+  guards the switch's bump (`self.account != nil`), and that `switchAccount` is called both from `check()` and from RyftApp's
+  `onChange` (the same id twice still bumps).
+- **A page that now keeps its own failure** (`PlanDetailViewModel.loadFailure`): grep whether the library still writes the
+  shared `error` in that path. If it does, the failure now only leaks to sibling pages (the Plans list, another plan's actions).
+- **Forgetters without a generation** (My Day's `forget()`): an `async let` pair whose first child already failed still inserts
+  after the side ended, when the second child is cancelled. Ask for Strain's pattern: bump in forget(), check before the write.

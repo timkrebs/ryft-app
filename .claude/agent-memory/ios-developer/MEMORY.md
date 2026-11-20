@@ -15,3 +15,5 @@
 - [PR 6 R2 V2: motion, AX rest bar, banners](project_pr6_r2_v2_motion_restbar_banners.md) — Reduce Motion source scan; AX rest bar pill opens the rest sheet; banner glyph column + text-link probe; #require Comment pitfall
 - [PartsLine and AX headers](project_parts_line_and_ax_headers.md) — R2 V1: PartsLine for "a · b" lines, PushedHeader AX stack, sheetDetents(), wrapping plan name; detents/text-view/pixel test tricks, grouped mutants
 - [PR 6 R3: parts sites](project_pr6_r3_parts_sites.md) — PushedHeader subtitle+parts and loading placeholder, BodySettingContent.sourceParts, StartOptionText; sweep leftovers; grouped mutants
+- [PR 6 R4O: flights, withdrawal, scan](project_pr6_r4o_flights_withdrawal_scan.md) — per-account Flight in perform, switchAccount only from a known account, waiting withdrawal, App Attest sentence, app-wide Reduce Motion scan + allowlist
+- [main #130 into PR 6](project_main130_into_pr6_merge.md) — analytics merge: misplaced one-line modifiers, ConsentPoint vs area A scan, old OnboardingScreen API, per-line checklist scripts
