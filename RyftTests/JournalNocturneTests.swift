@@ -562,6 +562,21 @@ struct JournalNocturneTests {
         }
     }
 
+    @Test("The live card writes yesterday's answers in the screen's locale: 4:30 PM in US English, 16:30 in British English")
+    func cardFollowsTheLocale() async throws {
+        let store = MockJournalStates.store()
+        for (locale, time) in [(Self.english, "4:30\u{202F}PM"), (Locale(identifier: "en_GB"), "16:30")] {
+            let view = ScrollView { JournalCard(store: store) {}.padding(20) }
+                .background(Theme.background)
+                .environment(\.locale, locale)
+            try await HostedWindow.run(width: Self.width, height: 600, view) { w in
+                try await w.settle()
+                let card = try #require(w.nodes().first { $0.identifier == "journal.card" })
+                #expect(card.label.contains("Last caffeine \(time)"), "\(locale.identifier): \(card.label)")
+            }
+        }
+    }
+
     @Test("The card is ink, never teal or Volt; \"Answer\" ends the first line, and from AX1 goes under the words",
           arguments: [false, true])
     func cardDrawing(ax: Bool) throws {

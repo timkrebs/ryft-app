@@ -41,8 +41,11 @@ struct JournalCard: View {
     let store: JournalStore
     let open: () -> Void
 
+    /// The answers' times and list as the screen's locale writes them ("4:30 PM", "16:30").
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        JournalCardBody(summary: store.days[store.yesterday].flatMap { store.summary(of: $0) }, open: open)
+        JournalCardBody(summary: store.days[store.yesterday].flatMap { store.summary(of: $0, locale: locale) }, open: open)
     }
 }
 
