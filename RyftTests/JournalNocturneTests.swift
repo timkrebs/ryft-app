@@ -354,7 +354,7 @@ struct JournalNocturneTests {
         }
     }
 
-    @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet, with its own ids")
+    @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet: C's Back, the back swipe, its own ids")
     func noHabitsLink() async throws {
         let state = AppState.preview()
         let store = JournalStore(env: state.env)
@@ -373,10 +373,36 @@ struct JournalNocturneTests {
             w.nodes().first { $0.identifier == "journal.chooseHabits" }?.activate()
             // Profile → Journal lists every habit, chosen or not.
             try await w.wait("Profile → Journal's page") { w.nodes().contains { $0.label.hasPrefix("Alcohol") } }
+            try await w.settle()
+            // PR 6 C's page in the sheet's own stack: its header's Back (no system bar) and the back swipe kept.
+            let back = try #require(w.nodes().first { $0.identifier == "subpage.back" }, "C's SubpageHeader Back")
+            #expect(back.label == "Back")
+            let nav = try #require(Self.navigation(in: w.window.rootViewController), "the sheet's stack")
+            #expect(nav.viewControllers.count == 2, "pushed inside the sheet: \(nav.viewControllers.count)")
+            #expect(nav.navigationBar.isHidden || nav.isNavigationBarHidden, "no system bar")
+            let pop = try #require(nav.interactivePopGestureRecognizer)
+            let keeper = try #require(pop.delegate as? InteractivePopGestureKeeper, "keepsBackSwipe's keeper decides the swipe")
+            #expect(pop.isEnabled && keeper.gestureRecognizerShouldBegin(pop), "the edge swipe goes back")
             // The page's switches are its own ids, not the sheet's answers'.
             let ids = w.nodes().compactMap(\.identifier)
             #expect(ids.contains("journal.habit.alcohol") && !ids.contains { $0.hasPrefix("journal.answer.") }, "\(ids)")
+            #expect(back.activate())
+            // The page read the catalog (demo data's, with habits on): the sheet is back with its rows or the no-habits line.
+            try await w.wait("back on the sheet") {
+                let ids = w.nodes().compactMap(\.identifier)
+                return ids.contains("journal.save") && !ids.contains("subpage.back")
+            }
         }
+    }
+
+    /// The first navigation controller under `controller` (the sheet's stack).
+    private static func navigation(in controller: UIViewController?) -> UINavigationController? {
+        guard let controller else { return nil }
+        if let nav = controller as? UINavigationController { return nav }
+        for child in controller.children {
+            if let nav = navigation(in: child) { return nav }
+        }
+        return navigation(in: controller.presentedViewController)
     }
 
     @Test("Loading is one element over outline cards; a failed read says so with Try again and Details")
