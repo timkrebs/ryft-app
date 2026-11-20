@@ -350,3 +350,76 @@ struct CalibratingReasonTests {
         #expect(got.calibratingReason == .noRhr && got.baselineHrvDays == 28 && got.baselineRhrDays == 0)
     }
 }
+
+/// API.md → `GET /v1/config` → `app_attest` (AA2, D247): optional, a closed set, and never able to fail the config.
+@Suite("RemoteConfig: app_attest (AA2)")
+struct AppAttestModeDecodingTests {
+    struct Case: Sendable, CustomTestStringConvertible {
+        /// The member as it sits in the JSON (`"app_attest": …`), or nil for a document without the key.
+        let member: String?
+        let raw: String?
+        let mode: AppAttestMode?
+        var testDescription: String { member ?? "key absent" }
+    }
+
+    private static func config(_ member: String?) -> Data {
+        let tail = member.map { ", \($0)" } ?? ""
+        return Data(#"{"flags":{"train.enabled":true},"evaluated_at":"2026-11-20T06:12:00Z","ttl_sec":21600\#(tail)}"#.utf8)
+    }
+
+    @Test(arguments: [
+        Case(member: #""app_attest": "off""#, raw: "off", mode: .off),
+        Case(member: #""app_attest": "warn""#, raw: "warn", mode: .warn),
+        Case(member: #""app_attest": "on""#, raw: "on", mode: .on),
+        Case(member: nil, raw: nil, mode: nil),
+        Case(member: #""app_attest": null"#, raw: nil, mode: nil),
+        Case(member: #""app_attest": "strict""#, raw: "strict", mode: nil),
+        Case(member: #""app_attest": "OFF""#, raw: "OFF", mode: nil),
+        Case(member: #""app_attest": """#, raw: "", mode: nil),
+    ])
+    func remoteConfigAppAttestModes(_ c: Case) throws {
+        // None of them fails the decode; an unknown value keeps its raw string and reads as absent.
+        let decoded = try APIClient.jsonDecoder.decode(RemoteConfig.self, from: Self.config(c.member))
+        #expect(decoded.appAttest == c.raw)
+        #expect(decoded.appAttestMode == c.mode)
+        #expect(decoded.flags == ["train.enabled": true] && decoded.ttlSec == 21600)
+    }
+
+    @Test func remoteConfigFixtureIsAPIMdsExample() throws {
+        let c = try Fixture.decode(RemoteConfig.self, "remote_config")
+        #expect(c.appAttestMode == .off && c.appAttest == "off")
+        #expect(c.flags.count == 8 && c.flags["analytics.enabled"] == true && c.flags["train.import"] == false)
+        #expect(c.ttlSec == 21600 && c.privacyPolicyVersion == "2026-10-26")
+        // `analytics` is in the document and not in the model yet (PR 2): ignored, not a failure.
+
+        // API.md's second example: `analytics: null` and `"warn"`.
+        let second = #"""
+        { "flags": { "train.enabled": true, "analytics.enabled": false },
+          "evaluated_at": "2026-11-20T06:12:00Z", "ttl_sec": 21600,
+          "privacy_policy_version": "2026-10-26", "privacy_policy_url": "https://ryftlab.de/privacy",
+          "analytics": null, "app_attest": "warn" }
+        """#
+        let warn = try APIClient.jsonDecoder.decode(RemoteConfig.self, from: Data(second.utf8))
+        #expect(warn.appAttestMode == .warn)
+    }
+
+    @Test func cachedConfigWithoutTheFieldDecodes() throws {
+        // `FlagStore.Cached` as an earlier build wrote it: no `app_attest` anywhere.
+        let old = #"""
+        {"config":{"flags":{"train.enabled":true},"evaluated_at":"2026-10-19T06:12:00Z","ttl_sec":21600,
+         "privacy_policy_version":"2026-10-20","privacy_policy_url":"https://ryftlab.de/privacy"},
+         "fetched_at":"2026-10-19T06:12:00Z"}
+        """#
+        let cached = try APIClient.jsonDecoder.decode(FlagStore.Cached.self, from: Data(old.utf8))
+        #expect(cached.config.appAttest == nil && cached.config.appAttestMode == nil)
+        #expect(cached.config.flags["train.enabled"] == true)
+    }
+
+    @Test(arguments: [AppAttestMode.off, .warn, .on])
+    func theModeSurvivesTheCache(_ mode: AppAttestMode) throws {
+        let config = RemoteConfig(flags: [:], evaluatedAt: Date(timeIntervalSince1970: 1_792_400_000), ttlSec: 60,
+                                  appAttest: mode.rawValue)
+        let back = try #require(WireCoding.decode(RemoteConfig.self, WireCoding.encode(config)))
+        #expect(back.appAttestMode == mode)
+    }
+}
