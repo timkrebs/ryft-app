@@ -76,3 +76,17 @@ work with an ios-architect note (it is `Persistence/`).
   new hosted tests should stay few.
 - **Main moves** (the other lead's App Attest and analytics work). Merge `origin/main` into the branch before each
   integration run.
+
+## Lead decisions on G0 (2026-11-20)
+- **D1, D2, D3, D5, D7, D8, D9: as `design.md` §2.**
+  - D1 removes the last exception to L27: teal means recovery.
+  - D2 follows the Consent step and ships dark; #130's decision B (the prompt as an onboarding step) stays the user's.
+  - D3, D5, D7, D8 and D9 settle review nits or delete code nobody calls.
+- **D6: as designed, built in F2.** The one sentence there is settled with the localization-editor. The draft shows
+  "… is available when your consent withdrawal has finished", the note "Waiting for your consent withdrawal to finish.".
+- **D4 and DG-6 (sheet and pushed-page headers) go to the user.** They change the look of about 30 pages. G2 builds
+  everything else first; `SubpageScaffold.swift` and `SheetHeader.swift` wait.
+- **F1 extras accepted:** deleting a paused plan forgets its paused id, and the plan-day patches. Logged as a follow-up:
+  `savePlan` after a failed re-read (the new plan is missing until the next refresh).
+- **Started:** G1 (`feat/nocturne-gate-g1`) and G2 (`feat/nocturne-gate-g2`), both off e04090d. G3 starts once F1's runs are
+  done. G4 starts after G1–G3 are merged into `feat/nocturne-gate`.
