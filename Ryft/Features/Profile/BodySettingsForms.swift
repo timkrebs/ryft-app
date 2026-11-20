@@ -427,9 +427,9 @@ private struct BodySettingPage: View {
         if rescores, editor.hasSaved(setting) || editor.rescoreStatus != nil {
             VStack(alignment: .leading, spacing: BodySettingsLayout.noticeGap) {
                 GroupedCard {
-                    GroupedRow.action(editor.rescoring ? Text("Rescoring…", comment: "Body setting editors: the rescore row while it runs.")
-                                                       : Text("Rescore the last 90 days"),
-                                      systemImage: "arrow.clockwise", busy: editor.rescoring, identifier: "bodySettings.rescore") {
+                    // Busy keeps the title: the row's spinner and VoiceOver's "In progress" say it runs.
+                    GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
+                                      identifier: "bodySettings.rescore") {
                         Task { await editor.rescore() }
                     }
                     // Rescored: nothing new to rescore until the next saved change.

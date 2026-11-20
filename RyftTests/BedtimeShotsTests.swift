@@ -161,7 +161,7 @@ enum BedtimeShotScreen {
                 try await w.wait("the page") { w.nodes().contains { $0.identifier == "schedule.turnOff" } }
                 alarms.sticks = true
                 Task { await planner.editor.turnOff() }
-                try await w.wait("Turning off…") { w.node("Turning off…") != nil }
+                try await w.wait("turning off") { w.nodes().first { $0.identifier == "schedule.turnOff" }?.value == "In progress" }
             }
         case "bedtime-wake-reminders-wait":
             let (state, _) = state(online: false)

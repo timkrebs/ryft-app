@@ -197,7 +197,7 @@ private struct SheetHeaderPreviewBoard: View {
                     .headerEdgeButton()
             }
             SheetHeader(Text(verbatim: "Mon, Nov 16")) {
-                PillButton(Text(verbatim: "Saving…"), size: .compact, busy: true) {}
+                PillButton(Text(verbatim: "Save"), size: .compact, busy: true) {}
             }
             // Saving: the close circle off while the save runs.
             SheetHeader(Text(verbatim: "New plan"), closeLabel: Text(verbatim: "Cancel")) {

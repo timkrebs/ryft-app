@@ -25,9 +25,9 @@ struct SignedOutOnboardingShotsTests {
     nonisolated static let names = [
         "a-01-welcome", "a-02-welcome-notice", "a-03-login", "a-03-login-error", "a-03-login-busy", "a-04-create-account",
         "a-05-reset-password", "a-06-check-inbox", "a-07-set-new-password", "a-07-change-password-busy", "a-08-invite",
-        "a-09-consent", "a-10-about-you", "a-10-about-you-saved", "a-11-apple-health", "a-12-wear", "a-13-tracker-setup",
-        "a-14-account-hint", "a-15-splash", "a-15-splash-waiting", "a-16-misconfigured", "a-18-details-sheet",
-        "a-18-details-sheet-no-id",
+        "a-09-consent", "a-10-about-you", "a-10-about-you-saved", "a-11-apple-health",
+        "a-11-apple-health-busy", "a-12-wear", "a-13-tracker-setup", "a-14-account-hint", "a-15-splash", "a-15-splash-waiting",
+        "a-16-misconfigured", "a-18-details-sheet", "a-18-details-sheet-no-id",
     ]
 
     @Test(arguments: names)
@@ -130,6 +130,7 @@ struct SignedOutOnboardingShotsTests {
             Screen(name: "a-10-about-you-saved", view: AnyView(OnboardingStepPreview(step: .aboutYou, saved: true)),
                    ready: "Maximum heart rate"),
             Screen(name: "a-11-apple-health", view: AnyView(HealthPermissionView()), ready: "Connect Apple Health"),
+            Screen(name: "a-11-apple-health-busy", view: AnyView(HealthPermissionView(showsBusy: true)), ready: "Connect Apple Health"),
             Screen(name: "a-12-wear",
                    view: AnyView(TrackerPickerView(model: wear, picked: ["garmin", "oura"]).previewEnvironment(wearState)),
                    ready: "What do you wear?"),

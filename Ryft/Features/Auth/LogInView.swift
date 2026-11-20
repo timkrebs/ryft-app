@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Email + password. Errors stay calm and never say whether the email has an
 /// account ("Email or password is wrong"). Nocturne (PR 6 A §A-2): the subpage header, one card with the two fields,
-/// "Forgot password?" under it, the banner, the primary; while it works the pill says "Logging in…" and the rows hold still.
+/// "Forgot password?" under it, the banner, the primary; while it works the pill is busy (its spinner, the title stays) and
+/// the rows hold still.
 struct LogInView: View {
     @Environment(AuthService.self) private var auth
     @Environment(\.appEnvironment) private var env
@@ -39,7 +40,7 @@ struct LogInView: View {
                 AuthErrorMessage()
                     .padding(.bottom, AuthScreenSpec.actionGap)
             }
-            PillButton(isBusy ? Text("Logging in…") : Text("Log in"), busy: isBusy) { await logIn() }
+            PillButton(Text("Log in"), busy: isBusy) { await logIn() }
                 .disabled(!isValid)
                 .accessibilityHint(isValid ? Text(verbatim: "") : Text("Fill in your email and password first."))
                 .accessibilityIdentifier("logIn.submit")

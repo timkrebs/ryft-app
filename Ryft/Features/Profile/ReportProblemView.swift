@@ -23,7 +23,7 @@ enum ReportProblemLayout {
 /// Profile → About → Report a problem (ui.md §5; Nocturne, PR 6 C §4.3): the message, what it's about, and diagnostics that
 /// help find the cause, never a health value. Pushed from Profile, or from an error's Details (`context`), pre-filled.
 ///
-/// - The frame is `SubpageScaffold`; Send is the pinned primary ("Sending…" with the pill's spinner while it goes), with
+/// - The frame is `SubpageScaffold`; Send is the pinned primary (the pill's spinner while it goes, the title stays), with
 ///   "Reports are limited to 10 a day." under it. At the accessibility sizes that line (and the caption that says why Send
 ///   waits) ends the page instead, so the bar keeps only the pill and the page its room (C §2.9).
 /// - A refusal shows above the form as a notice, with the message kept and "Copy message".
@@ -124,12 +124,12 @@ struct ReportProblemView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Send, pinned: busy while it goes (the pill keeps its size and says "Sending…"), disabled without a message, over the
+    /// Send, pinned: busy while it goes (the pill keeps its size and its title), disabled without a message, over the
     /// limit and after today's tenth report (the caption then says why; from AX1 at the page's end, with the footnote).
     private var sendBar: some View {
         let inBar = !typeSize.isAccessibilitySize
         return PinnedActionBar(caption: inBar ? sendCaption : nil, footnote: inBar ? Self.sendFootnote : nil) {
-            PillButton(model.sending ? Text("Sending…") : Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
+            PillButton(Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
                 editing = false
                 await model.send()
             }

@@ -164,13 +164,14 @@ struct ProfileSubpagesHostedTests {
         }
     }
 
-    @Test("While sending: 'Sending…', 'In progress', and the form doesn't take changes")
+    @Test("While sending: Send keeps its title, 'In progress', no tap; the form doesn't take changes")
     func reportSending() async throws {
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data, sending: true) }) { w in
             try await w.wait("the form") { has(w, id: "report.send") }
             try await w.settle()
             let send = try node(w, id: "report.send")
-            #expect(send.label == "Sending…" && send.value == "In progress", "\(send.label) \(String(describing: send.value))")
+            #expect(send.label == "Send" && send.value == "In progress", "\(send.label) \(String(describing: send.value))")
+            #expect(!send.isEnabled, "a second tap sends nothing")
             let category = try node(w, id: "report.category.bug")
             #expect(!category.isEnabled, "the category rows are disabled while it goes")
             let diagnostics = try node(w, id: "report.diagnostics")

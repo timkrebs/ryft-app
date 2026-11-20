@@ -542,15 +542,12 @@ struct SleepScheduleView: View {
 
     /// Turn off asks first: the system dialog, anchored on the row (iOS 26 draws it as a popover from its source), its
     /// title and destructive button only; what goes is the group's footer, there before the tap and at any text size.
-    /// While the reminders and alarms go the row says so and the page takes no changes. The page's last line says there
-    /// is no Save button.
+    /// While the reminders and alarms go the row is busy (its spinner, the title stays) and the page takes no changes. The
+    /// page's last line says there is no Save button.
     @ViewBuilder private var last: some View {
         if planner.schedule != nil || editor.isTurningOff {
             GroupedCard(footer: Self.turnOffFooter) {
-                GroupedRow.destructive(editor.isTurningOff
-                                       ? Text("Turning off…", comment: "Bedtime & wake's Turn off row while it turns off.")
-                                       : Text("Turn off Bedtime & wake"),
-                                       busy: editor.isTurningOff, identifier: "schedule.turnOff") {
+                GroupedRow.destructive(Text("Turn off Bedtime & wake"), busy: editor.isTurningOff, identifier: "schedule.turnOff") {
                     confirmsTurnOff = true
                 }
                 .confirmationDialog(Text("Turn off Bedtime & wake?",

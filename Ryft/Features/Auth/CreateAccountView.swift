@@ -41,7 +41,7 @@ struct CreateAccountView: View {
                 AuthErrorMessage()
                     .padding(.top, AuthScreenSpec.primaryGap)
             }
-            PillButton(isBusy ? Text("Creating account…") : Text("Create account"), busy: isBusy) { await submit() }
+            PillButton(Text("Create account"), busy: isBusy) { await submit() }
                 .disabled(!isValid)
                 .padding(.top, auth.errorMessage == nil ? AuthScreenSpec.primaryGap : AuthScreenSpec.actionGap)
                 .accessibilityIdentifier("createAccount.submit")

@@ -10,9 +10,11 @@ import UIKit
 /// usable (empty states, Profile → Data → Allow access).
 struct HealthPermissionView: View {
     @Environment(\.appEnvironment) private var env
+    /// Previews and tests: the busy state, which the model only enters while the system sheet is up.
+    var showsBusy = false
 
     var body: some View {
-        HealthPermissionScreen(model: HealthOnboardingViewModel(env: env))
+        HealthPermissionScreen(model: HealthOnboardingViewModel(env: env), showsBusy: showsBusy)
     }
 }
 
@@ -53,11 +55,14 @@ final class HealthOnboardingViewModel {
 }
 
 /// Nocturne (PR 6 A §A-10): the lock-up row, the 72 pt outline mark (its pulse drawn once), the title, the lead, the three
-/// points as a card and the policy link; Continue ("Waiting for Apple Health…" while the system sheet is up) and Not now
-/// pinned under the page.
+/// points as a card and the policy link; Continue (busy while the system sheet is up: the pill's spinner, the title stays) and
+/// Not now pinned under the page.
 private struct HealthPermissionScreen: View {
     @State var model: HealthOnboardingViewModel
+    let showsBusy: Bool
     @State private var legal: LegalPage?
+
+    private var isBusy: Bool { model.isRequesting || showsBusy }
 
     var body: some View {
         ScrollView {
@@ -98,12 +103,12 @@ private struct HealthPermissionScreen: View {
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
         .pinnedBar {
-            PillButton(model.isRequesting ? Text("Waiting for Apple Health…") : Text("Continue"), busy: model.isRequesting) {
+            PillButton(Text("Continue"), busy: isBusy) {
                 await model.connect()
             }
             .accessibilityIdentifier("health.continue")
             LaterButton(title: "Not now") { model.notNow() }
-                .disabled(model.isRequesting)
+                .disabled(isBusy)
                 .accessibilityIdentifier("health.notNow")
         }
         .safariSheet($legal)
@@ -131,6 +136,12 @@ enum HealthLinks {
 // Dark only (NOCTURNE_STYLE §1).
 #Preview("Connect Apple Health") {
     HealthPermissionView()
+        .environment(Settings.shared)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Connect Apple Health · busy") {
+    HealthPermissionView(showsBusy: true)
         .environment(Settings.shared)
         .preferredColorScheme(.dark)
 }

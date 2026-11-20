@@ -185,7 +185,8 @@ enum OnboardingPointSpec {
 }
 
 /// Invite code: one field, any case, spaces or dashes; paste-friendly. Nocturne (PR 6 A §A-7): a one-row card with the
-/// system Paste chip, the banner, Continue ("Checking…"), Not now, and the way out for the wrong account.
+/// system Paste chip, the banner, Continue (busy while it checks: the pill's spinner, the title stays), Not now, and the way
+/// out for the wrong account.
 struct InviteCodeView: View {
     let model: OnboardingCoordinator
     @Environment(AuthService.self) private var auth
@@ -231,7 +232,7 @@ struct InviteCodeView: View {
             }
             .disabled(model.isWorking)
             OnboardingError(model: model)
-            PillButton(model.isWorking ? Text("Checking…") : Text("Continue"), busy: model.isWorking) {
+            PillButton(Text("Continue"), busy: model.isWorking) {
                 await model.redeemInvite()
             }
             .disabled(isEmpty)
@@ -275,8 +276,8 @@ private enum InviteSpec {
 
 /// Consent to health-data processing for the policy in force: a plain summary, the
 /// whole policy in Safari, and a separate checkbox that starts unticked. Nocturne (PR 6 A §A-8, D6A-11): the points card,
-/// the age line in ink (it is a gate), the policy link, the checkbox card, then Agree and continue ("Saving your consent…"),
-/// Not now and the version caption, all inline in one scroll.
+/// the age line in ink (it is a gate), the policy link, the checkbox card, then Agree and continue (busy while it saves: the
+/// pill's spinner, the title stays), Not now and the version caption, all inline in one scroll.
 struct ConsentView: View {
     let model: OnboardingCoordinator
     @State private var agreed = false
@@ -332,8 +333,7 @@ struct ConsentView: View {
             }
             // The version this step drew: a newer one arriving before the tap isn't agreed to.
             let shown = model.policyVersion
-            PillButton(model.isWorking ? Text("Saving your consent…") : Text("Agree and continue"),
-                       systemImage: PillButton.Icon.confirm, busy: model.isWorking) {
+            PillButton(Text("Agree and continue"), systemImage: PillButton.Icon.confirm, busy: model.isWorking) {
                 await model.agree(shown: shown)
             }
             .disabled(!agreed || !model.canAgree)

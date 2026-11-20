@@ -108,8 +108,7 @@ struct TrackerCheckView: View {
             }
             .accessibilityIdentifier("check.allow")
         case .checkAgain(let busy, let enabled):
-            PillButton(busy ? Text("Checking…") : Text("Check again"), style: style, systemImage: PillButton.Icon.retry,
-                       busy: busy) {
+            PillButton(Text("Check again"), style: style, systemImage: PillButton.Icon.retry, busy: busy) {
                 await model.run(stagger: !reduceMotion)
             }
             .disabled(!enabled)

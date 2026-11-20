@@ -3,7 +3,7 @@ import SwiftUI
 /// After a reset link (`.recovery`, presented by RootView) or from
 /// Profile → Change password (`.change`). `updateUser(password:)`. Nocturne (PR 6 A §A-6): a sheet with its own header
 /// (the title, "Cancel" as the close circle), one field, the length hint (or "Password saved." once it is), the banner and
-/// "Save password" ("Saving…" while it works). Saved closes the sheet after 0.8 s.
+/// "Save password" (busy while it works: the pill's spinner, the title stays). Saved closes the sheet after 0.8 s.
 struct SetNewPasswordView: View {
     enum Mode { case recovery, change }
 
@@ -50,7 +50,7 @@ struct SetNewPasswordView: View {
                 AuthErrorMessage()
                     .padding(.top, AuthScreenSpec.primaryGap)
             }
-            PillButton(isBusy ? Text("Saving…") : Text("Save password"), systemImage: PillButton.Icon.confirm, busy: isBusy) {
+            PillButton(Text("Save password"), systemImage: PillButton.Icon.confirm, busy: isBusy) {
                 await save()
             }
             .disabled(!canSave)

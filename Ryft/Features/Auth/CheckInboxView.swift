@@ -11,7 +11,8 @@ struct CheckInboxView: View {
     let reason: InboxReason
     let email: String
 
-    @State private var resend = InboxResendModel()
+    /// Resend's state; tests hand in one that is already sending.
+    @State var resend = InboxResendModel()
 
     var body: some View {
         AuthScreen(title: Text("Check your inbox"), lead: lead) {
@@ -55,8 +56,8 @@ struct CheckInboxView: View {
 
     private var resendTitle: Text {
         switch resend.phase {
-        case .idle: return Text("Resend")
-        case .sending: return Text("Sending…")
+        // Busy keeps the title: the pill's spinner and VoiceOver's "In progress" say it is sending.
+        case .idle, .sending: return Text("Resend")
         case .sent: return Text("Sent again")
         }
     }

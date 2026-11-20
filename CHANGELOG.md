@@ -91,6 +91,8 @@ Store "What's New".
 - Profile: grouped lists, and every link says where it opens. With Demo data on while signed in, Profile still shows
   your own account.
 - Switches and buttons in sheets now match the new look.
+- A button at work shows a spinner and keeps its title ("Log in", "Send", "Check again"), instead of changing to
+  "Logging in…" or "Sending…"; it takes no second tap, and VoiceOver says "In progress".
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.

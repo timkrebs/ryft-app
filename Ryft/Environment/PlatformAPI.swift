@@ -380,8 +380,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         return status
     }
 
+    /// Runs before each `POST /v1/me/consent` is taken (tests hold one open with it).
+    var beforeConsent: (@Sendable () async -> Void)?
+
     func consent(policyVersion: String, appVersion: String?) async throws {
         try enter("consent")
+        await beforeConsent?()
         try lock.withLock {
             guard policyVersion == remoteConfig.privacyPolicyVersion else { throw APIError.http(422, "outdated policy") }
             consentPosts.append(policyVersion)
@@ -399,8 +403,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
+    /// Runs before each `POST /v1/me/invite` is taken (tests hold one open with it).
+    var beforeInvite: (@Sendable () async -> Void)?
+
     func redeemInvite(code: String) async throws {
         try enter("redeemInvite")
+        await beforeInvite?()
         try lock.withLock {
             inviteAttempts.append(code)
             guard !betaAccess else { return }

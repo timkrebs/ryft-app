@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Sends a reset link to `ryft://auth/callback`; opening it shows Set new password. Nocturne (PR 6 A §A-4): the lead, a
-/// one-row card with the email (Log in's, focused), the banner, "Send reset link" ("Sending…" while it works).
+/// one-row card with the email (Log in's, focused), the banner, "Send reset link" (busy while it works: the pill's
+/// spinner, the title stays).
 struct ForgotPasswordView: View {
     @Environment(AuthService.self) private var auth
     @Environment(\.appEnvironment) private var env
@@ -29,7 +30,7 @@ struct ForgotPasswordView: View {
                 AuthErrorMessage()
                     .padding(.top, AuthScreenSpec.actionGap)
             }
-            PillButton(isBusy ? Text("Sending…") : Text("Send reset link"), systemImage: PillButton.Icon.send, busy: isBusy) {
+            PillButton(Text("Send reset link"), systemImage: PillButton.Icon.send, busy: isBusy) {
                 await send()
             }
             .disabled(!isValid)

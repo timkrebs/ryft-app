@@ -88,7 +88,7 @@ struct NocturneFoundationCatalog: View {
                 CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) {}.headerEdgeButton()
             }
             SheetHeader(Text(verbatim: "Add sleep")) {
-                PillButton(Text(verbatim: "Saving…"), size: .compact, busy: true) {}
+                PillButton(Text(verbatim: "Save"), size: .compact, busy: true) {}
             }
         }
     }

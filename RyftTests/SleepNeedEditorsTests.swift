@@ -1164,7 +1164,7 @@ struct BodySettingsEditorHostedTests {
         }
     }
 
-    @Test("Rescored and seen: the status says so, and the row waits for the next saved change")
+    @Test("Rescoring keeps the row's title, busy, and a tap does nothing; rescored and seen: the status says so, the row waits for a new change")
     func rescoredRowWaits() async throws {
         let (api, _) = C3Platform.api()
         let clock = TestClock()
@@ -1176,6 +1176,13 @@ struct BodySettingsEditorHostedTests {
             try #require(node(w, "bodySettings.rescore")).activate()
             // Waited for outside `#expect`: a closure inside its expansion here trips the compiler (closure type mismatch).
             try await w.wait("the delay", timeout: hostedWait) { clock.pendingSleeps == 1 }
+            // The busy rule: the row keeps its title, its spinner says it runs, and a second tap starts nothing.
+            try await w.wait("busy", timeout: hostedWait) { node(w, "bodySettings.rescore")?.value == "In progress" }
+            let busy = try #require(node(w, "bodySettings.rescore"))
+            #expect(busy.label == "Rescore the last 90 days", "\(busy.label)")
+            busy.activate()
+            try await w.settle()
+            #expect(api.calls.filter { $0 == "recompute" }.count == 1, "\(api.calls)")
             clock.advance(by: SyncService.rescoreDelay)
             try await w.wait("rescored", timeout: hostedWait) { w.node("The last 90 days are rescored with your settings.") != nil }
             try await w.settle()

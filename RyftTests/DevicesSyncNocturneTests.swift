@@ -266,14 +266,14 @@ struct DevicesSyncNocturneTests {
 
     // MARK: Check sync, hosted
 
-    @Test("Spec 7: running is busy Checking…; done shows the rows, the fix and Check again")
+    @Test("Spec 7: running is busy and keeps Check again (the busy rule); done shows the rows, the fix and Check again")
     func checkSyncRunningAndDone() async throws {
         let running = MockDevicesStates.graph(trackers: ["garmin"])
         let runningCheck = running.check(.garminSleepOff)
         MockDevicesStates.staged(runningCheck, .running, scenario: .garminSleepOff)
         try await host(running, NavigationStack { TrackerCheckView(model: runningCheck) }) { w in
             let run = try #require(w.nodes().first { $0.identifier == "check.run" })
-            #expect(run.label == "Checking…" && run.value == "In progress")
+            #expect(run.label == "Check again" && run.value == "In progress" && !run.isEnabled, "\(run.label) · \(run.value ?? "")")
             #expect(!w.nodes().contains { $0.identifier == "check.allow" })
         }
 

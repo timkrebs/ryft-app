@@ -1101,7 +1101,7 @@ struct BedtimeHostedTests {
         if alert.presentingViewController != nil { alert.dismiss(animated: false, completion: run) } else { run() }
     }
 
-    @Test("While Turn off runs: the row says Turning off… and is busy, the rest of the page takes no taps")
+    @Test("While Turn off runs: the row keeps its title, is busy and asks nothing again; the rest of the page takes no taps")
     func turnOffBusy() async throws {
         let (state, _) = BedtimeShotScreen.state()
         let alarms = HeldWakeAlarms()
@@ -1116,9 +1116,12 @@ struct BedtimeHostedTests {
             try await w.settle()
             alarms.holdsCancel = true
             let turning = Task { await planner.editor.turnOff() }
-            try await w.wait("busy") { w.nodes().first { $0.identifier == "schedule.turnOff" }?.label == "Turning off…" }
+            try await w.wait("busy") { w.nodes().first { $0.identifier == "schedule.turnOff" }?.value == "In progress" }
             let row = try node(w, id: "schedule.turnOff")
-            #expect(row.value == "In progress", "\(row.value ?? "")")
+            #expect(row.label == "Turn off Bedtime & wake", "the busy rule: the title stays (\(row.label))")
+            row.activate()
+            try await w.settle()
+            #expect(Self.presentedAlert(w.host) == nil, "a tap while it turns off asks nothing")
             #expect(try !node(w, id: "schedule.goal.85").isEnabled && !node(w, id: "schedule.alarm").isEnabled, "the page disabled")
             alarms.release()
             await turning.value
