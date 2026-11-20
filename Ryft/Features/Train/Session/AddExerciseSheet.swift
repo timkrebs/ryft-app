@@ -326,8 +326,9 @@ struct CustomExerciseForm: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: CustomExerciseDraft
     @State private var saving = false
-    /// Set once the form is cancelled or goes away. A save still under way then hands nothing back: the workout (or plan) it
-    /// was for may be over. A reference, so `save()` sees the write made after its await began.
+    /// Set once the form is cancelled or goes away. Add's save runs in a task of its own, so a Cancel or a swipe-down can be
+    /// handled after the tap and before that task starts: it then creates nothing. A reference, so the task sees the write
+    /// made after it was started.
     @State private var closing = FormClosing()
     @FocusState private var nameFocused: Bool
 
@@ -403,7 +404,8 @@ struct CustomExerciseForm: View {
     }
 
     private func save() async {
-        guard !saving else { return }
+        // Closed before this ran: the user cancelled, so no exercise is made (and no `POST` queued).
+        guard !saving, !closing.closed else { return }
         if let onDraft {
             onDraft(draft)
             dismiss()
@@ -411,14 +413,13 @@ struct CustomExerciseForm: View {
         }
         saving = true
         let e = draft.exercise
-        // Nil only for a name the platform would refuse, which `canSave` already keeps out: stay open, add nothing.
+        // Saved on this phone and its `POST` queued (#126): nothing waits for the network, so nothing can close the form
+        // meanwhile. Nil only for a name the platform would refuse, which `canSave` already keeps out: stay open, add nothing.
         guard let saved = await library.createExercise(e) else {
             saving = false
             return
         }
         saving = false
-        // Cancelled or gone while it saved: the library keeps the exercise; the session or plan doesn't get it.
-        guard !closing.closed else { return }
         onSave(saved)
         dismiss()
     }
