@@ -192,12 +192,15 @@ struct InviteCodeView: View {
     @Environment(AuthService.self) private var auth
     /// The launch sequence plays over the root: no keyboard over its arcs, no keystrokes into a field nobody sees.
     @Environment(\.launchCoversRoot) private var launchCovers
+    @Environment(\.dynamicTypeSize) private var typeSize
     @FocusState private var focused: Bool
 
     /// The field takes the keyboard by itself only when it can be seen and holds nothing yet: on appear when nothing
-    /// covers it, else at the launch's hand-off (ADR 0017).
-    static func shouldFocus(inviteCodeEmpty: Bool, covered: Bool) -> Bool {
-        inviteCodeEmpty && !covered
+    /// covers it, else at the launch's hand-off (ADR 0017). Never at the accessibility sizes: Continue is in the page, not in
+    /// a pinned bar that would ride the keyboard, and there the keyboard covered it (and the field's own line) at once (PR 6
+    /// ui-validator); a tap on the field brings it, and its Go key continues.
+    static func shouldFocus(inviteCodeEmpty: Bool, covered: Bool, typeSize: DynamicTypeSize) -> Bool {
+        inviteCodeEmpty && !covered && !typeSize.isAccessibilitySize
     }
 
     private var isEmpty: Bool { model.inviteCode.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -257,14 +260,17 @@ struct InviteCodeView: View {
                 .padding(.top, OnboardingSpec.actionGap)
         }
         .onAppear {
-            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: launchCovers) { focused = true }
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: launchCovers, typeSize: typeSize) {
+                focused = true
+            }
         }
         .onChange(of: launchCovers) { _, covers in
-            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: covers) { focused = true }
+            if Self.shouldFocus(inviteCodeEmpty: model.inviteCode.isEmpty, covered: covers, typeSize: typeSize) { focused = true }
         }
-        // A refused code (422): back to the field, to correct it.
+        // A refused code (422): back to the field, to correct it; at the accessibility sizes the keyboard would hide the
+        // banner that says why, so the field waits for a tap there too.
         .onChange(of: model.errorMessage) { _, message in
-            if message != nil { focused = true }
+            if message != nil, !typeSize.isAccessibilitySize { focused = true }
         }
     }
 }

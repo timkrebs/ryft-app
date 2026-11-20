@@ -448,7 +448,14 @@ struct LaunchSequenceModelTests {
         (true, false, true), (true, true, false), (false, false, false), (false, true, false),
     ])
     func theInviteFieldFocusesOnlyWhenUncovered(_ empty: Bool, _ covered: Bool, _ focuses: Bool) {
-        #expect(InviteCodeView.shouldFocus(inviteCodeEmpty: empty, covered: covered) == focuses)
+        #expect(InviteCodeView.shouldFocus(inviteCodeEmpty: empty, covered: covered, typeSize: .large) == focuses)
+    }
+
+    /// PR 6 ui-validator: at AX3 the keyboard came up at once and covered Continue (the step has no pinned bar to ride it).
+    @Test("At the accessibility sizes the invite field waits for a tap; up to XXXL it takes the keyboard",
+          arguments: [(DynamicTypeSize.xxxLarge, true), (.accessibility1, false), (.accessibility3, false), (.accessibility5, false)])
+    func theInviteFieldWaitsAtAXSizes(_ size: DynamicTypeSize, _ focuses: Bool) {
+        #expect(InviteCodeView.shouldFocus(inviteCodeEmpty: true, covered: false, typeSize: size) == focuses)
     }
 
     @Test func anInterruptionActionReachesItsClosure() {
