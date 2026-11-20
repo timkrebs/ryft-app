@@ -12,6 +12,8 @@ enum PlanBuilderLayout {
     nonisolated static let issueBottom: CGFloat = 10
     /// The target's value field, wide enough for "102.5".
     nonisolated static let targetFieldWidth: CGFloat = 72
+    /// The name wraps instead of being cut ("Upper/Lower 4×…" at AX3): up to four lines show, a longer one scrolls inside.
+    nonisolated static let nameLines = 1...4
     nonisolated static let bottomPadding: CGFloat = 32
 }
 
@@ -21,6 +23,13 @@ enum PlanBuilderRules {
     /// Save is explained.
     static func shownIssues(_ issues: [PlanIssue], attempted: Bool, hasChanges: Bool) -> [PlanIssue] {
         attempted || hasChanges ? issues : []
+    }
+
+    /// The name field wraps, so Return would type a line break: the name without it (a pasted break becomes a space),
+    /// and the field ends editing as its Done did; nil when the name has none.
+    static func nameOnOneLine(_ name: String) -> String? {
+        guard name.contains(where: \.isNewline) else { return nil }
+        return name.split(whereSeparator: \.isNewline).joined(separator: " ")
     }
 
     /// Save is on once the plan is valid (a name, an exercise on every day). While it saves it is busy, not off.
@@ -150,14 +159,23 @@ private struct PlanBuilderScreen: View {
         .padding(.top, SheetHeaderSpec.topInset)
     }
 
-    /// "Name" over the plan's name in 22 Light; "Give the plan a name." under it once something changed.
+    /// "Name" over the plan's name in 22 Light, wrapping (never cut at large sizes); "Give the plan a name." under it once
+    /// something changed. Return ends editing (`PlanBuilderRules.nameOnOneLine`).
     private var name: some View {
         GroupedCard {
             FormField(Text("Name"), isFocused: focus == .name, valueSize: .large) {
-                TextField(text: Bindable(model).plan.name, prompt: Text("Plan name").fieldPrompt()) { Text("Name") }
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.done)
-                    .focused($focus, equals: .name)
+                TextField(text: Bindable(model).plan.name, prompt: Text("Plan name").fieldPrompt(), axis: .vertical) {
+                    Text("Name")
+                }
+                .lineLimit(PlanBuilderLayout.nameLines)
+                .textInputAutocapitalization(.words)
+                .submitLabel(.done)
+                .focused($focus, equals: .name)
+                .onChange(of: model.plan.name) { _, name in
+                    guard let oneLine = PlanBuilderRules.nameOnOneLine(name) else { return }
+                    model.plan.name = oneLine
+                    focus = nil
+                }
             }
             issueLines([.missingName])
         }
