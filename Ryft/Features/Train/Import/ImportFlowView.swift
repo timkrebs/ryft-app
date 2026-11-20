@@ -192,7 +192,7 @@ private struct ImportBackSwipe: ViewModifier {
 
 /// A step's primary action: the pinned pill (`PillButton`, `.primary`), full width, growing with Dynamic Type. Off, it dims
 /// (the caption above says why); busy, a spinner takes the glyph's place.
-struct ImportPrimaryButton: View {
+struct ImportStepButton: View {
     let title: String
     var identifier = "import.continue"
     var isEnabled = true

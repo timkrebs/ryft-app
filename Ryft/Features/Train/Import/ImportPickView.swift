@@ -25,8 +25,8 @@ struct ImportPickView: View {
             slots
             messages
         } bottom: {
-            ImportPrimaryButton(title: String(localized: "Choose files", comment: "Training import, step 1: opens the file picker."),
-                                identifier: "import.choose", systemImage: "plus") {
+            ImportStepButton(title: String(localized: "Choose files", comment: "Training import, step 1: opens the file picker."),
+                             identifier: "import.choose", systemImage: "plus") {
                 model.chooseFiles()
             }
             ImportBarCaption(text: String(localized: "Save the files from the other app to Files, then choose them here.",

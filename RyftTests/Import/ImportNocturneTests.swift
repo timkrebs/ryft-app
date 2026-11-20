@@ -69,7 +69,7 @@ struct ImportNocturneTests {
             for token in Self.tealTokens {
                 #expect(!code.contains(token), "\(file.lastPathComponent) names \(token)")
             }
-            // The old teal pill, as a word: `ImportPrimaryButton` is a `PillButton`.
+            // The old teal pill, as a word: `ImportStepButton` is a `PillButton`.
             #expect(code.firstMatch(of: #/\bPrimaryButton\b/#) == nil, "\(file.lastPathComponent) names PrimaryButton")
         }
     }
