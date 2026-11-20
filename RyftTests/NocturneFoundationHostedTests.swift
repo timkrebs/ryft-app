@@ -459,6 +459,73 @@ struct NocturneFoundationHostedTests {
         }
     }
 
+    /// PR 6 ui-validator (Welcome's two banners): the sentences started at x 153 and 162 under glyphs of different widths.
+    @Test("The glyph sits in a fixed column: banners with narrow and wide glyphs start their sentences on one line")
+    func bannerGlyphColumn() async throws {
+        let messages = [("You were signed out. Log in again to continue.", "person.crop.circle.badge.exclamationmark"),
+                        ("2 activities or nights you added haven't reached RYFT yet.", "icloud.and.arrow.up"),
+                        ("This day can't be changed any more.", "lock"),
+                        ("Nothing logged yet today.", "dumbbell")]
+        let banners = VStack(spacing: 12) {
+            ForEach(messages, id: \.0) { InlineMessage(message: $0.0, systemImage: $0.1, announces: false) }
+        }
+        try await host(banners.padding(.top, 20)) { w in
+            try await w.settle()
+            let column = 20 + InlineMessageSpec.horizontalPadding + InlineMessageSpec.glyphColumn + InlineMessageSpec.glyphGap
+            for (message, glyph) in messages {
+                let sentence = try node(w, message)
+                #expect(abs(sentence.frame.minX - column) < 1, "\(glyph): \(sentence.frame) from \(column)")
+            }
+        }
+    }
+
+    /// C §2.6: an action inside a notice is a text link, 16 Medium in ink with a 1 pt underline in ink at 35 %. Read in pixels:
+    /// the underline is a row under the word's middle whose pixels sit at 35 % ink over `surface` along most of the word (the
+    /// system skips descenders, so "Try again" breaks at y and g); a glyph's edges reach that level only here and there.
+    @Test("A banner's ink actions are text links: 'Try again' and a plain action are underlined in ink at 35 %, Details is not")
+    func bannerActionsAreTextLinks() async throws {
+        let banner = InlineMessage(message: "2 activities or nights you added haven't reached RYFT yet.",
+                                   systemImage: "icloud.and.arrow.up", retry: {}, onDetails: {}, identifier: "link",
+                                   action: ("Delete from this iPhone", {}), announces: false)
+        try await host(banner.padding(.top, 20)) { w in
+            try await w.settle()
+            let pixels = try WindowPixels(w)
+            let surface = NocturneTokenTests.resolve(Theme.surface)
+            let ink = NocturneTokenTests.resolve(Theme.textPrimary)
+            let underline = surface.g + (ink.g - surface.g) * InlineMessageSpec.linkUnderlineOpacity
+            for id in ["link.retry", "link.action", "link.details"] {
+                let frame = try #require(w.nodes().first { $0.identifier == id }, "\(id)").frame
+                let text = try #require(pixels.box(in: frame) { $0.g > surface.g + 0.12 }, "\(id) is drawn")
+                // Below the word's middle: an underline, not a strike-through.
+                let lower = CGRect(x: text.minX, y: text.midY, width: text.width, height: frame.maxY - text.midY)
+                let row = Self.fullestRow(pixels, in: lower) { abs($0.g - underline) < 0.1 }
+                if id == "link.details" {
+                    #expect(row < text.width * 0.3, "Details has no underline: \(row) of \(text.width)")
+                } else {
+                    #expect(row > text.width * 0.55, "\(id) is underlined in ink at 35 %: \(row) of \(text.width)")
+                }
+            }
+        }
+    }
+
+    /// The most pixels on one row inside `rect` for which `match` holds, in points (gaps allowed).
+    private static func fullestRow(_ pixels: WindowPixels, in rect: CGRect, where match: (WindowPixels.RGBA) -> Bool) -> CGFloat {
+        let step = 1 / pixels.scale
+        var best = 0
+        var y = rect.minY + step / 2
+        while y < rect.maxY {
+            var count = 0
+            var x = rect.minX + step / 2
+            while x < rect.maxX {
+                if match(pixels.at(x, y)) { count += 1 }
+                x += step
+            }
+            best = max(best, count)
+            y += step
+        }
+        return CGFloat(best) * step
+    }
+
     @Test("Retrying reads 'Trying again…' and is disabled; a notice has no buttons; readsAsOne is one element")
     func bannerStates() async throws {
         let banners = VStack(spacing: 12) {
