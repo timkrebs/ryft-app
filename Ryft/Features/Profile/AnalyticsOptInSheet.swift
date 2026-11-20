@@ -64,6 +64,7 @@ private struct AnalyticsOptInPrompt: ViewModifier {
                 withdrawn = false
             }) {
                 AnalyticsOptInSheet { analytics.setOptIn($0) }
+                    .presentedRoot()
             }
             .onChange(of: analytics.showsPrompt && !blocked, initial: true) { _, shows in
                 if shows {
