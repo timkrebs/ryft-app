@@ -61,13 +61,16 @@ final class StrainViewModel {
     private var score: DailyScore? { detail?.score ?? state.score(for: date) }
     var strain: Double? { score?.strain }
 
-    /// The strains of the seven days before the selected one, those that are cached.
-    private var priorStrains: [Double] {
-        (1...7).compactMap { state.score(for: DayFormat.shift(date, days: -$0))?.strain }
+    /// The cached strains of the 6 days before the selected one: the rest of "vs 7 d"'s window (`MetricDelta.windowDays`).
+    private var priorStrains: [TrendPoint] {
+        (1..<MetricDelta.windowDays).map { back in
+            let day = DayFormat.shift(date, days: -back)
+            return TrendPoint(day: DayFormat.string(from: day), value: state.score(for: day)?.strain)
+        }
     }
 
-    /// Against the mean of the seven days before the selected one; only with 3 or more of them (D5-4).
-    var strainDelta: MetricDelta? { StrainHero.delta(strain, prior: priorStrains) }
+    /// "vs 7 d": Today's rule (`StrainHero.delta`), so Insights' strain card says the same for the same day.
+    var strainDelta: MetricDelta? { StrainHero.delta(strain, day: DayFormat.string(from: date), prior: priorStrains) }
 
     var week: [StripDay] {
         DateStrip.week(endingAt: today, selected: date) { state.score(for: $0) }

@@ -62,6 +62,7 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- RYFT's website, privacy policy, terms and support moved to ryftlab.de.
 - RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,
   lighter type, labels in sentence case, and a new app icon, the RYFT wordmark.
@@ -80,6 +81,16 @@ Store "What's New".
   strain on a ruler. At the end of the launch animation the mark flies into Today's header.
 - Sleep in the new look: time asleep in large numerals against your need, the night as a hypnogram, and the stages
   below. While last night is being scored, Sleep shows Apple Health's night marked "not scored yet".
+- Strain, Insights and Profile in the new look, with a new tab bar. Tap the open tab again to go back to its start.
+- Strain: the day's strain in large numerals with its change against the last 7 days, your heart-rate zones and the
+  day's activities.
+- Insights: your trends over 7, 30 or 90 days, with your usual range shaded once there are 7 days of data. Offline,
+  Insights says so and shows when each card is from.
+- Sleep's Week, Month and Bedtime in the new look. "vs 7 d" now means the same on Today, Sleep, Strain and Insights:
+  the day against the 7 days ending on it.
+- Profile: grouped lists, and every link says where it opens. With Demo data on while signed in, Profile still shows
+  your own account.
+- Switches and buttons in sheets now match the new look.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
@@ -118,10 +129,15 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- A workout that uses a custom exercise you made offline now syncs once you're back online, and a workout the server
+  turns down stays on your iPhone, queued, instead of being dropped.
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in
   the workout are no longer broken or cut, and the Start workout options show their whole detail.
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.
-- If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
+- A sign-out that RYFT couldn't finish on this iPhone, because the app was closed or the iPhone refused, finishes the
+  next time you open RYFT, and so does removing a deleted account's data once the deletion has gone through. Until it
+  has, a different account can't sign in on this iPhone, and RYFT says so.
+- A workout started just as you're signed out no longer opens afterwards.
 - Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
   and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate

@@ -1826,7 +1826,7 @@ struct TrainQuickStartTests {
         let store = TrainStore(inMemory: true)
         let sync = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
         sync.gate = { _ in nil } // open: these tests are about what happens past it
-        let library = TrainLibrary(store: store, remote: { api }, restore: false)
+        let library = TrainLibrary(store: store, remote: { api }, outbox: { sync }, restore: false)
         return (TrainCoordinator(sync: sync, library: library, liveActivities: false), library, store)
     }
 
@@ -1987,7 +1987,8 @@ struct TrainQuickStartTests {
 @MainActor
 struct TrainViewModelTests {
     private func library(_ api: MockPlatformAPI = MockPlatformAPI()) -> TrainLibrary {
-        TrainLibrary(store: TrainStore(inMemory: true), remote: { api }, restore: false)
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
+        return TrainLibrary(store: store, remote: { api }, outbox: { outbox }, restore: false)
     }
 
     @Test func historyGroupsByWeekNewestFirst() async {
@@ -2082,6 +2083,32 @@ struct TrainViewModelTests {
         #expect(atLimit.trimmedName.unicodeScalars.count == 80)
         #expect(!atLimit.nameIsTooLong && atLimit.canSave, "80, the spaces around it not counted")
         #expect(CustomExerciseDraft.maxNameLength == 80)
+    }
+
+    /// Save is off for a name the platform refuses, so the sheet never hands on an exercise the outbox won't queue.
+    @Test func customExerciseNameCap() {
+        #expect(CustomExerciseDraft(name: String(repeating: "a", count: 80)).canSave)
+        #expect(!CustomExerciseDraft(name: String(repeating: "a", count: 81)).canSave)
+        #expect(CustomExerciseDraft(name: "  " + String(repeating: "a", count: 80) + "  ").canSave)
+        #expect(!CustomExerciseDraft(name: "Row", muscle: nil).canSave)
+    }
+
+    /// The form's "too long" line and Save come from one rule (`TrainLibrary.isValidName`), so they never disagree: a name
+    /// with something in it is either saveable or too long. A NUL is dropped before the count, as the platform's copy is.
+    @Test func tooLongAndSaveAgree() {
+        let nul = "\u{0}"
+        let names = ["", "   ", nul, nul + "  " + nul, "Row", String(repeating: "a", count: 80), String(repeating: "a", count: 81),
+                     " " + String(repeating: "a", count: 80) + "\n", nul + String(repeating: "a", count: 80),
+                     String(repeating: "a", count: 80) + nul + "a"]
+        for name in names {
+            let draft = CustomExerciseDraft(name: name)
+            let blank = TrainLibrary.withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            #expect(draft.canSave == TrainLibrary.isValidName(name), "\(name.debugDescription)")
+            #expect(draft.nameIsTooLong == (!blank && !draft.canSave), "\(name.debugDescription)")
+        }
+        #expect(CustomExerciseDraft(name: nul + String(repeating: "a", count: 80)).canSave, "the NUL isn't counted")
+        #expect(CustomExerciseDraft(name: String(repeating: "a", count: 80) + nul + "a").nameIsTooLong)
+        #expect(CustomExerciseDraft.maxNameLength == TrainLibrary.maxExerciseName)
     }
 }
 
@@ -2627,9 +2654,11 @@ struct OnboardingEdgeTests {
     }
 
     @Test func trainKeepsWritesRefusedAtAGate() {
-        #expect(TrainSyncService.isRetryable(.http(403, "", code: .inviteRequired)))
-        #expect(TrainSyncService.isRetryable(.http(403, "", code: .consentRequired)))
-        #expect(!TrainSyncService.isRetryable(.http(403, "built-in"))) // a real refusal is set aside
+        let at = Date(timeIntervalSince1970: 1_795_000_000)
+        #expect(TrainSyncService.disposition(of: .put, APIError.http(403, "", code: .inviteRequired), at: at) == .hold)
+        #expect(TrainSyncService.disposition(of: .put, APIError.http(403, "", code: .consentRequired), at: at) == .hold)
+        // Every 403 holds (ADR 0022 §1): one without a code is a gate this build doesn't know, or a proxy.
+        #expect(TrainSyncService.disposition(of: .put, APIError.http(403, "built-in"), at: at) == .hold)
     }
 
     @Test func signInMethodsBelongToTheirAccount() async {

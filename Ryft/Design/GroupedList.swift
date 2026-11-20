@@ -184,7 +184,7 @@ extension GroupedCard where Footer == GroupFooter {
 /// |---|---|---|
 /// | `value` | the value, 15 pt `textTertiary` | one element: the title, the value (and the detail) as its value |
 /// | `push` | an optional value, a chevron | a button; the caller's hint |
-/// | `linkOut` | ↗ | a link, hint "Opens outside the app" unless the caller says where |
+/// | `linkOut` | ↗ | a link, hint "Opens in the browser" for a web address, "Opens outside the app" for any other unless the caller says where |
 /// | `action` | an optional glyph at 55 %, a spinner while busy | a button; "In progress" while busy, and taps do nothing |
 /// | `select` | a checkmark on the chosen row | a button, `isSelected` on the chosen row |
 /// | `toggle` | the `Toggle` (`.ryft` from the root) | the switch: label, on / off |
@@ -216,11 +216,14 @@ struct GroupedRow: View {
     private let busy: Bool
     private let isSelected: Bool
     private let behaviour: Behaviour
+    /// The control's accessibility identifier: on the one element VoiceOver and UI tests see (the button, the switch, the
+    /// menu), never on the row around it.
+    private let identifier: String?
 
     @Environment(\.openURL) private var openURL
 
     private init(kind: Kind, title: Text, detail: Text?, value: Text?, icon: String?, accessory: GroupedRowLabel.Accessory,
-                 hint: Text?, busy: Bool = false, isSelected: Bool = false, behaviour: Behaviour) {
+                 hint: Text?, busy: Bool = false, isSelected: Bool = false, identifier: String? = nil, behaviour: Behaviour) {
         self.kind = kind
         self.title = title
         self.detail = detail
@@ -230,91 +233,101 @@ struct GroupedRow: View {
         self.hint = hint
         self.busy = busy
         self.isSelected = isSelected
+        self.identifier = identifier
         self.behaviour = behaviour
     }
 
     // One factory per kind (the kinds' closures would make initialisers ambiguous with a trailing closure).
 
     /// value: the title and a value, read as one element.
-    static func value(_ title: Text, value: Text, detail: Text? = nil, icon: String? = nil) -> GroupedRow {
+    static func value(_ title: Text, value: Text, detail: Text? = nil, icon: String? = nil, identifier: String? = nil) -> GroupedRow {
         GroupedRow(kind: .value, title: title, detail: detail, value: value, icon: icon, accessory: .none, hint: nil,
-                   behaviour: .none)
+                   identifier: identifier, behaviour: .none)
     }
 
     /// push: a button that opens something (a sheet, a page the caller presents); an optional value before the chevron.
     static func push(_ title: Text, value: Text? = nil, detail: Text? = nil, icon: String? = nil, hint: Text? = nil,
-                     action: @escaping () -> Void) -> GroupedRow {
+                     identifier: String? = nil, action: @escaping () -> Void) -> GroupedRow {
         GroupedRow(kind: .push, title: title, detail: detail, value: value, icon: icon, accessory: .chevron, hint: hint,
-                   behaviour: .button(action))
+                   identifier: identifier, behaviour: .button(action))
     }
 
     /// push: a `NavigationLink(value:)` to `route` (the stack's `navigationDestination(for:)` builds the page).
     static func push<Route: Hashable>(_ title: Text, value: Text? = nil, detail: Text? = nil, icon: String? = nil,
-                                      hint: Text? = nil, route: Route) -> GroupedRow {
+                                      hint: Text? = nil, identifier: String? = nil, route: Route) -> GroupedRow {
         let label = GroupedRowLabel(title, value: value, detail: detail, icon: icon, accessory: .chevron)
         return GroupedRow(kind: .push, title: title, detail: detail, value: value, icon: icon, accessory: .chevron, hint: hint,
-                          behaviour: .navigation(AnyView(NavigationLink(value: route) { label })))
+                          identifier: identifier, behaviour: .navigation(AnyView(NavigationLink(value: route) { label })))
     }
 
     /// link-out: opens `url` through the environment's `openURL` (so an in-app Safari handler still catches it). `hint` says
-    /// where it opens ("Opens Health"); without one, "Opens outside the app".
-    static func linkOut(_ title: Text, detail: Text? = nil, icon: String? = nil, hint: Text? = nil, url: URL) -> GroupedRow {
+    /// where it opens ("Opens Health", "Opens the page in RYFT"); without one, "Opens in the browser" for a web address and
+    /// "Opens outside the app" for any other.
+    static func linkOut(_ title: Text, detail: Text? = nil, icon: String? = nil, hint: Text? = nil, identifier: String? = nil,
+                        url: URL) -> GroupedRow {
         GroupedRow(kind: .linkOut, title: title, detail: detail, value: nil, icon: icon, accessory: .linkOut, hint: hint,
-                   behaviour: .url(url))
+                   identifier: identifier, behaviour: .url(url))
     }
 
     /// action: a button that does something here ("Sync now", "Copy diagnostics"); `systemImage` its trailing glyph. While
     /// `busy` a spinner takes the glyph's place, taps do nothing and VoiceOver says "In progress".
     static func action(_ title: Text, detail: Text? = nil, icon: String? = nil, systemImage: String? = nil, busy: Bool = false,
-                       action: @escaping () -> Void) -> GroupedRow {
+                       hint: Text? = nil, identifier: String? = nil, action: @escaping () -> Void) -> GroupedRow {
         GroupedRow(kind: .action, title: title, detail: detail, value: nil, icon: icon,
-                   accessory: busy ? .spinner : systemImage.map { .glyph($0) } ?? .none, hint: nil, busy: busy,
-                   behaviour: .button(action))
+                   accessory: busy ? .spinner : systemImage.map { .glyph($0) } ?? .none, hint: hint, busy: busy,
+                   identifier: identifier, behaviour: .button(action))
     }
 
     /// select: one of a set; the chosen row has the checkmark and the selected trait.
-    static func select(_ title: Text, detail: Text? = nil, icon: String? = nil, isSelected: Bool,
+    static func select(_ title: Text, detail: Text? = nil, icon: String? = nil, isSelected: Bool, identifier: String? = nil,
                        action: @escaping () -> Void) -> GroupedRow {
         GroupedRow(kind: .select, title: title, detail: detail, value: nil, icon: icon, accessory: .checkmark(isSelected),
-                   hint: nil, isSelected: isSelected, behaviour: .button(action))
+                   hint: nil, isSelected: isSelected, identifier: identifier, behaviour: .button(action))
     }
 
     /// toggle: a `Toggle` with the title (and the detail) as its label. It takes the toggle style of its environment: the app
     /// root's `.ryft` (T5.1).
-    static func toggle(_ title: Text, detail: Text? = nil, icon: String? = nil, isOn: Binding<Bool>) -> GroupedRow {
+    static func toggle(_ title: Text, detail: Text? = nil, icon: String? = nil, identifier: String? = nil,
+                       isOn: Binding<Bool>) -> GroupedRow {
         GroupedRow(kind: .toggle, title: title, detail: detail, value: nil, icon: icon, accessory: .none, hint: nil,
-                   behaviour: .toggle(isOn))
+                   identifier: identifier, behaviour: .toggle(isOn))
     }
 
     /// menu: the title, the current value and `chevron.up.chevron.down`; the whole row opens a `Menu` of the caller's items
     /// (buttons, or a `Picker` for a checkmark on the current one). §P5-6.2: birth year, session layout, hero numbers.
-    static func menu<Items: View>(_ title: Text, value: Text, detail: Text? = nil, icon: String? = nil,
+    static func menu<Items: View>(_ title: Text, value: Text, detail: Text? = nil, icon: String? = nil, identifier: String? = nil,
                                   @ViewBuilder items: () -> Items) -> GroupedRow {
         let entries = items()
         let label = GroupedRowLabel(title, value: value, detail: detail, icon: icon, accessory: .menu)
         return GroupedRow(kind: .menu, title: title, detail: detail, value: value, icon: icon, accessory: .menu, hint: nil,
-                          behaviour: .menu(AnyView(Menu { entries } label: { label })))
+                          identifier: identifier, behaviour: .menu(AnyView(Menu { entries } label: { label })))
     }
 
     /// destructive: the title in `alert` ("Delete account"), at the end of its group; the caller confirms with the system
     /// dialog. `systemImage`, when the spec gives the row a glyph, is drawn in `alert` too. Busy as `action`.
     static func destructive(_ title: Text, detail: Text? = nil, systemImage: String? = nil, busy: Bool = false,
-                            action: @escaping () -> Void) -> GroupedRow {
+                            identifier: String? = nil, action: @escaping () -> Void) -> GroupedRow {
         GroupedRow(kind: .destructive, title: title, detail: detail, value: nil, icon: nil,
                    accessory: busy ? .spinner : systemImage.map { .destructiveGlyph($0) } ?? .none, hint: nil, busy: busy,
-                   behaviour: .button(action))
+                   identifier: identifier, behaviour: .button(action))
     }
 
     /// custom: the caller's trailing control (a `Menu`, a stepper, a date chip). The title stays a plain text before it; the
     /// control carries its own accessibility.
-    static func custom<Trailing: View>(_ title: Text, detail: Text? = nil, icon: String? = nil,
+    static func custom<Trailing: View>(_ title: Text, detail: Text? = nil, icon: String? = nil, identifier: String? = nil,
                                        @ViewBuilder trailing: () -> Trailing) -> GroupedRow {
         GroupedRow(kind: .custom, title: title, detail: detail, value: nil, icon: icon, accessory: .none, hint: nil,
-                   behaviour: .custom(AnyView(trailing())))
+                   identifier: identifier, behaviour: .custom(AnyView(trailing())))
     }
 
-    /// "Opens outside the app": a link-out row's hint when the caller gives none.
-    static let linkOutHint = Text("Opens outside the app", comment: "VoiceOver hint of a row that opens a web page or another app.")
+    /// "Opens in the browser": a link-out row to a web address, when the caller gives no hint.
+    static let webLinkHint = Text("Opens in the browser", comment: "VoiceOver hint of a row that opens a web page in the browser.")
+    /// "Opens outside the app": a link-out row to another app, when the caller gives no hint.
+    static let outsideLinkHint = Text("Opens outside the app", comment: "VoiceOver hint of a row that opens another app, such as Health or Settings.")
+    /// The default hint of a link-out row by its address.
+    static func linkHint(for url: URL) -> Text {
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "") ? webLinkHint : outsideLinkHint
+    }
     /// A busy row's VoiceOver value (the pill's).
     static let busyValue = Text("In progress")
 
@@ -330,6 +343,7 @@ struct GroupedRow: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(title)
                 .accessibilityValue(spokenValue)
+                .rowIdentifier(identifier)
         case .button(let action):
             Button {
                 if !busy { action() }
@@ -342,12 +356,14 @@ struct GroupedRow: View {
             .accessibilityValue(busy ? Self.busyValue : spokenValue)
             .accessibilityHint(hint ?? Text(verbatim: ""))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .rowIdentifier(identifier)
         case .navigation(let link):
             link
                 .buttonStyle(GroupedRowButtonStyle())
                 .accessibilityLabel(title)
                 .accessibilityValue(spokenValue)
                 .accessibilityHint(hint ?? Text(verbatim: ""))
+                .rowIdentifier(identifier)
         case .url(let url):
             Button {
                 openURL(url)
@@ -357,13 +373,15 @@ struct GroupedRow: View {
             .buttonStyle(GroupedRowButtonStyle())
             .accessibilityLabel(title)
             .accessibilityValue(spokenValue)
-            .accessibilityHint(hint ?? Self.linkOutHint)
+            .accessibilityHint(hint ?? Self.linkHint(for: url))
             .accessibilityRemoveTraits(.isButton)
             .accessibilityAddTraits(.isLink)
+            .rowIdentifier(identifier)
         case .toggle(let isOn):
             Toggle(isOn: isOn) {
                 GroupedRowText(title: title, detail: detail, value: nil, icon: icon, titleColor: Theme.textPrimary)
             }
+            .rowIdentifier(identifier)
             .padding(.horizontal, GroupedListSpec.rowInset)
             .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
         case .menu(let menu):
@@ -372,9 +390,11 @@ struct GroupedRow: View {
                 .buttonStyle(GroupedRowButtonStyle())
                 .accessibilityLabel(title)
                 .accessibilityValue(spokenValue)
+                .rowIdentifier(identifier)
         case .custom(let trailing):
             GroupedRowLabel(title, detail: detail, icon: icon, trailing: trailing)
                 .accessibilityElement(children: .contain)
+                .rowIdentifier(identifier)
         }
     }
 
@@ -391,6 +411,13 @@ struct GroupedRow: View {
         case let (nil, detail?): return detail
         case (nil, nil): return Text(verbatim: "")
         }
+    }
+}
+
+private extension View {
+    /// The row's identifier on its control; none leaves the caller's (or nothing) in place.
+    @ViewBuilder func rowIdentifier(_ identifier: String?) -> some View {
+        if let identifier { accessibilityIdentifier(identifier) } else { self }
     }
 }
 

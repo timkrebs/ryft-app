@@ -101,6 +101,16 @@ struct SessionView: View {
     }
 
     var body: some View {
+        // The wipe or the demo's discard took this workout's rows (`SessionController.release`), and the cover may
+        // still be on its way out: none of them is read again.
+        if controller.isReleased {
+            Theme.background.ignoresSafeArea()
+        } else {
+            workout
+        }
+    }
+
+    private var workout: some View {
         VStack(spacing: 0) {
             header
                 // Backgrounded mid-workout: paused until the app is back.
@@ -154,20 +164,23 @@ struct SessionView: View {
                     withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }
                 }
             }
+            .presentedRoot()
         }
         .sheet(item: Bindable(coordinator).summary, onDismiss: { coordinator.summaryDone() }) {
-            SessionSummarySheet(summary: $0)
+            SessionSummarySheet(summary: $0).presentedRoot()
         }
         .sheet(isPresented: $showsReorder) {
-            ReorderSheet(controller: controller)
+            ReorderSheet(controller: controller).presentedRoot()
         }
         .sheet(item: $plates) { request in
             PlateCalculatorSheet(target: request.kg,
                                  onUse: request.fromKeypad ? { controller.setWeight($0) } : nil)
+                .presentedRoot()
         }
         .sheet(item: $historyFor) { ref in
             // The page's own sheet header: its close circle (the page hides the navigation bar, so a toolbar Close wouldn't show).
             ExerciseDetailView(exerciseID: ref.id, name: ref.name, onClose: { historyFor = nil })
+                .presentedRoot()
         }
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }

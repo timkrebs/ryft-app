@@ -139,14 +139,16 @@ struct BedtimeLayout: Equatable {
         return String(format: "%02d", (hour + 24) % 24)
     }
 
-    /// "Mean bedtime 22:48, mean wake time 06:41".
-    var spoken: String {
-        func hhmm(_ m: Double?) -> String {
+    /// "Mean bedtime 10:48 PM, mean wake time 6:41 AM" ("22:48", "06:41" on a 24-hour clock).
+    var spoken: String { spoken(locale: .autoupdatingCurrent) }
+
+    func spoken(locale: Locale, calendar: Calendar = .current) -> String {
+        func time(_ m: Double?) -> String {
             guard let m else { return Fmt.placeholder }
-            let total = (20 * 60 + Int(m.rounded())) % (24 * 60)
-            return String(format: "%02d:%02d", total / 60, total % 60)
+            let total = ((20 * 60 + Int(m.rounded())) % (24 * 60) + 24 * 60) % (24 * 60)
+            return Fmt.time(hour: total / 60, minute: total % 60, locale: locale, calendar: calendar)
         }
-        return String(localized: "Mean bedtime \(hhmm(meanBed)), mean wake time \(hhmm(meanWake))")
+        return String(localized: "Mean bedtime \(time(meanBed)), mean wake time \(time(meanWake))")
     }
 }
 

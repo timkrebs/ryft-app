@@ -150,18 +150,15 @@ final class HostedWindow {
 
     // MARK: the accessibility tree
 
-    /// Every named element on screen, in tree order.
-    func nodes() -> [Node] {
-        nodes(under: host.view)
-    }
-
     /// Every named element of the sheet presented over the host, in tree order; nil when nothing is presented. A presented
     /// sheet's views live beside the host's, so `nodes()` doesn't see them.
     func presentedNodes() -> [Node]? {
-        host.presentedViewController.flatMap { $0.view }.map { nodes(under: $0) }
+        host.presentedViewController.flatMap { $0.view }.map { nodes(in: $0) }
     }
 
-    private func nodes(under root: UIView) -> [Node] {
+    /// Every named element on screen, in tree order; `root`: only those under a view of the window, such as a sheet's
+    /// (`presentedView`).
+    func nodes(in root: UIView? = nil) -> [Node] {
         var found: [Node] = []
         var seen = Set<ObjectIdentifier>()
         func walk(_ object: NSObject, depth: Int) {
@@ -180,8 +177,15 @@ final class HostedWindow {
             }
             if let view = object as? UIView { for sub in view.subviews { walk(sub, depth: depth + 1) } }
         }
-        walk(root, depth: 0)
+        walk(root ?? host.view, depth: 0)
         return found
+    }
+
+    /// The view of the controller presented last over the host (a sheet, a cover); nil while nothing is presented.
+    var presentedView: UIView? {
+        var top = host.presentedViewController
+        while let next = top?.presentedViewController { top = next }
+        return top?.view
     }
 
     /// The first element whose label is `label` (`exactly`) or starts with it.

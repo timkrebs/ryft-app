@@ -117,10 +117,12 @@ struct AddExerciseSheet: View {
                     onImportDraft(draft)
                     dismiss()
                 }
+                .presentedRoot()
             } else {
                 CustomExerciseForm(name: query) { e in
                     pick(e)
                 }
+                .presentedRoot()
             }
         }
         .onAppear {
@@ -409,7 +411,11 @@ struct CustomExerciseForm: View {
         }
         saving = true
         let e = draft.exercise
-        let saved = await library.createExercise(e) ?? e
+        // Nil only for a name the platform would refuse, which `canSave` already keeps out: stay open, add nothing.
+        guard let saved = await library.createExercise(e) else {
+            saving = false
+            return
+        }
         saving = false
         // Cancelled or gone while it saved: the library keeps the exercise; the session or plan doesn't get it.
         guard !closing.closed else { return }

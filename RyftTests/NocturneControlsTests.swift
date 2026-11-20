@@ -346,9 +346,10 @@ struct NocturneControlsTests {
         #expect(links == 2)
     }
 
-    @Test("Text(inlineLinks:) parses the catalog string's Markdown: one element, the Links rotor reaches the link")
+    @Test("InlineLink.styled keeps a sentence with a Markdown link one element; the Links rotor reaches the link")
     func inlineLinkIsReachable() async throws {
-        let text = Text(inlineLinks: "Your data is stored on the RYFT platform. [Privacy Policy](https://example.com/privacy)")
+        let sentence = try AttributedString(markdown: "Your data is stored on the RYFT platform. [Privacy Policy](https://example.com/privacy)")
+        let text = Text(InlineLink.styled(sentence))
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textTertiary)
         try await host(text.padding(.horizontal, 20)) { w in

@@ -42,6 +42,14 @@ struct LogInView: View {
     .environment(AuthService.preview(signedIn: false))
 }
 
+/// A held sign-in shows here too: Log in is where it was tried.
+#Preview("Log in · sign-in held") {
+    NavigationStack {
+        LogInView(path: .constant([]))
+    }
+    .environment(AuthService.previewHeld())
+}
+
 #Preview("Log in · light system") {
     NavigationStack {
         LogInView(path: .constant([]))

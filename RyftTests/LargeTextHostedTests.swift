@@ -45,7 +45,7 @@ struct LargeTextHostedTests {
         try await run(s, WelcomeView().environment(AuthService.preview(signedIn: false))) { w in
             try await w.settle()
             let line = try #require(w.node(Self.privacyLine), "\(w.nodes().map(\.label))")
-            let text = Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftapp.de/privacy)")
+            let text = Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftlab.de/privacy)")
                 .font(.ryft(.caption))
                 .multilineTextAlignment(.center)
             let whole = needs(text, width: line.frame.width, size: s.size).height

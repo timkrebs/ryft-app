@@ -11,11 +11,21 @@ import UIKit
 @Suite(.serialized) struct SleepModesHostedTests {
     nonisolated private static let width: CGFloat = 390
 
+    /// The accessibility sizes the AX tests run at: AX3, and AX5, where the validator's "AX3" shots were taken (its "vs 7 d"
+    /// is 103 × 48, as here at AX5; at AX3 it is 79 × 36).
+    enum Large: CaseIterable, Sendable {
+        case ax3, ax5
+
+        var typeSize: DynamicTypeSize { self == .ax3 ? .accessibility3 : .accessibility5 }
+        var category: UIContentSizeCategory { self == .ax3 ? .accessibilityExtraLarge : .accessibilityExtraExtraExtraLarge }
+    }
+
     private func host<Content: View>(_ view: Content, ready: String, height: CGFloat = 2400, ax3: Bool = false,
-                                     body: (HostedWindow) async throws -> Void) async throws {
+                                     large: Large? = nil, body: (HostedWindow) async throws -> Void) async throws {
+        let large = large ?? (ax3 ? .ax3 : nil)
         try await HostedWindow.run(width: Self.width, height: height, bottomInset: 0,
-                                   typeSize: ax3 ? .accessibility3 : .large,
-                                   category: ax3 ? .accessibilityExtraLarge : .large, view) { w in
+                                   typeSize: large?.typeSize ?? .large,
+                                   category: large?.category ?? .large, view) { w in
             try await w.wait(ready) { w.nodes().contains { $0.identifier == ready || $0.label == ready } }
             try await w.settle()
             try await body(w)
@@ -74,7 +84,7 @@ import UIKit
                 + [header, firstNight]
             #expect(!order.contains(-1) && order == order.sorted(), "\(order) in \(nodes.map { $0.identifier ?? $0.label })")
             let numeral = try #require(nodes.first { $0.identifier == "sleep.range.numeral" })
-            #expect(numeral.label.hasSuffix("average sleep"), "\(numeral.label)")
+            #expect(numeral.label.hasPrefix("Average sleep, "), "\(numeral.label)")
             let bedtimes = try #require(nodes.first { $0.identifier == "sleep.range.bedtimes" })
             #expect(bedtimes.label == "Bed and wake times" && (bedtimes.value ?? "").contains("nights. Mean bedtime"))
         }
@@ -110,16 +120,83 @@ import UIKit
             for row in nightRows(w) {
                 #expect(row.frame.width <= Self.width - 40 + 0.5, "\(row.identifier ?? "") \(row.frame)")
             }
-            // The delta takes two lines, the strip's tile 20 under it (a squeezed "vs 7 d" once stood a letter per line).
+            // The delta takes three lines (the night, the change, "vs 7 d"), the strip's tile 20 under it (a squeezed
+            // "vs 7 d" once stood a letter per line).
             let delta = try frame(w, "sleep.range.delta"), tile = try frame(w, "sleep.range.bedtimes")
-            #expect(delta.height < 120, "delta \(delta)")
+            #expect(delta.height < 180, "delta \(delta)")
             #expect(abs(tile.minY - delta.maxY - SleepModesLayout.tileGap) < 1, "delta→tile \(tile.minY - delta.maxY)")
+        }
+    }
+
+    /// T5.8 S1: at AX5 "Last night ▼ −12m · −2 % vs 7 d" was the night over a change and "vs 7 d" 390 wide, which widened
+    /// the column to about 394, so the picker and the tiles started 4 from the edge. From AX1 the change and "vs 7 d" go on
+    /// their own lines.
+    @Test("AX3 and AX5: Week and Month keep the 20 pt margins: the picker 20 in and the screen less 40 wide, nothing wider",
+          arguments: [SleepRangePreviewPage.Scene.week, .month], Large.allCases)
+    func rangeKeepsItsMarginsAtAX3(_ scene: SleepRangePreviewPage.Scene, _ large: Large) async throws {
+        try await host(SleepRangePreviewPage(scene), ready: "sleep.range.stages", height: 8000, large: large) { w in
+            let column = Self.width - 2 * Theme.Metrics.screenPadding
+            let mode = try frame(w, "sleep.mode")
+            #expect(abs(mode.minX - Theme.Metrics.screenPadding) < 0.5 && abs(mode.width - column) < 0.5, "sleep.mode \(mode)")
+            let delta = try frame(w, "sleep.range.delta")
+            #expect(delta.width <= column + 0.5, "sleep.range.delta \(delta)")
+            for node in w.nodes() {
+                #expect(node.frame.width <= column + 0.5 && node.frame.minX >= Theme.Metrics.screenPadding - 0.5,
+                        "\(node.identifier ?? node.label) \(node.frame)")
+            }
+        }
+    }
+
+    /// T5.8 S1: from AX1 the range head is three centred lines: the night, the change, "vs 7 d". Before, the fallback put
+    /// "vs 7 d" beside the change, squeezed into what the change left and broken over two lines at the right. Read from
+    /// the pixels: the delta is one element.
+    @Test("AX5: the range head is three centred lines, the night, the change and \"vs 7 d\"")
+    func rangeHeadStacksAtAX5() async throws {
+        try await host(SleepRangePreviewPage(.week), ready: "sleep.range.stages", height: 2400, large: .ax5) { w in
+            let delta = try frame(w, "sleep.range.delta")
+            let shot = try WindowPixels(w, scale: 2)
+            let ground = shot.at(delta.minX + 1, delta.minY + 1)
+            // The bands of pixel rows with ink in the delta's frame: its lines.
+            var bands: [CGRect] = []
+            var y = delta.minY
+            while y < delta.maxY {
+                if let ink = shot.box(in: CGRect(x: delta.minX, y: y, width: delta.width, height: 0.5),
+                                      where: { !$0.near(ground, 24) }) {
+                    if let last = bands.last, ink.minY - last.maxY < 1 { bands[bands.count - 1] = last.union(ink) } else { bands.append(ink) }
+                }
+                y += 0.5
+            }
+            #expect(bands.count == 3, "lines \(bands)")
+            for band in bands {
+                #expect(abs(band.midX - delta.midX) < 3, "line \(band) in \(delta)")
+            }
         }
     }
 
     @Test func monthShowsEveryNight() async throws {
         try await host(SleepRangePreviewPage(.month), ready: "sleep.range.stages", height: 3200) { w in
             #expect(nightRows(w).count == MockData.sleepRange(.month).days.count)
+        }
+    }
+
+    @Test("Offline: the cached week as it is and \"As of\" its day under the nights, no refresh card")
+    func offlineSaysAsOf() async throws {
+        try await host(SleepRangePreviewPage(.offline), ready: "sleep.range.asOf", height: 3000) { w in
+            let note = try #require(w.nodes().first { $0.identifier == "sleep.range.asOf" })
+            #expect(note.label.hasPrefix("As of "), "\(note.label)")
+            let last = try #require(nightRows(w).last)
+            #expect(note.frame.minY >= last.frame.maxY, "under the nights")
+            #expect(!w.nodes().contains { ($0.identifier ?? "").hasPrefix("refreshIssue") || $0.identifier == "today.refreshIssue" },
+                    "no refresh card: reads aren't failing offline")
+        }
+    }
+
+    @Test("Read two days ago: the change names its night, not \"Last night\"")
+    func anOlderWeekNamesItsNight() async throws {
+        try await host(SleepRangePreviewPage(.older), ready: "sleep.range.delta", height: 3000) { w in
+            let delta = try #require(w.nodes().first { $0.identifier == "sleep.range.delta" })
+            #expect(!delta.label.contains("Last night") && delta.label.contains("day"), "\(delta.label)")
+            #expect(w.nodes().contains { $0.identifier == "sleep.range.asOf" })
         }
     }
 
@@ -169,16 +246,31 @@ import UIKit
         }
     }
 
-    @Test func noScheduleInvitesToSetUp() async throws {
+    @Test("No schedule: the invitation over the three bedtimes and the settings card; no ruler, no tiles, no goal")
+    func noScheduleInvitesToSetUp() async throws {
         try await host(SleepBedtimePreviewPage(.noSchedule), ready: "sleep.bedtime.setUp") { w in
-            #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.ruler" || $0.identifier == "sleep.bedtime.goToBed" })
-            #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.numeral" }, "the sentence says it")
+            let ids = w.nodes().compactMap(\.identifier)
+            for id in ["sleep.bedtime.ruler", "sleep.tile.need", "sleep.tile.timeInBed", "sleep.bedtime.numeral"] {
+                #expect(!ids.contains(id), "\(id)")
+            }
+            let setUp = try frame(w, "sleep.bedtime.setUp"), tile = try frame(w, "sleep.bedtime.goToBed")
+            #expect(setUp.maxY < tile.minY, "the invitation above the bedtimes")
+            let goToBed = try #require(w.nodes().first { $0.identifier == "sleep.bedtime.goToBed" })
+            #expect(!(goToBed.value ?? "").contains("your goal") && (goToBed.value ?? "").contains("100 percent of your need"))
+            for id in ["sleep.bedtime.why", "sleep.bedtime.schedule"] {
+                #expect(ids.contains(id), "\(id)")
+            }
+            // The compact picker shows no identifier in the tree: its row's label.
+            let wake = try #require(w.node("Wake up at"), "Wake up at")
+            #expect(wake.frame.minY > tile.maxY, "the settings card under them")
         }
     }
 
     @Test func failedAndAlarmProblem() async throws {
         try await host(SleepBedtimePreviewPage(.failed), ready: "sleep.bedtime.failure.retry") { w in
             #expect(!w.nodes().contains { $0.identifier == "sleep.bedtime.goToBed" })
+            #expect(w.node("Details") != nil, "the request ID behind Details")
+            #expect(!w.nodes().contains { $0.label.contains("HTTP 503") }, "until Details opens")
         }
         try await host(SleepBedtimePreviewPage(.alarmProblem), ready: "sleep.bedtime.schedule") { w in
             let schedule = try frame(w, "sleep.bedtime.schedule")
@@ -198,21 +290,28 @@ import UIKit
 
     // MARK: shots
 
-    /// Every state at 402 wide (iPhone 17 Pro), 3x, paged, at the default size and AX3, into `T55_SHOTS_DIR`.
+    /// Every state at 402 wide (iPhone 17 Pro), 3x, paged, at the default size and AX3, into `T55_SHOTS_DIR`: Week and Month
+    /// here, Bedtime in `writeBedtimeShots` (each within the time limit).
     @Test func writeShots() async throws {
-        guard let dir = ProcessInfo.processInfo.environment["T55_SHOTS_DIR"] else { return }
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        var pages: [(name: String, view: AnyView, ready: String)] = SleepRangePreviewPage.Scene.allCases.map {
+        try await writeShots(SleepRangePreviewPage.Scene.allCases.map {
             let ready = switch $0 {
             case .empty: "No sleep data for this range yet."
             case .failed: "sleep.range.failure.retry"
             default: "sleep.range.numeral"
             }
             return ("range-\($0.rawValue)", AnyView(SleepRangePreviewPage($0)), ready)
-        }
-        pages += SleepBedtimePreviewPage.Scene.allCases.map {
+        })
+    }
+
+    @Test func writeBedtimeShots() async throws {
+        try await writeShots(SleepBedtimePreviewPage.Scene.allCases.map {
             ("bedtime-\($0.rawValue)", AnyView(SleepBedtimePreviewPage($0)), $0 == .noSchedule ? "sleep.bedtime.setUp" : "sleep.tile.need")
-        }
+        })
+    }
+
+    private func writeShots(_ pages: [(name: String, view: AnyView, ready: String)]) async throws {
+        guard let dir = ProcessInfo.processInfo.environment["T55_SHOTS_DIR"] else { return }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for page in pages {
             for ax3 in [false, true] {
                 let ready = page.ready

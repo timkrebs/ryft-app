@@ -180,6 +180,15 @@ final class SessionController: Identifiable {
         dropUndo()
     }
 
+    /// Its rows are going (the wipe's `TrainCoordinator.releaseRows`, or the demo's discard): stopped for good, and its
+    /// screen draws none of them.
+    private(set) var isReleased = false
+
+    func release() {
+        stop()
+        isReleased = true
+    }
+
     // MARK: derived
 
     var exercises: [LocalSessionExercise] { session.orderedExercises }

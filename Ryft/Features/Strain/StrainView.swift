@@ -22,8 +22,8 @@ struct StrainView: View {
                 .navigationDestination(for: ActivityRoute.self) { ActivityDetailView(route: $0) }
                 .trainDestinations()
         }
-        .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet() }
-        .sheet(item: $adding) { AddActivitySheet(model: $0) }
+        .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet().presentedRoot() }
+        .sheet(item: $adding) { AddActivitySheet(model: $0).presentedRoot() }
         .task(id: TaskKey(date: model.date, refreshed: state.lastUpdated)) {
             await model.load()
             guard !Task.isCancelled else { return }
@@ -245,11 +245,9 @@ enum StrainPreview {
     /// A Train coordinator of its own with a session running (the shared preview store stays idle for the others).
     @MainActor static let liveTrain: TrainCoordinator = {
         let store = TrainStore(inMemory: true)
-        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: false)
-        sync.gate = { _ in nil }
+        let sync = TrainSyncService.preview(store: store)
         _ = MockTrain.liveSession(in: store)
-        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store), liveActivities: false)
+        return TrainCoordinator(sync: sync, library: TrainLibrary.preview(store: store, outbox: sync), liveActivities: false)
     }()
 
     static func week(selected: Date = today) -> [DateStrip.Day] {
@@ -258,9 +256,10 @@ enum StrainPreview {
         }
     }
 
-    static func prior(_ day: Date) -> [Double] {
-        (1...7).compactMap { offset in
-            MockData.history.first { $0.day == DayFormat.string(from: DayFormat.shift(day, days: -offset)) }?.strain
+    static func prior(_ day: Date) -> [TrendPoint] {
+        (1..<MetricDelta.windowDays).map { offset in
+            let key = DayFormat.string(from: DayFormat.shift(day, days: -offset))
+            return TrendPoint(day: key, value: MockData.history.first { $0.day == key }?.strain)
         }
     }
 

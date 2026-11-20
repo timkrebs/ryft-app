@@ -270,6 +270,19 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   waits for a save. The first write after a wipe gets a new writer, so no context keeps a
   deleted row (`ReadModelWipeRaceTests`). Queue, writers and read contexts are keyed by
   `StoreID`, which is never reused.
+- **A wipe that doesn't finish is a debt** (ADR 0020, `docs/work/2026-11-05-wipe-recovery/design.md`):
+  - The sign-out writes an entry to `WipeLedger` (a file in Application Support) before its first destructive step,
+    and a wipe that returns false leaves it. `auth.lastUserID` (`AccountScope`) only says whose data the store holds,
+    and follows the published session.
+  - At the next launch `AuthService.init` resolves the entry before anything opens the store, and `TrainStore.shared`'s
+    initializer replaces the store's files (`StoreReset`) before its first container exists, so no writer or read
+    context can hold them. A session expiry's parked rows within 30 days keep the object wipe instead, after the first
+    frame. The compaction retries too.
+  - No session is published over an entry (`AuthService.clearTheWay`): another account's sign-in makes one attempt and
+    is held if it fails, and Welcome says so. Once a pass was refused, nothing in that process ends the debt.
+  - The wipe's own turn lets go of what holds Train rows (`TrainCoordinator.releaseRows`, `SessionController.release`):
+    on iOS 18 and 26 reading a deleted row's relationship can be a fatal error. The demo's discard does the same, and
+    both, and an account change, drop a workout still opening from the start sheet (`TrainCoordinator.open`).
 - Demo data goes to a separate in-memory store, so it never mixes with an account's. The
   Demo data switch replaces it with an empty one at once (`Repository.reset()`); the old
   one's epoch moves on (`ReadModelDrain.retire(_:)`), so a batch already in its writer
@@ -278,6 +291,22 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
   `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
+  - **A custom exercise is an op** (`exercise`, `POST /v1/exercises`), queued ahead of every other op, because a
+    queued `PUT` sends the session as it is when it goes. No consent gate or undo window holds it, but it's bound to
+    its account. A session's ops don't go while an exercise it uses is queued or refused, and a plan save waits for
+    the exercises it names, at most 10 s (`TrainLibrary.savePlan`).
+  - **A refusal is state, never a drop** ([ADR 0022](adr/0022-train-outbox-refusals.md)). A `400`, `409` after the
+    merge rounds, `413`, `422`, any other `4xx` but the holds, a `404` on `complete`, or a body the app can't encode
+    keeps the op and records an `UploadAttempt` (status, code, request ID, time) on the session, or on the op for an
+    exercise. That session's ops wait until Retry or an edit; other sessions' go. Every `403`, a `404` on `PUT` or
+    `POST`, `408`, `426`, `429` and `5xx` hold the queue (an exercise answered that way is passed over, so unrelated
+    sessions still go); a `2xx` the app can't read was delivered. `UploadAttempt.isRefusal` is the one definition,
+    the activities uploader's too, and `TrainSyncService.state(of:)` derives the session's `UploadState` from the rows
+    each time it's asked. While a session's `PUT` is refused or queued, a completion's answer brings only what the
+    platform owns (status, workout, PRs, scores, body weight), never the logged sets (`applyPlatformFields`).
+  - **The exceptions:** a refused `DELETE` is dropped and logged (its session is gone here); a `complete` answered
+    `409` means the platform discarded the session, so the op goes; a `complete` answered `404` before the session's
+    `PUT` arrived queues that `PUT` ahead of it.
 - **Ending the demo** (ADR 0019, `docs/work/2026-11-18-ios17-demo-exit/design.md`). Profile's switch is the only way out
   in production. Train has no demo store of its own, so the workouts started in the demo are named by a list:
   `TrainCoordinator.newSessionID()` adds a new session's id (`train.demoSessions` in defaults, ids only) when the
@@ -286,8 +315,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   computed from the list and the store, never stored); cancel changes nothing, and a store that can't be read shows an
   error under the switch instead of the dialog or the exit. `ProfileViewModel.endDemo()` then runs
   one main-actor step with no `await` up to the refresh:
-  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes and its Live Activity ends
-     (checked against the list), every listed session goes with its ops and from Train's cached history list and
+  1. `TrainCoordinator.discardDemoWorkouts()`: the replay stops, the live workout closes (released, as by the wipe)
+     and its Live Activity ends (checked against the list), every listed session goes with its ops and from Train's cached history list and
      exercise histories (sessions, records, chart points), and nothing is sent (not even a `DELETE`). The list keeps only ids a fresh context still finds; a store in memory in
      place of its file drops only what it deleted. If the store can't be read nothing changes, Demo data stays on and Profile says so.
      An account's workout is never on the list, even if it went on during the demo.
@@ -512,7 +541,7 @@ one exception to the 250 ms rule and never gates startup.
 
 **Routes.** `AppRoute(url:)` is the one parser for `.onOpenURL`, notification taps
 (`ryft.url`) and insight cards (`AppRoute.forInsight`). It accepts
-`https://ryftapp.de/<path>` (and `www.`) and `ryft://<path>`:
+`https://ryftlab.de/<path>` (and `www.`) and `ryft://<path>`:
 - `/day/YYYY-MM-DD`
 - `/sleep/YYYY-MM-DD`, `/sleep/plan`
 - `/insights/<metric>`, `/insights/behaviors`

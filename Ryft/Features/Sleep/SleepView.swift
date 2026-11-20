@@ -57,7 +57,7 @@ struct SleepView: View {
                     SleepBedtimeSection(board: model.bedtimeBoard(screens.bedtime),
                                         wake: Binding(get: { model.planner.wake }, set: { model.planner.setWake($0) }),
                                         numeralStyle: model.numeralStyle, notice: notice,
-                                        retry: { await model.planner.load() })
+                                        retry: { await model.planner.load() }, signIn: { await model.signIn() })
                         // Bedtime & wake's own plan (its reminders and alarm) when there is a schedule and no plan yet.
                         .task {
                             let bedtime = screens.bedtime
@@ -66,7 +66,11 @@ struct SleepView: View {
                 }
             }
         }
-        .task(id: TaskKey(mode: model.mode, refreshed: state.lastUpdated)) { await model.load() }
+        // Bedtime follows Bedtime & wake: a new schedule loads again (tonight's bedtime, until the picker moves).
+        .task(id: TaskKey(mode: model.mode, refreshed: state.lastUpdated,
+                          schedule: model.mode == .plan ? screens.bedtime.schedule : nil)) {
+            await model.load(bedtime: screens.bedtime)
+        }
     }
 
     /// Today's calm card under the picker outside Day, while reads fail or the data is old.
@@ -78,6 +82,7 @@ struct SleepView: View {
     private struct TaskKey: Equatable {
         let mode: SleepMode
         let refreshed: Date?
+        let schedule: SleepSchedule?
     }
 
     /// A step re-reads the new night once it has loaded (§P4-8).
@@ -168,11 +173,18 @@ struct SleepModePicker: View {
 
     var body: some View {
         if typeSize.isAccessibilitySize {
-            SegmentedMenu(selection: $selection, options: modes, title: \.title)
+            SegmentedMenu(selection: $selection, options: modes, label: Self.menuLabel, title: \.title)
                 .accessibilityIdentifier("sleep.mode")
         } else {
             SegmentedPicker(selection: $selection, options: modes, look: .inkFill, title: \.title)
         }
+    }
+
+    /// The menu's VoiceOver label, before the current mode: "Range, Week".
+    static var menuLabel: Text {
+        // Its own key: "Range" is the training import's range picker.
+        Text(String(localized: "sleep.mode.menu", defaultValue: "Range",
+                    comment: "VoiceOver: the name of Sleep's mode menu (the largest text sizes), read before the current mode: \"Range, Week\"."))
     }
 }
 
@@ -300,7 +312,7 @@ struct SleepNightCards: View {
             details
         }
         .sheet(isPresented: $showsNeed) {
-            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings)
+            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings).presentedRoot()
         }
     }
 

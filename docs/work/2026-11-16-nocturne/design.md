@@ -1695,7 +1695,7 @@ Selecting a day cross-fades the numeral (250 ms; none under Reduce Motion) as Sl
 |---|---|
 | Title + date sub-line | Header title; the date is in the strip's selection (and "Yesterday" etc. in the announcement and VoiceOver); `model.title` stays as the header's spoken value |
 | `DateStrip` rings | `DayStrip` (no ring; the day's strain is in the numeral when selected and in the cell's spoken label) |
-| `MetricGauge` ring + delta vs the prior 7 days | The numeral and the ruler. **The delta `model.strainDelta` is not on the board**; it stays as the VoiceOver value and as a caption line "▲ +1.2 vs 7 d" (`DeltaLabel`, strain is neutral polarity so `textSecondary`) after the caption, same row, when there are 3 or more prior days (**D5-4**) |
+| `MetricGauge` ring + delta vs the prior 7 days | The numeral and the ruler. **The delta `model.strainDelta` is not on the board**; it stays as the VoiceOver value and as a caption line "▲ +1.2 vs 7 d" (`DeltaLabel`, strain is neutral polarity so `textSecondary`) after the caption, same row (**D5-4**; since T5.7 Today's "vs 7 d" rule, `MetricDelta.vsSevenDayMean`: one of the 6 days before is enough) |
 | Split text | row 5 |
 | Steps, Active kcal `MetricTile`s (teal icons) | row 8 (no icons: the colour is the legend); `MetricTile` is deleted (its only caller) |
 | `ZoneBar` (five hues, HRR ranges, legend) | The zones tile; `ZoneBar`, `Theme.zones` and `MetricGauge` (only user: `StrainView`) are deleted. The HRR ranges ("50–60 %" …) move to each row's spoken label and a footnote line under the tile |
@@ -2210,7 +2210,7 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-1 | Pill buttons 52; the app's `PrimaryButton` 44 | Every button row is 52 pt (+8) | L27: one button, the board's size |
 | D5-2 | Strain has no day selection | A 44 pt `DayStrip` under the header (+56 against the board) | Today's week strip is the only way to see an earlier day; Sleep has the same kind of step |
 | D5-3 | Tab bar 76 | 78 on a phone with an indicator (content 44, not 42) | An item must be a 44 pt target on a phone without an indicator |
-| D5-4 | No delta on Strain | "▲ +1.2 vs 7 d" after the caption with 3 or more prior days | `strainDelta` exists today; the numbers-first rule keeps the baseline |
+| D5-4 | No delta on Strain | "▲ +1.2 vs 7 d" after the caption, by Today's rule (`MetricDelta.vsSevenDayMean`, one of the 6 days before is enough; T5.7, was 3 or more of the 7 before) | `strainDelta` exists today; the numbers-first rule keeps the baseline; one rule for "vs 7 d" everywhere (T5.3) |
 | D5-5 | Insights header has no disclaimer | The wellness sentence is the page's last line | Guideline 1.4.1 content stays on the screen; the header has no room |
 | D5-6 | Tile "An idea" | "Insight", only for `info` insights; notice and warn are neutral cards above | The rules produce observations; teal is not a warning's colour (R-N4) |
 | D5-7 | Glow text at 0.78 / 0.62 / 0.55 | Full `textPrimary` and the label rule (78 %, 100 % in recovery) | 4.5:1 in the core: the board's 62 % is 4.09 (zones) and 3.47 (idea) |
@@ -2242,6 +2242,27 @@ Known in the drafts: `BedtimeStrip`'s row labels sit half a row off their bars a
 | D5-33 | A 30-day min–max band | The usual range: mean ± 1 SD of the 30-day values before the newest, from 7 of them; below that "Band needs 7 days of data". The expanded chart draws it at TrendChart's 10 % (T5.3 review) | Min–max with the newest inside filled the chart box and could never read above or below |
 | D5-34 | "vs 7 d" from each range's own series | Today's rule (`MetricDelta.vsSevenDayMean`) over the 7 days ending on the newest value, the same in every range; duration changes keep `DeltaLabel`'s "+17m" style, not the board's "0:17" (T5.3 review, lead) | Insights, Today and Sleep agree on one number and one format |
 | D5-35 | Range control always shown; no stale note | "Not set up" hides the range control; a failed refresh shows "As of <MMM d>"; nothing loaded and nothing in flight shows "Not loaded" (T5.3) | Nothing to range over; never claim "no data" for a read that didn't happen |
+| D5-36 | Week/Month tiles as `NeutralTile`; a `TrendLine` | `SleepNeutralTile`/`SleepTileGrid` (88 pt, Day's dot row); no TrendLine (T5.5) | They match Day's tiles; the spec gives TrendLine no place |
+| D5-37 | Week/Month without a delta | "<night> ▲/▼ … vs 7 d": the newest night against the six before it in its seven (Today's and Insights' rule), the same in Week and Month; "Last night" only for this morning's night, else the weekday (T5.5, F6, review) | F6; one rule app-wide; never call an older night "last night" |
+| D5-38 | The date row as chart axis labels | An overlay `Layout` under the plot; colliding labels drop, the newest stays (T5.5) | Charts can't centre the last label; the plot doesn't move |
+| D5-39 | Stage segments with surface-coloured gaps | Gaps in data units (1.5 pt at the 128 pt plot) (T5.5) | No stroke over the glow; a stage shorter than the gap collapses harmlessly |
+| D5-40 | Bedtime's numeral from `options.first` | The schedule's goal for its next wake (as Today, the reminder and the widget) until the picker moves; "As of" only for a cached plan (T5.5 review B1) | Sleep → Bedtime and Today must name the same bedtime |
+| D5-41 | No schedule → invitation only | The invitation over the three bedtimes and the settings card; no numeral, ruler, tiles or "your goal" (T5.5 review S7, lead) | Keeps the planner the old mode offered to everyone |
+| D5-42 | "–" / "–:––" placeholders | Unlit "0:00" / "00:00" (T5.5) | `DotNumeral`'s pending look; its Light fallback still shows "–:––" |
+| D5-43 | `ProgressBar` in accent | Defaults to `metricSleep` (T5.5) | Its only caller is Sleep's details card |
+| D5-44 | No staleness note on Week/Month | "As of <day>" footer when offline, after a failed read, or when the range doesn't end today (T5.5 review S5) | A days-old week mustn't read as current |
+| D5-45 | "updated 5 h ago" | The system relative format: "updated 5 hr. ago"; "updated now" under a minute (T5.4) | One formatter, localized by the system |
+| D5-46 | Demo state "Demo data" + glyph | Signed out in the demo: the demo person ("Alex Doe", "AD"); signed in with Demo data on: the session's account, with "Demo data" as the status source (T5.4, security review) | Account rows must describe the account they act on |
+| D5-47 | Apple Health as one link-out row with a value | A value row (`warning` when it needs attention), "Allow access" while RYFT can still ask, and "Open Health" ↗ (T5.4) | `GroupedRow` has no link-out kind with a value |
+| D5-48 | No Device ID row | Device ID kept as a value row in Devices and sync (T5.4) | Support asks for it |
+| D5-49 | — | Full re-sync removed from Profile; it stays in Sync details with its confirmation (T5.4) | §P5-6.2 lists no re-sync row |
+| D5-50 | Demo data's sentence as the card footer | The toggle's detail line; the footer carries the sync notices, the demo-exit error and the Health steps (T5.4) | The footer belongs to the whole card |
+| D5-51 | Baseline-need sentence under the row | Only in its editor (T5.4) | The editor explains it at length |
+| D5-52 | Export hidden in the demo | Shown whenever `canExport` (signed in or demo) (T5.4) | Same rule as before; the demo exports its sample |
+| D5-53 | Account: no email row; a provider badge | An Email row when the name is the title; Sign-in methods shows the provider as its value; Change password is an action row (T5.4) | Keeps what the old account card showed |
+| D5-54 | — | About keeps "Apple Health privacy" ↗, plus "Garmin Connect and Apple Health" ↗ without `devices.setup`; legal pages open in RYFT (T5.4) | Those links were on the page before |
+| D5-55 | Save strength workouts under Data, ungated | In Training, behind `train.enabled` (T5.4, lead) | Without Train no strength workout is logged, so nothing is written to Health |
+| D5-56 | "updated …" from the last read | The status row's age is the last good upload (`lastSync`); none → "not updated yet"; a locked phone never says "updating…" (T5.4 review) | The row must never claim freshness the upload doesn't have |
 
 ### Questions for the lead
 

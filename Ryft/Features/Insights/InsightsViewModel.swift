@@ -62,9 +62,9 @@ final class InsightsViewModel {
     /// The range on its segment: "7 D".
     static func rangeShortTitle(_ r: TrendRange) -> String {
         switch r {
-        case .week: return String(localized: "7 D", comment: "Insights' range control: 7 days.")
-        case .month: return String(localized: "30 D", comment: "Insights' range control: 30 days.")
-        case .quarter: return String(localized: "90 D", comment: "Insights' range control: 90 days.")
+        case .week: return String(localized: "7\u{00A0}D", comment: "Insights' range control: 7 days.")
+        case .month: return String(localized: "30\u{00A0}D", comment: "Insights' range control: 30 days.")
+        case .quarter: return String(localized: "90\u{00A0}D", comment: "Insights' range control: 90 days.")
         }
     }
 
@@ -72,8 +72,14 @@ final class InsightsViewModel {
 
     var hasDataSource: Bool { state.hasDataSource }
     var isDemo: Bool { state.isDemo }
-    /// The shared offline / error card (Today's), 12 under the header; the cards keep their cached data.
+    /// The shared error card (Today's), 12 under the header; the cards keep their cached data. Never there offline
+    /// (`RefreshPolicy.issue`), where `isOffline` speaks instead.
     var refreshIssue: RefreshIssue? { state.refreshIssue }
+    /// Offline with a data source, outside demo (demo data counts as online, as `AppState.pullToRefresh` does): Strain's
+    /// offline line under the header, and "As of" on the cards.
+    var isOffline: Bool { state.hasDataSource && !state.isDemo && !state.env.connectivity.isOnline }
+    /// The cards' copies may be old: a refresh issue, or offline. The note gives their last day ("As of Nov 15").
+    var cardsAreStale: Bool { refreshIssue != nil || isOffline }
 
     func signIn() async { await state.signInAgain() }
 
@@ -113,13 +119,13 @@ final class InsightsViewModel {
     /// One metric's card for the selected range: two cached reads at most (the range's series, and the 30-day one behind a
     /// usual range). Nothing cached is pending while this page's read of the range, or any other read (`AppState.isLoading`),
     /// runs; "Not loaded" after.
-    /// `isStale`: the page's refresh issue, read once for all cards.
+    /// `isStale`: `cardsAreStale`, read once for all cards.
     func card(_ metric: TrendMetric, isStale: Bool? = nil) -> TrendCardContent {
         let own = state.cachedTrend(metric, range: range)
         let month = metric.hasBand ? (range == .month ? own : state.cachedTrend(metric, range: .month)) : nil
         return TrendCardContent.make(metric, range: range, series: own, monthly: month,
                                      isLoading: trendsPending || state.isLoading,
-                                     isStale: isStale ?? (refreshIssue != nil), today: state.env.clock.now())
+                                     isStale: isStale ?? cardsAreStale, today: state.env.clock.now())
     }
 
     /// Readiness, HRV and time asleep (the board's), then the other eleven under "More trends": every metric, so every deep
@@ -128,7 +134,7 @@ final class InsightsViewModel {
     var moreCards: [TrendCardContent] { cards(TrendMetric.moreOrder) }
 
     private func cards(_ metrics: [TrendMetric]) -> [TrendCardContent] {
-        let stale = refreshIssue != nil
+        let stale = cardsAreStale
         return metrics.map { card($0, isStale: stale) }
     }
 

@@ -67,9 +67,9 @@ struct StrainZoneTickTests {
         #expect(zones.rows.map(\.value) == ["6", "14", "27", "24", "11"])
         #expect(zones.rows.map(\.label) == ["Z5 · Max", "Z4 · Threshold", "Z3 · Tempo", "Z2 · Aerobic", "Z1 · Easy"])
         let z3 = try #require(zones.rows.first { $0.zone == 3 })
-        #expect(z3.spoken == "Zone 3, tempo, 70 to 80 percent of heart-rate reserve, 27 minutes")
+        #expect(z3.spoken == "Zone 3, tempo, 70 to 80\u{00A0}percent of heart-rate reserve, 27 minutes")
         let z5 = try #require(zones.rows.first { $0.zone == 5 })
-        #expect(z5.spoken.contains("90 percent or more"))
+        #expect(z5.spoken.contains("90\u{00A0}percent or more"))
         #expect(zones.head.replacingOccurrences(of: "\u{00A0}", with: " ") == "82 min · TRIMP 112")
         #expect(zones.spokenValue(missing: "x").hasSuffix("TRIMP 112. Zones are in % of heart-rate reserve."))
     }
@@ -148,25 +148,35 @@ struct StrainScreenDecisionTests {
         let ticks = RulerScale.zoneTickIndices(count: RulerScale.Ticks.strain, range: StrainHero.scale, zone: StrainHero.zone)
         #expect(ticks == Array(30...42))
         #expect(StrainHero.rulerLabels == ["0", "moderate 10–14", "21"])
+        // T5.8 N14: the range's dash is the en dash (U+2013), never the em dash; Satoshi draws it 0.93 em wide, which is what
+        // made it read as an em dash at 11 pt.
+        #expect(StrainHero.rulerLabels[1].unicodeScalars.contains("\u{2013}"))
+        #expect(!StrainHero.rulerLabels[1].unicodeScalars.contains { ["\u{2014}", "-"].contains($0) })
         #expect(StrainHero(strain: 12.4).rulerValue
                 == "\(Fmt.strain(12.4)), Moderate strain, on a scale from 0 to 21. The moderate range is 10 to 14.")
         #expect(StrainHero(strain: nil).rulerValue == String(localized: "No data"))
     }
 
-    @Test func theDeltaNeedsThreePriorDays() {
-        #expect(StrainHero.delta(12, prior: [10, 11]) == nil)
-        #expect(StrainHero.delta(12, prior: [10, 11, 12]) == MetricDelta(current: 12, reference: 11))
-        #expect(StrainHero.delta(nil, prior: [10, 11, 12]) == nil)
+    /// S3 (T5.7): Today's "vs 7 d" rule (`MetricDelta.vsSevenDayMean`), not "3 of the 7 before": one of the 6 days before is
+    /// enough, the 7th day back is out, and a day without a strain of its own has none.
+    @Test("Strain's \"vs 7 d\" is Today's rule: one prior day is enough, the 7th day back doesn't count")
+    func theDeltaIsTodaysRule() {
+        let key = { (offset: Int) in DayFormat.string(from: DayFormat.shift(testNow, days: offset)) }
+        let point = { (offset: Int, value: Double?) in TrendPoint(day: key(offset), value: value) }
+        #expect(StrainHero.delta(12, day: key(0), prior: []) == nil)
+        #expect(StrainHero.delta(12, day: key(0), prior: [point(-1, 10)]) == MetricDelta(current: 12, reference: 10))
+        #expect(StrainHero.delta(nil, day: key(0), prior: [point(-1, 10), point(-2, 11)]) == nil)
+        // 6 days back counts, 7 back doesn't; days without a strain and days after the shown one are left out.
+        #expect(StrainHero.delta(12, day: key(0), prior: [point(-6, 9), point(-7, 30), point(-3, nil), point(1, 50)])
+                == MetricDelta(current: 12, reference: 9))
 
-        let day = { (offset: Int) in DayFormat.string(from: DayFormat.shift(testNow, days: offset)) }
-        let two = model(history: [DailyScore(day: day(-1), strain: 10), DailyScore(day: day(-2), strain: 10),
-                                  DailyScore(day: day(0), strain: 13)]).0
-        #expect(two.strainDelta == nil)
-        #expect(two.board.hero.delta == nil)
-        let three = model(history: (1...3).map { DailyScore(day: day(-$0), strain: 10) } + [DailyScore(day: day(0), strain: 13)]).0
-        #expect(three.strainDelta == MetricDelta(current: 13, reference: 10))
-        #expect(three.board.hero.delta == three.strainDelta)
-        #expect(three.board.hero.numeralValue.contains("vs 7 d"))
+        let two = model(history: [DailyScore(day: key(-1), strain: 10), DailyScore(day: key(-2), strain: 10),
+                                  DailyScore(day: key(0), strain: 13)]).0
+        #expect(two.strainDelta == MetricDelta(current: 13, reference: 10), "two prior days show one")
+        #expect(two.board.hero.delta == two.strainDelta)
+        #expect(two.board.hero.numeralValue.contains("versus 7 days"))
+        let none = model(history: [DailyScore(day: key(-7), strain: 10), DailyScore(day: key(0), strain: 13)]).0
+        #expect(none.strainDelta == nil && none.board.hero.delta == nil, "only a day outside the window")
     }
 
     @Test func theSplitOnlyWithAStrengthSession() {
@@ -207,7 +217,7 @@ struct StrainRowTests {
     @Test func withoutADistanceTheAverageHeartRate() {
         let row = StrainRows.workout(workout("hiit", distance: nil), session: nil, locale: gb)
         #expect(row.meta == MyDayText.join([seven10, "42 min", "148 bpm"]))
-        #expect(row.spoken.contains("average heart rate 148 bpm"))
+        #expect(row.spoken.contains("average heart rate 148\u{00A0}bpm"))
     }
 
     @Test func aLoggedSessionAddsItsLoad() throws {

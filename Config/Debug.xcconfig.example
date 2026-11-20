@@ -11,8 +11,11 @@
 INFOPLIST_PREPROCESSOR_DEFINITIONS = RYFT_LOCAL_NETWORKING=1
 
 // RYFT_API_URL = http:/$()/192.168.1.20:8082
+// RYFT_INGEST_URL = http:/$()/192.168.1.20:8081
 // RYFT_SUPABASE_URL = https:/$()/<other-project-ref>.supabase.co
 // RYFT_SUPABASE_PUBLISHABLE_KEY = <other publishable key>
 //
-// A compose platform runs AUTH_MODE=apikey: turn on Profile → Developer → API key mode
-// and set the ingest override (:8081) there too. Compose serves ingest on its own port.
+// The two compose URLs come as a pair: ingest on :8081 (POST /v1/sync), the API on :8082
+// (every other route). Uncomment both: RYFT_API_URL alone sends the sync to production
+// ingest. (In Profile → Developer, an API override alone leaves the sync without a host.)
+// A compose platform runs AUTH_MODE=apikey: turn on Profile → Developer → API key mode.

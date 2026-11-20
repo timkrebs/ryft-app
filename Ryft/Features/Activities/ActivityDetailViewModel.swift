@@ -258,7 +258,7 @@ final class ActivityDetailViewModel {
             case .retrying: return .retrying
             }
         case .failed(let attempt)?:
-            return attempt.kind == .other || attempt.kind == .appTooOld ? .refused(attempt) : .failed(attempt)
+            return attempt.isRefusal ? .refused(attempt) : .failed(attempt)
         case .confirmed?, nil:
             return nil
         }

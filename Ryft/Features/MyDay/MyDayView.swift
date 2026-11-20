@@ -29,8 +29,8 @@ struct MyDayView: View {
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
             .navigationDestination(item: $activity) { ActivityDetailView(route: $0) }
-            .sheet(item: $adding) { AddActivitySheet(model: $0) }
-            .sheet(item: $sleeping) { AddSleepSheet(model: $0) }
+            .sheet(item: $adding) { AddActivitySheet(model: $0).presentedRoot() }
+            .sheet(item: $sleeping) { AddSleepSheet(model: $0).presentedRoot() }
             .confirmationDialog(deleting.map(Self.deleteTitle) ?? Text(verbatim: ""),
                                 isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                                 titleVisibility: .visible, presenting: deleting) { item in

@@ -109,7 +109,7 @@ private struct PlanBuilderScreen: View {
         .presentationBackground(Theme.background)
         .presentationDragIndicator(.visible)
         .sheet(isPresented: Binding(get: { addingTo != nil }, set: { if !$0 { addingTo = nil } })) {
-            AddExerciseSheet(title: "Add to day") { e in add(e) }
+            AddExerciseSheet(title: "Add to day") { e in add(e) }.presentedRoot()
         }
         .confirmationDialog("Remove \(confirmRemoveDay?.name ?? "")?",
                             isPresented: Binding(get: { confirmRemoveDay != nil }, set: { if !$0 { confirmRemoveDay = nil } }),

@@ -127,7 +127,7 @@ private struct PlansScreen: View {
         .keepsBackSwipe()
         .refreshable { await model.refresh() }
         .task { await model.loadIfNeeded() }
-        .sheet(item: $editing) { PlanBuilderView(plan: $0) }
+        .sheet(item: $editing) { PlanBuilderView(plan: $0).presentedRoot() }
     }
 
     /// New plan, and under it, once the plans are known and none is the user's own, where they will appear.
@@ -382,7 +382,7 @@ private struct PlanDetailScreen: View {
         .keepsBackSwipe()
         .task(id: model.planID) { await model.load() }
         .sheet(item: $editing, onDismiss: { Task { await model.load() } }) {
-            PlanBuilderView(plan: $0)
+            PlanBuilderView(plan: $0).presentedRoot()
         }
         .confirmationDialog("Switch to \(plan?.name ?? "")?", isPresented: $confirmSwitch, titleVisibility: .visible) {
             Button("Switch plan") { Task { await model.enroll() } }

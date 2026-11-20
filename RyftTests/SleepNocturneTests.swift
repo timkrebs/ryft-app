@@ -161,7 +161,7 @@ struct SleepSummaryCopyTests {
     }
 
     @Test func captions() {
-        #expect(SleepBoard(sleep: boardSleep, score: boardScore, locale: enUS).caption == "Asleep · 94 % of your need")
+        #expect(SleepBoard(sleep: boardSleep, score: boardScore, locale: enUS).caption == "Asleep · 94\u{00A0}% of your need")
         var noNeed = boardScore
         noNeed?.sleepPerformance = nil
         noNeed?.sleepNeedMin = nil

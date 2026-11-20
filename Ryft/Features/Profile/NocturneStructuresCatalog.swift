@@ -84,7 +84,7 @@ struct NocturneStructuresCatalog: View {
             caption("segmented picker · capsule (PR 4, default) · ink fill · menu (AX1+)")
             SegmentedPicker(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"]) { $0 }
             SegmentedPicker(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"], look: .inkFill) { $0 }
-            SegmentedMenu(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"]) { $0 }
+            SegmentedMenu(selection: $mode, options: ["Day", "Week", "Month", "Bedtime"], label: Text(verbatim: "Range")) { $0 }
         }
     }
 

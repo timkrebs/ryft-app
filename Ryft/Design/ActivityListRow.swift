@@ -33,11 +33,15 @@ enum ActivityListRowSpec {
     nonisolated static let dashedOutlineOpacity = 0.12, outlineDash: CGFloat = 4, discDash: CGFloat = 3
     /// The value's unit ("h" after the night's "7:48"): `caption` in `textTertiary`, 3 after the number, on its baseline.
     nonisolated static let unitGap: CGFloat = 3
+    /// Between the meta's parts: what `StrainRows.join` (`MyDayText.join`) puts there, a no-break space before the "·" so
+    /// the bullet ends its line. From AX1 the row splits the meta on it and stands the parts one per line, without it.
+    nonisolated static let metaSeparator = "\u{00A0}· "
 }
 
 /// `[disc 36] 12 [title / meta] 12 [value] (12 [chevron])` on `surface`, radius 20: the title `callout` (15) in
 /// `textPrimary`, 2 under it the meta `caption` (12) in `textTertiary` ("07:10 · 42 min · 7.8 km"), the value 20 Light in
-/// `textPrimary` at the right ("–" in `textSecondary` without one). From AX1 the value goes under the meta and the title wraps.
+/// `textPrimary` at the right ("–" in `textSecondary` without one). From AX1 the value goes under the meta and the title wraps,
+/// and the meta's parts stand one per line without their "·" (at AX3 a wrapped line ended on it: "6:00 AM ·").
 /// Layout only: the caller makes it a link (`NavigationLink(value:)`), says what it opens (a hint) and names it (an identifier).
 /// One VoiceOver element whose label is `content.spoken`.
 ///
@@ -218,11 +222,15 @@ struct ActivityListRow: View {
                 .foregroundStyle(style == .dashed ? Theme.textSecondary : Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             if let meta = content.meta {
-                Text(verbatim: meta)
-                    .font(.ryft(.caption))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(Self.metaLines(meta, stacked: stacks).enumerated()), id: \.offset) {
+                        Text(verbatim: $0.element)
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             if hangs {
                 SourceBadgeRow(titles: content.badges)
@@ -275,6 +283,11 @@ struct ActivityListRow: View {
         } else {
             number
         }
+    }
+
+    /// The meta as drawn: one line (it wraps after a "·"), or, `stacked`, its parts (split on `metaSeparator`) one per line.
+    nonisolated static func metaLines(_ meta: String, stacked: Bool) -> [String] {
+        stacked ? meta.components(separatedBy: ActivityListRowSpec.metaSeparator) : [meta]
     }
 
     private var number: some View {

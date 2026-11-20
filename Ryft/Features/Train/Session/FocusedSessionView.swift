@@ -82,7 +82,7 @@ struct FocusedSessionView: View {
         .onChange(of: controller.autoFold?.id) { _, _ in focusAfterFold(controller.autoFold) }
         .onChange(of: controller.emptyCheck?.id) { _, _ in announceEmptyCheck() }
         .onDisappear { voiceOverMove?.cancel() }
-        .sheet(item: $sheet) { content(for: $0) }
+        .sheet(item: $sheet) { content(for: $0).presentedRoot() }
         .confirmationDialog(Text("Remove \(row(removing)?.name ?? "")?"),
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                             titleVisibility: .visible) {
