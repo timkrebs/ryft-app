@@ -267,7 +267,7 @@ struct ActivityDetailScreen: View {
             case .notAtRYFT:
                 // Not "waiting for heart rate": RYFT can't look for it before it has the activity.
                 unscoredCard(value: nil,
-                             line: Text("Strain comes once RYFT has this activity.",
+                             line: Text("Strain arrives once RYFT has this activity.",
                                         comment: "Activity detail: the activity hasn't reached RYFT yet (unsent, offline, held), so there is no strain."),
                              systemImage: nil, reason: nil)
             }

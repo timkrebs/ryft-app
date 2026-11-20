@@ -228,7 +228,7 @@ struct ActivityDetailSyncLineTests {
         }
     }
 
-    @Test("Strain comes once RYFT has the activity, not \"Waiting for heart rate\", while it isn't there",
+    @Test("Strain arrives once RYFT has the activity, not \"Waiting for heart rate\", while it isn't there",
           arguments: Unsent.allCases)
     func strainWaitsForRYFTWhileUnsent(_ unsent: Unsent) async throws {
         let g = Graph(online: unsent != .offline)
@@ -794,7 +794,7 @@ struct ActivitiesNocturneHostedTests {
             let numeralAt = try #require(nodes.firstIndex { $0.identifier == "activityDetail.numeral" })
             #expect(lineAt < numeralAt, "the line comes before the numeral")
             let strain = try node(w, "activityDetail.strain")
-            #expect(strain.label.contains("Strain comes once RYFT has this activity."), "\(strain.label)")
+            #expect(strain.label.contains("Strain arrives once RYFT has this activity."), "\(strain.label)")
             #expect(!strain.label.contains("heart rate"), "nothing about heart rate before RYFT has it: \(strain.label)")
             #expect(!(strain.value ?? "").contains("of 21"))
         }
