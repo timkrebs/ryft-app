@@ -47,7 +47,19 @@ New for every screen: sheets and covers end with `.presentedRoot()`, because on 
 doesn't reach presented content; `PresentedRootTests` fails a presentation without it. Simulator-verified only (iPhone
 17 Pro, iOS 27.2, default and AX3). On a device still to check: the tab bar's Large Content Viewer, VoiceOver speech
 and rotor order on Strain, Insights and Sleep, Insights in airplane mode, and Profile's Log out, Set new password and
-Delete account with a real session.
+Delete account with a real session. PR 5 merged as #127 on 2026-11-20.
+
+2026-11-20: PR 6 (`feat/nocturne-pr6`: onboarding and sign-in, Train, My Day, Activities, the journal, Profile's
+pages, the import, widgets and the Lock Screen rest card) is reviewed and integrated
+(`docs/work/2026-11-16-nocturne/review.md`, PR 6): three branches combined, a colour lint in `make lint`
+(`scripts/check-accent-use.py`), Train's pages through `ReadScheduler` (offline at once with what's cached, reload on
+reconnect, Details on failure), every Train read and action bound to its account and side, `PartsLine` and the
+stacked `PushedHeader` at AX sizes, and Reduce Motion through `Theme.Motion.respecting` with a source scan.
+Simulator-verified only (iPhone 17 Pro, iOS 27.2, Demo data, default, AX3 and AX5). On a device still to check: Train
+in airplane mode and back; Demo data on and off with an exercise's page open; "Logged session" from Today's card; the
+widgets and the Lock Screen rest card (locked redaction); Add sleep; the Apple Health step in onboarding; Log in's busy
+button with a real account; the journal with no habits and its side guard; Reduce Motion as a real run. Open: a demo
+Train store (ADR 0019 follow-up; `APP_STORE.md`'s Demo line is marked open until then) and the T5.9 gate PR.
 
 2026-11-17: read-model writes off the main actor (P1, ADR 0018, `docs/work/2026-11-17-persistence-off-main/`): two
 review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback crash). Simulator-verified on iOS 17.0,
