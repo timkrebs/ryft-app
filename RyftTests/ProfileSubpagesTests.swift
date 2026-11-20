@@ -759,7 +759,7 @@ struct ProfileSubpagesHostedTests {
             try await w.settle()
             let add = try node(w, id: "addHabit.add")
             #expect(!add.isEnabled, "a valid name, but 50 of the user's own")
-            #expect(w.node("You have 50 habits of your own, the most RYFT keeps. Delete one to add another.", exactly: true) != nil)
+            #expect(w.node("You've reached the limit of 50 habits of your own. Delete one to add another.", exactly: true) != nil)
         }
     }
 

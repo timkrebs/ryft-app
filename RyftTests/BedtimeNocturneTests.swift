@@ -38,8 +38,8 @@ struct TonightBoardTests {
     func planned() {
         let board = TonightBoard(schedule: .default, plan: tonightsPlan, locale: enUS)
         #expect(board.look == .planned && board.digits == "10:41" && board.meridiem == "PM")
-        #expect(plain(board.line) == "for 100 % · wake 6:30 AM · need 8:18")
-        #expect(board.goals.map(\.title) == ["Peak · 100 %", "Perform · 85 %", "Get by · 70 %"])
+        #expect(plain(board.line) == "for 100\u{00A0}% · wake 6:30 AM · need 8:18")
+        #expect(board.goals.map(\.title) == ["Peak · 100\u{00A0}%", "Perform · 85\u{00A0}%", "Get by · 70\u{00A0}%"])
         #expect(board.goals.map { plain($0.time) } == ["10:41 PM", "11:19 PM", "12:08 AM"])
         #expect(board.goals.map(\.isGoal) == [true, false, false])
         #expect(plain(board.goals[0].spoken) == "Peak, 100 percent, 10:41 PM, your goal")
@@ -56,7 +56,7 @@ struct TonightBoardTests {
         var schedule = SleepSchedule.default
         schedule.goal = .perform
         let board = TonightBoard(schedule: schedule, plan: tonightsPlan, locale: enUS)
-        #expect(board.digits == "11:19" && plain(board.line).hasPrefix("for 85 % · "))
+        #expect(board.digits == "11:19" && plain(board.line).hasPrefix("for 85\u{00A0}% · "))
         #expect(board.goals.map(\.isGoal) == [false, true, false])
         #expect(board.goals.filter { $0.spoken.contains("your goal") }.count == 1)
     }
@@ -816,7 +816,7 @@ struct BedtimeHostedTests {
             #expect(plain(tile.value).hasPrefix("In bed by ") && plain(tile.value).contains("percent of your need. Wake 6:30 AM"),
                     "\(plain(tile.value))")
             #expect(plain(tile.value).contains("your goal") && (tile.hint ?? "").isEmpty, "no hint: \(tile.hint ?? "")")
-            #expect(w.node("Peak · 100 %") == nil && w.node("In bed by", exactly: true) == nil, "inside the one element")
+            #expect(w.node("Peak · 100\u{00A0}%") == nil && w.node("In bed by", exactly: true) == nil, "inside the one element")
             let why = try node(w, id: "tonight.why"), schedule = try node(w, id: "tonight.schedule")
             #expect(why.frame.minY >= tile.frame.maxY + TonightLayout.groupGap - 0.5 && schedule.frame.minY >= why.frame.maxY - 0.5)
             #expect(schedule.label == "Bedtime & wake" && plain(schedule.value) == "6:30 AM · weekend\u{00A0}8:00 AM",
