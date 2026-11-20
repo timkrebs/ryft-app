@@ -673,6 +673,28 @@ struct TrainOtherPathsSidesTests {
     }
 }
 
+/// The ScreenModels sweep (security review S-A's pattern): Sleep's failed night, its sentence and request ID, is the side's
+/// and goes with it, as Strain's does. Synthetic data only.
+@MainActor
+@Suite("R4T sweep: Sleep's failed night goes with the side", .serialized)
+struct SleepSidesTests {
+    @Test func theSwitchForgetsSleepsFailedNight() async throws {
+        let api = MockPlatformAPI()
+        let state = AppState(env: .test(api: api, clock: TestClock(now: .now)))
+        try #require(state.hasDataSource)
+        let screens = sidesScreens(state, TrainSides([SideSwitch.alex: SideTrainSource(.demo)]))
+        let sleep = screens.sleep
+        api.failure = APIError.http(400, "bad request", requestID: "rid-alex-400")
+        sleep.mode = .day
+        await sleep.load()
+        #expect(sleep.failure?.details == "HTTP 400 · Request ID rid-alex-400" && sleep.error != nil)
+        state.reset()
+        #expect(sleep.failure == nil && sleep.error == nil, "the side that ended's night and request ID")
+        if case .failed = sleep.board.look { Issue.record("no failed board on the next side") }
+        withExtendedLifetime(screens) {}
+    }
+}
+
 @MainActor
 final class SentCount {
     var n = 0

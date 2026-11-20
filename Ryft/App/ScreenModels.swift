@@ -85,7 +85,11 @@ final class ScreenModels {
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
         // Sleep → Bedtime's plan is the account's, or demo data's: the other side's goes with the account-state forgetters.
-        state.forgetsAccountState { [weak sleep] in sleep?.planner.accountChanged() }
+        // So do Sleep's failed night or range and its request ID.
+        state.forgetsAccountState { [weak sleep] in
+            sleep?.forget()
+            sleep?.planner.accountChanged()
+        }
         // So do Tonight's plan, schedule and planned nights (Bedtime & wake), at once; RyftApp then asks for this side's.
         bedtime = BedtimePlanner(state: state)
         state.forgetsAccountState { [weak bedtime] in bedtime?.forget() }

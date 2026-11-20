@@ -171,6 +171,16 @@ final class SleepViewModel {
         return "\(header.spokenValue). \(board.numeralLabel ?? board.spokenCaption ?? board.caption)"
     }
 
+    /// The side that ended (sign-out, another account, the Demo data switch): its failed night or range (the sentence and
+    /// its request ID) and the stale marks go, and a load still out for it writes nothing when it ends (`ScreenModels`
+    /// registers it with the account-state forgetters, beside the planner's).
+    func forget() {
+        loadGeneration += 1
+        failure = nil
+        staleRanges = []
+        isLoading = false
+    }
+
     /// A signed-out failure's "Sign in": Today's (`AppState.signInAgain`).
     func signIn() async {
         await state.signInAgain()
