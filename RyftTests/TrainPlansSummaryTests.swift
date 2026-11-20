@@ -58,7 +58,7 @@ struct TrainPlansSummaryTests {
         #expect(content.hero.strain == s.strain && content.hero.numeral != nil)
         #expect(content.hero.caption.hasPrefix(StrainHero.named("")), "\(content.hero.caption)")
         #expect(content.tiles.map(\.id) == ["duration", "volume", "load", "sets"], "strain is the hero, not a tile")
-        #expect(content.tiles[2].value == Fmt.load(s.muscularTrimp))
+        #expect(content.tiles[2].value == Fmt.load(s.muscularTrimp, locale: english))
         let sets = s.exercises.flatMap(\.sets).filter { $0.completedAt != nil }.count
         #expect(content.tiles[3].value == "\(sets)")
         #expect(content.tiles[0].spoken?.contains("minute") == true, "\(content.tiles[0].spoken ?? "")")
