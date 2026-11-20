@@ -60,6 +60,8 @@ Store "What's New".
   include diagnostics.
 - Replace an exercise during a workout (your done sets stay with the old one, with Undo and optionally in your
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
+- RYFT proves to its servers that requests come from the genuine app on your iPhone (Apple's App Attest). Nothing
+  changes until the servers start checking; a workout or sync they refuse for it stays queued and goes again.
 
 ### Changed
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.

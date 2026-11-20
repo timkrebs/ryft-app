@@ -366,7 +366,9 @@ final class OnboardingCoordinator {
             case .consentRequired?:
                 apiStatus.resolved(.inviteRequired)
                 consent.refused(.consentRequired, at: env.clock.now())
-            case .inviteRequired?, .importInProgress?, .importNotEnabled?:
+            // The App Attest codes are never a `gate` (API.md → Errors → App Attest).
+            case .inviteRequired?, .importInProgress?, .importNotEnabled?, .appAttestRequired?,
+                 .appAttestChallengeInvalid?, .appAttestInvalid?, .appAttestKeyUnknown?:
                 break
             }
         }

@@ -5,12 +5,19 @@ import Foundation
 protocol AppClock: AnyObject, Sendable {
     func now() -> Date
     func sleep(for duration: Duration) async throws
+    /// Monotonic time since this clock was made, sleep included: what a lifetime the platform gives in seconds
+    /// (`ttl_sec`) is counted on, never `now()`, which the user can set.
+    func uptime() -> Duration
 }
 
 /// The real clock.
 final class SystemClock: AppClock {
+    /// `ContinuousClock`, not `SuspendingClock`: that one stops while the device sleeps, so a token would look fresh.
+    private let origin = ContinuousClock.now
+
     func now() -> Date { Date() }
     func sleep(for duration: Duration) async throws { try await Task.sleep(for: duration) }
+    func uptime() -> Duration { ContinuousClock.now - origin }
 }
 
 extension Duration {
@@ -22,9 +29,11 @@ extension Duration {
 
 /// Tests: time moves only on `advance(by:)`. A `sleep` returns once the clock has
 /// passed its deadline, or throws `CancellationError` when its task is cancelled.
+/// `uptime()` moves on `advance(by:)` only: `set(_:)` is the user changing the date.
 final class TestClock: AppClock, @unchecked Sendable {
     private let lock = NSLock()
     private var current: Date
+    private var elapsed: Duration = .zero
     private var sleepers: [UUID: (deadline: Date, continuation: CheckedContinuation<Void, Error>)] = [:]
 
     init(now: Date = Date(timeIntervalSince1970: 1_792_400_000)) {   // 2026-10-19
@@ -32,6 +41,8 @@ final class TestClock: AppClock, @unchecked Sendable {
     }
 
     func now() -> Date { lock.withLock { current } }
+
+    func uptime() -> Duration { lock.withLock { elapsed } }
 
     /// Waits that haven't ended yet.
     var pendingSleeps: Int { lock.withLock { sleepers.count } }
@@ -61,6 +72,7 @@ final class TestClock: AppClock, @unchecked Sendable {
     func advance(by duration: Duration) {
         let due: [CheckedContinuation<Void, Error>] = lock.withLock {
             current = current.addingTimeInterval(duration.timeInterval)
+            elapsed += duration
             let ready = sleepers.filter { $0.value.deadline <= current }
             for id in ready.keys { sleepers.removeValue(forKey: id) }
             return ready.values.map(\.continuation)
