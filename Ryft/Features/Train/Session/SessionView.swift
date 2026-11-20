@@ -141,7 +141,7 @@ struct SessionView: View {
                 }
             }
         }
-        .animation(Theme.Motion.quick, value: controller.focus == nil)
+        .animation(Theme.Motion.respecting(reduceMotion), value: controller.focus == nil)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard), value: restBarState)
         .onChange(of: controller.rest.isRunning) { _, _ in restBarScrolledAway = false }
         .task(id: restBarPeek) {
@@ -358,7 +358,7 @@ struct SessionView: View {
             .modifier(ManualScrollReporter { userScrolled() })
             .onChange(of: controller.focus) { _, focus in
                 guard let focus else { return }
-                withAnimation { proxy.scrollTo(focus.setID, anchor: .center) }
+                withAnimation(Theme.Motion.respecting(reduceMotion)) { proxy.scrollTo(focus.setID, anchor: .center) }
             }
             .onChange(of: controller.advance?.id) { _, _ in jump(to: controller.advance, with: proxy) }
             .onAppear {

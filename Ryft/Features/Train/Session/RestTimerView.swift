@@ -141,6 +141,7 @@ struct PlateCalculatorSheet: View {
     @State var target: Double
     var onUse: ((Double) -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The steps: 72 × 56 `OutlinedKey`s.
     static let stepWidth: CGFloat = 72, stepHeight: CGFloat = 56
@@ -161,7 +162,7 @@ struct PlateCalculatorSheet: View {
                                 .font(.ryftNumber(size: 48))
                                 .monospacedDigit()
                                 .foregroundStyle(Theme.textPrimary)
-                                .contentTransition(.numericText())
+                                .contentTransition(reduceMotion ? .identity : .numericText())
                             Text("kg target").ryftLabelStyle()
                         }
                         .frame(maxWidth: .infinity)
@@ -199,7 +200,7 @@ struct PlateCalculatorSheet: View {
 
     private func stepper(_ title: String, _ delta: Double) -> some View {
         Button {
-            withAnimation(Theme.Motion.quick) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
         } label: {
             Text(title)
                 .font(.ryftNumber(size: 19))
