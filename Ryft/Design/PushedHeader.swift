@@ -13,11 +13,14 @@ enum PushedHeaderSpec {
 /// `ScreenHeader`'s three slots: `CircleButton("chevron.left")` labelled "Back" · the title (`callout`, `textPrimary`) with the
 /// subtitle 2 under it (`caption`, `textTertiary`, tabular digits) · the caller's `CircleButton` (a menu, "Add") or, without one,
 /// an empty 40 pt slot, so the title stays centred. 40 high; it grows only when the title or the subtitle wraps (large text).
+/// From AX1 (C §2.9, as `SubpageHeader` stacks): Back and the trailing circle on the first 40 pt line, 12 under it the title
+/// and then the subtitle, from the leading inset across the whole width, wrapping; never squeezed between the circles.
 ///
 /// VoiceOver reads Back, then the middle as one header element (the title, with the subtitle as its value, or
 /// `spokenSubtitle` when the drawn one abbreviates: "Fri, Nov 13 · 55 min" → "Friday 13 November, 55 minutes"), then the
-/// trailing slot. `onBack` is the caller's; nil pops through `dismiss`. Identifiers: `<identifierPrefix>.back` and
-/// `<identifierPrefix>.header`. The page itself hides the navigation bar and keeps the back swipe (`.keepsBackSwipe()`).
+/// trailing slot; from AX1 in the order drawn: Back, the trailing circle, the title. `onBack` is the caller's; nil pops
+/// through `dismiss`. Identifiers: `<identifierPrefix>.back` and `<identifierPrefix>.header`. The page itself hides the
+/// navigation bar and keeps the back swipe (`.keepsBackSwipe()`).
 struct PushedHeader<Trailing: View>: View {
     private let title: Text
     private let subtitle: Text?
@@ -27,6 +30,7 @@ struct PushedHeader<Trailing: View>: View {
     private let trailing: Trailing
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: Text, subtitle: Text? = nil, spokenSubtitle: Text? = nil, identifierPrefix: String = "header",
          onBack: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
@@ -39,33 +43,64 @@ struct PushedHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        ScreenHeader {
-            CircleButton(systemImage: "chevron.left", accessibilityLabel: SubpageHeader<EmptyView>.backLabel) {
-                if let onBack { onBack() } else { dismiss() }
+        if typeSize.isAccessibilitySize {
+            stacked
+        } else {
+            ScreenHeader {
+                backButton
+            } center: {
+                middle(.center)
+            } trailing: {
+                trailing
             }
-            .accessibilityIdentifier("\(identifierPrefix).back")
-        } center: {
-            VStack(spacing: PushedHeaderSpec.subtitleGap) {
-                title
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                if let subtitle {
-                    subtitle
-                        .font(.ryft(.caption))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
-            .accessibilityValue(spokenSubtitle ?? subtitle ?? Text(verbatim: ""))
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("\(identifierPrefix).header")
-        } trailing: {
-            trailing
         }
+    }
+
+    /// From AX1: the circles' line (each laid out as its 40 pt circle, the edges on the insets), then the title and the
+    /// subtitle under it, leading (`SubpageHeader`'s stacked layout).
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: SubpageSpec.stackedGap) {
+            HStack(spacing: 0) {
+                backButton
+                    .padding(-ScreenHeaderSpec.buttonOverhang)
+                Spacer(minLength: ScreenHeaderSpec.minGap)
+                trailing
+                    .padding(-ScreenHeaderSpec.buttonOverhang)
+            }
+            .frame(minHeight: ScreenHeaderSpec.height)
+            middle(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var backButton: some View {
+        CircleButton(systemImage: "chevron.left", accessibilityLabel: SubpageHeader<EmptyView>.backLabel) {
+            if let onBack { onBack() } else { dismiss() }
+        }
+        .accessibilityIdentifier("\(identifierPrefix).back")
+    }
+
+    /// The title over the subtitle: one header element.
+    private func middle(_ alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: PushedHeaderSpec.subtitleGap) {
+            title
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+            if let subtitle {
+                subtitle
+                    .font(.ryft(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .multilineTextAlignment(alignment == .leading ? .leading : .center)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(spokenSubtitle ?? subtitle ?? Text(verbatim: ""))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("\(identifierPrefix).header")
     }
 }
 
