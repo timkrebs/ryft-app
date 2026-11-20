@@ -1,0 +1,19 @@
+- [Destination on a covered root](feedback_destination_on_covered_root.md) — host destinations on an always-mounted view; covered-root walk, dialog taps, a compiler bug
+- [Editor saves never wait](project_editor_saves_never_wait.md) — autosave editors commit synchronously, side effects in passes; never chain behind the network
+- [Settings write honesty](project_settings_write_honesty.md) — SettingsWriteFailure: judge and word failed writes by what left the phone; test pitfalls
+- [Widget look and limits](project_widget_look_and_limits.md) — Shared/WidgetLook.swift tests, placeholder redaction, accessory slot sizes, the 160 pt Live Activity limit
+- [Import step 6 and the mock uploader](project_import_step6_and_mock_uploader.md) — weak env in preview uploaders, harness for tap tests, no way back, counts of what was written, VoiceOver per phase
+- [Settings write shared wait](project_settings_write_shared_wait.md) — SettingsWrite (one attempt, 25 s, offline); account binding; demo data in memory only (accountDocuments); mutation-proving tests; Release previews
+- [Demo side and system effects](project_demo_side_and_system_effects.md) — one shelf per side; Demo schedules nothing on iOS but a sign-out still tears down; forgetters in ScreenModels; nothing-sent vs answered
+- [Presented root and shot baselines](project_presented_root_and_shot_baselines.md) — presentedRoot() on every presenter (style does not cross a sheet on 27.2); hosted probes, SubpageScaffold frame probe, RootView signed out (demo off); git-archive baselines need the ignored fonts
+- [AX layouts and mutation runs](project_ax_layouts_and_mutation_runs.md) — header/notice/value stack from AX1 in the shared components; pixel line-start probe; scripted mutate → build → test → restore
+- [Validator AX size and column width](project_validator_ax_size_and_column_width.md) — validator "AX3" shots were AX5; what widens a column; scaled sheets; WindowPixels
+- [PR 5 into PR 6 merge](project_pr5_into_pr6_merge.md) — misplaced presentedRoot after auto-merge; #126 outbox at every TrainLibrary (`TrainLibrary.testing`); test-type clashes; strings --check; gate script
+- [PR 6 combine: Journal and seams](project_pr6_combine_journal.md) — B look + C side binding, demo/account test breaks, one expectNocturneFrame, journal.answer ids, userInitiated retry, busy-rule leftovers
+- [Busy rule and locale threading](project_busy_rule_and_locale_threading.md) — busy pills vs rows in tests, what was left, `Fmt` locale params (kgNumber overload), de-region proof, launch-test margin
+- [PR 6 F-Journal fix round](project_pr6_fj_sheet_side_and_launch_tap.md) — sheet isCurrent guards + dismissal, late-answer seams, DST wall time, single-send coordinator, control-launch proof for the launch tap
+- [PR 6 R2 V2: motion, AX rest bar, banners](project_pr6_r2_v2_motion_restbar_banners.md) — Reduce Motion source scan; AX rest bar pill opens the rest sheet; banner glyph column + text-link probe; #require Comment pitfall
+- [PartsLine and AX headers](project_parts_line_and_ax_headers.md) — R2 V1: PartsLine for "a · b" lines, PushedHeader AX stack, sheetDetents(), wrapping plan name; detents/text-view/pixel test tricks, grouped mutants
+- [PR 6 R3: parts sites](project_pr6_r3_parts_sites.md) — PushedHeader subtitle+parts and loading placeholder, BodySettingContent.sourceParts, StartOptionText; sweep leftovers; grouped mutants
+- [PR 6 R4O: flights, withdrawal, scan](project_pr6_r4o_flights_withdrawal_scan.md) — per-account Flight in perform, switchAccount only from a known account, waiting withdrawal, App Attest sentence, app-wide Reduce Motion scan + allowlist
+- [main #130 into PR 6](project_main130_into_pr6_merge.md) — analytics merge: misplaced one-line modifiers, ConsentPoint vs area A scan, old OnboardingScreen API, per-line checklist scripts

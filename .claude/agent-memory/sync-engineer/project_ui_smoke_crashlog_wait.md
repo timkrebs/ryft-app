@@ -15,6 +15,13 @@ simulators crash PosterBoard often (`~/Library/Logs/DiagnosticReports/PosterBoar
 **Why:** the reviewer suspected cancellation-blind waits in the app; the evidence ruled that out. Re-running is
 the right answer for this signature, not app changes.
 
+**"Critical process Ryft crashed in (null)"** (PR #107, 2026-11-18, host load ~800, step timed out at 15 min): the
+artifact's UISmoke.xcresult had no Info.plist (xcresulttool refuses it), but
+`Staging/1_Test/Diagnostics/RyftUITests-*/RyftUITests-*/StandardOutputAndStandardError-dev.timkrebs.ryft.txt` holds
+every launch's stderr, headed "…with process ID N beginning at…". Grep it for "Assertion failed"/"Fatal error" and read
+each crashed pid's last line: here every crash came mid-test while answering XCUITest AX queries, never at launch, with
+no Swift trap. Infrastructure: `gh run rerun --failed <id>`.
+
 **How to apply:** for a hang in Tear Down or a failed terminate, first `gh run download <run> -n test-results`,
 `xcresulttool get test-results activities --test-id …` and `export attachments`, read the app's and the
 runner's threads in the spindump; compare with a control build before touching code. Related:

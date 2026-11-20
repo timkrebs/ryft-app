@@ -25,6 +25,13 @@ First thing in a delegated (headless) session, before any planning, run `git bra
 The same day the user widened `.claude/settings.local.json`:
 - now allowed: git writes and pushes, `gh run`, `xcodebuild`, `xcrun simctl`, the `make` targets (build, test, lint, strings, trackers, check-entitlements, style, format), and `grep`/`head`/`tail`/`wc`/`sort`;
 - still out: `git -C <path>` and redirects to `/tmp`. Use plain `git …` from the repo root.
+- also refused on 2026-11-15:
+  - `xcrun xcresulttool get test-results summary`, `gh api …`, `ps -o … -p …`;
+  - the rea `inspect_sqlite_database` tool;
+  - any Read or grep of `../plattform/docs/API.md` (outside the working dir), so the brief's quoted contract has to do.
+- Workarounds:
+  - for test totals and failures, run `xcodebuild … -quiet 2>&1 | grep -E "failed|error:"`; that pipe was allowed;
+  - `pgrep -fl Runner` and `xcrun simctl list devices` work.
 
 If a command is refused, check that file's allow list first.
 

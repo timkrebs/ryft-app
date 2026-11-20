@@ -1,25 +1,28 @@
 ---
 name: project-strings-catalog-insertion
-description: Localizable.xcstrings round-trips byte-identically through Python json with the repo's settings; how to add en keys + de translations with a diff of only added lines
+description: How to add a key to Localizable.xcstrings by hand with a diff of only added lines; English only now, the file isn't one sorted run, and the lead's entry shape
 metadata:
   type: project
 ---
 
-On 2026-10-23 (I2 import parser) `Ryft/Resources/Localizable.xcstrings` round-tripped **byte-identically** through
-`json.load` → `json.dump(d, f, ensure_ascii=False, indent=2, separators=(",", " : "))` + a trailing `"\n"` (the same
-settings `scripts/sync-strings.py` writes with). So a scripted insertion is safe when:
-1. a round-trip compare of the untouched file says "identical" first (if not, fall back to text insertion);
-2. new keys go before the first existing key that sorts after them case-insensitively (sync-strings' `merged()` rule);
-3. each entry is `{"comment": …, "localizations": {"de": {"stringUnit": {"state": "translated", "value": …}}}}`, no
-   `en` entry; a brand/source name gets `"shouldTranslate": false` (lint skips it);
-4. the code's `comment:` text equals the catalog's `comment` exactly (Xcode would otherwise rewrite it later).
+Rule from ios-lead: never re-serialise `Ryft/Resources/Localizable.xcstrings`; add keys by **text insertion**, in their
+own `l10n:` commit, and check `git diff --stat` shows only insertions. Then `json.loads` the file to prove it parses.
 
-Result: `git diff --stat` showed only insertions (20 keys → 213 lines, 0 deletions); `make lint` and
-`python3 scripts/sync-strings.py --derived-data build/DerivedData --check` (after a build) both passed.
+What a hand-inserted entry looks like (P1b, 2026-11-18, lead's commit 5774c29 and mine 953af53): RYFT is **English
+only** now (no `de`), so an entry is the key with its `comment` and, when asked, an `en` stringUnit:
+`"Key" : { "comment" : "…", "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Key" } } } },`
+(2-space indent, `" : "` separators, literal non-ASCII such as `→`). A plural uses `variations.plural.one/other`. The
+code's `comment:` text must equal the catalog's `comment` exactly, or Xcode rewrites it later.
 
-**Why:** ios-lead's rule forbids re-serialising the catalog after an incident with `": "` separators; the round-trip
-check proves the dump changes nothing else.
+**The file isn't one sorted run:** about 54 places break case-insensitive order (Xcode-extracted keys sit in a second
+run, e.g. "Deep + REM" near line 1588 and "Deep" near 4979). "Sorted position" therefore means next to its nearest
+neighbours (e.g. "Demo data couldn't…" between "Demo data" and "Demo data · "), not a global bisect.
 
-**How to apply:** any ticket that adds strings without Xcode. Related: [[project-swift-testing-macro-pitfalls]] (a
-test that checks every warning kind has German via `resource.locale = Locale(identifier: "de")` +
-`String(localized:)` works in the hosted unit tests).
+Older note (2026-10-23): the file round-tripped byte-identically through `json.dump(…, ensure_ascii=False, indent=2,
+separators=(",", " : "))` + `"\n"` (sync-strings' settings), so a scripted dump was once safe. Prefer text insertion now:
+it's what the lead asks for.
+
+**Why:** an incident with `": "` separators made re-serialising forbidden; insertion-only diffs are easy to review.
+
+**How to apply:** any ticket that adds strings without Xcode. If Xcode rewrites the file during a build, `git checkout
+-- Ryft/Resources/Localizable.xcstrings` and insert again. Related: [[project-swift-testing-macro-pitfalls]].

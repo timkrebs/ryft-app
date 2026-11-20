@@ -39,3 +39,32 @@ with `detail != nil` as the "loaded" guard. API.md → `GET /v1/days/{day}`: a d
 placeholder (`sleep: null`, `workouts: []`), so 00:00 until the night is scored, during `pending`, the first import and
 offline it claimed no sleep beside Today's "Scoring your night" / RawNightCard. `nightGap` only suppresses 08–15,
 online, `waitingForSleep`. Before deriving "missing" from nil, check `score.standing` / `score.scoringState`.
+
+Recurred in Nocturne PR 4 (Sleep → Day board, 2026-11-17): `SleepBoard` maps `sleep == nil` to `.noSleep` ahead of
+`isPending`, and design.md's own "Pending score" row says "numeral and ruler from the raw night" while the code only
+reads the server `SleepDetail`. Every pending test passed a non-nil `sleep` with `isPending: true`, a pair the API never
+sends for a first scoring. Check first for any `guard let sleep else` in a board/VM, and ask for a test built from
+the API placeholder JSON (`scoring_state: pending`, `sleep: null`).
+
+Recurred again in the PR 4 fix round (2026-11-17): the CR1 fix keyed Sleep's new pending look on `DayMarker.kind == .pending`,
+which also maps `.waitingForSleep`, so a day scored without a night (Watch on the charger) says "Your night is being scored."
+all day. Today's rule (`TodayPresentation.pick`) is "scoring only on the platform's word": `pending` -> being scored + raw
+night; `waiting_for_sleep`/`stale` -> "Last night hasn't reached RYFT yet.", no raw night. Any new board copy for an unscored
+night: switch on `score.scoringState`, never on `DayMarker`, and test each of `pending`, `waiting_for_sleep`, `stale`.
+
+Third pass (PR 4 round 3, 2026-11-17): the R2-F1 fix switched on the *cached row's* `scoringState`, but today's state has
+one owner, `ScoringWord.state(day:word:status:row:)` (phone ledger `SyncService.scoringLedger` > `GET /v1/me/sync`
+`today.state` > row), used by Today and `Repository.widgetFacts`. Today's detail is re-read only in `refreshDays` after
+the scoring wait, and `.ifStale` serves it for 300 s, so after an upload Today says "being scored" while a row-only
+screen says "hasn't reached RYFT". For any screen that words today's scoring: grep for `ScoringWord.state`; a bare
+`.scoringState` on today's row is the bug. Also check `nil` (unknown values decode via `try?`): Today's `pick` reads
+no word on an unscored row as waiting, never as scored.
+"Agrees with Today" test tables (PR 4 round 4): Today's `pick` rule 1 (E, firstImport) fires only with no prior scored
+day and no `pending`/`waiting` word, so `scored`/`stale`/nil over an unscored row reads differently for a first-night
+user. Check that each case runs with `prior: false` too, and that the cached row lagging a newer status/word is covered.
+Fifth time (T5.2 Strain, 2026-11-18): "No strain recorded for this day." and "Your watch didn't record heart-rate zones" from
+`strain == nil` with no `scoringState`/`isToday` check, because design.md's state table said so. Flag it even when the spec asks for it.
+Tonight's bedtime has one owner (T5.5, 2026-11-18): `BedtimePlanner` plans for `schedule.nextWake(after:)` and feeds Today's
+Tonight card, the Wind-down reminder and the widget. `SleepPlannerViewModel` (the "Wake up at" picker) seeds its wake from last
+night's *actual* wake time, so a screen that labels the picker's plan "Tonight" disagrees with all three. When a screen words
+"tonight", check which planner's plan it reads.
