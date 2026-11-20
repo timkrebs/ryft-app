@@ -87,6 +87,8 @@ final class ScreenModels {
         bedtime = BedtimePlanner(state: state)
         state.forgetsAccountState { [weak bedtime] in bedtime?.forget() }
         strain = StrainViewModel(state: state, store: store)
+        // Strain's failed day and a deep link's Train page are the side's too.
+        state.forgetsAccountState { [weak strain] in strain?.forget() }
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
@@ -112,6 +114,8 @@ final class ScreenModels {
                                    devices: devices, train: train)
         state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
+        // Start workout's last session and plan are the account's, or demo data's: they go with the others.
+        state.forgetsAccountState { [weak trainToday] in trainToday?.forget() }
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads
     }

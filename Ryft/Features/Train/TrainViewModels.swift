@@ -572,7 +572,15 @@ final class TrainTodayViewModel {
     private let clock: AppClock
 
     private(set) var lastSession: TrainSession?
-    private(set) var activePlan: Plan?
+    /// The active plan's detail as `loadStartOptions` last loaded it.
+    private var loadedPlan: Plan?
+
+    /// The active plan's detail, for "A day from …": only while the enrolment in use is in it, so a plan loaded for another
+    /// account, for the demo or before a switch of plans never offers its days (security review S-A).
+    var activePlan: Plan? {
+        guard let plan = loadedPlan, plan.id == library.activeEnrollment?.planId else { return nil }
+        return plan
+    }
 
     init(library: TrainLibrary, store: TrainStore, clock: AppClock) {
         self.library = library
@@ -627,9 +635,23 @@ final class TrainTodayViewModel {
         (activePlan?.days ?? []).sorted { ($0.week ?? 0, $0.dayIndex) < ($1.week ?? 0, $1.dayIndex) }
     }
 
+    /// The last session to repeat and the active plan's days, for the binding in use when it starts: answers that arrive
+    /// after a sign-out, another account or the Demo data switch are dropped (security review S-A).
     func loadStartOptions() async {
-        lastSession = await library.lastSession()
-        if let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan { activePlan = plan }
+        let asked = library.binding
+        let last = await library.lastSession()
+        guard library.binding == asked else { return }
+        lastSession = last
+        guard let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan,
+              library.binding == asked else { return }
+        loadedPlan = plan
+    }
+
+    /// A sign-out, another account or the Demo data switch (`ScreenModels`, with the other account-state forgetters): the
+    /// last session and the plan were the side's that ended. This model lives as long as the app.
+    func forget() {
+        lastSession = nil
+        loadedPlan = nil
     }
 }
 

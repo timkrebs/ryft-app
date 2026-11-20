@@ -131,3 +131,89 @@ struct TrainRefreshSidesTests {
     }
 }
 
+/// The app's models on `state` with `rig`'s library and store: the account-state forgetters as `ScreenModels` connects them.
+@MainActor
+func sidesScreens(_ state: AppState, _ rig: TrainSides) -> ScreenModels {
+    let sync = SyncService(env: state.env)
+    return ScreenModels(state: state, sync: sync,
+                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
+                        store: rig.store, library: rig.library)
+}
+
+/// Security review S-A: Start workout's last session and plan live as long as the app; another account, a sign-out or the
+/// Demo data switch never shows the previous side's, and a late answer for it is dropped. Synthetic data only.
+@MainActor
+@Suite("R4T S-A: Start workout's options stay on their side", .serialized)
+struct TrainStartOptionsSidesTests {
+    /// Loaded for Alex, then the reset every switch runs (`AppState.reset`, the forgetters `ScreenModels` registers): no
+    /// "Repeat last session", no "A day from …".
+    @Test func theSwitchForgetsTheLastSessionAndThePlan() async {
+        let state = AppState(env: .test())
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo)])
+        let screens = sidesScreens(state, rig)
+        await rig.library.refresh()
+        let model = screens.trainToday
+        await model.loadStartOptions()
+        #expect(model.lastSession != nil && model.activePlan?.id == MockTrain.upperLower.id)
+        state.reset()
+        #expect(model.lastSession == nil, "no Repeat last session of the side that ended")
+        #expect(model.activePlan == nil && model.planDays.isEmpty, "no A day from its plan")
+        withExtendedLifetime(screens) {}
+    }
+
+    /// Sam signs in after Alex on this iPhone, with no plan of his own: no "A day from" Alex's plan, even with the sheet's
+    /// model never told (the plan shown follows the enrolment in use).
+    @Test func anotherAccountWithoutAPlanGetsNoDayFromThePreviousOnes() async {
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo), SideSwitch.sam: SideTrainSource(.empty)])
+        let model = TrainTodayViewModel(library: rig.library, store: rig.store, clock: TestClock(now: .now))
+        await rig.library.refresh()
+        await model.loadStartOptions()
+        #expect(model.activePlan?.id == MockTrain.upperLower.id, "Alex's")
+        // Alex signs out (the wipe), Sam signs in.
+        _ = rig.store.wipe()
+        rig.library.wipe()
+        rig.switchTo(SideSwitch.sam)
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment == nil)
+        await model.loadStartOptions()
+        #expect(model.activePlan == nil && model.planDays.isEmpty, "no A day from Alex's plan")
+    }
+
+    /// Alex's last session is on its way when Demo data goes on; the demo's sheet loads its own; Alex's late answer
+    /// doesn't replace it.
+    @Test func aLateLastSessionAfterTheSwitchIsDropped() async throws {
+        let alex = SideTrainSource(.demo, holding: [.session])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
+        let model = TrainTodayViewModel(library: rig.library, store: rig.store, clock: TestClock(now: .now))
+        let late = Task { await model.loadStartOptions() }
+        #expect(await eventually { alex.count(.session) == 1 }, "Alex's last session is on its way")
+        rig.switchTo(SideSwitch.demo)
+        rig.library.demoModeChanged()
+        model.forget()
+        await model.loadStartOptions()
+        let demos = try #require(model.lastSession, "the demo's own")
+        alex.release()
+        await late.value
+        #expect(model.lastSession == demos, "Alex's late answer doesn't replace the demo's")
+    }
+
+    /// The sweep: Strain's failed day (its sentence and request ID) and a deep link's Train page go with the switch, and
+    /// the next side's uncached day shows its outlines until it loads, not "no strain".
+    @Test func strainForgetsItsFailedDayWithTheSwitch() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.http(400, "bad request", requestID: "rid-alex-400")
+        let state = AppState(env: .test(api: api, clock: TestClock(now: .now)))
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo)])
+        let screens = sidesScreens(state, rig)
+        let strain = screens.strain
+        await strain.load()
+        #expect(strain.board.failure?.details == "HTTP 400 · Request ID rid-alex-400")
+        strain.requestedRoute = .history
+        state.reset()
+        #expect(strain.board.failure == nil, "the side that ended's failure")
+        #expect(strain.board.look == .loading, "the next side's day isn't loaded yet")
+        #expect(strain.requestedRoute == nil)
+        withExtendedLifetime(screens) {}
+    }
+}
+
