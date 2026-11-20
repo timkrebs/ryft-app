@@ -26,7 +26,7 @@ struct FeatureFlagsDebugView: View {
                     }
                 }
                 if store?.overrides.isEmpty == false {
-                    PrimaryButton(title: "Clear all overrides", style: .secondary) { store?.clearOverrides() }
+                    PillButton(Text("Clear all overrides"), style: .secondary) { store?.clearOverrides() }
                 }
                 catalog
             }
@@ -46,7 +46,7 @@ struct FeatureFlagsDebugView: View {
                 StatRow(title: "Evaluated", value: store?.evaluatedAt?.formatted(date: .abbreviated, time: .shortened)
                         ?? Fmt.placeholder)
                 StatRow(title: "Refreshes every", value: Fmt.duration(minutes: Int((store?.ttl ?? FlagStore.defaultTTL) / 60)))
-                PrimaryButton(title: "Reload from the platform", style: .secondary, busy: reloading) {
+                PillButton(Text("Reload from the platform"), style: .secondary, busy: reloading) {
                     reloading = true
                     let applied = await screens.featureFlags?.refresh(force: true) ?? false
                     reloading = false
@@ -75,7 +75,7 @@ struct FeatureFlagsDebugView: View {
                     .foregroundStyle(Theme.textSecondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                PrimaryButton(title: "Reload tracker catalog", style: .secondary, busy: reloadingCatalog) {
+                PillButton(Text("Reload tracker catalog"), style: .secondary, busy: reloadingCatalog) {
                     reloadingCatalog = true
                     await store.refreshIfDue(force: true)
                     reloadingCatalog = false
@@ -98,12 +98,10 @@ struct FeatureFlagsDebugView: View {
                         .foregroundStyle(source == .override ? Theme.warning : Theme.textTertiary)
                 }
             }
-            .tint(Theme.accent)
             .disabled(store == nil)
             if source == .override {
                 Button("Use the platform's value") { store?.setOverride(flag, nil) }
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.accent)
+                    .ryftLink()
             }
         }
         .accessibilityElement(children: .combine)
@@ -123,8 +121,9 @@ struct FeatureFlagsDebugView: View {
         .previewEnvironment(.preview(flags: [.todayRedesign: true]))
 }
 
-#Preview("Feature flags · light") {
+#Preview("Feature flags · AX3") {
     NavigationStack { FeatureFlagsDebugView() }
-        .previewEnvironment(.preview(flags: [.todayRedesign: true]), scheme: .light)
+        .previewEnvironment(.preview(flags: [.todayRedesign: true]))
+        .dynamicTypeSize(.accessibility3)
 }
 #endif
