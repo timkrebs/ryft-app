@@ -16,7 +16,7 @@ enum ActivityStateMarkSpec {
 ///
 /// | State | Drawn |
 /// |---|---|
-/// | scored | the strain, 20 Light in ink (`StrainPill`) |
+/// | scored | the strain, 20 Light in ink (`StrainPill`), over "Strain" (as the pending row's "Strain pending": a bare number didn't say what it was) |
 /// | uploading | `arrow.up.circle` 12 and "Uploading" in `caption` at 55 % (no spinner); the platform's last strain above it while an edit uploads |
 /// | strain pending | "–" in `textTertiary` over "Strain pending" |
 /// | not uploaded | "Not uploaded", and a 44 pt-high text button "Retry" when the uploader offers one; the last strain above it |
@@ -108,10 +108,14 @@ struct ActivityStateMark: View {
             }
         }
 
-        /// The word drawn under the number: every state but scored and none.
+        /// The word drawn under the number: what the number is for a scored row ("Strain"), the state's word for the others,
+        /// none for none.
         var shownWord: String? {
             switch self {
-            case .scored, .none: return nil
+            case .scored:
+                return String(localized: "myday.state.strain", defaultValue: "Strain",
+                              comment: "My Day row: the word under a scored activity's strain (\"10.6\" over \"Strain\").")
+            case .none: return nil
             default: return word
             }
         }
