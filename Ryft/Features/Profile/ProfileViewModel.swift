@@ -253,10 +253,14 @@ final class ProfileViewModel {
         return String(localized: "Agreed on \(Fmt.date(c.grantedAt)) · policy \(c.policyVersion)")
     }
 
-    var withdrawingConsent: Bool { onboarding?.isWorking ?? false }
+    /// From the confirmation until the platform answered, a wait for a step's request included.
+    var withdrawingConsent: Bool { onboarding?.isWithdrawing ?? false }
     var consentError: String? { onboarding?.errorMessage }
+    /// Status and request ID of `consentError`, behind its Details.
+    var consentErrorDetails: String? { onboarding?.errorDetails }
 
-    /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted.
+    /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted. Never dropped: it waits for a step's request
+    /// still out, and a failure shows under Privacy (`consentError`).
     func withdrawConsent() async { await onboarding?.withdrawConsent() }
 
     /// The consent screen, again.

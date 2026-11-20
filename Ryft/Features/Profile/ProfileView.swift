@@ -423,7 +423,7 @@ struct ProfileView: View {
         case .privacy:
             FooterStack {
                 if let error = model.consentError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
                 }
                 if let detail = model.consentDetail {
                     GroupFooter(consentFooter(detail))
