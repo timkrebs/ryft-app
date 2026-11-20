@@ -148,6 +148,26 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(app.buttons["Skip rest"], "the bar's Skip")
     }
 
+    /// PR 6 ui-validator S8 (lead decision): at AX3 List's rest bar is the ring, the time and Skip, and a tap on it opens the
+    /// rest sheet, where −15 s and +15 s are.
+    @MainActor
+    func testAtAX3ListsRestBarOpensTheRestSheet() throws {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        startTodaysPlan(in: app)
+        let check = element(app, "set.0.1")
+        requireExists(check, "List's first set row")
+        check.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+        let bar = element(app, "session.restBar")
+        requireExists(bar, "List's rest bar after a check")
+        requireExists(app.buttons["Skip rest"], "the bar's Skip")
+        XCTAssertFalse(app.buttons["Fifteen seconds less"].exists, "no −15 s in the bar at AX3")
+        XCTAssertFalse(app.buttons["Fifteen seconds more"].exists, "no +15 s in the bar at AX3")
+        // On the time, away from Skip.
+        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        requireExists(element(app, "restSheet.less"), "the rest sheet's −15 s")
+        requireExists(element(app, "restSheet.more"), "the rest sheet's +15 s")
+    }
+
     @MainActor
     func testWithTheFlagOnTheSessionIsPagedUnderTheStrip() throws {
         let app = openFocused()

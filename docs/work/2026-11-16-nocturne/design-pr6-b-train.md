@@ -242,7 +242,7 @@ ink 20 % edge, min 144: a 24 pt ring (3 pt, track ink 16 %, **progress Volt**, r
 outline, `ryftNumber` 17 `textPrimary`; disabled `textTertiary` outline at 10 %); the primary `PillButton` ("Start rest 3:00" with `play.fill`, or while running "Skip rest" with `forward.end`); the "Next: Bench press · set 2 of 4 · 5 × 80 kg"
 line `caption` `textSecondary`, centred; when idle and changed, "Set as rest for this exercise" as an underlined text button (44 high, `textPrimary`). The rest-length chooser (chip sheet) is rows 56 high with a trailing `checkmark` in `textPrimary` on the current one.
 
-**List's `RestBar`** (pinned under the header, `session.restBar`): running = `surface`, radius 22 (was 16), 1 pt ink 20 % edge (was teal 35 %), a 36 pt ring (4 pt; Volt progress, track ink 16 %) and the time `ryftNumber` 28, the Next line `caption`, and three compact secondary pills "−15 s", "+15 s", "Skip" (stack at AX3). The AX pill form (scrolled away) is the capsule with ring, time and "Skip". Over: "Rest over" with a "Dismiss" compact secondary.
+**List's `RestBar`** (pinned under the header, `session.restBar`): running = `surface`, radius 22 (was 16), 1 pt ink 20 % edge (was teal 35 %), a 36 pt ring (4 pt; Volt progress, track ink 16 %) and the time `ryftNumber` 28, the Next line `caption`, and three compact secondary pills "−15 s", "+15 s", "Skip" (one per line where the line can't hold them). From AX1 the bar is always the pill form, the capsule with ring, time and "Skip"; a tap on it opens the rest sheet, which has −15 s and +15 s (lead decision after the PR 6 ui-validator's S8: at AX3 the stacked buttons took 42 % of the screen). Over: "Rest over" with a "Dismiss" compact secondary.
 
 ### 4.6 Keypad and plate calculator — `b-06`
 

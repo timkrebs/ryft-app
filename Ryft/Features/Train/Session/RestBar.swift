@@ -2,21 +2,23 @@ import SwiftUI
 
 /// The rest timer, pinned under the session header outside the list (ui.md §6; PR 6 B §4.5, `b-02`): ring, time, the next set,
 /// −15 s / +15 s / Skip. One home for the timer, so a jump to the next exercise never scrolls it away.
-/// At AX sizes it can shrink to a one-line pill (`pill`); a tap on the pill asks for the full bar (`onExpand`).
+/// At the accessibility sizes it is a one-line pill: the ring, the time and Skip (lead decision, PR 6 ui-validator S8: the
+/// stacked buttons took 42 % of the screen at AX3). Its −15 s and +15 s live in the rest sheet, which a tap on the pill opens
+/// (`onOpen`).
 ///
 /// Nocturne: a `surface` card, radius 22, with a 1 pt edge of ink at 20 % (the running rest pill's). The ring is 36 pt, 4 pt of
 /// Volt progress on an ink track at 16 % (the running rest is one of Volt's marks, D6B-1); the time is 28 pt Light ink; the
-/// three buttons are compact outline pills under it, −15 s and +15 s leading and Skip trailing, one per line at AX3 or wherever
-/// the line can't hold them. "Rest over" is the same card with the bell, the words and a compact "Dismiss" (under the words at AX
-/// sizes). Nothing is filled: the active set's ✓ is the screen's one filled mark.
+/// three buttons are compact outline pills under it, −15 s and +15 s leading and Skip trailing, one per line wherever the line
+/// can't hold them (XXL at 320 pt). "Rest over" is the same card with the bell, the words and a compact "Dismiss" (under the
+/// words at AX sizes). Nothing is filled: the active set's ✓ is the screen's one filled mark.
 ///
 /// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
-/// for ±15 s and Skip, and on the pill one more to show the full bar); −15, +15 and Skip are buttons of their own,
+/// for ±15 s and Skip, and on the pill one more to open the rest sheet); −15, +15 and Skip are buttons of their own,
 /// which Voice Control can name.
 struct RestBar: View {
     var controller: SessionController
-    var pill = false
-    var onExpand: () -> Void = {}
+    /// The pill's tap (accessibility sizes): the rest sheet, with −15 s and +15 s.
+    var onOpen: () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,7 +39,7 @@ struct RestBar: View {
             EmptyView()
         case .running:
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
-                if pill { pillBar(at: context.date) } else { running(at: context.date) }
+                if isAX { pillBar(at: context.date) } else { running(at: context.date) }
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("session.restBar")
@@ -59,7 +61,7 @@ struct RestBar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     time(at: date)
                     nextText
-                        .lineLimit(isAX ? 3 : 2)
+                        .lineLimit(2)
                         // Its full height: inside the bar's HStack it would otherwise get one line.
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -73,12 +75,12 @@ struct RestBar: View {
         .modifier(RestBarCard(shape: RoundedRectangle(cornerRadius: Self.radius, style: .continuous)))
     }
 
-    /// AX sizes while the list is in use: ring, time, Skip, in a capsule. A tap elsewhere on it shows the full bar.
+    /// The accessibility sizes: ring, time, Skip, in a capsule. A tap elsewhere on it opens the rest sheet.
     private func pillBar(at date: Date) -> some View {
         HStack(spacing: 12) {
             ring(at: date)
             time(at: date)
-                .modifier(RestTimeElement(controller: controller, date: date, onExpand: onExpand))
+                .modifier(RestTimeElement(controller: controller, date: date, onOpen: onOpen))
             Spacer(minLength: 0)
             skipButton
         }
@@ -88,7 +90,7 @@ struct RestBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(RestBarCard(shape: Capsule()))
         .contentShape(Capsule())
-        .onTapGesture(perform: onExpand)
+        .onTapGesture(perform: onOpen)
     }
 
     /// Volt on an ink track. Under Reduce Motion it still draws, and jumps from tick to tick (it never eases).
@@ -129,23 +131,17 @@ struct RestBar: View {
                comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
     }
 
-    /// AX3 and up: one button per line, leading. Otherwise −15 s and +15 s leading and Skip at the end of the line, while the
-    /// three fit on it; where they don't (AX1 and AX2, or XXL at 320 pt) they go one per line as at AX3.
-    private var stacksButtons: Bool { typeSize >= .accessibility3 }
-
-    @ViewBuilder private var buttons: some View {
-        if stacksButtons {
-            stackedButtons
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    adjustButton(by: -RestTimer.step)
-                    adjustButton(by: RestTimer.step)
-                    Spacer(minLength: 0)
-                    skipButton
-                }
-                stackedButtons
+    /// −15 s and +15 s leading and Skip at the end of the line, while the three fit on it; where they don't (XXL at 320 pt) one
+    /// per line, leading. (The accessibility sizes draw the pill.)
+    private var buttons: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                adjustButton(by: -RestTimer.step)
+                adjustButton(by: RestTimer.step)
+                Spacer(minLength: 0)
+                skipButton
             }
+            stackedButtons
         }
     }
 
@@ -252,20 +248,20 @@ private struct RestBarCard<S: InsettableShape>: ViewModifier {
 
 /// The time and the next set as one VoiceOver element, every modifier on this one level: label "Rest timer", value
 /// "1 minute, 35 seconds left. Next: …" (in 5 s steps, so it doesn't chatter), adjustable by ±15 s, actions for
-/// ±15 s and Skip; on the pill a named action shows the full bar. No default action: SwiftUI would add the button
+/// ±15 s and Skip; on the pill a named action opens the rest sheet. No default action: SwiftUI would add the button
 /// trait, and the element should read as adjustable only.
 private struct RestTimeElement: ViewModifier {
     var controller: SessionController
     var date: Date
-    var onExpand: (() -> Void)?
+    var onOpen: (() -> Void)?
 
     @ViewBuilder func body(content: Content) -> some View {
-        if let onExpand {
+        if let onOpen {
             element(content)
                 .accessibilityAction(named: Text(
                     "Show rest timer",
                     comment: "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.")) {
-                    onExpand()
+                    onOpen()
                 }
         } else {
             element(content)
@@ -308,17 +304,13 @@ private struct RestTimeElement: ViewModifier {
 
 // MARK: - previews (dark only)
 
-/// `b-02`'s bar: 1:54 left of Bench press's rest, and the AX pill it shrinks to.
-#Preview("Rest bar · running, pill", traits: .sizeThatFitsLayout) {
-    let c = SessionSheetsPreview.listDraft()
-    return VStack(spacing: 12) {
-        RestBar(controller: c)
-        RestBar(controller: c, pill: true)
-    }
-    .padding(LiveSessionSpec.sidePadding)
-    .frame(width: 390)
-    .background(Theme.background)
-    .previewEnvironment()
+/// `b-02`'s bar: 1:54 left of Bench press's rest.
+#Preview("Rest bar · running", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listDraft())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
 }
 
 #Preview("Rest bar · XL", traits: .sizeThatFitsLayout) {
@@ -330,17 +322,17 @@ private struct RestTimeElement: ViewModifier {
         .dynamicTypeSize(.xLarge)
 }
 
-#Preview("Rest bar · AX3", traits: .sizeThatFitsLayout) {
+/// The accessibility sizes: the pill (ring, time, Skip), at AX3 and AX5.
+#Preview("Rest bar · AX3, AX5", traits: .sizeThatFitsLayout) {
     let c = SessionSheetsPreview.listDraft()
     return VStack(spacing: 12) {
-        RestBar(controller: c)
-        RestBar(controller: c, pill: true)
+        RestBar(controller: c).dynamicTypeSize(.accessibility3)
+        RestBar(controller: c).dynamicTypeSize(.accessibility5)
     }
     .padding(LiveSessionSpec.sidePadding)
     .frame(width: 390)
     .background(Theme.background)
     .previewEnvironment()
-    .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("Rest bar · rest over", traits: .sizeThatFitsLayout) {
@@ -360,11 +352,11 @@ private struct RestTimeElement: ViewModifier {
         .dynamicTypeSize(.accessibility3)
 }
 
-#Preview("Rest bar · AX2 at 320", traits: .sizeThatFitsLayout) {
+#Preview("Rest bar · XXL at 320", traits: .sizeThatFitsLayout) {
     RestBar(controller: SessionSheetsPreview.listDraft())
         .padding(LiveSessionSpec.sidePadding)
         .frame(width: 320)
         .background(Theme.background)
         .previewEnvironment()
-        .dynamicTypeSize(.accessibility2)
+        .dynamicTypeSize(.xxLarge)
 }

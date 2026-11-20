@@ -69,10 +69,8 @@ struct SessionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// AX sizes: the rest bar shrinks to a pill once the list is scrolled during a rest…
-    @State private var restBarScrolledAway = false
-    /// …and a tap on the pill shows it whole for a moment.
-    @State private var restBarPeek = false
+    /// The rest sheet, for the exercise whose set comes next: the rest bar's pill opens it (accessibility sizes).
+    @State private var restSheet: RestSheetRequest?
     /// VoiceOver: after a jump, focus goes to the target set row (rows bind to it via `sessionVoiceOverFocus`).
     @AccessibilityFocusState private var voiceOverFocus: UUID?
 
@@ -100,6 +98,11 @@ struct SessionView: View {
         let name: String
     }
 
+    /// The exercise the rest sheet is for.
+    private struct RestSheetRequest: Identifiable {
+        let id: UUID
+    }
+
     var body: some View {
         // The wipe or the demo's discard took this workout's rows (`SessionController.release`), and the cover may
         // still be on its way out: none of them is read again.
@@ -122,7 +125,7 @@ struct SessionView: View {
             } else {
                 // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
                 if restBarState != 0 {
-                    RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
+                    RestBar(controller: controller, onOpen: openRestSheet)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                         .transition(.opacity)
@@ -143,13 +146,6 @@ struct SessionView: View {
         }
         .animation(Theme.Motion.respecting(reduceMotion), value: controller.focus == nil)
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard), value: restBarState)
-        .onChange(of: controller.rest.isRunning) { _, _ in restBarScrolledAway = false }
-        .task(id: restBarPeek) {
-            // A tap on the pill shows the whole bar for 4 s.
-            guard restBarPeek else { return }
-            try? await Task.sleep(for: .seconds(4))
-            restBarPeek = false
-        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .background(Theme.background.ignoresSafeArea())
         .modifier(KeepsScreenAwake())
@@ -171,6 +167,11 @@ struct SessionView: View {
         }
         .sheet(isPresented: $showsReorder) {
             ReorderSheet(controller: controller).presentedRoot()
+        }
+        .sheet(item: $restSheet) { request in
+            if let ex = controller.exercises.first(where: { $0.id == request.id }) {
+                RestSheet(controller: controller, exercise: ex).presentedRoot()
+            }
         }
         .sheet(item: $plates) { request in
             PlateCalculatorSheet(target: request.kg,
@@ -430,13 +431,16 @@ struct SessionView: View {
         }
     }
 
-    private var restBarIsPill: Bool {
-        typeSize.isAccessibilitySize && (restBarScrolledAway || controller.focus != nil) && !restBarPeek
+    /// The rest bar's pill (accessibility sizes) opens the rest sheet, with −15 s and +15 s, for the exercise whose set comes
+    /// next (the one the rest is for). The keypad closes first, as for Focused's pill.
+    private func openRestSheet() {
+        guard let ex = controller.nextUp?.exercise ?? controller.pageExercise ?? controller.exercises.first else { return }
+        controller.focus = nil
+        restSheet = RestSheetRequest(id: ex.id)
     }
 
     private func userScrolled() {
         controller.userScrolled()
-        if typeSize.isAccessibilitySize, controller.rest.isRunning, !restBarScrolledAway { restBarScrolledAway = true }
     }
 
     /// The controller decided: the next set goes to the top under the rest bar, or the list to its end.
