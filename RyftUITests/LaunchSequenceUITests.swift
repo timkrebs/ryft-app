@@ -3,6 +3,15 @@ import XCTest
 /// The launch sequence in the app (ADR 0017, plan.md criterion 4, launch-design.md §6.3 and §10): a UI test launches with
 /// arguments, and any argument skips the sequence, so Today is there at once and nothing swallows a first tap.
 final class LaunchSequenceUITests: XCTestCase {
+    /// The sequence and its hand-off: the overlay is gone 5.6 s after it starts (`LaunchSequence.Timing.full`: the 5.2 s
+    /// timeline, then the 0.4 s hand-off). A UI test can't import the app, so the numbers are repeated here.
+    private static let sequence: TimeInterval = 5.2 + 0.4
+    /// What a loaded runner adds to that before a check sees the overlay: `launch()`'s idle wait (2 s seen) and a snapshot
+    /// per check (1 s seen, five in a row).
+    private static let margin: TimeInterval = 5
+    /// Launches tried before the test gives up on seeing the sequence play.
+    private static let launches = 3
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -40,13 +49,26 @@ final class LaunchSequenceUITests: XCTestCase {
     /// reads the real tree.
     @MainActor
     func testATapSkipsIt() throws {
-        let app = launchDemo(extra: ["-RyftLaunchSequence", "play"])
-        let overlay = overlay(in: app)
-        XCTAssertTrue(overlay.waitForExistence(timeout: 5), "the launch sequence plays with -RyftLaunchSequence play")
+        let (app, overlay) = try XCTUnwrap(launchSeeingTheSequence(),
+                                           "the launch sequence plays with -RyftLaunchSequence play (\(Self.launches) launches)")
         XCTAssertEqual(overlay.label, "Loading RYFT")
         overlay.tap()
         XCTAssertTrue(overlay.waitForNonExistence(timeout: 4), "a tap ends the launch long before its natural end")
         XCTAssertTrue(gauge(in: app).waitForExistence(timeout: 4), "Today is there")
         XCTAssertTrue(gauge(in: app).isHittable)
+    }
+
+    /// Launches with `-RyftLaunchSequence play` until a check sees the overlay: it waits the sequence plus the runner's margin,
+    /// so a launch that plays is never missed because the check came late. On a loaded runner `launch()` can return after the
+    /// whole sequence (`NocturneTodaySleepUITests.testTheLaunchEndsWithTheLockUpInTheHeader`'s note): its overlay is gone
+    /// before the first check, so that launch is tried again. Nil when no launch showed it.
+    @MainActor
+    private func launchSeeingTheSequence() -> (XCUIApplication, XCUIElement)? {
+        for _ in 1...Self.launches {
+            let app = launchDemo(extra: ["-RyftLaunchSequence", "play"])
+            let overlay = overlay(in: app)
+            if overlay.waitForExistence(timeout: Self.sequence + Self.margin) { return (app, overlay) }
+        }
+        return nil
     }
 }
