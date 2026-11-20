@@ -196,7 +196,7 @@ struct TrainPlansSummaryTests {
     /// outlines that never fill, and no "Plans you make or copy appear here." before the plans are known.
     @Test func plansWithoutACatalogNeverLoadForever() async {
         let env = AppEnvironment.test(online: false)
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: true)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: true)
         library.reads = env.reads
         let model = PlansViewModel(library: library)
         #expect(model.isLoading && !model.isOffline, "before the first load: the outlines")
@@ -207,7 +207,7 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func aPlanThatCannotLoadSaysSo() async {
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { OfflineTrainSource() }, restore: true)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { OfflineTrainSource() }, restore: true)
         let model = PlanDetailViewModel(planID: MockTrain.fullBody.id, library: library)
         #expect(model.failure == nil, "loading: the outlines")
         await model.load()

@@ -26,7 +26,7 @@ struct TrainHistoryShotsTests {
         case "history":
             return AnyView(NavigationStack { TrainHistoryView().trainDestinations() }.environment(TrainHistoryFixtures.library()))
         case "history-empty":
-            let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) },
+            let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) },
                                        restore: false)
             return AnyView(NavigationStack { TrainHistoryView().trainDestinations() }.environment(library))
         case "history-failed":
@@ -120,7 +120,7 @@ enum TrainHistoryFixtures {
         if cached { store.cache(exercises: MockTrain.exercises) }
         let source = TrainHistoryFixtureSource(session: session, history: history, hangs: hangs, list: list)
         source.fails = fails
-        return (TrainLibrary(store: store, remote: { source }, restore: cached), source, store)
+        return (TrainLibrary.testing(store: store, remote: { source }, restore: cached), source, store)
     }
 }
 

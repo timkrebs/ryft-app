@@ -144,7 +144,7 @@ enum TrainShotFixtures {
 
     /// Plans with nothing cached, offline.
     static func offlinePlans() -> some View {
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: true)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: true)
         library.reads = offlineEnvironment.reads
         return NavigationStack { PlansView().trainDestinations() }
             .environment(library)
@@ -153,7 +153,7 @@ enum TrainShotFixtures {
     /// A plan page whose plan is neither cached nor loadable.
     static func unloadablePlan(_ id: UUID) -> some View {
         NavigationStack { PlanDetailView(planID: id) }
-            .environment(TrainLibrary(store: TrainStore(inMemory: true), remote: { OfflineTrainSource() }, restore: true))
+            .environment(TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { OfflineTrainSource() }, restore: true))
     }
 
     /// Plans with `train.import` on: New plan is a menu (Start from scratch, Import from file).
@@ -169,7 +169,7 @@ enum TrainShotFixtures {
         store.cache(plans: MockTrain.plans)
         store.saveDocument(catalog, key: "train.plans")
         if catalog.active?.status == .active { store.saveDocument(MockTrain.planToday, key: "train.today") }
-        return TrainLibrary(store: store, remote: { MockTrainSource.shared }, restore: true)
+        return TrainLibrary.testing(store: store, remote: { MockTrainSource.shared }, restore: true)
     }
 
     static func plans(_ catalog: PlansOverview) -> some View {

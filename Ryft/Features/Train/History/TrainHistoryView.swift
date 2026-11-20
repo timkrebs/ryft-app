@@ -280,7 +280,8 @@ extension View {
 enum TrainHistoryPreview {
     /// A new account's: the platform has no session, nothing is cached.
     static var emptyLibrary: TrainLibrary {
-        TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
+        return TrainLibrary(store: store, remote: { MockTrainSource(start: .empty) }, outbox: { outbox }, restore: false)
     }
 }
 

@@ -559,7 +559,8 @@ private enum PlansPreview {
         store.cache(plans: MockTrain.plans)
         store.saveDocument(catalog, key: "train.plans")
         if catalog.active?.status == .active { store.saveDocument(MockTrain.planToday, key: "train.today") }
-        return TrainLibrary(store: store, remote: { MockTrainSource.shared }, restore: true)
+        let outbox = TrainSyncService.preview(store: store)
+        return TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { outbox }, restore: true)
     }
 
     /// Paused as the platform reports it: no enrolment in `GET /v1/plans`, the plan remembered on this iPhone.

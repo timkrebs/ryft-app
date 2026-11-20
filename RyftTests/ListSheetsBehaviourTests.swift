@@ -4,9 +4,9 @@ import UIKit
 @testable import Ryft
 
 /// What the live workout's rest bar and sheets do, in a real window (`HostedWindow`): the rest bar's buttons stay inside the
-/// card at every size, "Rest over" keeps its words whole at AX sizes, a custom exercise reaches the pick and a slow one after
-/// Cancel reaches nothing, a drag in Reorder moves the workout's exercise, and VoiceOver meets Replace's pinned plan toggle
-/// before the list. Synthetic values only (the plan's Upper A).
+/// card at every size, "Rest over" keeps its words whole at AX sizes, a custom exercise reaches the pick without waiting for
+/// the platform (the outbox sends it), a drag in Reorder moves the workout's exercise, and VoiceOver meets Replace's pinned
+/// plan toggle before the list. Synthetic values only (the plan's Upper A).
 @MainActor
 @Suite("List and session sheets: behaviour", .serialized)
 struct ListSheetsBehaviourTests {
@@ -93,7 +93,7 @@ struct ListSheetsBehaviourTests {
 
     @Test("Add exercise → Custom exercise → Add: the saved exercise is the pick")
     func aCustomExerciseIsPicked() async throws {
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource() }, restore: false)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource() }, restore: false)
         var picked: Exercise?
         let sheet = AddExerciseSheet(initialQuery: "Landmine press") { picked = $0 }.environment(library)
         try await HostedWindow.run(width: 390, height: 844, sheet) { w in
@@ -135,38 +135,24 @@ struct ListSheetsBehaviourTests {
         }
     }
 
-    @Test("The custom form: a save still under way when Cancel is tapped hands nothing back")
-    func aSlowCustomSaveAfterCancel() async throws {
+    /// #126: Add caches the exercise and queues its `POST` in Train's outbox; it no longer waits for the platform, so there is
+    /// no slow save left for Cancel to race.
+    @Test("The custom form: Add doesn't wait for the platform: the exercise is the pick at once, and the outbox sends it")
+    func aCustomSaveDoesNotWaitForThePlatform() async throws {
         let source = GatedCreateSource()
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { source }, restore: false)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { source }, restore: false)
         var saved: Exercise?
         let form = CustomExerciseForm(name: "Landmine press") { saved = $0 }.environment(library)
         try await HostedWindow.run(width: 390, height: 844, form) { w in
             try await w.settle()
             #expect(try #require(w.node("Add", exactly: true)).activate())
-            try await w.wait("the save is under way") { source.creates == 1 }
-            #expect(try #require(w.node("Cancel", exactly: true)).activate())
-            source.open()
-            try await w.wait("the save comes back") { source.answered == 1 }
-            try await w.settle()
-            #expect(saved == nil, "nothing reaches the workout after Cancel")
-            #expect(library.exercises.contains { $0.name == "Landmine press" }, "the library keeps it")
-        }
-    }
-
-    @Test("The custom form: a slow save without Cancel still hands the exercise back")
-    func aSlowCustomSave() async throws {
-        let source = GatedCreateSource()
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { source }, restore: false)
-        var saved: Exercise?
-        let form = CustomExerciseForm(name: "Landmine press") { saved = $0 }.environment(library)
-        try await HostedWindow.run(width: 390, height: 844, form) { w in
-            try await w.settle()
-            #expect(try #require(w.node("Add", exactly: true)).activate())
-            try await w.wait("the save is under way") { source.creates == 1 }
-            source.open()
-            try await w.wait("the exercise comes back") { saved != nil }
+            try await w.wait("the exercise is the pick") { saved != nil }
             #expect(saved?.name == "Landmine press")
+            #expect(source.answered == 0, "picked before the platform answered")
+            #expect(library.exercises.contains { $0.id == saved?.id }, "cached in the library")
+            try await w.wait("the outbox sends it") { source.creates == 1 }
+            source.open()
+            try await w.wait("the platform answers") { source.answered == 1 }
         }
     }
 

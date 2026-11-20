@@ -78,7 +78,7 @@ struct TrainHistoryTests {
     }
 
     @Test func historyLoadsWithOutlinesThenSaysWhereSessionsComeFrom() async {
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
         let vm = TrainHistoryViewModel(library: library)
         #expect(vm.state == .loading && vm.subtitle == nil, "outline rows, no subtitle while loading")
         await vm.load()
@@ -286,7 +286,7 @@ struct TrainHistoryTests {
         #expect(online.fresh && !online.isOffline)
         // Relaunched, offline: the store's copy, said to be one.
         rig.source.fails = true
-        let relaunched = TrainLibrary(store: rig.store, remote: { rig.source }, restore: true)
+        let relaunched = TrainLibrary.testing(store: rig.store, remote: { rig.source }, restore: true)
         let offline = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: relaunched, clock: TestClock(now: .now))
         await offline.load()
         #expect(offline.isOffline && !offline.failed && offline.history?.e1rm == online.history?.e1rm)
@@ -337,7 +337,7 @@ struct TrainHistoryTests {
     }
 
     @Test func historyEmptyIsAnOutlinedCard() async throws {
-        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
+        let library = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource(start: .empty) }, restore: false)
         let view = NavigationStack { TrainHistoryView() }.environment(library)
         try await HostedWindow.run(width: Self.width, height: 844, view) { w in
             try await w.wait("empty") { ids(w).contains("history.empty") }
@@ -497,7 +497,7 @@ struct TrainHistoryTests {
         let rig = TrainHistoryFixtures.rig()
         _ = await rig.library.historyRead(for: MockTrain.bench.id)
         rig.source.fails = true
-        let relaunched = TrainLibrary(store: rig.store, remote: { rig.source }, restore: true)
+        let relaunched = TrainLibrary.testing(store: rig.store, remote: { rig.source }, restore: true)
         let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id) }.environment(relaunched)
         try await HostedWindow.run(width: Self.width, height: 2_000, bottomInset: 0, view) { w in
             try await w.wait("the offline line") { ids(w).contains("exerciseDetail.offline") }
