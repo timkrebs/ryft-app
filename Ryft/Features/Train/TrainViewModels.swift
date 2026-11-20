@@ -5,14 +5,28 @@ import Observation
 // `TrainLibrary` (offline library + platform) and `TrainSyncService` (outbox) are
 // the services these read from.
 
-/// Finished sessions grouped by calendar week, newest first.
+/// Finished sessions of the last 90 days grouped by calendar week, newest first.
 @MainActor
 @Observable
 final class TrainHistoryViewModel {
+    /// History shows the last 90 days: the window the platform's list is read for.
+    nonisolated static let windowDays = 90
+
     private let library: TrainLibrary
+    private let now: () -> Date
 
     private(set) var sessions: [SessionSummary] = []
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the list on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+
+    /// What the page shows. `empty` only after the platform answered with no session (now, or in the copy on this phone);
+    /// a failed read with nothing cached is `failed`, never "No workouts logged yet".
+    enum State: Equatable {
+        case loading, failed, empty, list
+    }
 
     struct Week: Identifiable, Equatable {
         let start: Date
@@ -23,12 +37,46 @@ final class TrainHistoryViewModel {
             let loads = sessions.compactMap(\.muscularTrimp)
             return loads.isEmpty ? nil : loads.reduce(0, +)
         }
-        var title: String { String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated)))") }
-        var summary: String { "\(sessions.count) · \(Fmt.volume(volume)) · " + String(localized: "load \(Fmt.load(load))") }
+
+        /// "Week of Nov 8".
+        func title(locale: Locale = .autoupdatingCurrent) -> String {
+            String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated).locale(locale)))")
+        }
+
+        /// "2 sessions · 12.2 t · load 126" (PR 6 B §7.1): the week's load summed, without decimals.
+        var summary: String {
+            StrainRows.join([Self.sessionCount(sessions.count), Fmt.volume(volume),
+                             String(localized: "load \(Self.loadText(load))")])
+        }
+
+        /// "2 sessions, 12,200 kilograms, muscular load 126" (VoiceOver).
+        func spokenSummary(locale: Locale = .autoupdatingCurrent) -> String {
+            [Self.sessionCount(sessions.count), HistorySpeech.kilograms(volume, locale: locale),
+             String(localized: "Muscular load \(Self.loadText(load))")].joined(separator: ", ")
+        }
+
+        static func sessionCount(_ n: Int) -> String {
+            String(localized: "\(n) sessions", comment: "History's week header: how many sessions that week (\"2 sessions\").")
+        }
+
+        /// The week's load: "126"; "–" without one.
+        static func loadText(_ load: Double?) -> String {
+            load.map { $0.formatted(.number.precision(.fractionLength(0))) } ?? Fmt.placeholder
+        }
     }
 
-    init(library: TrainLibrary) {
+    init(library: TrainLibrary, now: @escaping () -> Date = { .now }) {
         self.library = library
+        self.now = now
+    }
+
+    /// A list already read (previews, tests): `fresh` false is the copy on this phone after a failed read.
+    convenience init(library: TrainLibrary, sessions: [SessionSummary], fresh: Bool, fetchedAt: Date? = nil) {
+        self.init(library: library)
+        self.sessions = sessions
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
+        loaded = true
     }
 
     var weeks: [Week] {
@@ -38,16 +86,45 @@ final class TrainHistoryViewModel {
             .sorted { $0.start > $1.start }
     }
 
-    var isEmpty: Bool { sessions.isEmpty }
-
-    /// Cached at once, then the platform's.
-    func load() async {
-        sessions = library.cachedSessions()
-        sessions = await library.sessions()
-        loaded = true
+    var state: State {
+        if !sessions.isEmpty { return .list }
+        if !loaded { return .loading }
+        return fresh || fetchedAt != nil ? .empty : .failed
     }
 
-    func refresh() async { sessions = await library.sessions() }
+    /// The first visit with nothing cached: outline rows, not a spinner.
+    var isLoading: Bool { state == .loading }
+    /// The platform answered: no session in 90 days.
+    var isEmpty: Bool { state == .empty }
+    /// The read failed and nothing is cached: the message with Try again.
+    var failed: Bool { state == .failed }
+    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && (!sessions.isEmpty || fetchedAt != nil) }
+
+    /// The header's subtitle, "25 workouts · last 90 days"; nil while there are none.
+    var subtitle: String? {
+        guard !sessions.isEmpty else { return nil }
+        let window = String(localized: "last 90 days",
+                            comment: "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\").")
+        return StrainRows.join([String(localized: "\(sessions.count) workouts"), window])
+    }
+
+    /// The 90 days cached at once (nothing the read would drop), then the platform's.
+    func load() async {
+        if sessions.isEmpty { sessions = library.cachedSessions(days: Self.windowDays, now: now()) }
+        await read()
+    }
+
+    /// Pull to refresh, and the failure's Try again.
+    func refresh() async { await read() }
+
+    private func read() async {
+        let read = await library.sessionsRead(days: Self.windowDays, now: now())
+        sessions = read.value
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
+        loaded = true
+    }
 }
 
 /// One exercise: e1RM over the last 90 days, records, recent sets.
@@ -61,6 +138,16 @@ final class ExerciseDetailViewModel {
 
     private(set) var history: ExerciseHistory?
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the history on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+
+    /// What leads the page (PR 6 B §7.3, review S6): the estimate (hero and chart); for a bodyweight exercise without
+    /// added weight the unlit hero and why; for a timed or distance exercise, which has no 1RM, the recent sets.
+    enum Lead: Equatable {
+        case estimate, noAddedWeight, sets
+    }
 
     init(exerciseID: UUID, name: String? = nil, library: TrainLibrary, clock: AppClock) {
         self.exerciseID = exerciseID
@@ -69,44 +156,96 @@ final class ExerciseDetailViewModel {
         self.clock = clock
     }
 
+    /// A history already read (previews, tests): the page draws it as loaded; `fresh` false is the copy on this phone after
+    /// a failed read.
+    convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock, fresh: Bool = true,
+                     fetchedAt: Date? = nil) {
+        self.init(exerciseID: exerciseID, library: library, clock: clock)
+        self.history = history
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
+        loaded = true
+    }
+
     var exercise: Exercise? { library.exercise(id: exerciseID) }
     var title: String { exercise?.name ?? fallbackName ?? "" }
 
-    /// The chart window: the last 90 days.
+    /// Every estimate, oldest first.
+    var allPoints: [E1RMPoint] { (history?.e1rm ?? []).sorted { $0.day < $1.day } }
+
+    /// The chart window: the last 90 days, today and the 89 before.
     var points: [E1RMPoint] {
         let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
-        return (history?.e1rm ?? []).filter { $0.day >= from }
+        return allPoints.filter { $0.day >= from }
     }
 
-    var current: String { points.last.map { Fmt.kg($0.value) } ?? Fmt.placeholder }
+    /// The hero's estimate: the newest in the window, or, when the last one is older, the newest of all (with its date).
+    var heroPoint: E1RMPoint? { points.last ?? allPoints.last }
+
+    /// The hero's number (PR 6 B §7.3); nil without any estimate.
+    var latest: Double? { heroPoint?.value }
+
+    /// The hero's caption when its estimate is older than the window: "As of Jul 28" ("As of Jul 28, 2025" from another
+    /// year); nil inside it.
+    func heroDate(locale: Locale = .autoupdatingCurrent) -> String? {
+        guard points.isEmpty, let point = allPoints.last else { return nil }
+        let sameYear = Calendar.current.isDate(point.date, equalTo: clock.now(), toGranularity: .year)
+        let style = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(locale)
+        // The key Sleep's planner and Insights use too ("As of %@").
+        return String(localized: "As of \(point.date.formatted(sameYear ? style : style.year()))")
+    }
+
+    /// Now, by the app's clock: the chart's window ends here.
+    var now: Date { clock.now() }
 
     /// "Barbell · Chest · Triceps".
     var subtitle: String? {
         exercise.map { ([$0.kind.title] + $0.primaryMuscles.map(\.title)).joined(separator: " · ") }
     }
 
-    /// "+6.5 kg in 90 days".
-    var change: String? {
+    var lead: Lead {
+        switch exercise?.loadType {
+        case .time?, .distance?: return .sets
+        case .bodyweight? where history != nil && allPoints.isEmpty: return .noAddedWeight
+        default: return .estimate
+        }
+    }
+
+    /// The change over the window, first estimate to the newest, in kg ("▲ 11.6 kg in 90 days"); nil with fewer than two.
+    var change: Double? {
         guard let first = points.first?.value, let last = points.last?.value, points.count > 1 else { return nil }
-        let delta = last - first
-        return String(localized: "\(delta >= 0 ? "+" : "−")\(Fmt.kg(abs(delta))) in 90 days")
+        return last - first
     }
 
     var bestE1RM: Double? { history?.prs.first { $0.kind == .e1rm }?.value }
     var records: [PersonalRecord] { history?.prs ?? [] }
 
-    /// The newest session against the one before.
-    var lastDelta: MetricDelta? {
+    /// The newest session against the one before, in kg ("▲ 2.9 kg vs last").
+    var lastChange: Double? {
         guard points.count >= 2 else { return nil }
-        return MetricDelta(current: points[points.count - 1].value, reference: points[points.count - 2].value)
+        return points[points.count - 1].value - points[points.count - 2].value
     }
 
     var hasTrend: Bool { points.count >= 2 }
+    /// The first visit with nothing cached: outline cards, not "Loading…".
+    var isLoading: Bool { !loaded && history == nil }
+    /// The read failed and nothing is cached (the platform sends empty arrays for "no history"): the message with Try
+    /// again, never "No sets logged" or an unlit hero.
+    var failed: Bool { loaded && history == nil }
+    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && history != nil }
+
     var emptyChartText: String {
-        loaded ? String(localized: "Log this exercise twice to see a trend.") : String(localized: "Loading…")
+        String(localized: "Log this exercise a few more times to see a trend.",
+               comment: "The exercise page's chart card with fewer than two estimates in 90 days (PR 6 B §7.3).")
     }
-    var emptySetsText: String {
-        loaded ? String(localized: "No sets logged for this exercise yet.") : String(localized: "Loading…")
+
+    var emptySetsText: String { String(localized: "No sets logged for this exercise yet.") }
+
+    /// Under the unlit hero of a bodyweight exercise logged without added weight.
+    var noAddedWeightText: String {
+        String(localized: "An estimated 1RM needs sets with added weight.",
+               comment: "The exercise page of a bodyweight exercise with no weighted set: why there is no estimated 1RM.")
     }
 
     /// One recent session: its day, the working sets, their best e1RM.
@@ -114,24 +253,32 @@ final class ExerciseDetailViewModel {
         let id: Int
         let date: String
         let sets: String
+        /// "5 reps at 80 kilograms, 5 reps at 80 kilograms", "45 seconds, 45 seconds" (VoiceOver).
+        let spokenSets: String
         let best: Double?
-        var bestText: String? { best.map { Fmt.kgNumber(E1RM.rounded($0)) } }
-        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RM.rounded($0)))") } }
+        /// "93.3": to the tenth, as the API's estimates and the chart are.
+        var bestText: String? { best.map { E1RMChange.number(E1RMChange.rounded($0)) } }
+        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RMChange.rounded($0)))") } }
     }
 
-    /// The last ten sessions with this exercise.
-    var recentRows: [RecentRow] {
+    /// The last ten sessions with this exercise; a set as the session detail draws it ("80 kg × 5", "0:45", "3.1 mi").
+    func recentRows(locale: Locale = .autoupdatingCurrent) -> [RecentRow] {
         (history?.sessions ?? []).prefix(10).enumerated().map { i, entry in
             let working = entry.sets.filter { !$0.isWarmup }
-            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated)),
-                             sets: working.map(SetText.short).joined(separator: "  ·  "),
+            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated).locale(locale)),
+                             sets: StrainRows.join(working.map { SessionDetailContent.text($0) }),
+                             spokenSets: working.map { SessionDetailContent.spoken($0, locale: locale) }.joined(separator: ", "),
                              best: E1RM.best(of: working))
         }
     }
 
+    /// The cached copy at once, then the platform's; a failed read keeps the copy and says so.
     func load() async {
-        history = library.cachedHistory(for: exerciseID)
-        history = await library.history(for: exerciseID) ?? history
+        if history == nil { history = library.cachedHistory(for: exerciseID) }
+        let read = await library.historyRead(for: exerciseID)
+        history = read.value ?? history
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
         loaded = true
     }
 }
@@ -147,28 +294,56 @@ final class PlansViewModel {
         self.library = library
     }
 
-    /// The plan the card is about: the active one, else the paused one.
+    /// The plan the tile is about: the active one, else the paused one.
     var currentPlanID: UUID? { library.activeEnrollment?.planId ?? library.pausedPlanID }
     var isPaused: Bool { library.isPaused }
     var currentName: String {
         guard let id = currentPlanID else { return String(localized: "Your plan") }
         return library.catalog?.summary(id: id)?.name ?? library.plan(id: id)?.name ?? String(localized: "Your plan")
     }
-    var currentWeekText: String? { library.activeEnrollment.map { String(localized: "Week \($0.currentWeek)") } }
-    /// "Resume continues where you stopped." / "Next: Upper A".
-    var currentDetail: String? {
-        if isPaused { return String(localized: "Resume continues where you stopped.") }
-        return library.today.map { String(localized: "Next: \($0.day.name)") }
+
+    /// The active plan's glow tile, or the paused plan's outline (PR 6 B §6.1). Active: the week, and the next day from
+    /// today's prescription, else (only then: it reads the cached plan) the enrolment's day in it. Paused: neither, since
+    /// `GET /v1/plans` reports no paused enrolment (API_REQUESTS Train #2).
+    var tile: PlanTileContent? {
+        guard let id = currentPlanID else { return nil }
+        if isPaused { return PlanTileContent(planID: id, paused: true, name: currentName, week: nil, nextDay: nil) }
+        let enrollment = library.activeEnrollment
+        let next = library.today?.day.name
+            ?? PlanTileContent.nextDayName(plan: library.plan(id: id), enrollment: enrollment)
+        return PlanTileContent(planID: id, paused: false, name: currentName, week: enrollment?.currentWeek, nextDay: next)
     }
 
     var builtin: [PlanSummary] { library.catalog?.builtin ?? [] }
     var mine: [PlanSummary] { library.catalog?.mine ?? [] }
+    var builtinRows: [PlanRowContent] { builtin.map { PlanRowContent($0, status: status(of: $0.id)) } }
+    var mineRows: [PlanRowContent] { mine.map { PlanRowContent($0, status: status(of: $0.id)) } }
+
+    private func status(of id: UUID) -> PlanTileContent.State? {
+        guard id == currentPlanID else { return nil }
+        return isPaused ? .paused : .active
+    }
+
+    /// Whether the first load has started: until then, as while it runs, the outline rows show.
+    private(set) var startedLoading = false
+
+    var hasCatalog: Bool { library.catalog != nil }
+    /// The first load, with nothing cached: three outline rows instead of a spinner. Only while a load runs (or is about to).
+    var isLoading: Bool { !hasCatalog && (library.isLoading || !startedLoading) }
+    /// Nothing cached and no load running, without a failure to show: offline, or the reads are held back for a retry.
+    var isOffline: Bool { !hasCatalog && !isLoading && library.error == nil }
     var error: String? { library.error }
     var errorDetails: String? { library.errorDetails }
 
     /// Only the first visit loads; pull to refresh reloads.
-    func loadIfNeeded() async { if library.catalog == nil { await library.refresh() } }
-    func refresh() async { await library.refresh() }
+    func loadIfNeeded() async {
+        startedLoading = true
+        if library.catalog == nil { await library.refresh() }
+    }
+    func refresh() async {
+        startedLoading = true
+        await library.refresh()
+    }
 
     func togglePause() async {
         working = true
@@ -187,6 +362,8 @@ final class PlanDetailViewModel {
     private(set) var plan: Plan?
     var week = 1
     private(set) var working = false
+    /// The last load came back without the plan (not cached, and the platform failed).
+    private(set) var loadFailed = false
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -196,6 +373,10 @@ final class PlanDetailViewModel {
     /// Active or paused: this plan is the one the user is on.
     var isCurrent: Bool { (library.activeEnrollment?.planId ?? library.pausedPlanID) == planID }
     var isPaused: Bool { library.isPaused }
+    /// The enrolment's week on this plan, when it is the active one ("Active · week 6").
+    var activeWeek: Int? { isCurrent && !isPaused ? library.activeEnrollment?.currentWeek : nil }
+    /// The header's title before the detail has loaded: the name from the plans overview.
+    var name: String? { plan?.name ?? library.catalog?.summary(id: planID)?.name }
     var hasEnrollment: Bool { library.activeEnrollment != nil }
     var currentPlanName: String { library.activePlanName ?? String(localized: "Your current plan") }
     var error: String? { library.error }
@@ -209,8 +390,14 @@ final class PlanDetailViewModel {
         return days.sorted { $0.dayIndex < $1.dayIndex }
     }
 
+    /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
+    var failure: String? { plan == nil && loadFailed ? library.error : nil }
+
     func load() async {
-        plan = await library.loadPlan(id: planID)
+        loadFailed = false
+        let loaded = await library.loadPlan(id: planID)
+        if loaded != nil || plan == nil { plan = loaded }
+        loadFailed = plan == nil && !Task.isCancelled
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }
 
@@ -299,6 +486,8 @@ final class PlanBuilderViewModel {
             plan.days[d].exercises[i + 1].supersetGroup = nil
             if i == 0 || !isLinked(dayID: dayID, i - 1) { plan.days[d].exercises[i].supersetGroup = nil }
         }
+        // Unlinking A from B in A→B→C leaves C alone in the group: a lonely superset isn't one.
+        renumber(dayID: dayID)
     }
 
     func remove(dayID: UUID, _ i: Int) {
@@ -414,9 +603,19 @@ struct CustomExerciseDraft: Equatable {
     var loadType: LoadType = .weight
     var unilateral = false
 
+    /// The platform's limit for an exercise's name: 80 Unicode scalars. It counts runes and refuses a longer name (422), so
+    /// the count is `unicodeScalars`, not Characters (a family emoji is one Character and 7 scalars).
+    static let maxNameLength = TrainLibrary.maxExerciseName
+
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// A name the platform takes (trimmed, 1–80 characters as it counts them) and a muscle.
     var canSave: Bool { TrainLibrary.isValidName(name) && muscle != nil }
+    /// Longer than the platform takes: Save stays off and the form says why. Derived from the same rule as `canSave`
+    /// (`TrainLibrary.isValidName`): a name with something in it, as the platform trims it, that the rule still refuses.
+    var nameIsTooLong: Bool {
+        let counted = TrainLibrary.withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines)
+        return !counted.isEmpty && !TrainLibrary.isValidName(name)
+    }
 
     /// "Landmine press" → slug `landmine-press`.
     var slug: String {

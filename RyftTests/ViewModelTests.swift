@@ -2004,19 +2004,27 @@ struct TrainViewModelTests {
         #expect(weeks.flatMap(\.sessions).count == vm.sessions.count)
     }
 
-    @Test func exerciseDetailKeepsTheLast90Days() async {
-        let clock = TestClock(now: .now)
-        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: library(), clock: clock)
-        #expect(vm.emptyChartText == String(localized: "Loading…"))
-        await vm.load()
-        #expect(vm.loaded)
-        let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
-        #expect(vm.points.allSatisfy { $0.day >= from })
-        #expect(vm.hasTrend == (vm.points.count >= 2))
-        #expect(vm.recentRows.count <= 10)
-        // Moving the clock 200 days on empties the window.
-        clock.advance(by: .seconds(200 * 86_400))
-        #expect(vm.points.isEmpty && vm.change == nil)
+    @Test func exerciseDetailKeepsTheLast90Days() async throws {
+        // Friday 13 November 2026 at noon: the window is today and the 89 days before, from Sunday 16 August.
+        let noon = try #require(DayFormat.date(from: "2026-11-13")).addingTimeInterval(12 * 3600)
+        let clock = TestClock(now: noon)
+        let history = ExerciseHistory(exerciseId: MockTrain.bench.id, prs: [], sessions: [], e1rm: [
+            E1RMPoint(day: "2026-08-15", value: 70), // 90 days back: outside
+            E1RMPoint(day: "2026-08-16", value: 80), // 89 days back: inside
+            E1RMPoint(day: "2026-11-13", value: 92.5),
+        ])
+        let vm = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, history: history, library: library(), clock: clock)
+        #expect(vm.points.map(\.day) == ["2026-08-16", "2026-11-13"])
+        #expect(vm.latest == 92.5 && vm.change == 12.5 && vm.lastChange == 12.5, "from 80, not 70")
+        #expect(vm.hasTrend)
+        // A day on, 16 August is 90 days back too: one point left, no trend.
+        clock.advance(by: .seconds(86_400))
+        #expect(vm.points.map(\.day) == ["2026-11-13"] && !vm.hasTrend && vm.change == nil && vm.latest == 92.5)
+
+        let read = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: library(), clock: clock)
+        #expect(read.isLoading, "outline cards before the first read, not \"Loading…\"")
+        await read.load()
+        #expect(read.loaded && !read.isLoading && !read.failed && read.recentRows().count <= 10)
     }
 
     @Test func planDetailFiltersByWeek() async {
@@ -2064,12 +2072,45 @@ struct TrainViewModelTests {
         #expect(!CustomExerciseDraft(name: "   ").canSave)
     }
 
+    /// The platform counts a name's Unicode scalars (runes) and refuses more than 80: a family emoji is one Character but 7
+    /// scalars, so 11 of them and "Rows" are 15 Characters and 81 scalars.
+    @Test func aCustomExercisesNameIsCappedAt80Scalars() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        #expect(family.count == 1 && family.unicodeScalars.count == 7)
+        let over = CustomExerciseDraft(name: String(repeating: family, count: 11) + "Rows")
+        #expect(over.trimmedName.count == 15 && over.trimmedName.unicodeScalars.count == 81)
+        #expect(over.nameIsTooLong)
+        #expect(!over.canSave, "81 scalars can't be saved, though only 15 Characters")
+        let atLimit = CustomExerciseDraft(name: "  " + String(repeating: family, count: 11) + "Row ")
+        #expect(atLimit.trimmedName.unicodeScalars.count == 80)
+        #expect(!atLimit.nameIsTooLong && atLimit.canSave, "80, the spaces around it not counted")
+        #expect(CustomExerciseDraft.maxNameLength == 80)
+    }
+
     /// Save is off for a name the platform refuses, so the sheet never hands on an exercise the outbox won't queue.
     @Test func customExerciseNameCap() {
         #expect(CustomExerciseDraft(name: String(repeating: "a", count: 80)).canSave)
         #expect(!CustomExerciseDraft(name: String(repeating: "a", count: 81)).canSave)
         #expect(CustomExerciseDraft(name: "  " + String(repeating: "a", count: 80) + "  ").canSave)
         #expect(!CustomExerciseDraft(name: "Row", muscle: nil).canSave)
+    }
+
+    /// The form's "too long" line and Save come from one rule (`TrainLibrary.isValidName`), so they never disagree: a name
+    /// with something in it is either saveable or too long. A NUL is dropped before the count, as the platform's copy is.
+    @Test func tooLongAndSaveAgree() {
+        let nul = "\u{0}"
+        let names = ["", "   ", nul, nul + "  " + nul, "Row", String(repeating: "a", count: 80), String(repeating: "a", count: 81),
+                     " " + String(repeating: "a", count: 80) + "\n", nul + String(repeating: "a", count: 80),
+                     String(repeating: "a", count: 80) + nul + "a"]
+        for name in names {
+            let draft = CustomExerciseDraft(name: name)
+            let blank = TrainLibrary.withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            #expect(draft.canSave == TrainLibrary.isValidName(name), "\(name.debugDescription)")
+            #expect(draft.nameIsTooLong == (!blank && !draft.canSave), "\(name.debugDescription)")
+        }
+        #expect(CustomExerciseDraft(name: nul + String(repeating: "a", count: 80)).canSave, "the NUL isn't counted")
+        #expect(CustomExerciseDraft(name: String(repeating: "a", count: 80) + nul + "a").nameIsTooLong)
+        #expect(CustomExerciseDraft.maxNameLength == TrainLibrary.maxExerciseName)
     }
 }
 

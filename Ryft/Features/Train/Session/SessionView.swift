@@ -12,18 +12,17 @@ struct SessionActions {
     var finish: () -> Void
 }
 
-/// Focused's Finish stays one word in a 48 pt capsule at every text size, "Beenden" and at 320 pt too (design.md §5.1). The
-/// header is full, so its size stops growing, and a long press shows it large. List's header keeps its own rules.
-private struct FocusedFinishLabel: ViewModifier {
+/// Finish beside the circles and the title (PR 6 B §4.1): the compact pill keeps its one line, so in a full row its type stops
+/// growing (`.xxLarge`, `.large` at 320) and a long press shows it large. List's stacked header at the accessibility sizes gives
+/// it a row of its own, where it grows.
+private struct FinishCap: ViewModifier {
     let isOn: Bool
-    let isCompact: Bool
+    let cap: DynamicTypeSize
 
     func body(content: Content) -> some View {
         if isOn {
             content
-                .lineLimit(1)
-                .fixedSize()
-                .dynamicTypeSize(...(isCompact ? DynamicTypeSize.large : .xxLarge))
+                .dynamicTypeSize(...cap)
                 .accessibilityShowsLargeContentViewer()
         } else {
             content
@@ -31,25 +30,15 @@ private struct FocusedFinishLabel: ViewModifier {
     }
 }
 
-/// Text that stops growing at Focused's 320 pt. The keypad: every point it takes is the page's, and at AX3 with a rest the row
-/// being edited wouldn't fit. The session's title: beside „Beenden“ at AX3 it was cut to "Upp…". Wider screens and List keep
-/// their sizes.
+/// Text that stops growing at 320 pt. The keypad, in Focused: every point it takes is the page's, and at AX3 with a rest the
+/// row being edited wouldn't fit. The session's title, beside the buttons: at AX3 it was cut to "Upp…". Wider screens keep their
+/// sizes.
 private struct CompactTextCap: ViewModifier {
     let isOn: Bool
     let cap: DynamicTypeSize
 
     func body(content: Content) -> some View {
         if isOn { content.dynamicTypeSize(...cap) } else { content }
-    }
-}
-
-/// List's Finish at the accessibility sizes, on the buttons' own row: one word on one line. It shrinks only where even that
-/// row is too narrow for it (AX5 at 320 pt), and never breaks inside the word.
-private struct ListFinishLabel: ViewModifier {
-    let isOn: Bool
-
-    func body(content: Content) -> some View {
-        if isOn { content.lineLimit(1).minimumScaleFactor(0.5) } else { content }
     }
 }
 
@@ -95,6 +84,11 @@ struct SessionView: View {
     @State private var historyFor: ExerciseRef?
     @State private var width: CGFloat = 0
 
+    /// Discarded: the store has deleted the session, and the delete empties the relationships of its rows and their sets in
+    /// no fixed order while the screen slides away. The page then shows its header only, not a random part of the workout
+    /// (or "An empty session" with its Add exercise).
+    private var isDiscarded: Bool { controller.phase == .discarded }
+
     private struct PlateRequest: Identifiable {
         let kg: Double
         let fromKeypad: Bool
@@ -123,24 +117,28 @@ struct SessionView: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background { controller.pause() } else if phase == .active { controller.resume() }
                 }
-            // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
-            if restBarState != 0 {
-                RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-            }
-            if controller.layout == .focused {
-                FocusedSessionView(controller: controller, actions: actions)
+            if isDiscarded {
+                Spacer(minLength: 0)
             } else {
-                listContent
-            }
-            // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing and
-            // the pager gives up its page, and with it the keypad.
-            if controller.focus != nil, controller.layout == .list || width > 0 {
-                NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
-                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .xxLarge))
-                    .transition(.move(edge: .bottom))
+                // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
+                if restBarState != 0 {
+                    RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
+                if controller.layout == .focused {
+                    FocusedSessionView(controller: controller, actions: actions)
+                } else {
+                    listContent
+                }
+                // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing
+                // and the pager gives up its page, and with it the keypad.
+                if controller.focus != nil, controller.layout == .list || width > 0 {
+                    NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
+                        .modifier(CompactTextCap(isOn: controller.layout == .focused && isCompactHeader, cap: .xxLarge))
+                        .transition(.move(edge: .bottom))
+                }
             }
         }
         .animation(Theme.Motion.quick, value: controller.focus == nil)
@@ -159,7 +157,8 @@ struct SessionView: View {
         .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: controller.restsEnded)
         .sheet(isPresented: $showsAdd) {
             AddExerciseSheet { picked in
-                let row = controller.add(picked)
+                // Nil once the workout is over (a slow custom save that came back after Finish).
+                guard let row = controller.add(picked) else { return }
                 // Focused: the new exercise's page. The list stays where it is.
                 if controller.layout == .focused {
                     withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }
@@ -179,13 +178,9 @@ struct SessionView: View {
                 .presentedRoot()
         }
         .sheet(item: $historyFor) { ref in
-            NavigationStack {
-                ExerciseDetailView(exerciseID: ref.id, name: ref.name)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Close") { historyFor = nil } }
-                    }
-            }
-            .presentedRoot()
+            // The page's own sheet header: its close circle (the page hides the navigation bar, so a toolbar Close wouldn't show).
+            ExerciseDetailView(exerciseID: ref.id, name: ref.name, onClose: { historyFor = nil })
+                .presentedRoot()
         }
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }
@@ -201,23 +196,25 @@ struct SessionView: View {
 
     // MARK: header
 
-    /// Focused at 320 pt (design.md §2.1): an hour clock doesn't fit the middle at 30 pt. The list keeps its header.
-    private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width).isCompact }
-    /// §5.1: at AX3 `…` and Finish keep 48, at 320 too.
-    private var headerButton: CGFloat { isCompactHeader && typeSize < .accessibility3 ? 44 : 48 }
+    /// 320 pt, in both layouts (design.md §2.1, PR 6 B §4.1): 12 pt sides, 6 pt gaps and the 26 pt clock on one line, since an
+    /// hour clock doesn't fit the middle at 30 pt. Finish and the title stop growing sooner.
+    private var isCompactHeader: Bool { SetTableColumns.fitting(width: width).isCompact }
+    private var headerGap: CGFloat { isCompactHeader ? LiveSessionSpec.compactHeaderGap : LiveSessionSpec.headerGap }
 
     /// List at the accessibility sizes: the buttons get a row of their own and the title and clock the full width under it.
     /// Side by side, Finish broke into "Finis/h" and at the largest sizes the title was cut. Focused keeps its one row (§5.1).
     private var stacksHeader: Bool { controller.layout == .list && typeSize.isAccessibilitySize }
 
+    /// PR 6 B §4.1: the minimise circle, the title over the clock, the More circle and Finish, 8 apart (6 at 320) from circle
+    /// edge to circle edge; each circle's edge, not its 44 pt box, on the page's 16 pt side (12 at 320). 6 above and below.
     private var header: some View {
         Group {
             if stacksHeader {
                 // VoiceOver keeps the one-row order (Minimise, the title and clock, More, Finish), not the drawn one.
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
+                VStack(spacing: headerGap) {
+                    HStack(spacing: headerGap) {
                         minimiseButton.accessibilitySortPriority(4)
-                        Spacer(minLength: 8)
+                        Spacer(minLength: headerGap)
                         moreMenu.accessibilitySortPriority(2)
                         finishButton.accessibilitySortPriority(1)
                     }
@@ -225,29 +222,24 @@ struct SessionView: View {
                 }
                 .accessibilityElement(children: .contain)
             } else {
-                HStack(spacing: isCompactHeader ? 6 : 8) {
+                HStack(spacing: headerGap) {
                     minimiseButton
                     titleAndClock
                     moreMenu
                     finishButton
                 }
+                .frame(minHeight: LiveSessionSpec.headerRow)
             }
         }
-        .padding(.horizontal, isCompactHeader ? 12 : 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isCompactHeader ? LiveSessionSpec.compactSidePadding : LiveSessionSpec.sidePadding)
+        .padding(.vertical, LiveSessionSpec.headerVerticalPadding)
     }
 
     private var minimiseButton: some View {
-        Button {
+        CircleButton(systemImage: "chevron.down", iconSize: LiveSessionSpec.headerIcon, accessibilityLabel: Text("Minimise")) {
             coordinator.close()
-        } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: headerButton, height: headerButton)
-                .background(Theme.surface, in: Circle())
         }
-        .accessibilityLabel(Text("Minimise"))
+        .headerEdgeButton()
         .accessibilityHint(Text("The workout keeps running"))
     }
 
@@ -257,14 +249,15 @@ struct SessionView: View {
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .modifier(SessionTitleLines(wraps: stacksHeader))
-                .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
+                // Beside the buttons only: List's stacked title has the full width.
+                .modifier(CompactTextCap(isOn: isCompactHeader && !stacksHeader, cap: LiveSessionSpec.compactTitleCap))
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(Fmt.clock(controller.elapsed(at: context.date)))
-                    .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
+                    .font(.ryftNumber(size: isCompactHeader ? LiveSessionSpec.compactClock : LiveSessionSpec.clock))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(isCompactHeader ? 1 : nil)
-                    .minimumScaleFactor(isCompactHeader ? 0.8 : 1)
+                    .minimumScaleFactor(isCompactHeader ? LiveSessionSpec.compactClockScale : 1)
             }
         }
         .frame(maxWidth: .infinity)
@@ -272,46 +265,47 @@ struct SessionView: View {
         .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
     }
 
+    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers. Its type
+    /// doesn't grow, so a long press shows it large, as the circle buttons do.
     private var moreMenu: some View {
         Menu {
             Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
             Button("Discard workout", systemImage: "trash", role: .destructive) { confirmDiscard = true }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: LiveSessionSpec.headerIcon, weight: .regular))
                 .foregroundStyle(Theme.textPrimary)
-                .frame(width: headerButton, height: headerButton)
-                .background(Theme.surface, in: Circle())
+                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
+                .overlay {
+                    Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
+                }
+                .frame(width: CircleButton.hitSize, height: CircleButton.hitSize)
+                .contentShape(Rectangle())
         }
+        .headerEdgeButton()
         .accessibilityLabel(Text("More"))
+        .accessibilityShowsLargeContentViewer {
+            Label { Text("More") } icon: { Image(systemName: "ellipsis") }
+        }
     }
 
+    /// An outline until every set is done, then filled (F14, D6B-5): one primary at a time, and at all-done the card's
+    /// "Finish workout" and this one. While it finishes, the pill's spinner (the title and width stay) and no second tap.
     private var finishButton: some View {
-        Button {
+        PillButton(Text("Finish"), style: controller.finishIsFilled ? .primary : .secondary, size: .compact,
+                   busy: controller.isFinishing) {
             confirmFinish = true
-        } label: {
-            Group {
-                if controller.isFinishing { ProgressView().tint(finishInk) } else { Text("Finish") }
-            }
-            .font(.ryft(.headline))
-            .foregroundStyle(finishInk)
-            .modifier(FocusedFinishLabel(isOn: controller.layout == .focused, isCompact: isCompactHeader))
-            .modifier(ListFinishLabel(isOn: stacksHeader))
-            .padding(.horizontal, isCompactHeader ? 14 : 18)
-            .frame(minHeight: headerButton)
-            .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
-            // The capsule's own edge is under 1.2:1 on the background, in either scheme.
-            .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
         }
-        .disabled(controller.isFinishing)
+        .modifier(FinishCap(isOn: !stacksHeader,
+                            cap: isCompactHeader ? LiveSessionSpec.compactFinishCap : LiveSessionSpec.finishCap))
         .accessibilityIdentifier("session.finish")
     }
 
-    private var finishInk: Color { controller.finishIsFilled ? Theme.onAccent : Theme.accent }
-
     // MARK: exercises
 
-    /// The list layout: every exercise on one screen.
+    /// The list layout (PR 6 B §4.7, `b-02`): every exercise on one screen, 16 pt sides. Under the cards "Add exercise" as an
+    /// outline pill (the header's Finish is the one primary, and only once every set is done) and "Reorder exercises" as a quiet
+    /// text button. Offline is one grey line; an empty session an outlined card, as in Focused (§4.9).
     private var listContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -321,32 +315,40 @@ struct SessionView: View {
                               systemImage: "wifi.slash")
                             .font(.ryft(.caption))
                             .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     }
                     exerciseList
                     if controller.exercises.isEmpty {
                         InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
                                       systemImage: "dumbbell")
+                            // Focused's empty page: the message's 1 pt `separator` edge over its `surface`.
+                            .overlay {
+                                RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous)
+                                    .strokeBorder(Theme.separator, lineWidth: PlaceholderRowSpec.lineWidth)
+                                    .accessibilityHidden(true)
+                            }
                     }
                     if controller.isAllDone {
                         AllSetsDoneCard(exercises: controller.exercises.count,
                                         sets: controller.session.completedSetCount) { confirmFinish = true }
                     }
-                    Button {
-                        showsAdd = true
-                    } label: {
-                        Label("Add exercise", systemImage: "plus")
-                    }
-                    .buttonStyle(TealButtonStyle(prominent: false))
+                    PillButton(Text("Add exercise"), style: .secondary) { showsAdd = true }
                     if controller.exercises.count > 1 {
-                        Button("Reorder exercises") { showsReorder = true }
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(minHeight: 44)
+                        Button {
+                            showsReorder = true
+                        } label: {
+                            Text("Reorder exercises")
+                                .font(.ryft(.callout))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(maxWidth: .infinity, minHeight: Theme.Metrics.minHitTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                     Color.clear.frame(height: 1).id(Self.endAnchor)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, LiveSessionSpec.sidePadding)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
@@ -479,249 +481,26 @@ private struct ManualScrollReporter: ViewModifier {
     }
 }
 
-/// Drag to reorder (the list is in edit mode).
-struct ReorderSheet: View {
-    var controller: SessionController
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(controller.exercises) { ex in
-                    HStack {
-                        Text(ex.name).font(.ryft(.body))
-                        Spacer()
-                        if ex.supersetGroup != nil {
-                            Image(systemName: "link").foregroundStyle(Theme.accent)
-                                .accessibilityLabel(Text("In a superset"))
-                        }
-                    }
-                    .frame(minHeight: 44)
-                    .listRowBackground(Theme.surface)
-                }
-                .onMove { controller.move(from: $0, to: $1) }
-            }
-            .environment(\.editMode, .constant(.active))
-            .scrollContentBackground(.hidden)
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("Reorder")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-}
-
-/// After Finish: duration, volume, muscular load, strain, PRs, notes → Done.
-struct SessionSummarySheet: View {
-    let summary: FinishSummary
-    @Environment(TrainSyncService.self) private var sync
-    @Environment(TrainLibrary.self) private var library
-    @Environment(AppState.self) private var state
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var notes = ""
-    @State private var celebrate = false
-    /// Where the strain's heart rate came from (the platform's workout for the session).
-    @State private var heartRate: String?
-    @State private var savingToHealth = false
-    private var export: WorkoutHealthExport { .shared }
-
-    private var session: LocalSession? { sync.store.session(id: summary.sessionID) }
-
-    /// The server's answer: at finish, or later from the queue.
-    private var completed: TrainSession? {
-        summary.completed ?? sync.lastCompletion.flatMap { $0.id == summary.sessionID ? $0 : nil }
-    }
-
-    var body: some View {
-        let doc = completed ?? session?.wire
-        let prs = completed?.prs ?? session?.prs ?? []
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    VStack(spacing: 6) {
-                        Image(systemName: prs.isEmpty ? "checkmark.seal.fill" : "trophy.fill")
-                            .font(.system(size: 44, weight: .medium))
-                            .foregroundStyle(prs.isEmpty ? Theme.accent : Theme.warning)
-                            .symbolEffect(.bounce, value: celebrate)
-                            .scaleEffect(celebrate || reduceMotion ? 1 : 0.6)
-                            .animation(reduceMotion ? nil : Theme.Motion.standard.delay(0.15),
-                                       value: celebrate)
-                        Text(prs.isEmpty ? String(localized: "Workout done")
-                                         : String(localized: "\(prs.count) new PRs"))
-                            .font(.ryft(.title))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(doc?.title ?? "")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .padding(.top, 8)
-                    .accessibilityElement(children: .combine)
-
-                    HStack(spacing: 10) {
-                        MetricTile(title: "Duration", value: duration(doc), systemImage: "clock")
-                        MetricTile(title: "Volume", value: Fmt.volume(doc?.volumeKg ?? session?.liveVolumeKg),
-                                   systemImage: "scalemass")
-                    }
-                    HStack(spacing: 10) {
-                        MetricTile(title: "Muscular load", value: Fmt.load(doc?.muscularTrimp),
-                                   systemImage: "dumbbell.fill", tint: Theme.accentSecondary)
-                        MetricTile(title: "Strain", value: Fmt.strain(doc?.strain), systemImage: "bolt.fill")
-                    }
-                    if completed == nil && session?.pendingCompletion == true {
-                        WillSyncNote().frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let heartRate {
-                        Label(heartRate, systemImage: "heart")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("summary.heartRate")
-                    }
-                    if export.shouldAsk { saveToHealth }
-                    if !prs.isEmpty {
-                        Card {
-                            VStack(alignment: .leading, spacing: 12) {
-                                CardHeader(title: "Personal records")
-                                ForEach(prs, id: \.self) { pr in
-                                    PRBadge(record: pr, exerciseName: library.exercise(id: pr.exerciseId)?.name)
-                                }
-                            }
-                        }
-                    }
-                    Card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            CardHeader(title: "Notes")
-                            TextField("How did it feel?", text: $notes, axis: .vertical)
-                                .font(.ryft(.body))
-                                .lineLimit(3...6)
-                        }
-                    }
-                    Button("Done") { done() }
-                        .buttonStyle(TealButtonStyle())
-                        .accessibilityIdentifier("summary.done")
-                }
-                .padding(Theme.Metrics.screenPadding)
-            }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.hidden, for: .navigationBar)
-        }
-        .sensoryFeedback(.success, trigger: celebrate)
-        .onAppear {
-            notes = session?.notes ?? ""
-            celebrate = true
-        }
-        .task(id: completed?.workoutId) { await loadHeartRate() }
-        .interactiveDismissDisabled()
-    }
-
-    /// Once, after the first completed workout: RYFT writes nothing to Apple Health unless asked.
-    private var saveToHealth: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Save workouts to Apple Health?", systemImage: "heart.text.square")
-                    .font(.ryft(.headline))
-                    .foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 12) {
-                    Button {
-                        savingToHealth = true
-                        Task {
-                            defer { savingToHealth = false }
-                            guard await export.turnOn(), let s = session, let end = s.endedAt else { return }
-                            await export.save(sessionID: s.id, start: s.startedAt, end: end)
-                        }
-                    } label: {
-                        Text("Save")
-                    }
-                    .buttonStyle(TealButtonStyle(prominent: true))
-                    .disabled(savingToHealth)
-                    Button { export.turnOff() } label: { Text("Not now") }
-                        .buttonStyle(TealButtonStyle(prominent: false))
-                        .disabled(savingToHealth)
-                }
-                if export.needsAccess { HealthWriteAccessHint() }
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("summary.saveToHealth")
-    }
-
-    /// "Heart rate from Garmin Connect" when the platform matched a watch's workout; otherwise
-    /// how to get heart-rate strain next time.
-    private func loadHeartRate() async {
-        guard let id = completed?.workoutId else { return }
-        guard let detail = try? await state.source.workout(id: id) else { return }
-        heartRate = Self.heartRateLine(detail.workout)
-    }
-
-    static func heartRateLine(_ workout: Workout) -> String {
-        if workout.avgHr != nil, workout.source != "ryft-session" {
-            return String(localized: "Heart rate from \(workout.source)")
-        }
-        // A watch workout may still be on its way (it's matched once it syncs).
-        return String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
-    }
-
-    private func duration(_ doc: TrainSession?) -> String {
-        guard let doc, let end = doc.endedAt else { return Fmt.placeholder }
-        return Fmt.duration(seconds: end.timeIntervalSince(doc.startedAt))
-    }
-
-    private func done() {
-        if let s = session, s.notes != notes {
-            s.notes = notes
-            sync.sessionChanged(s)
-        }
-        dismiss()
-    }
-}
-
-#Preview("Live session · dark") {
+#Preview("Live session · List") {
     SessionView(controller: TrainPreview.liveController())
         .previewEnvironment()
 }
 
-#Preview("Live session · light") {
-    SessionView(controller: TrainPreview.liveController())
-        .previewEnvironment(scheme: .light)
+/// `b-02`: List's first exercise under way, a rest running.
+#Preview("Live session · List draft") {
+    SessionView(controller: FocusedPreview.controller(.draftList))
+        .previewEnvironment()
 }
 
 /// The buttons on a row of their own, the title under them; the table's column titles on one line.
-#Preview("Live session · AX3") {
+#Preview("Live session · List, AX3") {
     SessionView(controller: TrainPreview.liveController())
         .previewEnvironment()
         .dynamicTypeSize(.accessibility3)
 }
 
-#Preview("Live session · keypad") {
+#Preview("Live session · List, keypad") {
     let c = TrainPreview.liveController()
     c.edit(c.exercises[0].orderedSets[2], .kg)
     return SessionView(controller: c).previewEnvironment()
-}
-
-#Preview("Summary · dark") {
-    let s = MockTrain.liveSession(in: TrainPreview.store)
-    s.status = .completed
-    s.endedAt = .now
-    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: MockTrain.completed))
-        .previewEnvironment()
-}
-
-#Preview("Summary · light, will sync") {
-    let s = MockTrain.liveSession(in: TrainPreview.store)
-    s.status = .completed
-    s.endedAt = .now
-    s.pendingCompletion = true
-    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: nil))
-        .previewEnvironment(scheme: .light)
 }

@@ -84,15 +84,17 @@ struct PresentedRootTests {
             .toggleStyle(.ryft)
     }
 
-    /// A page in the Nocturne frame (`SubpageScaffold`, PR 6 C): its own header (`header`, the close circle or Back) and no
-    /// system bar, so there is no bar button to read the tint from; no stock switch in the window, and whatever UIKit draws
-    /// tinted under `sheet` (a field) in the ink. That the content gets `presentedRoot()` is the scan's job
+    /// A page in a Nocturne frame: PR 6 C's `SubpageScaffold` (its header `subpage.close` or `subpage.back`) or PR 6 B's
+    /// `SheetHeader` (its close circle `sheet.close`). Neither has a system bar, and often no field, so there may be nothing
+    /// UIKit to read the tint from: its header (`header`), no visible navigation bar, no stock switch in the window, and
+    /// whatever UIKit draws tinted under `sheet` (a field) in the ink. The tint crosses a sheet anyway (`whatCrossesASheet`);
+    /// a toggle is what a missing `presentedRoot()` would show, and that the content gets it is the scan's job
     /// (`everyPresentationHasIt`).
     private static func expectNocturneFrame(_ w: HostedWindow, _ sheet: UIView, _ screen: String, header: String) async throws {
         try await w.wait("\(screen): its header") { w.nodes(in: sheet).contains { $0.identifier == header } }
         let stock = switches(in: w.window)
         #expect(stock.isEmpty, "\(screen): \(stock.count) stock switch(es)")
-        let bars = views(under: sheet).filter { $0 is UINavigationBar && !$0.isHidden && $0.alpha > 0.01 }
+        let bars = views(under: sheet).filter { $0 is UINavigationBar && !$0.isHidden && $0.alpha > 0.01 && $0.window != nil }
         #expect(bars.isEmpty, "\(screen): a system bar shows")
         let inkHex = try ink(for: sheet)
         let off = tinted(under: sheet).filter { hex($0.tintColor, for: $0) != inkHex }
@@ -273,7 +275,7 @@ struct PresentedRootTests {
         }
     }
 
-    @Test("Today's journal sheet: its rows are Nocturne switches, its bar in the ink")
+    @Test("Today's journal sheet: its rows are Nocturne switches, its frame PR 6 B's sheet header")
     func todaysJournal() async throws {
         let state = AppState.preview()
         let today = TodayView().previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US"))
@@ -283,7 +285,25 @@ struct PresentedRootTests {
             }
             try #require(w.nodes().first { $0.hint == "Opens the journal" }).activate()
             let sheet = try await Self.presented(w, "the journal's groups") { $0.contains { $0.label == "Substances" } }
-            try await Self.expectNocturne(w, sheet, "Journal")
+            try await Self.expectNocturneFrame(w, sheet, "Journal", header: "sheet.close")
+            try await Self.dismiss(w)
+        }
+    }
+
+    /// PR 6 B: Add exercise presents Custom exercise (`AddExerciseSheet`'s own `.sheet`, with `presentedRoot()`), a form with
+    /// a toggle ("One side at a time") and a text field (the name, whose caret takes the tint).
+    @Test("Add exercise's Custom exercise sheet: its toggle is the Nocturne switch, its name field in the ink")
+    func customExerciseFromAddExercise() async throws {
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
+        let add = AddExerciseSheet(initialQuery: "Landmine press") { _ in }
+            .environment(TrainLibrary.preview(store: store, outbox: outbox))
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(add)) { w in
+            try await w.wait("Add exercise") { w.node("Custom exercise", exactly: true) != nil }
+            #expect(try #require(w.node("Custom exercise", exactly: true)).activate())
+            let sheet = try await Self.presented(w, "the custom exercise form") {
+                $0.contains { $0.label.hasPrefix("One side at a time") }
+            }
+            try await Self.expectNocturne(w, sheet, "Custom exercise")
             try await Self.dismiss(w)
         }
     }

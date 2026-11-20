@@ -204,9 +204,13 @@ struct FocusedPolishTests {
         #expect(!r.controller.finishIsFilled)
     }
 
-    @Test("List's Finish is filled from the start")
-    func listKeepsItsFinish() {
-        #expect(rig(.list).controller.finishIsFilled)
+    /// Nocturne PR 6 B D6B-5, F14: List's Finish was filled from the start; it now waits for the last set, as Focused's does.
+    @Test("List's Finish is an outline until every set is done, too")
+    func listFinishWaitsForTheLastSet() {
+        let r = rig(.list)
+        #expect(!r.controller.finishIsFilled)
+        checkAll(r)
+        #expect(r.controller.finishIsFilled)
     }
 
     // MARK: the tokens, by maths (dark, the only appearance)
@@ -237,10 +241,9 @@ struct FocusedPolishTests {
     }
 
     private var background: RGBA { parts(Theme.background) }
+    /// The active row's tint: ink at 5 % (PR 6 B §4.3), over the screen.
     private var tint: RGBA {
-        var accent = parts(Theme.accent)
-        accent.a = FocusedRowInk.activeTint
-        return over(accent, background)
+        over(parts(FocusedRowInk.activeRowFill(true)), background)
     }
 
     @Test("The estimate on the active row's tint holds 4.5:1")
@@ -282,16 +285,21 @@ struct FocusedPolishTests {
         #expect(FocusedRowInk.value(.active, hasValue: true, hasGhost: false) == Theme.textPrimary)
     }
 
-    /// `warning` needs no change: on the active row the W sits on its raised pill, never on the tint.
-    @Test("The warm-up W holds 4.5:1 on a plain row and on the active row's pill")
+    /// Nocturne D6B-9: the W is grey, not amber; the letter is the cue. On the active row it's ink on its raised circle.
+    @Test("The warm-up W is grey and holds 4.5:1 on a plain row; the active number holds it on its raised circle")
     func theWarmUpMark() {
-        #expect(contrast(Theme.warning, on: background) >= 4.5)
-        #expect(contrast(Theme.warning, on: over(parts(Theme.surfaceRaised), tint)) >= 4.5)
+        #expect(FocusedRowInk.number(.upcoming) == Theme.textSecondary)
+        #expect(FocusedRowInk.number(.done) == Theme.textSecondary)
+        #expect(contrast(FocusedRowInk.number(.upcoming), on: background) >= 4.5)
+        #expect(FocusedRowInk.number(.active) == Theme.textPrimary)
+        #expect(contrast(FocusedRowInk.number(.active), on: over(parts(Theme.surfaceRaised), tint)) >= 4.5)
     }
 
-    @Test("An unfilled Finish reads 4.5:1 on its capsule")
+    /// The header's Finish is `PillButton`'s compact secondary until all-done: ink on the screen inside an ink outline at 20 %.
+    @Test("An unfilled Finish reads 4.5:1 on the screen, and a filled one on its ink")
     func finishText() {
-        #expect(contrast(Theme.accent, on: parts(Theme.surface)) >= 4.5)
+        #expect(contrast(PillButton.ink(.secondary), on: background) >= 4.5)
+        #expect(contrast(PillButton.ink(.primary), on: parts(Theme.textPrimary)) >= 4.5)
     }
 
     // MARK: "Next" with no check to follow

@@ -49,6 +49,8 @@ final class AddActivityModel: Identifiable {
     /// "Add here anyway" after the Strength suggestion (ui.md §3.4).
     var addsStrengthHere = false
     private(set) var isSaving = false
+    /// Saved once: Save stays off while the sheet closes, so a second tap can't write a second activity.
+    private(set) var didSave = false
 
     /// Add activity on `day` (today: the last hour, ending now, but never before midnight; a past day: 12:00–13:00),
     /// the most recent sport.
@@ -133,6 +135,13 @@ final class AddActivityModel: Identifiable {
     var duration: TimeInterval { max(0, end.timeIntervalSince(start)) }
     var crossesMidnight: Bool { !Calendar.current.isDate(start, inSameDayAs: end) }
 
+    /// Whether the platform makes strain from the effort rating for `sport` (open question 4, plan D2-4; API request R2): the
+    /// footer's second sentence, so the sheet never promises what the detail then denies. Not for mobility, as the demo has it
+    /// (rated, yet `strain_source: none`). The app's assumption until the contract lists the sports; Strength has no footer.
+    nonisolated static func effortMakesStrain(for sport: Sport) -> Bool { sport != .mobility }
+
+    var effortMakesStrain: Bool { Self.effortMakesStrain(for: sport) }
+
     var issues: [Issue] {
         Self.issues(start: start, end: end, now: now, earliest: earliest, distanceText: showsDistance && !measured ? distanceText : "",
                     notes: notes, checksTimes: !measured)
@@ -143,7 +152,7 @@ final class AddActivityModel: Identifiable {
         return Self.isTooFast(sport: sport, distanceM: distanceM, duration: duration)
     }
 
-    var canSave: Bool { issues.isEmpty && !isSaving }
+    var canSave: Bool { issues.isEmpty && !isSaving && !didSave }
 
     var draft: ActivityDraft {
         let distance = measured ? original?.distanceM : (showsDistance ? distanceM : nil)
@@ -210,6 +219,11 @@ final class AddActivityModel: Identifiable {
 
     // MARK: save
 
+    #if DEBUG
+    /// Previews and shots only: the sheet while it writes (a real save is synchronous and closes the sheet before it draws).
+    func previewSaving() { isSaving = true }
+    #endif
+
     /// Writes on this iPhone first, then the uploader takes it (ui.md §3.6: "Saved" is a local fact). False when
     /// nothing could be written (signed out, a read-only activity).
     @discardableResult
@@ -230,6 +244,7 @@ final class AddActivityModel: Identifiable {
             guard env.activities.update(id, draft) != nil else { return false }
             env.uploader.saved(id)
         }
+        didSave = true
         return true
     }
 }

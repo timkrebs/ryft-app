@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The full-screen My Day (ui.md §2.5, design.md §7.3), pushed on Today's stack: the week strip pinned under the
-/// navigation bar, the day's title and summary, every row on its own tile, Add activity pinned at the bottom for
-/// the last 14 days. Manual and recorded activities and typed-in nights can be edited and deleted on any day.
+/// The full-screen My Day (ui.md §2.5, design.md §7.3; Nocturne PR 6 B §9.2, `b-18`, `b-26`), pushed on Today's stack: the
+/// pushed header, the week strip, the day's summary and strain, every row on its own tile, Add activity pinned at the bottom
+/// for the last 14 days. Manual and recorded activities and typed-in nights can be edited and deleted on any day.
 struct MyDayView: View {
     let model: MyDayViewModel
 
@@ -42,14 +42,18 @@ struct MyDayView: View {
             } message: { item in
                 Self.deleteMessage(item)
             }
-            .task(id: TaskKey(day: day, refreshed: state.lastUpdated)) { await model.load(day) }
+            .task(id: TaskKey(day: day, refreshed: state.lastUpdated, online: state.env.connectivity.isOnline)) {
+                await model.load(day)
+            }
             // Today: the app's pull, the activities beside it; a past day: its reads, the spinner capped.
             .refreshable { await model.refresh(model.date) { await screens.pullToRefresh() } }
     }
 
+    /// The day, today's refresh, and the iPhone back online (offline nothing was read).
     private struct TaskKey: Equatable {
         let day: Date
         let refreshed: Date?
+        let online: Bool
     }
 
     private func actions(_ content: MyDayContent) -> MyDayActions {
@@ -76,6 +80,8 @@ struct MyDayView: View {
         delete: model.addsManually ? { deleting = $0 } : nil,
         retry: {
             await model.load(day, force: true)
+        }, retryRow: { item in
+            Task { await model.retryUpload(item) }
         })
     }
 
@@ -95,7 +101,10 @@ struct MyDayView: View {
     }
 }
 
-/// The screen itself, from a day's content and the week.
+/// The screen itself, from a day's content and the week (B §9.2): `PushedHeader` "My Day" over "Today · Wed, Nov 18" with the
+/// plus menu; 8 below the date strip (S11); 18 below the summary line and the day's strain; 12 below the rows as tiles, 8
+/// apart. Add activity is a primary pill pinned above the tab bar on a 24 pt fade; the page scrolls under it. A day switch
+/// cross-fades (250 ms, instant under Reduce Motion).
 struct MyDayPage: View {
     let content: MyDayContent
     let week: [DateStrip.Day]
@@ -103,111 +112,157 @@ struct MyDayPage: View {
     var select: (Date) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.locale) private var locale
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                list
-                if let since = content.staleSince {
-                    MyDayStaleLine(since: since, offersRetry: content.offersRetry, retry: actions.retry)
+            VStack(alignment: .leading, spacing: 0) {
+                PushedHeader(Text("My Day", comment: "The card and screen with the day's sleep, workouts and activities."),
+                             subtitle: Text(verbatim: subtitle), spokenSubtitle: Text(verbatim: spokenSubtitle),
+                             identifierPrefix: "myday.view") {
+                    if actions.hasAddEntries {
+                        MyDayAddMenu(actions: actions)
+                    } else {
+                        PushedHeaderEmptySlot()
+                    }
                 }
+                DateStrip(days: week, select: select)
+                    .padding(.top, MyDayLayout.stripGap)
+                day
+                    // A day switch: a 250 ms cross-fade, instant under Reduce Motion.
+                    .id(content.day)
+                    .transition(.opacity)
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.top, 12)
-            .padding(.bottom, 32)
-            // A day switch: a 250 ms cross-fade, instant under Reduce Motion.
-            .id(content.day)
-            .transition(.opacity)
+            .padding(.bottom, MyDayLayout.bottomPadding)
         }
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: content.day)
         .scrollIndicators(.hidden)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // Pinned: capped at xxxLarge so it doesn't take a quarter of the screen at AX sizes (the rings are fixed;
-            // VoiceOver reads each day's name and strain).
-            DateStrip(days: week, select: select)
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .padding(.horizontal, Theme.Metrics.screenPadding)
-                .padding(.vertical, 6)
-                .background(Theme.background)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
-                }
-        }
-        // Add activity pinned above the safe area (Start activity joins it with A4, today only).
+        // Add activity pinned above the tab bar on a 24 pt fade (Start activity joins it with A4, today only); the page
+        // scrolls under the fade.
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let add = actions.addActivity {
-                PrimaryButton(title: "Add activity", style: .secondary) { add() }
-                    .padding(.horizontal, Theme.Metrics.screenPadding)
-                    .padding(.vertical, 10)
-                    .background(Theme.background)
-                    .overlay(alignment: .top) {
-                        Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
-                    }
-                    .accessibilityIdentifier("myday.view.addActivity")
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Theme.background.opacity(0), Theme.background], startPoint: .top, endPoint: .bottom)
+                        .frame(height: MyDayLayout.pinnedFade)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    PillButton(Text("Add activity"), systemImage: "plus") { add() }
+                        .accessibilityIdentifier("myday.view.addActivity")
+                        .padding(.horizontal, MyDayLayout.pinnedSides)
+                        .padding(.bottom, MyDayLayout.pinnedBottom)
+                        .background(Theme.background)
+                }
             }
         }
         .background(Theme.background.ignoresSafeArea())
+        // The back button's title on a detail pushed from here; the bar itself is hidden (the pushed header draws it).
         .navigationTitle(Text("My Day", comment: "The card and screen with the day's sleep, workouts and activities."))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            if actions.hasAddEntries {
-                ToolbarItem(placement: .topBarTrailing) {
-                    MyDayAddMenu(actions: actions)
-                }
-            }
-        }
-        // A container: the strip's days and the rows keep their own identifiers.
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
+        // A container: the header, the strip's days and the rows keep their own identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("myday.view")
     }
 
-    /// "Today" / "Wed, 21 Oct", then "3 activities · 1h 52m · 14.8 km" and the day's strain once scored. Without
-    /// activities the strain sits on the title's row (never alone on a line of its own).
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(verbatim: content.title ?? Fmt.dayTitle(content.day))
-                    .font(.ryft(.title))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                if content.summary == nil, let strain = content.dayStrain {
-                    Spacer(minLength: 0)
-                    StrainPill(strain: strain)
-                }
+    // MARK: header words
+
+    /// "Today · Wed, Nov 18", "Yesterday · Tue, Nov 17", "Sat, Nov 14".
+    private var subtitle: String {
+        let date = content.day.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).month(.abbreviated).day())
+        if content.isToday {
+            return String(localized: "Today · \(date)", comment: "My Day's header under \"My Day\": today, then its date (\"Wed, Nov 18\").")
+        }
+        if content.isYesterday {
+            return String(localized: "Yesterday · \(date)",
+                          comment: "Sleep's header under \"Sleep\": the night that ended yesterday morning, then its date (\"Sat, Nov 14\").")
+        }
+        return date
+    }
+
+    /// The subtitle for VoiceOver, the date in full: "Today, Wednesday, November 18".
+    private var spokenSubtitle: String {
+        let date = content.day.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.wide).day())
+        if content.isToday || content.isYesterday { return "\(dayWord), \(date)" }
+        return date
+    }
+
+    /// The day's word against the environment's clock ("Today", "Yesterday").
+    private var dayWord: String { content.title ?? Fmt.dayTitle(content.day) }
+
+    // MARK: the day
+
+    private var day: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsSummary {
+                summary
+                    .padding(.top, MyDayLayout.summaryGap)
             }
-            if let summary = content.summary {
-                HStack(alignment: .center, spacing: 10) {
-                    Text(verbatim: summary)
-                        .font(.ryft(.callout))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    if let strain = content.dayStrain { StrainPill(strain: strain) }
-                }
-                .accessibilityElement(children: .combine)
+            list
+                .padding(.top, showsSummary ? MyDayLayout.rowsGap : MyDayLayout.summaryGap)
+            if let since = content.staleSince {
+                MyDayStaleLine(since: since, offersRetry: content.offersRetry, retry: actions.retry)
+                    .padding(.top, MyDayLayout.rowsGap)
             }
         }
-        .accessibilityIdentifier("myday.view.header")
+    }
+
+    /// The summary line once the day is read and has activities or a strain.
+    private var showsSummary: Bool { content.phase == .ready && (content.summary != nil || content.dayStrain != nil) }
+
+    /// "4 activities · 2h 13m · 6.8 mi" in `label` `textSecondary`; trailing "Strain" in `axis` `textTertiary` and the day's
+    /// strain, 20 Light ("–" while unscored). One VoiceOver element; from AX1 the strain goes under the summary.
+    private var summary: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ActivityListRowSpec.metaGap))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: MyDayLayout.strainLabelGap))
+        return layout {
+            Text(verbatim: content.summary ?? "")
+                .font(.ryft(.label))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: MyDayLayout.strainLabelGap) {
+                Text("Strain")
+                    .font(.ryft(.axis))
+                    .foregroundStyle(Theme.textTertiary)
+                StrainPill(strain: content.dayStrain)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: spokenSummary))
+        .accessibilityIdentifier("myday.view.summary")
+    }
+
+    /// "4 activities, 2 hours 13 minutes, 6.8 miles, Strain 12.4" ("No strain" while unscored).
+    private var spokenSummary: String {
+        let strain = content.dayStrain.map { String(localized: "Strain \(Fmt.strain($0))") }
+            ?? String(localized: "No strain", comment: "VoiceOver in an activity row without a strain.")
+        return [content.spokenSummary(locale: locale), strain].compactMap(\.self).joined(separator: ", ")
     }
 
     @ViewBuilder
     private var list: some View {
         switch content.phase {
         case .loading:
-            MyDaySkeleton(rows: 3, style: .tile)
+            MyDaySkeleton()
         case .failed:
-            InlineMessage(message: String(localized: "Couldn't load My Day.", comment: "My Day: nothing cached and the read failed."),
-                          retry: actions.retry, identifier: "myday.failed")
+            MyDayFailedMessage(retry: actions.retry)
+        case .offline:
+            MyDayOfflineMessage(retry: actions.retry)
         case .ready:
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: MyDayLayout.rowSpacing) {
                 ForEach(content.items) { item in
                     tile(item)
                         .transition(.opacity)
                 }
-                if content.isToday ? content.hasNoActivities : content.isEmpty { empty }
+                if content.isToday ? content.hasNoActivities : content.isEmpty {
+                    MyDayEmptyLine(isToday: content.isToday)
+                        .padding(.top, MyDayLayout.screenEmptyGap)
+                        .accessibilityIdentifier("myday.view.empty")
+                }
             }
             .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: content.items.map(\.id))
         }
@@ -215,39 +270,19 @@ struct MyDayPage: View {
 
     @ViewBuilder
     private func tile(_ item: MyDayItem) -> some View {
+        let retry = actions.rowRetry(for: item)
         if item.opensDetail {
-            Button { actions.open(item) } label: { MyDayRow(item: item, style: .tile, showsChevron: true) }
+            Button { actions.open(item) } label: { MyDayRow(item: item, style: .tile, showsChevron: true, retry: retry) }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityHint(item.hint ?? Text(verbatim: ""))
+                .myDayRowRetry(retry)
                 .modifier(MyDayRowEditing(item: item, edit: actions.edit, delete: actions.delete))
                 .accessibilityIdentifier("myday.view.row.\(item.id)")
         } else {
-            MyDayRow(item: item, style: .tile, addSleep: actions.addSleep)
+            MyDayRow(item: item, style: .tile, retry: retry, addSleep: actions.addSleep)
+                .myDayRowRetry(retry)
                 .accessibilityIdentifier(item.kind.isMissingSleep ? "myday.view.noSleep" : "myday.view.row.\(item.id)")
         }
-    }
-
-    /// F3: nothing on a past day; today: nothing yet.
-    private var empty: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if content.isToday {
-                Text("Nothing yet today", comment: "My Day card: no workouts or activities today.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-            } else {
-                Text("Nothing recorded on this day", comment: "My Day: a past day without sleep, workouts or activities.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                Text("Anything your tracker syncs later will appear here.",
-                     comment: "My Day: under 'Nothing recorded on this day'.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 4)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("myday.view.empty")
     }
 }
 
@@ -287,7 +322,7 @@ private struct MyDayRowEditing: ViewModifier {
     }
 }
 
-// MARK: - previews
+// MARK: - previews (dark only)
 
 /// The live screen on the preview environment's own model (`screens.myDay`), `daysBack` before today.
 private struct MyDayViewHost: View {
@@ -302,20 +337,19 @@ private struct MyDayViewHost: View {
     }
 }
 
-#Preview("My Day · today · dark") {
+#Preview("My Day · today") {
     MyDayViewHost().previewEnvironment(.preview(flags: [.todayMyDay: true]))
 }
 
-#Preview("My Day · today · light") {
-    MyDayViewHost().previewEnvironment(.preview(flags: [.todayMyDay: true]), scheme: .light)
-}
-
-#Preview("My Day · yesterday · dark") {
+#Preview("My Day · yesterday") {
     MyDayViewHost(daysBack: 1).previewEnvironment(.preview(flags: [.todayMyDay: true]))
 }
 
-#Preview("My Day · past day · light") {
-    MyDayViewHost(daysBack: 2).previewEnvironment(.preview(flags: [.todayMyDay: true]), scheme: .light)
+#Preview("My Day · missing night") {
+    NavigationStack {
+        MyDayPage(content: MockMyDay.content(.noSleepRows), week: MockMyDay.week(daysBack: 0), actions: .preview)
+    }
+    .preferredColorScheme(.dark)
 }
 
 #Preview("My Day · past empty") {
@@ -325,18 +359,19 @@ private struct MyDayViewHost: View {
     .preferredColorScheme(.dark)
 }
 
-#Preview("My Day · past empty · light") {
-    NavigationStack {
-        MyDayPage(content: MockMyDay.content(.pastEmpty), week: MockMyDay.week(daysBack: 3))
-    }
-    .preferredColorScheme(.light)
-}
-
-#Preview("My Day · states · AX3") {
+#Preview("My Day · AX3") {
     NavigationStack {
         MyDayPage(content: MockMyDay.content(.full), week: MockMyDay.week(daysBack: 0), actions: .preview)
     }
     .environment(\.dynamicTypeSize, .accessibility3)
+    .preferredColorScheme(.dark)
+}
+
+#Preview("My Day · offline, nothing saved") {
+    NavigationStack {
+        MyDayPage(content: MyDayContent(day: MockMyDay.today, isToday: true, phase: .offline, items: []),
+                  week: MockMyDay.week(daysBack: 0), actions: .preview)
+    }
     .preferredColorScheme(.dark)
 }
 

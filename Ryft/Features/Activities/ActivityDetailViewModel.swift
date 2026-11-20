@@ -118,40 +118,81 @@ final class ActivityDetailViewModel {
     var title: String { activity?.sport.name ?? String(localized: "Activity", comment: "Activity detail: the title before it's loaded.") }
     var symbol: String { activity?.sport.symbol ?? Sport.other.symbol }
 
-    /// "Monday, 19 Oct · 06:40–07:32".
+    /// "Monday, 19 Oct · 06:40–07:32": VoiceOver's reading of the header's subtitle.
     func when(locale: Locale) -> String {
         guard let a = activity else { return "" }
         let date = a.start.formatted(.dateTime.weekday(.wide).day().month(.abbreviated).locale(locale))
         return "\(date) · \(Fmt.time(a.start, locale: locale))–\(Fmt.time(a.end, locale: locale))"
     }
 
-    struct Stat: Identifiable, Equatable {
-        let title: String
-        let value: String
-        var id: String { title }
+    /// The pushed header's subtitle (§10.3): "Tue, Nov 17 · 6:00 – 6:20 AM", the times as one interval in the locale's clock.
+    func subtitle(locale: Locale) -> String {
+        guard let a = activity else { return "" }
+        let date = a.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().locale(locale))
+        let times = (a.start..<max(a.start, a.end)).formatted(Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale))
+        return "\(date) · \(times)"
     }
 
-    /// Distance, moving time, pace or speed, climb, effort, strain: only what exists.
+    /// The hero numeral's style (Profile → Hero numbers: dots or thin).
+    var numeralStyle: DotNumeral.Style { env.settings.heroNumerals.style }
+
+    /// The hero numeral (§10.3): the moving time as h:mm ("0:20", "1:05"); its VoiceOver value spelled out ("20 minutes").
+    var durationNumeral: String? { activity.map { Fmt.clock(minutes: StrainFormat.minutes($0.movingSec)) } }
+    var spokenDuration: String? { activity.map { Fmt.spokenDuration(minutes: StrainFormat.minutes($0.movingSec)) } }
+
+    /// A tile (`NeutralTile`): its label, the number, the unit after it, and VoiceOver's value when the drawn one reads badly.
+    struct Stat: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let value: String
+        var unit: String?
+        var spoken: String?
+    }
+
+    /// Distance, moving time, pace or speed, climb, effort: only what exists. The strain has its own block, not a tile.
     func stats(locale: Locale) -> [Stat] {
         guard let a = activity else { return [] }
         var out: [Stat] = []
-        if let d = a.distanceM, d > 0 { out.append(Stat(title: String(localized: "Distance"), value: Fmt.distance(meters: d))) }
-        out.append(Stat(title: String(localized: "Duration"), value: Fmt.duration(seconds: a.movingSec)))
+        if let d = a.distanceM, d > 0 {
+            let (value, unit) = Self.splitUnit(Fmt.distance(meters: d))
+            out.append(Stat(id: "distance", title: String(localized: "Distance"), value: value, unit: unit,
+                            spoken: StrainFormat.spokenDistance(d, locale: locale)))
+        }
+        let minutes = StrainFormat.minutes(a.movingSec)
+        let duration = StrainFormat.duration(minutes: minutes)
+        out.append(Stat(id: "duration", title: String(localized: "Duration"), value: duration.value, unit: duration.unit,
+                        spoken: Fmt.spokenDuration(minutes: minutes, locale: locale)))
         if a.sport.paceStyle == .speed {
             if let v = ActivityFormat.speed(movingSec: a.movingSec, distanceM: a.distanceM, locale: locale) {
-                out.append(Stat(title: String(localized: "Avg speed", comment: "Activity detail: average moving speed."), value: v))
+                let (value, unit) = Self.splitUnit(v)
+                out.append(Stat(id: "speed", title: String(localized: "Avg speed", comment: "Activity detail: average moving speed."),
+                                value: value, unit: unit,
+                                spoken: ActivityFormat.spokenSpeed(movingSec: a.movingSec, distanceM: a.distanceM, locale: locale)))
             }
         } else if let v = ActivityFormat.pace(movingSec: a.movingSec, distanceM: a.distanceM, locale: locale) {
-            out.append(Stat(title: String(localized: "Avg pace", comment: "Activity detail: average time per kilometre or mile."), value: v))
+            let (value, unit) = Self.splitUnit(v)
+            out.append(Stat(id: "pace", title: String(localized: "Avg pace", comment: "Activity detail: average time per kilometre or mile."),
+                            value: value, unit: unit,
+                            spoken: ActivityFormat.spokenPace(movingSec: a.movingSec, distanceM: a.distanceM, locale: locale)))
         }
         if let up = ActivityFormat.elevation(a.ascentM, locale: locale), (a.ascentM ?? 0) > 0 {
-            out.append(Stat(title: String(localized: "Ascent", comment: "Activity detail: metres climbed."), value: up))
+            let (value, unit) = Self.splitUnit(up)
+            out.append(Stat(id: "ascent", title: String(localized: "Ascent", comment: "Activity detail: metres climbed."),
+                            value: value, unit: unit))
         }
         if let effort = a.perceivedEffort {
-            out.append(Stat(title: String(localized: "Effort", comment: "Activity detail: perceived effort, 1 to 10."), value: "\(effort) / 10"))
+            out.append(Stat(id: "effort", title: String(localized: "Effort", comment: "Activity detail: perceived effort, 1 to 10."),
+                            value: "\(effort)", unit: "/ 10", spoken: EffortScale.spokenValue(effort)))
         }
-        if let strain = a.strain { out.append(Stat(title: String(localized: "Strain"), value: Fmt.strain(strain))) }
         return out
+    }
+
+    /// "8.4 km" → ("8.4", "km"), "5:34 /km" → ("5:34", "/km"): the number and the unit after the first space (a plain or a
+    /// no-break one), so the tile sets the unit smaller. Without a space the whole text is the number.
+    nonisolated static func splitUnit(_ text: String) -> (String, String?) {
+        guard let space = text.firstIndex(where: { $0 == " " || $0 == "\u{00A0}" || $0 == "\u{202F}" }) else { return (text, nil) }
+        let unit = text[text.index(after: space)...].trimmingCharacters(in: .whitespaces)
+        return (String(text[..<space]), unit.isEmpty ? nil : unit)
     }
 
     /// The strain card's line (ui.md §8.1.3).
@@ -164,12 +205,15 @@ final class ActivityDetailViewModel {
         case value(Double)
         /// D7, scored: no heart rate for the time.
         case noHeartRate
-        /// R1/R2: heart rate may still arrive.
+        /// R1/R2: RYFT has the activity and heart rate may still arrive.
         case waiting
+        /// RYFT doesn't have it yet (this iPhone has no platform copy): unsent, offline, retrying, refused, gated, held
+        /// while the account is deleted, or not available yet. Nothing about heart rate can be said.
+        case notAtRYFT
     }
 
     var strainLine: StrainLine {
-        guard let a = activity else { return .waiting }
+        guard let a = activity else { return .notAtRYFT }
         if let value = a.strain {
             switch a.strainSource {
             case .heartRate?: return .heartRate(value, source: a.hrSource)
@@ -177,7 +221,9 @@ final class ActivityDetailViewModel {
             case .noSource?, nil: return .value(value)
             }
         }
-        return a.strainSource == .noSource ? .noHeartRate : .waiting
+        if a.strainSource == .noSource { return .noHeartRate }
+        // "Waiting for heart rate" only once the platform has it and is waiting.
+        return serverCopy == nil ? .notAtRYFT : .waiting
     }
 
     /// The tracker's name on a merged activity ("Garmin Connect").
@@ -216,6 +262,19 @@ final class ActivityDetailViewModel {
         case .confirmed?, nil:
             return nil
         }
+    }
+
+    /// The one line above the numeral (Nocturne PR 6 B §10.3, sync states): what is happening to the upload while this
+    /// iPhone has something to send; otherwise, offline, that the page shows what is saved here. Nil once it's at RYFT and
+    /// the iPhone is online. Never a spinner: the page draws from this iPhone either way.
+    enum SyncLine: Equatable {
+        case upload(UploadNote)
+        case offlineCache
+    }
+
+    var syncLine: SyncLine? {
+        if let note = uploadNote { return .upload(note) }
+        return isOffline && activity != nil ? .offlineCache : nil
     }
 
     // MARK: actions

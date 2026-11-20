@@ -136,6 +136,9 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    via `POST /v1/plans/{id}/enroll`. A second phone, or a reinstall, loses that.
    - **Proposal:** return the paused enrolment too, e.g. as `active` with
      `status: "paused"`, or a separate `paused: Enrollment?`.
+   - **Nocturne PR 6 B (2026-11-19):** `GET /v1/plans` should return the paused enrolment with `paused_at`, its week and
+     its next day, so Plans' paused tile can say "since Nov 3" and "Next: Upper A · week 6"; until then it says only
+     "Resume continues where you stopped."
 3. **Workouts RYFT writes to Apple Health (opt-in, 2026-10-21).** With "Save strength
    workouts to Apple Health" on, the app writes one `HKWorkout` per completed session
    (`traditional_strength_training`, the session's start and end, brand "RYFT",

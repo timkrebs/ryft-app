@@ -28,6 +28,16 @@ enum MockJournal {
           sort: 0, custom: true),
     ]
 
+    /// Before any is chosen: every behavior off (the Journal sheet's "choose them in Profile → Journal" state, PR 6 B §11.2).
+    /// Previews save it where `journalPreviewStore` saves `behaviors`.
+    static var noneEnabled: [Behavior] {
+        behaviors.map { behavior in
+            var off = behavior
+            off.enabled = false
+            return off
+        }
+    }
+
     private static func b(_ id: UUID, _ slug: String, _ en: String, _ de: String, _ category: BehaviorCategory,
                           _ kind: BehaviorKind, sort: Int, enabled: Bool = true, custom: Bool = false) -> Behavior {
         let german = Locale.current.language.languageCode?.identifier == "de"
