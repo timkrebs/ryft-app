@@ -130,6 +130,8 @@ final class OnboardingCoordinator {
     /// The launch's `GET /v1/me/sync` answer, for the sync (an operator's re-sync request).
     @ObservationIgnored var statusReceived: (@MainActor (SyncStatus) -> Void)?
     private var account: String?
+    /// Bumped by every `switchAccount`: a step's request still out then is the previous account's (`Flight`).
+    private var turn = 0
     private var lastCheck: Date?
     private var aboutYouDone = false
     /// The birth year is saved; "about you" shows the estimate until Continue.
@@ -433,8 +435,14 @@ final class OnboardingCoordinator {
 
     /// Another account (or signed out): its steps are its own. Gates reported before
     /// the first check belong to the account the app launched with, so they stay.
+    /// A step's request still out then is the previous account's: this one's steps aren't busy with it, and its answer
+    /// touches nothing here (`perform`). One sent before the first check is the launch account's too.
     func switchAccount(_ account: String?) {
-        if self.account != nil { apiStatus.resetGates() }
+        if self.account != nil {
+            apiStatus.resetGates()
+            turn += 1
+            isWorking = false
+        }
         self.account = account
         syncStatus = nil
         deferred = []
@@ -458,8 +466,9 @@ final class OnboardingCoordinator {
     func redeemInvite() async -> Bool {
         let code = inviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return false }
-        return await perform {
+        return await perform { sent in
             try await self.api.redeemInvite(code: code)
+            try self.answered(sent)
             self.apiStatus.resolved(.inviteRequired)
             self.inviteCode = ""
             await self.check(force: true)
@@ -486,18 +495,20 @@ final class OnboardingCoordinator {
     @discardableResult
     func agree(shown: String? = nil) async -> Bool {
         guard let version = policyVersion, shown == nil || shown == version else { return false }
-        let ok = await perform {
+        let ok = await perform { sent in
             if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
                 // Nil: nothing was sent (offline, a Retry-After window).
                 guard let fresh = try await self.consent.fetchConfig(userInitiated: true) else {
                     throw URLError(.notConnectedToInternet)
                 }
+                try self.answered(sent)
                 guard fresh.privacyPolicyVersion == version else {
                     self.remember(fresh)
                     throw PolicyChangedOnScreen()
                 }
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
+            try self.answered(sent)
             // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
             self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
@@ -522,11 +533,13 @@ final class OnboardingCoordinator {
     /// the step shows before `finishAboutYou()`.
     @discardableResult
     func saveAboutYou(birthYear: Int) async -> Bool {
-        await perform {
+        await perform { sent in
             // Stored only for the account it was asked for (a sign-out while it's out drops it).
             let change = self.state.repository.userChange()
             let patched = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            try self.answered(sent)
             await self.state.repository.store(user: patched, asOf: change).committed()
+            try self.answered(sent)
             self.aboutYouSaved = true
         } message: { error in
             (error as? APIError)?.isFieldError == true
@@ -538,9 +551,11 @@ final class OnboardingCoordinator {
     /// Profile → Privacy: `DELETE /v1/me/consent`. Syncing stops; nothing is deleted.
     @discardableResult
     func withdrawConsent() async -> Bool {
-        await perform {
+        await perform { sent in
             let change = self.state.repository.userChange()
             try await self.api.revokeConsent()
+            // A's withdrawal answered after a sign-out: never recorded as B's.
+            try self.answered(sent)
             let revokedAt = self.env.clock.now()
             // Withdrawn now, whatever the re-check below manages: sync stops at once. Kept outside the store too, so a
             // save the store refuses, or a launch that never checks, can't open the gate again (`ConsentState`).
@@ -604,20 +619,39 @@ final class OnboardingCoordinator {
 
     // MARK: private
 
+    /// The account a step's request went out for: its binding then, and the switches since. What the step does with the
+    /// answer (gates, consent, the field, its error) it does only while that's still the account here (`answered(_:)`).
+    private struct Flight: Equatable {
+        let binding: AccountBinding
+        let turn: Int
+    }
+
+    private var flight: Flight { Flight(binding: AccountBinding(env), turn: turn) }
+
+    /// `sent`'s answer came after a sign-out, another account or Demo data: it ends as a cancellation does, and touches
+    /// nothing of the account here now.
+    private func answered(_ sent: Flight) throws {
+        guard sent == flight else { throw CancellationError() }
+    }
+
     /// One step's request at a time: a second Continue or Agree while one is out sends nothing and changes nothing (the busy
-    /// pill takes no tap either, but the coordinator doesn't count on its view).
-    private func perform(_ body: @MainActor () async throws -> Void,
+    /// pill takes no tap either, but the coordinator doesn't count on its view). The body checks its flight after each
+    /// answer; a flight that isn't this account's any more says nothing, and frees nothing `switchAccount` freed already:
+    /// A's late answer never shows on B's step, nor ends B's request (review code N6).
+    private func perform(_ body: @MainActor (Flight) async throws -> Void,
                          message: (Error) -> String?) async -> Bool {
         guard !isWorking else { return false }
+        let sent = flight
         isWorking = true
         clearError()
-        defer { isWorking = false }
+        defer { if sent.turn == turn { isWorking = false } }
         do {
-            try await body()
-            return true
+            try await body(sent)
+            return sent == flight
         } catch where error.isCancellation {
             return false
         } catch {
+            guard sent == flight else { return false }
             errorMessage = message(error) ?? Self.fallbackMessage(for: error)
             errorDetails = error.diagnosticDetails
             return false
