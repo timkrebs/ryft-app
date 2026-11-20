@@ -381,6 +381,35 @@ struct TrainReadsReviewTests {
         withExtendedLifetime(env) {}
     }
 
+    // MARK: N5: the exercise page's first load
+
+    /// Loading the first time: the outlines say so once; the unlit numeral isn't "No data".
+    @Test func theExercisePagesFirstLoadSaysItLoads() async throws {
+        let rig = rig()
+        let view = NavigationStack { ExerciseDetailView(exerciseID: bench) }.environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the outlines") { ids(w).contains("exerciseDetail.loading") }
+            try await w.settle()
+            let nodes = w.nodes()
+            #expect(nodes.first { $0.identifier == "exerciseDetail.loading" }?.label == "Loading the exercise's history")
+            #expect(!nodes.contains { $0.value == "No data" || $0.label == "No data" }, "\(nodes.map(\.label))")
+            #expect(!nodes.contains { $0.identifier == "exerciseDetail.numeral" })
+        }
+        rig.source.release()
+    }
+
+    /// A timed exercise has no chart: its recent sets' outline says it loads.
+    @Test func aTimedExercisesFirstLoadSaysItLoads() async throws {
+        let rig = rig()
+        let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.plank.id) }.environment(rig.library)
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, view) { w in
+            try await w.wait("the sets' outline") { ids(w).contains("exerciseDetail.loading") }
+            let outline = try #require(w.nodes().first { $0.identifier == "exerciseDetail.loading" })
+            #expect(outline.label == "Loading the exercise's history")
+        }
+        rig.source.release()
+    }
+
     // MARK: N8: the session detail's model reads nothing when it's made
 
     @Test func theSessionDetailReadsItsSummaryWhenItFirstDraws() {

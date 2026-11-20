@@ -150,6 +150,13 @@ struct ExerciseDetailPage: View {
         .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
     }
 
+    /// VoiceOver, once, over the outlines while the history loads the first time: the chart's, or the recent sets' when they
+    /// lead (a timed or distance exercise).
+    static var loadingLabel: Text {
+        Text("Loading the exercise's history",
+             comment: "VoiceOver: the exercise page's outlines while its history loads the first time.")
+    }
+
     /// A failed read with nothing cached (the session detail's words).
     static var failureText: String {
         String(localized: "This exercise's history couldn't be loaded. Try again when you're online.",
@@ -233,6 +240,8 @@ struct ExerciseDetailPage: View {
         .accessibilityLabel(Text("Estimated 1RM"))
         .accessibilityValue(Text(verbatim: heroSpoken(latest)))
         .accessibilityIdentifier("exerciseDetail.numeral")
+        // While the history loads the first time the outlines say so; the unlit numeral isn't "No data" yet.
+        .accessibilityHidden(model.isLoading)
     }
 
     private func heroLine(_ text: String) -> some View {
@@ -269,8 +278,7 @@ struct ExerciseDetailPage: View {
                 .frame(maxWidth: .infinity, minHeight: ExerciseDetailLayout.placeholderChartHeight)
                 .background { PlaceholderOutline(chartShape) }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Loading the exercise's history",
-                                         comment: "VoiceOver: the exercise page's outlines while its history loads the first time."))
+                .accessibilityLabel(Self.loadingLabel)
                 .accessibilityIdentifier("exerciseDetail.loading")
         } else {
             VStack(alignment: .leading, spacing: 0) {
@@ -339,7 +347,13 @@ struct ExerciseDetailPage: View {
 
     @ViewBuilder private var recentSets: some View {
         let rows = model.recentRows(locale: locale)
-        if model.isLoading {
+        if model.isLoading, model.lead == .sets {
+            // A timed or distance exercise has no chart: its sets' outline is the one that says it loads.
+            PlaceholderRow(height: ExerciseDetailLayout.placeholderSetsHeight)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Self.loadingLabel)
+                .accessibilityIdentifier("exerciseDetail.loading")
+        } else if model.isLoading {
             PlaceholderRow(height: ExerciseDetailLayout.placeholderSetsHeight)
                 .accessibilityHidden(true)
         } else if rows.isEmpty {
