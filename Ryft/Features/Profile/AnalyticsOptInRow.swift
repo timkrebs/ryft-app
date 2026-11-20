@@ -53,6 +53,7 @@ private struct PrivacyCardPreview<Row: View>: View {
             GroupedRow.destructive(Text("Withdraw consent")) {}
             row()
         }
+        .toggleStyle(.ryft)
     }
 }
 
