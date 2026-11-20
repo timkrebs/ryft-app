@@ -28,6 +28,8 @@ final class JournalStore {
     }
 
     private let env: AppEnvironment
+    /// Usage analytics, for the sheet's save.
+    var analytics: Analytics { env.analytics }
 
     private(set) var availability: Availability = .unknown
     private(set) var behaviors: [Behavior] = []

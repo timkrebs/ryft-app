@@ -148,6 +148,7 @@ final class JournalSheetModel {
             try await store.save(day: day, entries: put.entries)
             saved = true
             rebuild()
+            store.analytics.track(.featureUsed(.journalSaved))
         } catch where error.isCancellation {
             return
         } catch {

@@ -9,6 +9,7 @@ struct ActivityDetailView: View {
 
     var body: some View {
         ActivityDetailScreen(model: ActivityDetailViewModel(route: route, state: state))
+            .analyticsScreen(.activityDetail)
     }
 }
 

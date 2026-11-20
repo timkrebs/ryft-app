@@ -436,6 +436,7 @@ final class BedtimePlanner {
         schedule = new
         let account = env.auth.accountID
         if let new { new.save(account: account, defaults: env.defaults) } else { SleepSchedule.remove(account: account, defaults: env.defaults) }
+        if new != nil { env.analytics.track(.featureUsed(.sleepScheduleSaved)) }
         scheduledBedtime = nil   // the goal or the wind-down may have moved it
         if new?.alarmOn == true { alarmProblem = nil }
         if new?.reminderOn != true { await cancelReminders() }

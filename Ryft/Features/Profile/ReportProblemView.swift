@@ -53,6 +53,7 @@ struct ReportProblemView: View {
             model.prepare(context)
         }
         .onChange(of: model.includeDiagnostics) { _, on in if !on { included = false } }
+        .analyticsScreen(.reportProblem)
     }
 
     // MARK: compose

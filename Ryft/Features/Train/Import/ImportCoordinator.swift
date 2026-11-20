@@ -216,5 +216,6 @@ final class ImportCoordinator {
         case let .openPlan(id): openRoute(.plan(id))
         case .openHistory: openRoute(.history)
         }
+        if how != .close { env.analytics.track(.featureUsed(.trainImportFinished)) }
     }
 }

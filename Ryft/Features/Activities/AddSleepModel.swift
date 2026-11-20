@@ -166,6 +166,7 @@ final class AddSleepModel: Identifiable {
         guard env.activities.saveSleep(day: day, bed: bed, wake: wake) != nil else { return false }
         if let old = editedDay, old != day { env.uploader.sleepDeleted(day: old) }
         env.uploader.sleepSaved(day: day)
+        if editedDay == nil { env.analytics.track(.featureUsed(.sleepAdded)) }
         return true
     }
 

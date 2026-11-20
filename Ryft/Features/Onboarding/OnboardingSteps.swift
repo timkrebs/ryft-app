@@ -224,21 +224,24 @@ struct ConsentView: View {
     }
 }
 
-private struct ConsentPoint: View {
+/// One point of a summary (consent, the analytics prompt): a symbol, an optional headline, the text.
+struct ConsentPoint: View {
     let symbol: String
-    let title: LocalizedStringKey
+    var title: LocalizedStringKey?
     let text: LocalizedStringKey
+    /// The symbol's colour: the accent on the consent screen; the analytics prompt keeps it for its own symbol only.
+    var symbolColor: Color = Theme.accent
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(symbolColor)
                 .frame(width: 28)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.ryft(.headline)).foregroundStyle(Theme.textPrimary)
-                Text(text).font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+                if let title { Text(title).font(.ryft(.headline)).foregroundStyle(Theme.textPrimary) }
+                Text(text).font(.ryft(.callout)).foregroundStyle(title == nil ? Theme.textPrimary : Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

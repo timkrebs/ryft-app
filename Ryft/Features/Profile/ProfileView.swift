@@ -7,6 +7,7 @@ import UIKit
 struct ProfileView: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(Settings.self) private var settings
+    @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -133,7 +134,8 @@ struct ProfileView: View {
     // MARK: the page (§P5-6.1)
 
     private var page: some View {
-        let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled)
+        let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled,
+                                    showsAnalytics: env.analytics.showsToggle)
         let groups = ProfileRows.groups(facts)
         return VStack(alignment: .leading, spacing: 0) {
             ScreenHeader(title: Text("Profile"))
@@ -282,6 +284,8 @@ struct ProfileView: View {
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
             }
+        case .analytics:
+            AnalyticsOptInRow()
         // Account
         case .email:
             GroupedRow.value(Text("Email"), value: Text(verbatim: model.accountEmail ?? ""), identifier: id)
@@ -506,11 +510,11 @@ private struct FooterStack<Content: View>: View {
 extension ProfileRowFacts {
     /// The page's facts: the model's account, flags and switches, and the two shared stores'.
     @MainActor
-    init(_ model: ProfileViewModel, journalLive: Bool, bedtimeEnabled: Bool) {
+    init(_ model: ProfileViewModel, journalLive: Bool, bedtimeEnabled: Bool, showsAnalytics: Bool = false) {
         self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
                   showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
-                  consentIsCurrent: model.consentIsCurrent, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
+                  consentIsCurrent: model.consentIsCurrent, showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
                   hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
     }
 }

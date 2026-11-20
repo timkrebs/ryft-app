@@ -103,6 +103,7 @@ struct JournalSheet: View {
             }
             .task { await model.load() }
         }
+        .analyticsScreen(.journal)
     }
 }
 

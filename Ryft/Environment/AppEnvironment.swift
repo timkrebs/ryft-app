@@ -48,6 +48,12 @@ final class AppEnvironment {
     /// The account's consent standing on this phone: the policy in force as last heard, and the platform's last
     /// refusal (ADR 0008). Every upload of health data decides from it.
     lazy var consent = ConsentState(env: self)
+    /// What sends opted-in usage analytics: the SDK in the live graph on a device (phase 2), a no-op in every other.
+    private let analyticsSink: AnalyticsSink
+    /// Opt-in usage analytics: the answer, the gate and the only door to the sink (analytics design.md).
+    lazy var analytics = Analytics(sink: analyticsSink, flags: flags, defaults: defaults,
+                                   isDemo: { [weak self] in self?.isDemo ?? false },
+                                   isSignedIn: { [weak self] in self?.auth.isSignedIn ?? false })
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -62,8 +68,10 @@ final class AppEnvironment {
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,
          persistence: Persistence, clock: AppClock, notifier: Notifier, flags: FeatureFlagProvider,
          connectivity: ConnectivityMonitor, defaults: UserDefaults = .standard, demoOverride: Bool? = nil,
-         content: ContentSource = MockContentSource(), contentDirectory: URL? = nil) {
+         content: ContentSource = MockContentSource(), contentDirectory: URL? = nil,
+         analyticsSink: AnalyticsSink = NoopAnalyticsSink()) {
         self.demoOverride = demoOverride
+        self.analyticsSink = analyticsSink
         self.content = content
         self.contentDirectory = contentDirectory ?? Self.temporaryContentDirectory()
         self.defaults = defaults
@@ -86,7 +94,8 @@ final class AppEnvironment {
             demoAPI: MockPlatformAPI(activities: .demoSource()),
             auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
             flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
-            contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
+            contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true),
+            analyticsSink: AnalyticsSinks.live())
         // The consent record counts only on disk: `TrainStore`'s in-memory fallback (a launch before the first
         // unlock) holds every upload instead (ADR 0008).
         env.consent.requiresDurableStore = true
@@ -122,7 +131,8 @@ final class AppEnvironment {
     static func test(api: MockPlatformAPI = MockPlatformAPI(), health: MockHealthStore = MockHealthStore(),
                      clock: TestClock = TestClock(), notifier: MockNotifier? = nil,
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
-                     online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
+                     online: Bool = true, content: MockContentSource = MockContentSource(),
+                     analyticsSink: AnalyticsSink = NoopAnalyticsSink()) -> AppEnvironment {
         api.now = { clock.now() }
         // Settings of its own: `Settings.shared` is process-wide, and parallel suites (every sync,
         // every sign-out) write `lastSync` and `healthIntroDone` there.
@@ -132,7 +142,7 @@ final class AppEnvironment {
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
             defaults: defaults, demoOverride: false,
-            content: content)
+            content: content, analyticsSink: analyticsSink)
         // Time moves only when a test advances it: retries wait no jitter, and the starts-per-second
         // window doesn't hold back reads issued at one instant. Suites about retry timing and the
         // budget set their own (`reads.random`, `reads.budget`).
