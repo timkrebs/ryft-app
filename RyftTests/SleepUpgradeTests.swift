@@ -463,18 +463,18 @@ struct BedtimeAndWakeTests {
 
     /// T5.8 S4: "In bed by 10:15 PM for 85 % of your need: …" never wraps between the number and its "%".
     @Test("A reminder for part of the need holds the percentage to its sign with a no-break space")
-    func reminderPercentKeepsItsSign() async throws {
-        let (state, clock) = makeState()
+    func reminderPercentKeepsItsSign() throws {
+        let (_, clock) = makeState()
         let cal = berlin
         clock.set(at(2026, 10, 24, 12, calendar: cal))
-        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
         var s = SleepSchedule.default
         s.reminderOn = true
         s.windDownMin = 30
         s.goal = .perform
-        await planner.scheduleReminders(schedule: s, plan: plan(wake: at(2026, 10, 25, 8, calendar: cal)), calendar: cal)
-        let notifier = try #require(state.env.notifier as? MockNotifier)
-        let body = try #require(notifier.requests.first?.content.body)
+        // The planner schedules what `reminders` builds (PR 6 C: its `scheduleReminders` is private).
+        let requests = BedtimePlanner.reminders(schedule: s, plan: plan(wake: at(2026, 10, 25, 8, calendar: cal)),
+                                                now: clock.now(), calendar: cal)
+        let body = try #require(requests.first?.content.body)
         #expect(body.contains("85\u{00A0}% of your need"), "\(body)")
     }
 
