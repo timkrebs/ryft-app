@@ -40,6 +40,8 @@ final class ScreenModels {
     private let widgetSetupWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
+    /// Train's plans and reads (the app's: `TrainLibrary.shared`, RyftApp's `trainLibrary`).
+    private let library: TrainLibrary
 
     /// `train`: the live workout's coordinator, which Profile asks what ending the demo would discard (nil in tests
     /// and previews that don't need it).
@@ -49,6 +51,7 @@ final class ScreenModels {
         self.state = state
         self.sync = sync
         self.trainSync = trainSync
+        self.library = library
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
         // The widget's calibration decides with the same tracker setup as Today's (F3), and is published again when
@@ -153,4 +156,16 @@ final class ScreenModels {
     func pullToRefresh() async {
         await state.pullToRefresh(coordinator: coordinator)
     }
+
+    /// Profile's Demo data switch, Train's part (RyftApp's `onChange(of: settings.demoMode)` calls it; here, a test sees
+    /// it). Train's cache is one store for both sides (ADR 0019): what was read for the other side goes, and the plans and
+    /// today's plan day are read for this one (`trainRefresh`, which tests await).
+    func trainDemoModeChanged() {
+        library.demoModeChanged()
+        let library = library
+        trainRefresh = Task { await library.refresh() }
+    }
+
+    /// The refresh the last Demo data switch started (`trainDemoModeChanged`).
+    @ObservationIgnored private(set) var trainRefresh: Task<Void, Never>?
 }

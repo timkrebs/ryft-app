@@ -284,8 +284,8 @@ final class TrainLibrary {
     func loadPlan(id: UUID, userInitiated: Bool = false) async -> PlanRead {
         let client = client()
         if let p = store.plan(id: id), !p.days.isEmpty {
-            // Cached: show it, refresh quietly.
-            Task {
+            // Cached: show it, refresh quietly, for this binding only.
+            planRefresh = Task {
                 if case .answer(let fresh) = await fetch("plan/\(id.uuidString)", from: client, { try await $0.plan(id: id) }) {
                     store.cache(plans: [fresh])
                 }
@@ -309,6 +309,9 @@ final class TrainLibrary {
             return .failed(message: error.localizedDescription, details: error.diagnosticDetails)
         }
     }
+
+    /// The quiet read of a cached plan that `loadPlan` started last (tests await it).
+    @ObservationIgnored private(set) var planRefresh: Task<Void, Never>?
 
     /// How `loadPlan` ended.
     enum PlanRead: Equatable {

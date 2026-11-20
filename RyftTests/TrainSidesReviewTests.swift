@@ -580,6 +580,99 @@ struct MyDayDetailsTests {
     }
 }
 
+/// Security review N-C: the rest of Train's paths across a switch, and the Demo data switch's Train part where a test sees
+/// it (`ScreenModels.trainDemoModeChanged`, which RyftApp's `onChange(of: settings.demoMode)` calls).
+@MainActor
+@Suite("R4T N-C: Train's other paths across a switch", .serialized)
+struct TrainOtherPathsSidesTests {
+    /// A cached plan shows at once and is read again quietly: Alex's answer after the switch isn't written.
+    @Test func aCachedPlansQuietReadAfterTheSwitchWritesNothing() async throws {
+        let alex = SideTrainSource(.demo, holding: [.plan])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
+        var cached = MockTrain.fullBody
+        cached.name = "Full body, as cached"
+        rig.store.cache(plans: [cached])
+        #expect(await rig.library.loadPlan(id: cached.id).plan?.name == cached.name, "the cached one at once")
+        #expect(await eventually { alex.count(.plan) == 1 }, "and read again quietly")
+        rig.switchTo(SideSwitch.demo)
+        alex.release()
+        await rig.library.planRefresh?.value
+        #expect(rig.store.plan(id: cached.id)?.name == cached.name, "Alex's answer isn't written on the demo's side")
+    }
+
+    /// The same quiet read on its own side writes the platform's plan (the read above did go out).
+    @Test func aCachedPlansQuietReadOnItsSideWritesTheAnswer() async throws {
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        var cached = MockTrain.fullBody
+        cached.name = "Full body, as cached"
+        rig.store.cache(plans: [cached])
+        _ = await rig.library.loadPlan(id: cached.id)
+        await rig.library.planRefresh?.value
+        #expect(alex.count(.plan) == 1 && rig.store.plan(id: cached.id)?.name == MockTrain.fullBody.name)
+    }
+
+    /// An action answered for Alex; the plans it reads again come after the Demo data switch: not written.
+    @Test func thePlansReadAgainAfterAnActionStayOnItsSide() async {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.empty, holding: [.plans])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
+        let enroll = Task { await rig.library.enroll(in: MockTrain.fullBody) }
+        #expect(await eventually { alex.count(.enroll) == 1 && alex.count(.plans) == 1 }, "enrolled; the plans read again")
+        rig.switchTo(SideSwitch.demo)
+        rig.library.demoModeChanged()
+        alex.release()
+        #expect(await enroll.value, "Alex's enrolment itself went through")
+        #expect(rig.library.catalog == nil && rig.store.document(PlansOverview.self, key: "train.plans") == nil)
+        #expect(rig.library.today == nil && alex.count(.today) == 0, "nor today's plan day read for Alex")
+    }
+
+    /// The quick start's plan day (`refreshToday`) answered after the switch: not written.
+    @Test func todaysPlanDayAfterTheSwitchIsNotWritten() async {
+        let alex = SideTrainSource(.demo, holding: [.today])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.empty)])
+        let quick = Task { await rig.library.refreshToday(limit: .seconds(30)) }
+        #expect(await eventually { alex.count(.today) == 1 })
+        rig.switchTo(SideSwitch.demo)
+        alex.release()
+        _ = await quick.value
+        #expect(rig.library.today == nil && rig.store.document(PlanToday.self, key: "train.today") == nil)
+        // On its own side it is.
+        let own = TrainSides([SideSwitch.alex: SideTrainSource(.demo)])
+        #expect(await own.library.refreshToday(limit: .seconds(30)) && own.library.today != nil)
+    }
+
+    /// After a finished workout, today's plan day is read again (`sessionCompleted`): after the switch, not written.
+    @Test func todaysPlanDayAfterAWorkoutAndTheSwitchIsNotWritten() async {
+        let alex = SideTrainSource(.demo, holding: [.today])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.empty)])
+        let done = Task { await rig.library.sessionCompleted() }
+        #expect(await eventually { alex.count(.today) == 1 })
+        rig.switchTo(SideSwitch.demo)
+        alex.release()
+        await done.value
+        #expect(rig.library.today == nil && rig.store.document(PlanToday.self, key: "train.today") == nil)
+    }
+
+    /// The Demo data switch's Train part: the other side's plans go at once, and this side's are read.
+    @Test func theDemoSwitchClearsTheOtherSideAndReadsThisOnes() async {
+        let state = AppState(env: .test())
+        let demo = SideTrainSource(.empty)
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo), SideSwitch.demo: demo])
+        let screens = sidesScreens(state, rig)
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.upperLower.id && rig.library.today != nil)
+        rig.switchTo(SideSwitch.demo)
+        screens.trainDemoModeChanged()
+        #expect(rig.library.catalog == nil && rig.library.today == nil, "the other side's, gone at once")
+        await screens.trainRefresh?.value
+        #expect(demo.count(.plans) == 1, "this side's read")
+        #expect(rig.library.catalog != nil && rig.library.activeEnrollment == nil && rig.library.today == nil)
+        withExtendedLifetime(screens) {}
+    }
+}
+
 @MainActor
 final class SentCount {
     var n = 0
