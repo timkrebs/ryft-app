@@ -11,7 +11,9 @@ final class TrainLibrary {
     private(set) var exercises: [Exercise] = []
     private(set) var catalog: PlansOverview?
     private(set) var today: PlanToday?
-    private(set) var isLoading = false
+    /// A refresh is running. Counted: one that ends for a binding that's over doesn't end the next binding's.
+    var isLoading: Bool { refreshes > 0 }
+    private var refreshes = 0
     var error: String?
     var errorDetails: String?
 
@@ -73,9 +75,13 @@ final class TrainLibrary {
 
     /// App active / pull to refresh. Each part (exercises, plans, today's plan day) succeeds or
     /// fails on its own; the cache stays. The message is the first failure's, if any.
-    func refresh() async {
-        isLoading = true
-        defer { isLoading = false }
+    ///
+    /// The refresh is its binding's (code review S1): once a sign-out, another account, a wipe or the Demo data switch ends
+    /// it, the parts still to come send nothing (`fetch`), and neither the message nor its clearing is written: they're the
+    /// next binding's now. `userInitiated`: pull to refresh and Try again, which go through a `Retry-After`'s hold.
+    func refresh(userInitiated: Bool = false) async {
+        refreshes += 1
+        defer { refreshes -= 1 }
         let client = client()
         var failure: Error?
         var cancelled = false
@@ -87,15 +93,24 @@ final class TrainLibrary {
             case .declined: break
             }
         }
-        note(await fetch("exercises", from: client) { try await $0.exercises() }) { list in
+        note(await fetch("exercises", from: client, userInitiated: userInitiated) { try await $0.exercises() }) { list in
             store.cache(exercises: list)
             exercises = store.exercises()
         }
-        note(await fetch("plans", from: client) { try await $0.plans() }) { c in
+        let plans = await fetch("plans", from: client, userInitiated: userInitiated) { try await $0.plans() }
+        note(plans) { c in
             catalog = c
             store.saveDocument(c, key: Self.catalogKey)
         }
-        note(await fetch("plans/today", from: client) { try await $0.planToday() }) { setToday($0) }
+        note(await fetch("plans/today", from: client, userInitiated: userInitiated) { try await $0.planToday() }) {
+            setToday($0)
+        }
+        guard client.isCurrent else { return }
+        switch plans {
+        case .declined(let why): plansDeclined = why
+        case .answer, .failed: plansDeclined = nil
+        case .cancelled: break
+        }
         if let failure {
             self.error = failure.localizedDescription
             self.errorDetails = failure.diagnosticDetails
@@ -105,13 +120,29 @@ final class TrainLibrary {
         }
     }
 
+    /// Why the last refresh got no plans overview without a failure: offline, held back by a `Retry-After`, or for a
+    /// binding that ended. Nil when the platform answered or the read failed (`error` says why). Plans tells offline apart
+    /// from held back with nothing cached (code review N4).
+    private(set) var plansDeclined: Declined?
+
+    /// Why a read wrote nothing of an answer (`fetch`).
+    enum Declined: Equatable {
+        /// Offline, or signed out: nothing could be sent.
+        case offline
+        /// Online, but a `Retry-After` still holds automatic reads back (`ReadScheduler.Hold`): nothing was sent, and a
+        /// user's Try again goes through. `details`: the failure that set the hold, its status and request ID.
+        case heldBack(details: String?)
+        /// The answer, or the failure, came for a binding that's over.
+        case over
+    }
+
     /// How one read ended (`fetch`).
     private enum Fetched<T> {
         /// The platform answered, for the binding that asked.
         case answer(T)
-        /// Nothing was sent (offline, signed out, or a `Retry-After` still holds automatic reads back), or the answer came
-        /// for a binding that's over: the copy on this phone is all there is, and nothing of the answer is written.
-        case declined
+        /// Nothing was sent (`Declined`), or the answer came for a binding that's over: the copy on this phone is all
+        /// there is, and nothing of the answer is written.
+        case declined(Declined)
         case failed(Error)
         /// The caller went away (a screen that disappeared, a push) or a reset stopped the read: nothing changes.
         case cancelled
@@ -119,6 +150,31 @@ final class TrainLibrary {
         var error: Error? {
             if case .failed(let error) = self { return error }
             return nil
+        }
+
+        /// The iPhone is offline: nothing could be sent, or the request failed for want of a connection. Not when the read
+        /// was held back or failed online (Train's pages say "Offline" only then).
+        var offline: Bool {
+            switch self {
+            case .declined(.offline): return true
+            case .failed(let error): return SleepLoadFailure.lostConnection(error)
+            default: return false
+            }
+        }
+
+        /// Nothing was sent because a `Retry-After` holds automatic reads back, online.
+        var heldBack: Bool {
+            if case .declined(.heldBack) = self { return true }
+            return false
+        }
+
+        /// The status and request ID for Details: the failure's, or the one that set a hold.
+        var details: String? {
+            switch self {
+            case .failed(let error): return error.diagnosticDetails
+            case .declined(.heldBack(let details)): return details
+            default: return nil
+            }
         }
     }
 
@@ -139,28 +195,54 @@ final class TrainLibrary {
         return Client(source: remote, outbox: outbox, binding: outbox.binding)
     }
 
+    /// Whose requests go now (`TrainSyncService.Binding`): a caller that awaits Train compares it before and after.
+    var binding: TrainSyncService.Binding { outbox().binding }
+
+    /// Train's read `id` ("plans", "plan/<id>") for `binding`'s owner: the account's id or the demo's, never shown. Two
+    /// owners' reads of one resource are two flights (`fetch`).
+    static func readKey(_ id: String, for binding: TrainSyncService.Binding) -> ReadKey {
+        ReadKey(.train, id: "\(binding.owner ?? "signed-out")/\(id)")
+    }
+
     /// One read through the read pipeline when there is one (`ScreenModels` sets the app's): offline, signed out or held
     /// back nothing is sent and it ends at once (`.declined`), and a try uses the fail-fast session, never one that waits
     /// minutes for a network. Without one (tests) it goes straight to the source. An answer or a failure that arrives after
     /// a sign-out, another account, a wipe or the Demo data switch is `.declined`: the caller writes none of it into the
     /// store or memory, which are the next binding's now (security review S-1). A cancelled caller (or a reset of the
     /// pipeline) is `.cancelled`, however the request ended.
+    ///
+    /// A client whose binding is already over sends nothing (code review S1: a refresh that goes on after the switch), and
+    /// a read joins only a flight of its own binding: the key carries the owner, so the Demo data side and the account
+    /// never share an answer, whoever started the flight (`ReadKey`, `ReadScheduler.enter`).
+    ///
+    /// Why nothing was sent is the pipeline's to say, before the read (`ReadScheduler.hold`): offline, or held back online,
+    /// with the Details of the failure that set the hold (code review N4).
     private func fetch<T: Sendable>(_ id: String, from client: Client, userInitiated: Bool = false,
                                     _ request: @escaping @MainActor (TrainDataSource) async throws -> T) async -> Fetched<T> {
+        guard client.isCurrent else { return .declined(.over) }
         let source = client.source
         do {
             let value: T?
             if let reads {
-                value = try await reads.run(ReadKey(.train, id: id), userInitiated: userInitiated) { try await request(source) }
+                // A caller that went away is `.cancelled`, held back or not (as `run` would say).
+                try Task.checkCancellation()
+                let key = Self.readKey(id, for: client.binding)
+                switch reads.hold(key, userInitiated: userInitiated) {
+                case .offline?: return .declined(.offline)
+                case .heldBack?: return .declined(.heldBack(details: JournalSheetModel.readDetails(reads.states[.train])))
+                case nil: break
+                }
+                value = try await reads.run(key, userInitiated: userInitiated) { try await request(source) }
             } else {
                 value = try await request(source)
             }
-            guard client.isCurrent, let value else { return .declined }
+            guard client.isCurrent else { return .declined(.over) }
+            guard let value else { return .declined(.offline) }
             return .answer(value)
         } catch where error.isCancellation || Task.isCancelled {
             return .cancelled
         } catch {
-            return client.isCurrent ? .failed(error) : .declined
+            return client.isCurrent ? .failed(error) : .declined(.over)
         }
     }
 
@@ -202,8 +284,8 @@ final class TrainLibrary {
     func loadPlan(id: UUID, userInitiated: Bool = false) async -> PlanRead {
         let client = client()
         if let p = store.plan(id: id), !p.days.isEmpty {
-            // Cached: show it, refresh quietly.
-            Task {
+            // Cached: show it, refresh quietly, for this binding only.
+            planRefresh = Task {
                 if case .answer(let fresh) = await fetch("plan/\(id.uuidString)", from: client, { try await $0.plan(id: id) }) {
                     store.cache(plans: [fresh])
                 }
@@ -214,6 +296,9 @@ final class TrainLibrary {
         case .answer(let p):
             store.cache(plans: [p])
             return .plan(p)
+        case .declined(.heldBack(let details)):
+            // Online, held back by a `Retry-After`: the failed state, whose Try again goes through (code review N4).
+            return .failed(message: RefreshIssue.Reason.busy.message, details: details)
         case .declined:
             return .offline
         case .cancelled:
@@ -221,17 +306,21 @@ final class TrainLibrary {
         case .failed(let error):
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
-            return .failed
+            return .failed(message: error.localizedDescription, details: error.diagnosticDetails)
         }
     }
+
+    /// The quiet read of a cached plan that `loadPlan` started last (tests await it).
+    @ObservationIgnored private(set) var planRefresh: Task<Void, Never>?
 
     /// How `loadPlan` ended.
     enum PlanRead: Equatable {
         case plan(Plan)
-        /// Not cached, and nothing was sent (offline, or held back): nothing to show until it's read.
+        /// Not cached, and nothing was sent (offline): nothing to show until it's read. Held back online is `failed`.
         case offline
-        /// Not cached, and the read failed: `error` says why.
-        case failed
+        /// Not cached, and the read failed: why, and its status and request ID for Details. The plan page keeps them
+        /// (code review N1): `error`, which a later refresh clears, is the Plans page's.
+        case failed(message: String, details: String?)
         /// The caller went away: nothing changes.
         case cancelled
 
@@ -344,7 +433,9 @@ final class TrainLibrary {
         switch fetched {
         case .cancelled: return nil
         case .answer(let s): return TrainRead(value: s, fresh: true, fetchedAt: nil)
-        case .declined, .failed: return TrainRead(value: nil, fresh: false, fetchedAt: nil, failure: fetched.error?.diagnosticDetails)
+        case .declined, .failed:
+            return TrainRead(value: nil, fresh: false, fetchedAt: nil, failure: fetched.details, offline: fetched.offline,
+                             heldBack: fetched.heldBack)
         }
     }
 
@@ -420,7 +511,7 @@ final class TrainLibrary {
             let saved = try await src.savePlan(p)
             guard outbox.binding == binding else { return false }
             store.cache(plans: [saved])
-            await reloadCatalog()
+            await reloadCatalog(from: client())
             return true
         } catch where error.isCancellation || outbox.binding != binding {
             return false
@@ -431,27 +522,17 @@ final class TrainLibrary {
         }
     }
 
+    /// `true` when it's gone (the screen closes). A sign-out, another account or the Demo data switch before the answer
+    /// writes nothing: neither the store, nor the message (security review N-A).
     @discardableResult
     func deletePlan(_ p: Plan) async -> Bool {
-        do {
-            try await remote.deletePlan(id: p.id)
-            store.removePlan(id: p.id)
-            await reloadCatalog()
-            return true
-        } catch where error.isCancellation {
-            return false
-        } catch {
-            self.error = error.localizedDescription
-            return false
-        }
+        await perform({ try await $0.deletePlan(id: p.id) }, then: { store.removePlan(id: p.id) })
     }
 
     /// Enrol (switching replaces the active plan; the screen confirms first).
     @discardableResult
     func enroll(in p: Plan) async -> Bool {
-        let ok = await perform { _ = try await $0.enroll(planID: p.id) }
-        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
-        return ok
+        await perform({ _ = try await $0.enroll(planID: p.id) }, then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
     }
 
     /// The plan paused last. `GET /v1/plans` only reports the active enrolment,
@@ -470,22 +551,28 @@ final class TrainLibrary {
     func setPaused(_ paused: Bool) async -> Bool {
         if paused {
             guard let planID = activeEnrollment?.planId else { return false }
-            let ok = await perform { try await $0.pauseEnrollment() }
-            if ok { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) }
-            return ok
+            return await perform({ try await $0.pauseEnrollment() },
+                                 then: { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) })
         }
         guard let planID = pausedPlanID else { return false }
-        let ok = await perform { _ = try await $0.enroll(planID: planID) }
-        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
-        return ok
+        return await perform({ _ = try await $0.enroll(planID: planID) },
+                             then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
     }
 
-    private func perform(_ action: (TrainDataSource) async throws -> Void) async -> Bool {
+    /// An action of the binding in use when it starts (security review N-A): its client is read first, and only while that
+    /// binding still holds is anything written (`then` when it worked, before the plans are read again; the message and its
+    /// Details when it failed). An answer or a failure after a sign-out, another account, a wipe or the Demo data switch is
+    /// dropped and the action says `false`: on the next side's pages there's no paused plan, no message and no request ID
+    /// of the side that ended.
+    private func perform(_ action: (TrainDataSource) async throws -> Void, then written: () -> Void = {}) async -> Bool {
+        let client = client()
         do {
-            try await action(remote)
-            await reloadCatalog()
+            try await action(client.source)
+            guard client.isCurrent else { return false }
+            written()
+            await reloadCatalog(from: client)
             return true
-        } catch where error.isCancellation {
+        } catch where error.isCancellation || !client.isCurrent {
             return false
         } catch {
             self.error = error.localizedDescription
@@ -494,9 +581,8 @@ final class TrainLibrary {
         }
     }
 
-    /// After an action: the plans and today's plan day again, written only for the binding that asked.
-    private func reloadCatalog() async {
-        let client = client()
+    /// After an action: the plans and today's plan day again from `client`, written only while its binding holds.
+    private func reloadCatalog(from client: Client) async {
         guard let c = try? await client.source.plans(), client.isCurrent else { return }
         catalog = c
         store.saveDocument(c, key: Self.catalogKey)
@@ -513,6 +599,10 @@ final class TrainLibrary {
         exercises = []
         catalog = nil
         today = nil
+        // The account's last failure and its request ID aren't the next one's (security review N-A).
+        error = nil
+        errorDetails = nil
+        plansDeclined = nil
         UserDefaults.standard.removeObject(forKey: Self.pausedKey)
         histories = [:]
         currentMark = nil
@@ -530,6 +620,10 @@ final class TrainLibrary {
         currentMark = nil
         catalog = nil
         today = nil
+        // Nor are the side's failure and its request ID (security review N-A).
+        error = nil
+        errorDetails = nil
+        plansDeclined = nil
         for key in [Self.catalogKey, Self.todayKey, Self.sessionsKey] + store.documentKeys(prefix: Self.historyPrefix) {
             store.removeDocument(key: key)
         }
@@ -570,9 +664,16 @@ struct TrainRead<Value> {
     let fresh: Bool
     /// When the copy shown was fetched; nil when nothing was ever saved (only sessions logged on this phone).
     let fetchedAt: Date?
-    /// The failure's status and request ID for Details ("HTTP 503 · Request ID …", `diagnosticDetails`); nil when the read
-    /// didn't fail, wasn't sent (offline, or held back) or failed without an answer.
+    /// The failure's status and request ID for Details ("HTTP 503 · Request ID …", `diagnosticDetails`), or those of the
+    /// failure whose `Retry-After` held this read back; nil when the read didn't fail, wasn't sent offline or failed
+    /// without an answer.
     var failure: String?
+    /// The iPhone is offline: nothing was sent, or the request failed for want of a connection. A copy shown after a read
+    /// held back or failed online isn't "Offline" (code review N4).
+    var offline = false
+    /// Nothing was sent because a `Retry-After` holds automatic reads back, online: with nothing cached, the failed state
+    /// says RYFT is busy (not "when you're online"), and its Try again goes through.
+    var heldBack = false
 }
 
 extension TrainLibrary {
@@ -602,7 +703,7 @@ extension TrainLibrary {
         if case .answer = fetched { fresh = true }
         return TrainRead(value: Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList),
                          fresh: fresh, fetchedAt: store.documentFetchedAt(key: Self.sessionsKey),
-                         failure: fetched.error?.diagnosticDetails)
+                         failure: fetched.details, offline: fetched.offline, heldBack: fetched.heldBack)
     }
 
     /// `cachedSessions()` within History's window, so its first paint shows what the read will (nothing that vanishes).
@@ -633,7 +734,8 @@ extension TrainLibrary {
             return TrainRead(value: h, fresh: true, fetchedAt: store.documentFetchedAt(key: key))
         case .declined, .failed:
             return TrainRead(value: store.document(ExerciseHistory.self, key: key), fresh: false,
-                             fetchedAt: store.documentFetchedAt(key: key), failure: fetched.error?.diagnosticDetails)
+                             fetchedAt: store.documentFetchedAt(key: key), failure: fetched.details, offline: fetched.offline,
+                             heldBack: fetched.heldBack)
         }
     }
 }

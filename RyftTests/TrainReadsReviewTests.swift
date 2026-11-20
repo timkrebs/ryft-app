@@ -90,29 +90,38 @@ struct TrainReadsReviewTests {
         #expect(session.session == nil)
     }
 
-    /// The same for Profile's Demo data switch while the reads are out: the demo's answers aren't the account's.
+    /// The same for Profile's Demo data switch while the reads are out: the demo's answers aren't the account's. The session
+    /// and the refresh too (security review N-C).
     @Test func answersAfterTheDemoSwitchWriteNothingOfTheOtherSide() async throws {
         let owner = TrainOwner()
         owner.id = TrainSyncService.demoOwner
         let rig = rig(owner: owner)
         let history = TrainHistoryViewModel(library: rig.library)
         let exercise = ExerciseDetailViewModel(exerciseID: bench, library: rig.library, clock: TestClock(now: .now))
+        let session = SessionDetailViewModel(sessionID: platformSession, library: rig.library)
         let list = Task { await history.load() }
         let past = Task { await exercise.load() }
+        let one = Task { await session.load() }
         let plan = Task { await rig.library.loadPlan(id: MockTrain.fullBody.id) }
-        #expect(await eventually { rig.source.allReads == 3 })
+        let refresh = Task { await rig.library.refresh() }
+        #expect(await eventually { rig.source.allReads == 5 }, "the list, a history, a session, a plan and the refresh held")
 
         owner.id = "alex-doe"
         rig.source.release()
         await list.value
         await past.value
+        await one.value
         #expect(await plan.value.plan == nil)
+        await refresh.value
 
         #expect(rig.store.document([SessionSummary].self, key: "train.sessions") == nil)
         #expect(rig.store.documentKeys(prefix: "train.history.").isEmpty)
         #expect(rig.library.cachedHistory(for: bench) == nil)
         #expect(rig.store.plan(id: MockTrain.fullBody.id) == nil)
         #expect(history.sessions.isEmpty && exercise.history == nil)
+        #expect(session.session == nil, "no session of the demo's on the account's page")
+        #expect(rig.library.catalog == nil && rig.store.document(PlansOverview.self, key: "train.plans") == nil)
+        #expect(rig.library.today == nil && rig.store.document(PlanToday.self, key: "train.today") == nil)
     }
 
     // MARK: B1: offline, nothing is sent and the page says so at once

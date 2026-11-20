@@ -132,7 +132,7 @@ struct ExerciseDetailPage: View {
                 header
                 if model.failed {
                     // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
-                    InlineMessage(message: Self.failureText, details: model.failureDetails,
+                    InlineMessage(message: model.failureText, details: model.failureDetails,
                                   retry: { await model.load(userInitiated: true) }, identifier: "exerciseDetail.failure")
                         .padding(.top, ExerciseDetailLayout.heroGap)
                 } else {
@@ -168,6 +168,9 @@ struct ExerciseDetailPage: View {
     @ViewBuilder private var content: some View {
         if model.isOffline {
             TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline", now: model.now)
+                .padding(.top, ExerciseDetailLayout.offlineGap)
+        } else if model.isStale {
+            TrainOfflineNote(fetchedAt: model.fetchedAt, offline: false, identifier: "exerciseDetail.stale", now: model.now)
                 .padding(.top, ExerciseDetailLayout.offlineGap)
         }
         switch model.lead {

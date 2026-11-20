@@ -1036,7 +1036,8 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
     case insights     // GET /v1/insights
     case journal      // GET /v1/behaviors, /v1/journal/{day}, /v1/behaviors/impact
     case config       // GET /v1/config
-    case train        // TrainLibrary: exercises, plans, plans/today
+    case train        // TrainLibrary: exercises, plans, plans/today, a plan, the session list, a session, an exercise's
+                      // history; one key per owner (`TrainLibrary.readKey`), one record (and `Retry-After` hold) for all
     case sleepRange   // GET /v1/sleep
     case activities   // GET /v1/activities?from&to, one local day (My Day)
 
@@ -1363,12 +1364,27 @@ final class ReadScheduler {
 
     // MARK: flights
 
+    /// Why `run` would send nothing for `key` now; nil when it would send. A caller that shows the reason asks first (Train's
+    /// pages: offline is not the same as held back while online).
+    enum Hold: Equatable {
+        /// Offline, or signed out (not demo).
+        case offline
+        /// Online, but a `Retry-After` beyond what a refresh waits holds automatic reads of the resource back
+        /// (`retryNotBefore`): a user's own read (`userInitiated`, Try again) goes through.
+        case heldBack
+    }
+
+    func hold(_ key: ReadKey, userInitiated: Bool) -> Hold? {
+        guard let env, env.isDemo || (env.connectivity.isOnline && env.auth.accountID != nil) else { return .offline }
+        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return .heldBack }
+        return nil
+    }
+
     /// The outcome to wait on: the flight for `key` (joined), its follow-up, or a new flight; nil
-    /// when nothing is sent (offline, signed out, held back). No await: two callers can't both start one.
+    /// when nothing is sent (offline, signed out, held back: `hold`). No await: two callers can't both start one.
     private func enter<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool, store: Store?,
                                     _ fetch: @escaping @MainActor () async throws -> T) -> Outcome? {
-        guard let env, env.isDemo || (env.connectivity.isOnline && env.auth.accountID != nil) else { return nil }
-        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return nil }
+        guard hold(key, userInitiated: userInitiated) == nil else { return nil }
         if let flight = flights[key] {
             if case .changed(let since) = mode, flight.started < since {
                 if flight.followUpStore == nil { flight.followUpStore = store }

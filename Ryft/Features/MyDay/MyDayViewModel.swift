@@ -17,6 +17,9 @@ final class MyDayViewModel {
     /// Days whose load failed, or was held back (`ReadScheduler` sent nothing: a `Retry-After` still holding), with
     /// nothing cached: an error with Try again instead of the skeleton.
     private(set) var failed: Set<String> = []
+    /// A failed day's own status and request ID for Details, kept with the day (code review N5): the read record is one
+    /// per resource, so another day's failure (or success) since would answer for it.
+    private var failedDetails: [String: String] = [:]
     /// The tracker catalog was parsed off the main actor (`load`): rows name trackers by it from then on, and by
     /// HealthKit's raw source names before (ui.md §2.3), so Today's first frame never parses it.
     private(set) var namesTrackers = false
@@ -74,14 +77,14 @@ final class MyDayViewModel {
                             dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil,
                             title: Fmt.dayTitle(day, today: today),
                             isYesterday: calendar.isDate(day, inSameDayAs: DayFormat.shift(today, days: -1)),
-                            failedDetails: phase == .failed ? failedDetails(isToday: isToday) : nil)
+                            failedDetails: phase == .failed ? failedDetails[key] : nil)
     }
 
-    /// A failed load's status and request ID for Details, from the read pipeline's record as the Journal's: the day's read
-    /// (`.today` or `.day`), else the activities'. Nil when neither failed with an answer (held back by a `Retry-After`).
-    private func failedDetails(isToday: Bool) -> String? {
-        let states = env.reads.states
-        return JournalSheetModel.readDetails(states[isToday ? .today : .day]) ?? JournalSheetModel.readDetails(states[.activities])
+    /// The side that ended (sign-out, another account, the Demo data switch): its failed days and their request IDs go
+    /// (`ScreenModels` registers it with the account-state forgetters).
+    func forget() {
+        failed = []
+        failedDetails = [:]
     }
 
     /// The full screen's week strip: today and the six days before, the selected one highlighted.
@@ -206,12 +209,17 @@ final class MyDayViewModel {
         let key = DayFormat.string(from: day)
         let mode: ReadMode = force ? .latest : .ifStale
         failed.remove(key)
+        failedDetails[key] = nil
         async let detail = loadDetail(day, mode: mode, userInitiated: force)
-        async let activities: Void = loadActivities(key, mode: mode, userInitiated: force)
+        async let activities = loadActivities(key, mode: mode, userInitiated: force)
         let read = await detail
-        await activities
-        // Failed, or held back with nothing cached (offline it is `.offline` whatever this says).
-        if read == .failed || read == .declined, state.cachedDayDetail(for: day) == nil { failed.insert(key) }
+        let activitiesFailure = await activities
+        // Failed, or held back with nothing cached (offline it is `.offline` whatever this says). Its Details: the day's
+        // own failure, else the one that holds its reads back, else the activities' own failure.
+        if read.missing, state.cachedDayDetail(for: day) == nil {
+            failed.insert(key)
+            failedDetails[key] = read.details ?? activitiesFailure
+        }
         // Workouts to name: the catalog's first parse off the main actor, then the rows name trackers by it.
         if !namesTrackers, state.cachedDayDetail(for: day)?.workouts.isEmpty == false {
             _ = await TrackerCatalog.loadBundled()
@@ -262,25 +270,53 @@ final class MyDayViewModel {
     private enum DetailRead {
         /// The day is here (fresh, fetched, or cached beside a failure).
         case read
-        /// Nothing was sent and nothing is cached: offline, or a `Retry-After` holds automatic reads back.
-        case declined
-        case failed
+        /// Nothing was sent and nothing is cached: offline, or a `Retry-After` holds automatic reads back (`details`: the
+        /// failure that set the hold, as the record had it then).
+        case declined(details: String?)
+        /// `details`: the failure's own status and request ID.
+        case failed(details: String?)
         /// Not a failure: the next load says what's true.
         case cancelled
+
+        /// Nothing read: failed, or nothing sent.
+        var missing: Bool {
+            switch self {
+            case .declined, .failed: return true
+            case .read, .cancelled: return false
+            }
+        }
+
+        var details: String? {
+            switch self {
+            case .declined(let details), .failed(let details): return details
+            case .read, .cancelled: return nil
+            }
+        }
     }
 
     private func loadDetail(_ day: Date, mode: ReadMode, userInitiated: Bool) async -> DetailRead {
         do {
-            return try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated) == nil ? .declined : .read
+            guard try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated) != nil else {
+                let resource: ReadResource = calendar.isDate(day, inSameDayAs: today) ? .today : .day
+                return .declined(details: JournalSheetModel.readDetails(env.reads.states[resource]))
+            }
+            return .read
         } catch {
-            return error.isCancellation ? .cancelled : .failed
+            return error.isCancellation ? .cancelled : .failed(details: error.diagnosticDetails)
         }
     }
 
     /// Behind `today.my_day` only. A failure keeps what's cached; the read record says it failed (the stale caption).
-    private func loadActivities(_ key: String, mode: ReadMode, userInitiated: Bool) async {
-        guard isEnabled else { return }
-        _ = try? await state.repository.refreshActivities(key, mode: mode, userInitiated: userInitiated)
+    /// The failure's own status and request ID, for a day with nothing to show (`failedDetails`); nil when it didn't fail.
+    @discardableResult
+    private func loadActivities(_ key: String, mode: ReadMode, userInitiated: Bool) async -> String? {
+        guard isEnabled else { return nil }
+        do {
+            _ = try await state.repository.refreshActivities(key, mode: mode, userInitiated: userInitiated)
+            return nil
+        } catch {
+            return error.isCancellation ? nil : error.diagnosticDetails
+        }
     }
 }
 

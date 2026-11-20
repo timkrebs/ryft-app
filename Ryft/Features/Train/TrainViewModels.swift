@@ -21,6 +21,10 @@ final class TrainHistoryViewModel {
     private(set) var fetchedAt: Date?
     /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
     private(set) var failureDetails: String?
+    /// The last read found the iPhone offline (`TrainRead.offline`); not when it was held back or failed online.
+    private(set) var offline = false
+    /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`).
+    private(set) var heldBack = false
 
     /// What the page shows. `empty` only after the platform answered with no session (now, or in the copy on this phone);
     /// a failed read with nothing cached is `failed`, never "No workouts logged yet".
@@ -75,12 +79,14 @@ final class TrainHistoryViewModel {
         self.clock = clock
     }
 
-    /// A list already read (previews, tests): `fresh` false is the copy on this phone after a failed read.
-    convenience init(library: TrainLibrary, sessions: [SessionSummary], fresh: Bool, fetchedAt: Date? = nil) {
+    /// A list already read (previews, tests): `fresh` false is the copy on this phone after a read that didn't reach the
+    /// platform, `offline` because the iPhone was offline.
+    convenience init(library: TrainLibrary, sessions: [SessionSummary], fresh: Bool, fetchedAt: Date? = nil, offline: Bool = true) {
         self.init(library: library)
         self.sessions = sessions
         self.fresh = fresh
         self.fetchedAt = fetchedAt
+        self.offline = offline
         loaded = true
     }
 
@@ -103,8 +109,11 @@ final class TrainHistoryViewModel {
     var isEmpty: Bool { state == .empty }
     /// The read failed and nothing is cached: the message with Try again.
     var failed: Bool { state == .failed }
-    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
-    var isOffline: Bool { loaded && !fresh && (!sessions.isEmpty || fetchedAt != nil) }
+    /// The copy on this phone after a read the iPhone couldn't send: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && offline && (!sessions.isEmpty || fetchedAt != nil) }
+    /// The copy on this phone after a read held back or failed online (code review N4): "Showing data from 14:05", no
+    /// offline words. Without a fetch time (only this phone's sessions) there's nothing to say.
+    var isStale: Bool { loaded && !fresh && !offline && fetchedAt != nil }
 
     /// Now, by the app's clock: the window ends on its day, and the offline line's time is against it.
     var now: Date { clock.now() }
@@ -139,8 +148,13 @@ final class TrainHistoryViewModel {
         fresh = read.fresh
         fetchedAt = read.fetchedAt
         failureDetails = read.failure
+        offline = read.offline
+        heldBack = read.heldBack
         loaded = true
     }
+
+    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
+    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : TrainHistoryRows.failureText }
 }
 
 /// One exercise: e1RM over the last 90 days, records, recent sets.
@@ -158,6 +172,10 @@ final class ExerciseDetailViewModel {
     private(set) var fresh = false
     /// When the history on screen was fetched: the offline line's time.
     private(set) var fetchedAt: Date?
+    /// The last read found the iPhone offline (`TrainRead.offline`); not when it was held back or failed online.
+    private(set) var offline = false
+    /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`).
+    private(set) var heldBack = false
     /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
     private(set) var failureDetails: String?
 
@@ -175,13 +193,14 @@ final class ExerciseDetailViewModel {
     }
 
     /// A history already read (previews, tests): the page draws it as loaded; `fresh` false is the copy on this phone after
-    /// a failed read.
+    /// a read that didn't reach the platform, `offline` because the iPhone was offline.
     convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock, fresh: Bool = true,
-                     fetchedAt: Date? = nil) {
+                     fetchedAt: Date? = nil, offline: Bool = true) {
         self.init(exerciseID: exerciseID, library: library, clock: clock)
         self.history = history
         self.fresh = fresh
         self.fetchedAt = fetchedAt
+        self.offline = offline
         loaded = true
     }
 
@@ -253,8 +272,11 @@ final class ExerciseDetailViewModel {
     /// The read failed and nothing is cached (the platform sends empty arrays for "no history"): the message with Try
     /// again, never "No sets logged" or an unlit hero.
     var failed: Bool { loaded && history == nil }
-    /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
-    var isOffline: Bool { loaded && !fresh && history != nil }
+    /// The copy on this phone after a read the iPhone couldn't send: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && offline && history != nil }
+    /// The copy on this phone after a read held back or failed online (code review N4): "Showing data from 14:05", no
+    /// offline words.
+    var isStale: Bool { loaded && !fresh && !offline && history != nil && fetchedAt != nil }
 
     var emptyChartText: String {
         String(localized: "Log this exercise a few more times to see a trend.",
@@ -307,8 +329,13 @@ final class ExerciseDetailViewModel {
         fresh = read.fresh
         fetchedAt = read.fetchedAt
         failureDetails = read.failure
+        offline = read.offline
+        heldBack = read.heldBack
         loaded = true
     }
+
+    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
+    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : ExerciseDetailPage.failureText }
 }
 
 /// Built-in templates, the user's plans and the current (active or paused) enrolment.
@@ -358,19 +385,29 @@ final class PlansViewModel {
     var hasCatalog: Bool { library.catalog != nil }
     /// The first load, with nothing cached: three outline rows instead of a spinner. Only while a load runs (or is about to).
     var isLoading: Bool { !hasCatalog && (library.isLoading || !startedLoading) }
-    /// Nothing cached and no load running, without a failure to show: offline, or the reads are held back for a retry.
-    var isOffline: Bool { !hasCatalog && !isLoading && library.error == nil }
-    var error: String? { library.error }
-    var errorDetails: String? { library.errorDetails }
+    /// Nothing cached and no load running, without a failure to show, and not held back: offline, the calm line.
+    var isOffline: Bool { !hasCatalog && !isLoading && library.error == nil && heldBack == nil }
+    /// Nothing cached and no load running because a `Retry-After` holds the reads back while online (code review N4): not
+    /// "Offline", but the failed state ("RYFT is busy right now"), its Details the failure that set the hold, and Try
+    /// again, which goes through. The hold's Details (nil inside: none recorded).
+    private var heldBack: String?? {
+        guard !hasCatalog, !isLoading, library.error == nil, case .heldBack(let details)? = library.plansDeclined else {
+            return nil
+        }
+        return .some(details)
+    }
+    var error: String? { library.error ?? heldBack.map { _ in RefreshIssue.Reason.busy.message } }
+    var errorDetails: String? { library.error != nil ? library.errorDetails : heldBack.flatMap { $0 } }
 
     /// Only the first visit loads; pull to refresh reloads.
     func loadIfNeeded() async {
         startedLoading = true
         if library.catalog == nil { await library.refresh() }
     }
+    /// Pull to refresh, Try again: the user's, so they go through a `Retry-After`'s hold.
     func refresh() async {
         startedLoading = true
-        await library.refresh()
+        await library.refresh(userInitiated: true)
     }
 
     func togglePause() async {
@@ -390,10 +427,18 @@ final class PlanDetailViewModel {
     private(set) var plan: Plan?
     var week = 1
     private(set) var working = false
-    /// The last load came back without the plan (not cached, and the platform failed).
-    private(set) var loadFailed = false
-    /// The last load came back without the plan because nothing was sent (not cached, and offline or held back).
+    /// The last load came back without the plan because the platform failed (not cached): its message and Details, the
+    /// load's own (code review N1). The library's `error` is the Plans page's and a refresh clears it.
+    private(set) var loadFailure: LoadFailure?
+    /// The last load came back without the plan because nothing could be sent (not cached, and offline). Held back online
+    /// is a `loadFailure` (code review N4).
     private(set) var loadDeclined = false
+
+    /// A failed load's sentence, and its status and request ID for Details.
+    struct LoadFailure: Equatable {
+        let message: String
+        let details: String?
+    }
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -421,8 +466,10 @@ final class PlanDetailViewModel {
     }
 
     /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
-    var failure: String? { plan == nil && loadFailed ? library.error : nil }
-    /// Not cached and nothing could be sent (offline, or held back): a calm line instead of outlines that would never fill.
+    var failure: String? { plan == nil ? loadFailure?.message : nil }
+    /// The failure's status and request ID, behind its Details.
+    var failureDetails: String? { plan == nil ? loadFailure?.details : nil }
+    /// Not cached and nothing could be sent (offline): a calm line instead of outlines that would never fill.
     var isOffline: Bool { plan == nil && loadDeclined }
 
     /// The cached plan at once (read again quietly), else the platform's. `userInitiated`: Try again, also while a
@@ -431,7 +478,11 @@ final class PlanDetailViewModel {
         let read = await library.loadPlan(id: planID, userInitiated: userInitiated)
         guard read != .cancelled, !Task.isCancelled else { return }
         if let loaded = read.plan { plan = loaded }
-        loadFailed = plan == nil && read == .failed
+        if case .failed(let message, let details) = read, plan == nil {
+            loadFailure = LoadFailure(message: message, details: details)
+        } else {
+            loadFailure = nil
+        }
         loadDeclined = plan == nil && read == .offline
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }
@@ -572,7 +623,15 @@ final class TrainTodayViewModel {
     private let clock: AppClock
 
     private(set) var lastSession: TrainSession?
-    private(set) var activePlan: Plan?
+    /// The active plan's detail as `loadStartOptions` last loaded it.
+    private var loadedPlan: Plan?
+
+    /// The active plan's detail, for "A day from …": only while the enrolment in use is in it, so a plan loaded for another
+    /// account, for the demo or before a switch of plans never offers its days (security review S-A).
+    var activePlan: Plan? {
+        guard let plan = loadedPlan, plan.id == library.activeEnrollment?.planId else { return nil }
+        return plan
+    }
 
     init(library: TrainLibrary, store: TrainStore, clock: AppClock) {
         self.library = library
@@ -627,9 +686,23 @@ final class TrainTodayViewModel {
         (activePlan?.days ?? []).sorted { ($0.week ?? 0, $0.dayIndex) < ($1.week ?? 0, $1.dayIndex) }
     }
 
+    /// The last session to repeat and the active plan's days, for the binding in use when it starts: answers that arrive
+    /// after a sign-out, another account or the Demo data switch are dropped (security review S-A).
     func loadStartOptions() async {
-        lastSession = await library.lastSession()
-        if let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan { activePlan = plan }
+        let asked = library.binding
+        let last = await library.lastSession()
+        guard library.binding == asked else { return }
+        lastSession = last
+        guard let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan,
+              library.binding == asked else { return }
+        loadedPlan = plan
+    }
+
+    /// A sign-out, another account or the Demo data switch (`ScreenModels`, with the other account-state forgetters): the
+    /// last session and the plan were the side's that ended. This model lives as long as the app.
+    func forget() {
+        lastSession = nil
+        loadedPlan = nil
     }
 }
 
