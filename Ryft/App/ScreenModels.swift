@@ -78,6 +78,9 @@ final class ScreenModels {
         trainImport.gate = { [onboarding] in onboarding.uploadGate(for: .trainImport, write: $0) }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
+        // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
+        // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
+        state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         push = PushRegistrar(env: state.env)
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
