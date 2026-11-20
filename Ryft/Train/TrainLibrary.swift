@@ -11,7 +11,9 @@ final class TrainLibrary {
     private(set) var exercises: [Exercise] = []
     private(set) var catalog: PlansOverview?
     private(set) var today: PlanToday?
-    private(set) var isLoading = false
+    /// A refresh is running. Counted: one that ends for a binding that's over doesn't end the next binding's.
+    var isLoading: Bool { refreshes > 0 }
+    private var refreshes = 0
     var error: String?
     var errorDetails: String?
 
@@ -73,9 +75,13 @@ final class TrainLibrary {
 
     /// App active / pull to refresh. Each part (exercises, plans, today's plan day) succeeds or
     /// fails on its own; the cache stays. The message is the first failure's, if any.
+    ///
+    /// The refresh is its binding's (code review S1): once a sign-out, another account, a wipe or the Demo data switch ends
+    /// it, the parts still to come send nothing (`fetch`), and neither the message nor its clearing is written: they're the
+    /// next binding's now.
     func refresh() async {
-        isLoading = true
-        defer { isLoading = false }
+        refreshes += 1
+        defer { refreshes -= 1 }
         let client = client()
         var failure: Error?
         var cancelled = false
@@ -96,6 +102,7 @@ final class TrainLibrary {
             store.saveDocument(c, key: Self.catalogKey)
         }
         note(await fetch("plans/today", from: client) { try await $0.planToday() }) { setToday($0) }
+        guard client.isCurrent else { return }
         if let failure {
             self.error = failure.localizedDescription
             self.errorDetails = failure.diagnosticDetails
@@ -139,19 +146,35 @@ final class TrainLibrary {
         return Client(source: remote, outbox: outbox, binding: outbox.binding)
     }
 
+    /// Whose requests go now (`TrainSyncService.Binding`): a caller that awaits Train compares it before and after.
+    var binding: TrainSyncService.Binding { outbox().binding }
+
+    /// Train's read `id` ("plans", "plan/<id>") for `binding`'s owner: the account's id or the demo's, never shown. Two
+    /// owners' reads of one resource are two flights (`fetch`).
+    static func readKey(_ id: String, for binding: TrainSyncService.Binding) -> ReadKey {
+        ReadKey(.train, id: "\(binding.owner ?? "signed-out")/\(id)")
+    }
+
     /// One read through the read pipeline when there is one (`ScreenModels` sets the app's): offline, signed out or held
     /// back nothing is sent and it ends at once (`.declined`), and a try uses the fail-fast session, never one that waits
     /// minutes for a network. Without one (tests) it goes straight to the source. An answer or a failure that arrives after
     /// a sign-out, another account, a wipe or the Demo data switch is `.declined`: the caller writes none of it into the
     /// store or memory, which are the next binding's now (security review S-1). A cancelled caller (or a reset of the
     /// pipeline) is `.cancelled`, however the request ended.
+    ///
+    /// A client whose binding is already over sends nothing (code review S1: a refresh that goes on after the switch), and
+    /// a read joins only a flight of its own binding: the key carries the owner, so the Demo data side and the account
+    /// never share an answer, whoever started the flight (`ReadKey`, `ReadScheduler.enter`).
     private func fetch<T: Sendable>(_ id: String, from client: Client, userInitiated: Bool = false,
                                     _ request: @escaping @MainActor (TrainDataSource) async throws -> T) async -> Fetched<T> {
+        guard client.isCurrent else { return .declined }
         let source = client.source
         do {
             let value: T?
             if let reads {
-                value = try await reads.run(ReadKey(.train, id: id), userInitiated: userInitiated) { try await request(source) }
+                value = try await reads.run(Self.readKey(id, for: client.binding), userInitiated: userInitiated) {
+                    try await request(source)
+                }
             } else {
                 value = try await request(source)
             }
