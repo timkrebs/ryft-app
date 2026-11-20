@@ -84,6 +84,21 @@ struct PresentedRootTests {
             .toggleStyle(.ryft)
     }
 
+    /// A page in the Nocturne frame (`SubpageScaffold`, PR 6 C): its own header (`header`, the close circle or Back) and no
+    /// system bar, so there is no bar button to read the tint from; no stock switch in the window, and whatever UIKit draws
+    /// tinted under `sheet` (a field) in the ink. That the content gets `presentedRoot()` is the scan's job
+    /// (`everyPresentationHasIt`).
+    private static func expectNocturneFrame(_ w: HostedWindow, _ sheet: UIView, _ screen: String, header: String) async throws {
+        try await w.wait("\(screen): its header") { w.nodes(in: sheet).contains { $0.identifier == header } }
+        let stock = switches(in: w.window)
+        #expect(stock.isEmpty, "\(screen): \(stock.count) stock switch(es)")
+        let bars = views(under: sheet).filter { $0 is UINavigationBar && !$0.isHidden && $0.alpha > 0.01 }
+        #expect(bars.isEmpty, "\(screen): a system bar shows")
+        let inkHex = try ink(for: sheet)
+        let off = tinted(under: sheet).filter { hex($0.tintColor, for: $0) != inkHex }
+        #expect(off.isEmpty, "\(screen): tinted \(off.map { "\(type(of: $0)) \(hex($0.tintColor, for: $0))" }), not the ink \(inkHex)")
+    }
+
     /// Dismisses what's presented, so the next window starts without it.
     private static func dismiss(_ w: HostedWindow) async throws {
         w.host.dismiss(animated: false)
@@ -203,13 +218,39 @@ struct PresentedRootTests {
             try await w.wait("the error card") { w.node("Details", exactly: true) != nil }
             try #require(w.node("Details", exactly: true)).activate()
             let sheet = try await Self.presented(w, "the Details sheet") { $0.contains { $0.label == "Send to RYFT" } }
-            try await Self.expectNocturne(w, sheet, "Details")
+            // PR 6 A §A-16: a SubpageScaffold sheet (the close circle, no system bar, no field to read a tint from).
+            try await Self.expectNocturneFrame(w, sheet, "Details", header: "subpage.close")
             try await Self.expectPills(w, sheet)
             try #require(w.nodes(in: sheet).first { $0.label == "Send to RYFT" }).activate()
             try await w.wait("Report a problem, pushed") {
                 w.nodes(in: sheet).contains { $0.label == "Reports are limited to 10 a day." }
             }
             try await Self.expectNocturne(w, sheet, "Report a problem")
+            try await Self.dismiss(w)
+        }
+    }
+
+    /// PR 6 A §A-6: a reset link opened while signed out. RootView's own presenter (`auth.needsNewPassword`) puts Set new
+    /// password over Welcome; the password field is the control UIKit tints. The app's settings are the test's own, with
+    /// Demo data off (the simulator's default is on, which shows the tabs instead of Welcome).
+    @Test("A reset link's Set new password, presented by RootView over Welcome: no stock switch, the field in the ink")
+    func setNewPasswordOverWelcome() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.presented-root.\(UUID().uuidString)"))
+        let auth = AuthService.preview(signedIn: false)
+        let settings = Settings(defaults: defaults)
+        settings.demoMode = false
+        let root = RootView().environment(settings).previewEnvironment(auth: auth)
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(root)) { w in
+            try await w.wait("Welcome", timeout: .seconds(10)) {
+                w.nodes().contains { $0.identifier == "welcome.createAccount" }
+            }
+            auth.needsNewPassword = true
+            let sheet = try await Self.presented(w, "Set new password") {
+                $0.contains { $0.identifier == "newPassword.save" }
+            }
+            try await Self.expectNocturneFrame(w, sheet, "Set new password", header: "subpage.close")
+            // The field is there to read the tint from: it must be the ink.
+            try await Self.expectNocturne(w, sheet, "Set new password")
             try await Self.dismiss(w)
         }
     }
