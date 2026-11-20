@@ -1274,6 +1274,16 @@ struct RemoteConfig: Codable, Hashable {   // GET /v1/config
     /// `nil` only in a config cached before the Beta.
     var privacyPolicyVersion: String? = nil
     var privacyPolicyUrl: String? = nil
+    /// API.md → `app_attest` (AA2, D247): "off" | "warn" | "on", absent before D247. A string, so an unknown
+    /// value can't fail the whole config; read it through `appAttestMode`.
+    var appAttest: String?
+
+    var appAttestMode: AppAttestMode? { appAttest.flatMap(AppAttestMode.init(rawValue:)) }
+}
+
+/// The server's App Attest mode (`RemoteConfig.app_attest`). Closed, exact match: "OFF" is unknown, read as absent.
+enum AppAttestMode: String, Equatable, Sendable {
+    case off, warn, on
 }
 
 enum NotificationCategory: String, Codable, CaseIterable, Identifiable {

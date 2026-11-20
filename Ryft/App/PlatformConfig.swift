@@ -98,6 +98,23 @@ enum AppInfo {
         return "\(v) (\(b))"
     }
 
+    /// `CFBundleVersion` as it is, for `X-RYFT-App-Build` (no fallback: a bundle without one sends no header).
+    static var bundleBuild: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
+
+    /// The longest `X-RYFT-App-Build` the platform reads (API.md → Conventions → App build, AA1).
+    static let headerBuildLimit = 24
+
+    /// `raw` when it has the header's form, `^[0-9]+(\.[0-9]+){0,3}$` in at most 24 characters; else nil (no header).
+    /// By hand, ASCII digits only: `\d` and `Character.isNumber` take other scripts' digits too.
+    static func headerBuild(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty, raw.utf8.count <= headerBuildLimit else { return nil }
+        let parts = raw.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count <= 4,
+              parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0) } })
+        else { return nil }
+        return raw
+    }
+
     /// "iOS 27.1".
     @MainActor static var osVersion: String {
         "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"

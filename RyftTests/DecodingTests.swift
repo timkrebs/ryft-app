@@ -35,7 +35,7 @@ struct DecodingTests {
     @Test func remoteConfig() throws {
         let c = try Fixture.decode(RemoteConfig.self, "remote_config")
         #expect(c.flags["train.enabled"] == true && c.flags["today.redesign"] == false)
-        #expect(c.flags.count == 6)
+        #expect(c.flags.count == 8)
         #expect(c.ttlSec == 21600)
     }
 

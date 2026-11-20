@@ -190,7 +190,7 @@ struct BetaMirrorDecodingTests {
 
     @Test func remoteConfigNamesThePolicyInForce() throws {
         let c = try Fixture.decode(RemoteConfig.self, "remote_config")
-        #expect(c.privacyPolicyVersion == "2026-10-20" && c.privacyPolicyUrl == "https://ryftlab.de/privacy")
+        #expect(c.privacyPolicyVersion == "2026-10-26" && c.privacyPolicyUrl == "https://ryftlab.de/privacy")
         // A config cached before the Beta still decodes.
         let old = #"{"flags":{},"evaluated_at":"2026-10-19T06:12:00Z","ttl_sec":21600}"#
         #expect(try APIClient.jsonDecoder.decode(RemoteConfig.self, from: Data(old.utf8)).privacyPolicyVersion == nil)

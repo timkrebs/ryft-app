@@ -18,7 +18,7 @@ import Observation
 @Observable
 final class FlagStore: FeatureFlagProvider {
     static let shared = FlagStore(store: .shared, defaults: .standard, account: AuthService.shared.accountID,
-                                  demo: Settings.shared.demoMode)
+                                  demo: Settings.shared.demoMode, appAttest: .live)
 
     static let overridesKey = "flags.overrides"
     /// Debug launch argument: flags turned on for one launch.
@@ -51,13 +51,22 @@ final class FlagStore: FeatureFlagProvider {
     private(set) var launchFlags: Set<FeatureFlag> = []
     /// Arrived while screens were showing; applied on the next appearance.
     @ObservationIgnored private(set) var pending: Cached?
+    /// Told the newest answer's App Attest mode (AA2): this store owns the per-account cache. Nil: nobody (tests).
+    @ObservationIgnored private let appAttest: AppAttestor?
+    /// The shown answer's `app_attest` (set in `show`, nil in `clear`).
+    @ObservationIgnored private var shownAppAttest: AppAttestMode?
 
-    init(store: TrainStore, defaults: UserDefaults, account: String? = nil, demo: Bool = false) {
+    /// `appAttest`: `.live` for `shared`; it learns the cached mode here, before any request of a cold or background
+    /// launch.
+    init(store: TrainStore, defaults: UserDefaults, account: String? = nil, demo: Bool = false,
+         appAttest: AppAttestor? = nil) {
         self.store = store
         self.defaults = defaults
         self.account = account
         self.demo = demo
+        self.appAttest = appAttest
         if let cached = store.document(Cached.self, key: cacheKey) { show(cached) }
+        publishAppAttest()
         #if DEBUG
         let saved = defaults.dictionary(forKey: Self.overridesKey) as? [String: Bool] ?? [:]
         overrides = Dictionary(uniqueKeysWithValues: saved.compactMap { k, v in FeatureFlag(rawValue: k).map { ($0, v) } })
@@ -105,6 +114,8 @@ final class FlagStore: FeatureFlagProvider {
         } else {
             pending = cached
         }
+        // The mode isn't on screen: a pending answer's counts at once.
+        publishAppAttest()
     }
 
     /// A screen is appearing: switch to an answer that arrived meanwhile.
@@ -133,12 +144,14 @@ final class FlagStore: FeatureFlagProvider {
     func reset() {
         store.removeDocument(key: cacheKey)
         clear()
+        publishAppAttest()
     }
 
     private func reload() {
         generation += 1
         clear()
         if let cached = store.document(Cached.self, key: cacheKey) { show(cached) }
+        publishAppAttest()
     }
 
     private func clear() {
@@ -147,6 +160,7 @@ final class FlagStore: FeatureFlagProvider {
         fetchedAt = nil
         ttl = Self.defaultTTL
         pending = nil
+        shownAppAttest = nil
     }
 
     private func show(_ cached: Cached) {
@@ -154,6 +168,17 @@ final class FlagStore: FeatureFlagProvider {
         evaluatedAt = cached.config.evaluatedAt
         fetchedAt = cached.fetchedAt
         ttl = Self.ttl(of: cached.config)
+        shownAppAttest = cached.config.appAttestMode
+    }
+
+    /// The newest answer's mode, once per change (never the nil between `clear` and `show`): a pending answer's, even
+    /// absent, else the shown one's. `applyPending` doesn't publish: the newest answer is the same.
+    private func publishAppAttest() {
+        if let pending {
+            appAttest?.configure(pending.config.appAttestMode, fetchedAt: pending.fetchedAt)
+        } else {
+            appAttest?.configure(shownAppAttest, fetchedAt: fetchedAt)
+        }
     }
 
     private static func ttl(of config: RemoteConfig) -> TimeInterval {
