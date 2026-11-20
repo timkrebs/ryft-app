@@ -79,6 +79,7 @@ enum AccountHintSpec {
             AccountHintSheet(hint: AccountHint(kind: "other_account_on_device", otherProvider: "email",
                                                otherLastSync: .now.addingTimeInterval(-86_400)),
                              keep: {}, useOther: {})
+                .presentedRoot()
         }
         .preferredColorScheme(.dark)
 }
@@ -89,6 +90,7 @@ enum AccountHintSpec {
             AccountHintSheet(hint: AccountHint(kind: "other_account_on_device", otherProvider: "apple",
                                                otherLastSync: .now.addingTimeInterval(-86_400)),
                              keep: {}, useOther: {})
+                .presentedRoot()
         }
         .preferredColorScheme(.dark)
         .dynamicTypeSize(.accessibility3)

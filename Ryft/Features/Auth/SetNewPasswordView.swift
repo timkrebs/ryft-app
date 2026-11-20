@@ -89,7 +89,7 @@ enum SetNewPasswordSpec {
 #Preview("Set new password") {
     Color.clear
         .sheet(isPresented: .constant(true)) {
-            SetNewPasswordView(mode: .recovery)
+            SetNewPasswordView(mode: .recovery).presentedRoot()
         }
         .environment(AuthService.preview())
         .preferredColorScheme(.dark)

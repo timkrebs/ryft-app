@@ -1648,6 +1648,7 @@ private enum PreviewIssue {
         .sheet(isPresented: .constant(true)) {
             RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
                 .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+                .presentedRoot()
         }
         .preferredColorScheme(.dark)
 }
@@ -1655,7 +1656,7 @@ private enum PreviewIssue {
 #Preview("Details sheet · no ID") {
     Color.clear
         .sheet(isPresented: .constant(true)) {
-            RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
+            RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable)).presentedRoot()
         }
         .preferredColorScheme(.dark)
 }
