@@ -22,3 +22,4 @@
 - [Shared Mac hygiene](shared-mac-hygiene.md) — parallel leads: fetch + compare trees; recorded PIDs only; git -C; worktrees can vanish, push after merges
 - [Release build check](release-build-check.md) — PR CI is Debug only; add a Release build to every integration run
 - [Flagged agent actions](flagged-agent-actions.md) — check remote refs + gh run list + transcript; release.sh (local Release build) tripped "Production Deploy"
+- [Integration run: UI smoke](integration-run-ui-smoke.md) — final local run includes the whole UISmoke plan; grep UI tests for changed labels
