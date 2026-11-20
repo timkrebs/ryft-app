@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Ryft
 
@@ -300,5 +301,56 @@ struct TrainActionSidesTests {
         #expect(await delete.value == false)
         #expect(rig.store.plan(id: mine.id) != nil)
         #expect(alex.count(.plans) == 0, "the plans aren't read again for Alex")
+    }
+}
+
+/// Code review N1: the plan page keeps its own load's failure and Details. A later refresh of the plans clears the library's
+/// message; the page doesn't fall back to outlines with nothing pending.
+@MainActor
+@Suite("R4T N1: the plan page's failure is its own", .serialized)
+struct PlanPageFailureTests {
+    private let refused = APIError.http(400, "bad request", requestID: "rid-alex-400")
+    private func ids(_ w: HostedWindow) -> [String] { w.nodes().compactMap(\.identifier) }
+
+    @Test func theFailureOutlivesARefreshAndGoesWithTheNextLoad() async {
+        let alex = SideTrainSource(.demo)
+        alex.fail(.plan, with: refused)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        let model = PlanDetailViewModel(planID: MockTrain.fullBody.id, library: rig.library)
+        await model.load()
+        let message = model.failure
+        #expect(message != nil && model.failureDetails == "HTTP 400 · Request ID rid-alex-400")
+        await rig.library.refresh()
+        #expect(rig.library.error == nil, "the plans answered: the library's message is gone")
+        #expect(model.failure == message && model.failureDetails == "HTTP 400 · Request ID rid-alex-400", "the page's stays")
+        #expect(!model.isOffline)
+        // Offline now: the calm line, not the old failure.
+        let offline = AppEnvironment.test(online: false)
+        rig.library.reads = offline.reads
+        await model.load(userInitiated: true)
+        #expect(model.failure == nil && model.failureDetails == nil && model.isOffline)
+        // Online, answered: the plan.
+        rig.library.reads = nil
+        alex.fail(.plan, with: nil)
+        await model.load(userInitiated: true)
+        #expect(model.plan?.id == MockTrain.fullBody.id && model.failure == nil)
+        withExtendedLifetime(offline) {}
+    }
+
+    /// On the page: after the refresh, still the failure with Try again and its Details, not outlines.
+    @Test func thePageKeepsItsFailureWithDetailsAfterARefresh() async throws {
+        let alex = SideTrainSource(.demo)
+        alex.fail(.plan, with: refused)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        let view = NavigationStack { PlanDetailView(planID: MockTrain.fullBody.id) }.environment(rig.library)
+        try await HostedWindow.run(width: 390, height: 900, bottomInset: 0, view) { w in
+            try await w.wait("the failure") { ids(w).contains("plan.loadError.retry") }
+            await rig.library.refresh()
+            #expect(rig.library.error == nil)
+            try await w.settle()
+            #expect(ids(w).contains("plan.loadError.retry") && !ids(w).contains("plan.loading"), "\(ids(w).sorted())")
+            try #require(w.nodes().first { $0.label == "Details" }, "Details").activate()
+            try await w.wait("the request ID") { w.nodes().contains { $0.label.contains("Request ID rid-alex-400") } }
+        }
     }
 }

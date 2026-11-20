@@ -390,10 +390,17 @@ final class PlanDetailViewModel {
     private(set) var plan: Plan?
     var week = 1
     private(set) var working = false
-    /// The last load came back without the plan (not cached, and the platform failed).
-    private(set) var loadFailed = false
+    /// The last load came back without the plan because the platform failed (not cached): its message and Details, the
+    /// load's own (code review N1). The library's `error` is the Plans page's and a refresh clears it.
+    private(set) var loadFailure: LoadFailure?
     /// The last load came back without the plan because nothing was sent (not cached, and offline or held back).
     private(set) var loadDeclined = false
+
+    /// A failed load's sentence, and its status and request ID for Details.
+    struct LoadFailure: Equatable {
+        let message: String
+        let details: String?
+    }
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -421,7 +428,9 @@ final class PlanDetailViewModel {
     }
 
     /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
-    var failure: String? { plan == nil && loadFailed ? library.error : nil }
+    var failure: String? { plan == nil ? loadFailure?.message : nil }
+    /// The failure's status and request ID, behind its Details.
+    var failureDetails: String? { plan == nil ? loadFailure?.details : nil }
     /// Not cached and nothing could be sent (offline, or held back): a calm line instead of outlines that would never fill.
     var isOffline: Bool { plan == nil && loadDeclined }
 
@@ -431,7 +440,11 @@ final class PlanDetailViewModel {
         let read = await library.loadPlan(id: planID, userInitiated: userInitiated)
         guard read != .cancelled, !Task.isCancelled else { return }
         if let loaded = read.plan { plan = loaded }
-        loadFailed = plan == nil && read == .failed
+        if case .failed(let message, let details) = read, plan == nil {
+            loadFailure = LoadFailure(message: message, details: details)
+        } else {
+            loadFailure = nil
+        }
         loadDeclined = plan == nil && read == .offline
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }

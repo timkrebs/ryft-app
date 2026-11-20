@@ -379,7 +379,7 @@ private struct PlanDetailScreen: View {
                             .padding(.top, PlansLayout.daysGap)
                     }
                 } else if let failure = model.failure {
-                    InlineMessage(message: failure, details: model.errorDetails, retry: { await model.load(userInitiated: true) },
+                    InlineMessage(message: failure, details: model.failureDetails, retry: { await model.load(userInitiated: true) },
                                   identifier: "plan.loadError")
                         .padding(.top, PlansLayout.headerGap)
                 } else if model.isOffline {

@@ -244,7 +244,7 @@ final class TrainLibrary {
         case .failed(let error):
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
-            return .failed
+            return .failed(message: error.localizedDescription, details: error.diagnosticDetails)
         }
     }
 
@@ -253,8 +253,9 @@ final class TrainLibrary {
         case plan(Plan)
         /// Not cached, and nothing was sent (offline, or held back): nothing to show until it's read.
         case offline
-        /// Not cached, and the read failed: `error` says why.
-        case failed
+        /// Not cached, and the read failed: why, and its status and request ID for Details. The plan page keeps them
+        /// (code review N1): `error`, which a later refresh clears, is the Plans page's.
+        case failed(message: String, details: String?)
         /// The caller went away: nothing changes.
         case cancelled
 
