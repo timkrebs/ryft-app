@@ -461,7 +461,15 @@ style. The PR head's code is R5's tree. `AppAttestRequiredTests/fiveConcurrentRe
 once under load and passed on the rerun: it checks the server's held count before the renewal's challenge arrives
 (follow-up `test:` PR).
 
-**Left for later.** T5.9: one `CircleMenu`, one sheet assembly and header convention, the live workout's offline line,
+**Main #130 (analytics) merged in at 8c3449e** after the PR opened. Eight conflicts, resolved by keeping PR 6's code and
+adding #130's calls at the same events (`journalSaved` only for the sheet's own side, `.analyticsScreen(.journal)` on the
+sheet's stack, not its placeholder). All 175 analytics lines #130 added are in the merge, same count per file. #130's
+prompt called PR 6 A's replaced `OnboardingScreen`: a private frame in `AnalyticsOptInSheet.swift` keeps its old look, and
+`ConsentPoint` moved there (the onboarding file bans teal). Strict 0 warnings, Unit 4,772 passed (0 failed; #130's 99
+tests included), 20 UI tests, Release, lint, style, `sync-strings --check`.
+
+**Left for later.** The analytics prompt in Nocturne (its frame, buttons and `ConsentPoint`; teal on its symbol vs the
+accent map) with #130's decision B (the prompt as an onboarding step). T5.9: one `CircleMenu`, one sheet assembly and header convention, the live workout's offline line,
 Report a problem's keyboard Done, HR ruler labels at AX3, the remaining ~30 plain-space unit keys, the joined lines
 R3 left (sentence keys), Train's online failure with nothing cached still saying "try again when you're online" (new
 strings), Insights' loaded range surviving a switch (outlines missing until the next load), and the R4 re-check's three
