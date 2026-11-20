@@ -50,9 +50,30 @@ struct TrainSection: View {
 enum TodayPlanText {
     /// "5 exercises · ~55 min".
     static func detail(_ today: PlanToday) -> String {
-        let exercises = String(localized: "\(today.day.exercises.count) exercises")
-        return "\(exercises) · ~\(SessionEstimate.minutes(for: today.day.exercises)) min"
+        parts(today).joined(separator: " · ")
     }
+
+    /// The detail's parts: "5 exercises", "~55 min".
+    static func parts(_ today: PlanToday) -> [String] {
+        [String(localized: "\(today.day.exercises.count) exercises"), "~\(SessionEstimate.minutes(for: today.day.exercises)) min"]
+    }
+}
+
+/// The start sheet's option details as parts, joined with " · " below AX1 and one per line from AX1 (`PartsLine`).
+enum StartOptionText {
+    /// "Upper A · 5 exercises · ~55 min".
+    static func todayParts(_ today: PlanToday) -> [String] { [today.day.name] + TodayPlanText.parts(today) }
+
+    /// "Upper A · Yesterday".
+    static func lastParts(_ last: TrainSession, now: Date = .now) -> [String] {
+        [last.title, Fmt.dayTitle(last.startedAt, today: now)]
+    }
+
+    /// "Upper A · Lower A · Upper B · Lower B".
+    static func planParts(_ plan: Plan) -> [String] { plan.days.map(\.name) }
+
+    /// The parts on one line, as the option draws them below AX1.
+    static func line(_ parts: [String]) -> String { parts.joined(separator: " · ") }
 }
 
 /// The start sheet's option numbers (PR 6 B §3.3, `b-01`).
@@ -114,8 +135,8 @@ struct StartWorkoutSheet: View {
     }
 
     @ViewBuilder private var options: some View {
-        if let todayText = model.todayText {
-            option(title: String(localized: "From today's plan"), detail: todayText, systemImage: "calendar",
+        if let todayParts = model.todayParts {
+            option(title: String(localized: "From today's plan"), detailParts: todayParts, systemImage: "calendar",
                    prominent: true, starts: true) {
                 coordinator.startFromToday()
             }
@@ -128,15 +149,13 @@ struct StartWorkoutSheet: View {
             PlaceholderRow(height: StartOptionSpec.minHeight, radius: StartOptionSpec.radius)
         }
         if let last {
-            option(title: String(localized: "Repeat last session"),
-                   detail: "\(last.title) · \(Fmt.dayTitle(last.startedAt))",
+            option(title: String(localized: "Repeat last session"), detailParts: StartOptionText.lastParts(last),
                    systemImage: "arrow.clockwise", starts: true) {
                 coordinator.repeatSession(last)
             }
         }
         if let plan, !plan.days.isEmpty {
-            option(title: String(localized: "A day from \(plan.name)"),
-                   detail: plan.days.map(\.name).joined(separator: " · "),
+            option(title: String(localized: "A day from \(plan.name)"), detailParts: StartOptionText.planParts(plan),
                    systemImage: "list.bullet", chevron: showsDays ? "chevron.up" : "chevron.down") {
                 withAnimation(Theme.Motion.respecting(reduceMotion)) { showsDays.toggle() }
             }
@@ -152,7 +171,7 @@ struct StartWorkoutSheet: View {
     }
 
     private func emptySession(prominent: Bool) -> some View {
-        option(title: String(localized: "Empty session"), detail: String(localized: "Add exercises as you go"),
+        option(title: String(localized: "Empty session"), detailParts: [String(localized: "Add exercises as you go")],
                systemImage: "plus", prominent: prominent, starts: true) {
             coordinator.startEmpty()
         }
@@ -186,8 +205,9 @@ struct StartWorkoutSheet: View {
     }
 
     /// One option: `[circle] 12 [title / detail] 12 [arrow circle | chevron]`. The prominent one is the light fill with dark
-    /// circles; the others are `surface` rows with an outline disc.
-    private func option(title: String, detail: String, systemImage: String, prominent: Bool = false, starts: Bool = false,
+    /// circles; the others are `surface` rows with an outline disc. The detail's parts are joined with " · " below AX1 and
+    /// stand one per line from AX1 (`PartsLine`): "Upper A" / "5 exercises" / "~55 min", none broken inside, no "·" left over.
+    private func option(title: String, detailParts: [String], systemImage: String, prominent: Bool = false, starts: Bool = false,
                         chevron: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: StartOptionSpec.spacing) {
@@ -202,11 +222,14 @@ struct StartWorkoutSheet: View {
                         .foregroundStyle(prominent ? Theme.background : Theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                     // Two lines at the default sizes. At the accessibility sizes two cut it short ("~…"): it takes what it needs.
-                    Text(verbatim: detail)
+                    // VoiceOver hears the line as joined at every size.
+                    Text(verbatim: PartsLine.text(detailParts, joined: StartOptionText.line(detailParts),
+                                                  stacked: typeSize.isAccessibilitySize))
                         .font(.ryft(.caption))
                         .foregroundStyle(prominent ? Theme.background.opacity(0.62) : Theme.textTertiary)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : StartOptionSpec.detailLines)
                         .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
+                        .accessibilityLabel(Text(verbatim: StartOptionText.line(detailParts)))
                 }
                 Spacer(minLength: 0)
                 if prominent {

@@ -119,8 +119,8 @@ struct MyDayPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 PushedHeader(Text("My Day", comment: "The card and screen with the day's sleep, workouts and activities."),
-                             subtitle: Text(verbatim: subtitle), spokenSubtitle: Text(verbatim: spokenSubtitle),
-                             identifierPrefix: "myday.view") {
+                             subtitle: Text(verbatim: subtitle), subtitleParts: subtitleParts,
+                             spokenSubtitle: Text(verbatim: spokenSubtitle), identifierPrefix: "myday.view") {
                     if actions.hasAddEntries {
                         MyDayAddMenu(actions: actions)
                     } else {
@@ -168,17 +168,38 @@ struct MyDayPage: View {
 
     // MARK: header words
 
-    /// "Today · Wed, Nov 18", "Yesterday · Tue, Nov 17", "Sat, Nov 14".
     private var subtitle: String {
-        let date = content.day.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).month(.abbreviated).day())
-        if content.isToday {
+        Self.subtitle(content.day, isToday: content.isToday, isYesterday: content.isYesterday, locale: locale)
+    }
+
+    private var subtitleParts: [String] {
+        Self.subtitleParts(content.day, isToday: content.isToday, isYesterday: content.isYesterday, locale: locale)
+    }
+
+    /// "Today · Wed, Nov 18", "Yesterday · Tue, Nov 17", "Sat, Nov 14".
+    static func subtitle(_ day: Date, isToday: Bool, isYesterday: Bool, locale: Locale) -> String {
+        let date = subtitleDate(day, locale: locale)
+        if isToday {
             return String(localized: "Today · \(date)", comment: "My Day's header under \"My Day\": today, then its date (\"Wed, Nov 18\").")
         }
-        if content.isYesterday {
+        if isYesterday {
             return String(localized: "Yesterday · \(date)",
                           comment: "Sleep's header under \"Sleep\": the night that ended yesterday morning, then its date (\"Sat, Nov 14\").")
         }
         return date
+    }
+
+    /// The subtitle's parts, one per line from AX1 (`PartsLine`): "Today", "Wed, Nov 18"; "Sat, Nov 14" alone.
+    static func subtitleParts(_ day: Date, isToday: Bool, isYesterday: Bool, locale: Locale) -> [String] {
+        let date = subtitleDate(day, locale: locale)
+        if isToday { return [String(localized: "Today"), date] }
+        if isYesterday { return [String(localized: "Yesterday"), date] }
+        return [date]
+    }
+
+    /// "Wed, Nov 18".
+    private static func subtitleDate(_ day: Date, locale: Locale) -> String {
+        day.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).month(.abbreviated).day())
     }
 
     /// The subtitle for VoiceOver, the date in full: "Today, Wednesday, November 18".

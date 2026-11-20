@@ -14,7 +14,8 @@ enum PushedHeaderSpec {
 /// subtitle 2 under it (`caption`, `textTertiary`, tabular digits) · the caller's `CircleButton` (a menu, "Add") or, without one,
 /// an empty 40 pt slot, so the title stays centred. 40 high; it grows only when the title or the subtitle wraps (large text).
 /// A subtitle of facts ("Fri, Nov 13 · 55 min · 17 sets") comes as `subtitleParts`: one line joined, one part per line from
-/// AX1 (`PartsLine`), so no "·" dangles at a line's end.
+/// AX1 (`PartsLine`), so no "·" dangles at a line's end. With a `subtitle` as well, that is the line below AX1 (the page's
+/// own wording: "Today · Wed, Nov 18", "Barbell · Chest") and the parts are only how it stands from AX1.
 /// From AX1 (C §2.9, as `SubpageHeader` stacks): Back and the trailing circle on the first 40 pt line, 12 under it the title
 /// and then the subtitle, from the leading inset across the whole width, wrapping; never squeezed between the circles.
 ///
@@ -31,11 +32,15 @@ struct PushedHeader<Trailing: View>: View {
     private let identifierPrefix: String
     private let onBack: (() -> Void)?
     private let trailing: Trailing
+    /// The outline drawn where the title goes while it isn't known (`init(loading:placeholder:)`).
+    private var titlePlaceholder: CGSize?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// `subtitleParts`: the subtitle as parts (`PartsLine`), in place of `subtitle`; nil or empty: `subtitle`.
+    /// `subtitleParts`: the subtitle as parts, one per line from AX1 (`PartsLine`). Below AX1 `subtitle` is drawn when there
+    /// is one, else the parts joined (`MyDayText.join`); VoiceOver hears `spokenSubtitle`, else `subtitle`, else the parts
+    /// joined. Nil or empty: `subtitle` at every size.
     init(_ title: Text, subtitle: Text? = nil, subtitleParts: [String]? = nil, spokenSubtitle: Text? = nil,
          identifierPrefix: String = "header", onBack: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -89,10 +94,8 @@ struct PushedHeader<Trailing: View>: View {
     /// The title over the subtitle: one header element.
     private func middle(_ alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: PushedHeaderSpec.subtitleGap) {
-            title
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
-            if let subtitleParts {
+            titleLine(alignment)
+            if let subtitleParts, subtitle == nil || typeSize.isAccessibilitySize {
                 PartsLine(subtitleParts)
                     .font(.ryft(.caption))
                     .monospacedDigit()
@@ -108,10 +111,29 @@ struct PushedHeader<Trailing: View>: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue(spokenSubtitle ?? subtitleParts.map { Text(verbatim: MyDayText.join($0)) } ?? subtitle
+        .accessibilityValue(spokenSubtitle ?? subtitle ?? subtitleParts.map { Text(verbatim: MyDayText.join($0)) }
             ?? Text(verbatim: ""))
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("\(identifierPrefix).header")
+    }
+
+    /// The title; while it isn't known, the outline capsule in its place: on the title's one line (the header keeps its
+    /// height), centred like the title below AX1 and from the leading inset under Back from AX1.
+    @ViewBuilder private func titleLine(_ alignment: HorizontalAlignment) -> some View {
+        if let titlePlaceholder {
+            title
+                .font(.ryft(.callout))
+                .foregroundStyle(.clear)
+                .lineLimit(1)
+                .overlay(alignment: alignment == .leading ? .leading : .center) {
+                    PlaceholderOutline(Capsule())
+                        .frame(width: titlePlaceholder.width, height: titlePlaceholder.height)
+                }
+        } else {
+            title
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+        }
     }
 }
 
@@ -121,6 +143,14 @@ extension PushedHeader where Trailing == PushedHeaderEmptySlot {
          identifierPrefix: String = "header", onBack: (() -> Void)? = nil) {
         self.init(title, subtitle: subtitle, subtitleParts: subtitleParts, spokenSubtitle: spokenSubtitle,
                   identifierPrefix: identifierPrefix, onBack: onBack) { PushedHeaderEmptySlot() }
+    }
+
+    /// A page whose title isn't known yet (a session opened from outside History while it loads): an outline capsule of
+    /// `placeholder`'s size where the title goes, which follows the header's layout (centred below AX1, under Back from
+    /// AX1). VoiceOver hears `label` as the header ("Loading the workout").
+    init(loading label: Text, placeholder: CGSize, identifierPrefix: String = "header", onBack: (() -> Void)? = nil) {
+        self.init(label, identifierPrefix: identifierPrefix, onBack: onBack)
+        titlePlaceholder = placeholder
     }
 }
 
@@ -142,13 +172,15 @@ private struct PushedHeaderPreviewList: View {
             PushedHeader(Text(verbatim: "Plans"))
             PushedHeader(Text(verbatim: "History"), subtitleParts: ["25 workouts", "last 90 days"])
             PushedHeader(Text(verbatim: "Upper A"), subtitleParts: ["Fri, Nov 13", "55 min", "17 sets"])
-            PushedHeader(Text(verbatim: "My Day"), subtitle: Text(verbatim: "Today · Wed, Nov 18")) {
+            PushedHeader(Text(verbatim: "My Day"), subtitle: Text(verbatim: "Today · Wed, Nov 18"),
+                         subtitleParts: ["Today", "Wed, Nov 18"]) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add")) {}
             }
             PushedHeader(Text(verbatim: "Upper/Lower 4× (copy) for the winter block"),
                          subtitleParts: ["Hypertrophy", "4 days/week", "repeating"]) {
                 CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) {}
             }
+            PushedHeader(loading: Text(verbatim: "Loading the workout"), placeholder: CGSize(width: 120, height: 14))
         }
     }
 }

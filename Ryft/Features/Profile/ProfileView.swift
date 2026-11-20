@@ -279,6 +279,7 @@ struct ProfileView: View {
             GroupedRow.push(Text("Bedtime & wake"), value: Text(verbatim: screens.bedtime.summary),
                             detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, identifier: id,
                             route: ProfileRoute.bedtime)
+                .detailParts(screens.bedtime.summaryDetailParts)
         // Privacy
         case .consent:
             GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)

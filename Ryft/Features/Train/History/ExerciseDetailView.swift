@@ -199,7 +199,7 @@ struct ExerciseDetailPage: View {
             SheetHeader(Text(verbatim: model.title), onClose: onClose)
         } else {
             PushedHeader(Text(verbatim: model.title), subtitle: model.subtitle.map { Text(verbatim: $0) },
-                         identifierPrefix: "exerciseDetail")
+                         subtitleParts: model.subtitleParts, identifierPrefix: "exerciseDetail")
         }
     }
 

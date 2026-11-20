@@ -450,10 +450,12 @@ struct AboutYouView: View {
                 GroupedCard(GroupTitle(Text("Estimated from your birth year"))) {
                     GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.rowValue(.maxHR, saved: editor.maxHRText)),
                                     detail: editor.rowDetail(.maxHR).map { Text(verbatim: $0) }) { editing = .maxHR }
+                        .detailParts(editor.rowDetailParts(.maxHR))
                         .accessibilityIdentifier("aboutYou.maxHR")
                     GroupedRow.push(Text("Baseline sleep need"),
                                     value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
                                     detail: editor.rowDetail(.sleepBase).map { Text(verbatim: $0) }) { editing = .sleepBase }
+                        .detailParts(editor.rowDetailParts(.sleepBase))
                         .accessibilityIdentifier("aboutYou.sleepBase")
                 } footer: {
                     VStack(alignment: .leading, spacing: GroupedListSpec.footerGap) {

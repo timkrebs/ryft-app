@@ -94,6 +94,7 @@ struct ActivityDetailScreen: View {
     private var header: some View {
         PushedHeader(Text(verbatim: closingTitle ?? model.title),
                      subtitle: model.activity == nil ? nil : Text(verbatim: model.subtitle(locale: locale)),
+                     subtitleParts: model.subtitleParts(locale: locale),
                      spokenSubtitle: model.activity == nil ? nil : Text(verbatim: model.when(locale: locale)),
                      identifierPrefix: "activityDetail") {
             if model.isEditable {

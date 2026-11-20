@@ -37,23 +37,25 @@ struct SleepNeedSheetContent: Equatable {
     struct BaselineRow: Equatable {
         let value: String
         let spokenValue: String
-        let detail: String?
+        var detail: String? { detailParts?.joined(separator: " · ") }
+        /// The detail's parts ("Learned", "updated Wed"), one per line from AX1 (`GroupedRow.detailParts`).
+        let detailParts: [String]?
 
         @MainActor
         init(editor: BodySettingsEditor) {
             if editor.isWriting(.sleepBase) {
                 value = BodySettingsEditor.savingWord
                 spokenValue = value
-                detail = nil
+                detailParts = nil
             } else if editor.isLoaded {
                 value = Fmt.clock(minutes: editor.sleepBase)
                 spokenValue = Fmt.spokenDuration(minutes: editor.sleepBase)
                 // As the editor says it: set by hand is "Set by you" (the learned value is the editor's "Use RYFT's estimate").
-                detail = editor.sleepBaseSource == .manual ? String(localized: "Set by you") : editor.sleepBaseSourceText
+                detailParts = editor.sleepBaseSource == .manual ? [String(localized: "Set by you")] : editor.sleepBaseSourceParts
             } else {
                 value = String(localized: "Not loaded yet")
                 spokenValue = value
-                detail = nil
+                detailParts = nil
             }
         }
     }
@@ -158,6 +160,7 @@ struct SleepNeedSheet: View {
                             identifier: "sleepNeed.changeBaseline") {
                 editsBaseline = true
             }
+            .detailParts(row.detailParts)
             // The row reads its value and detail as one Text, which drops a spoken label on the value: "7 hours 30 minutes,
             // Set by you", not "7:30" read as a time of day.
             .accessibilityValue(Text(verbatim: [row.spokenValue, row.detail].compactMap(\.self).joined(separator: ", ")))

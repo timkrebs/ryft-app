@@ -329,13 +329,11 @@ struct SessionDetailPage: View {
                          spokenSubtitle: content.spokenSubtitle.map { Text(verbatim: $0) },
                          identifierPrefix: "sessionDetail")
         } else {
-            PushedHeader(Text("Loading the workout", comment: "VoiceOver: the session detail's outline cards while its sets load.")
-                            .foregroundStyle(.clear), identifierPrefix: "sessionDetail")
-                .overlay {
-                    PlaceholderOutline(Capsule())
-                        .frame(width: SessionDetailLayout.titlePlaceholderWidth,
-                               height: SessionDetailLayout.titlePlaceholderHeight)
-                }
+            // The outline where the title goes: centred between the circles, under Back from AX1.
+            PushedHeader(loading: Text("Loading the workout", comment: "VoiceOver: the session detail's outline cards while its sets load."),
+                         placeholder: CGSize(width: SessionDetailLayout.titlePlaceholderWidth,
+                                             height: SessionDetailLayout.titlePlaceholderHeight),
+                         identifierPrefix: "sessionDetail")
         }
     }
 

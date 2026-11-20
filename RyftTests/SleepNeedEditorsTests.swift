@@ -116,7 +116,8 @@ struct BodySettingStepperTests {
             }
             #expect(minutes == (direction > 0 ? 720 : 240), "it reaches the end")
         }
-        #expect(BodySetting.sleepBase.rulerLabels == ["4 h", "8 h", "12 h"])
+        // A no-break space keeps each number with its "h" (50c0b80).
+        #expect(BodySetting.sleepBase.rulerLabels == ["4\u{00A0}h", "8\u{00A0}h", "12\u{00A0}h"])
         #expect(BodySetting.maxHR.rulerLabels == ["100 bpm", "165", "230 bpm"])
     }
 
