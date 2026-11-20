@@ -22,15 +22,15 @@ enum MockData {
     static let consentedAt = Date(timeIntervalSince1970: 1_792_489_964) // 2026-10-20T09:12:44Z
 
     static let user = User(id: UUID(uuidString: "6F1C2B8E-1D3A-4E55-9C61-2B0F7E4A9D10") ?? UUID(),
-                           name: "Tim", email: "tim@example.com", provider: "email",
+                           name: "Alex Doe", email: "alex@example.com", provider: "email",
                            tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: sleepBase,
                            sleepBaseSource: .learned, sleepBaseLearnedMin: sleepBase,
                            sleepBaseLearnedAt: Calendar.current.date(byAdding: .day, value: -2, to: .now),
                            consent: Consent(policyVersion: policyVersion, grantedAt: consentedAt),
-                           sources: [UserSource(name: "Tim's Apple Watch", bundleId: "com.apple.health.81E2",
+                           sources: [UserSource(name: "Alex's Apple Watch", bundleId: "com.apple.health.81E2",
                                                 kinds: [.energy, .hr, .hrv, .resp, .sleep, .spo2, .workout],
                                                 lastSeen: .now.addingTimeInterval(-1_800)),
-                                     UserSource(name: "Tim's iPhone", bundleId: "com.apple.health.3F0A",
+                                     UserSource(name: "Alex's iPhone", bundleId: "com.apple.health.3F0A",
                                                 kinds: [.steps], lastSeen: .now.addingTimeInterval(-600))])
 
     /// Oldest first; the last element is today.
@@ -69,9 +69,7 @@ enum MockData {
         var rng = SeededRandom(seed: UInt64(w.id.uuidString.suffix(8), radix: 16) ?? 7)
         let samples = Int(w.duration / 30)
         let avg = w.avgHr ?? 130
-        var hr: [HRPoint] = []
-        var zones = [Double](repeating: 0, count: 5)
-        for i in 0...max(1, samples) {
+        var curve: [Double] = (0...max(1, samples)).map { i in
             let p = Double(i) / Double(max(1, samples))
             // Warm-up ramp, a working block with gentle intervals, cool-down.
             let shape: Double
@@ -80,7 +78,20 @@ enum MockData {
             case 0.88...: shape = 1 - 0.25 * ((p - 0.88) / 0.12)
             default: shape = 1 + 0.07 * sin(p * 24)
             }
-            let bpm = min(Double(maxHR) - 4, avg * shape + rng.next(in: -3...3))
+            return min(Double(maxHR) - 4, avg * shape + rng.next(in: -3...3))
+        }
+        // A push around the highest interval, so the curve's peak is the workout's max heart rate (the Max tile and the
+        // chart's "peak" agree): a smooth rise over a few minutes, nothing above the max.
+        if let top = w.maxHr, let peak = curve.indices.max(by: { curve[$0] < curve[$1] }) {
+            let lift = top - curve[peak]
+            curve = curve.enumerated().map { i, bpm in
+                let d = Double(i - peak) / 6
+                return min(top, bpm + lift * exp(-d * d))
+            }
+        }
+        var hr: [HRPoint] = []
+        var zones = [Double](repeating: 0, count: 5)
+        for (i, bpm) in curve.enumerated() {
             hr.append(HRPoint(t: w.start.addingTimeInterval(Double(i) * 30), bpm: bpm.rounded()))
             let hrr = (bpm - restingHR) / (Double(maxHR) - restingHR)
             let zone = Int(((hrr - 0.5) * 10).rounded(.down))
@@ -538,9 +549,9 @@ extension SourceRef {
     /// Garmin Connect as HealthKit names it.
     static let mockGarmin = SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil)
     static let mockOura = SourceRef(name: "Oura", bundleID: "com.ouraring.oura", deviceModel: nil)
-    static let mockPhone = SourceRef(name: "Tim's iPhone", bundleID: "com.apple.health.3F0A8C2E-5B1D-4E7A-9C6F-2D8B1A4E7F30",
+    static let mockPhone = SourceRef(name: "Alex's iPhone", bundleID: "com.apple.health.3F0A8C2E-5B1D-4E7A-9C6F-2D8B1A4E7F30",
                                      deviceModel: "iPhone")
-    static let mockWatch = SourceRef(name: "Tim's Apple Watch", bundleID: "com.apple.health.81E4B0C2-7D3A-4F19-B6E5-0C9A2F7D41B8",
+    static let mockWatch = SourceRef(name: "Alex's Apple Watch", bundleID: "com.apple.health.81E4B0C2-7D3A-4F19-B6E5-0C9A2F7D41B8",
                                      deviceModel: "Watch")
 }
 

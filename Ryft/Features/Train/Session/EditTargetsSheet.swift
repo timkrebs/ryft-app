@@ -242,14 +242,14 @@ private struct TargetStepper: View {
 #Preview("Edit targets · dark") {
     let c = TrainPreview.liveController()
     return Color.clear
-        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]) }
+        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]).presentedRoot() }
         .preferredColorScheme(.dark)
 }
 
 #Preview("Edit targets · light") {
     let c = TrainPreview.liveController()
     return Color.clear
-        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]) }
+        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]).presentedRoot() }
         .preferredColorScheme(.light)
 }
 

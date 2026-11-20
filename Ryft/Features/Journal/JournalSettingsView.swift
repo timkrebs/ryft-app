@@ -63,7 +63,7 @@ struct JournalSettingsView: View {
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store) }
+        .sheet(isPresented: $adding) { AddBehaviorSheet(store: store).presentedRoot() }
         .task { await store.load() }
     }
 

@@ -60,7 +60,7 @@ final class NocturneTodaySleepUITests: XCTestCase {
         XCTAssertTrue(tile.waitForExistence(timeout: wait))
         app.reveal(tile)
         tile.tap()
-        let sleepTab = app.tabBars.buttons["Sleep"]
+        let sleepTab = app.tab("Sleep")
         let selected = expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: sleepTab)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: wait), .completed, "the Sleep tab is selected")
         XCTAssertTrue(app.buttons["sleep.header.previous"].waitForExistence(timeout: wait), "Sleep's header")

@@ -47,7 +47,7 @@ struct TodayNocturneTests {
         return try APIClient.jsonDecoder.decode(DailyScore.self, from: Data(json.utf8))
     }
 
-    private func model(today: DailyScore?, history: [DailyScore], status: ScoringState?, name: String? = "Tim Krebs")
+    private func model(today: DailyScore?, history: [DailyScore], status: ScoringState?, name: String? = "Alex Doe")
         -> TodayViewModel {
         let env = AppEnvironment.test(clock: TestClock(now: now))
         let state = AppState(env: env)
@@ -232,21 +232,21 @@ struct TodayNocturneTests {
 
     @Test func theGreetingFollowsTheHourAndTheFirstName() {
         func at(_ hour: Int) -> Date { Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: now)! }
-        #expect(ReadinessCopy.greeting(at: at(4), name: "Tim") == String(localized: "Good evening, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(5), name: "Tim") == String(localized: "Good morning, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(11), name: "Tim") == String(localized: "Good morning, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(12), name: "Tim") == String(localized: "Good afternoon, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(17), name: "Tim") == String(localized: "Good afternoon, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(18), name: "Tim") == String(localized: "Good evening, \("Tim")"))
-        #expect(ReadinessCopy.greeting(at: at(7), name: "Tim") == "Good morning, Tim")
+        #expect(ReadinessCopy.greeting(at: at(4), name: "Alex") == String(localized: "Good evening, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(5), name: "Alex") == String(localized: "Good morning, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(11), name: "Alex") == String(localized: "Good morning, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(12), name: "Alex") == String(localized: "Good afternoon, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(17), name: "Alex") == String(localized: "Good afternoon, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(18), name: "Alex") == String(localized: "Good evening, \("Alex")"))
+        #expect(ReadinessCopy.greeting(at: at(7), name: "Alex") == "Good morning, Alex")
         for hour in [4, 5, 12, 18] {
             #expect(!ReadinessCopy.greeting(at: at(hour), name: nil).contains(","), "no comma without a name at \(hour)")
         }
-        #expect(ReadinessCopy.firstName("Tim Krebs") == "Tim")
+        #expect(ReadinessCopy.firstName("Alex Doe") == "Alex")
         #expect(ReadinessCopy.firstName("Anna-Lena  von Berg") == "Anna-Lena")
         #expect(ReadinessCopy.firstName("") == nil && ReadinessCopy.firstName("  ") == nil && ReadinessCopy.firstName(nil) == nil)
         // Through the view model: the account's name, or none.
-        #expect(model(today: scored(84), history: history(), status: .scored).greeting == "Good morning, Tim")
+        #expect(model(today: scored(84), history: history(), status: .scored).greeting == "Good morning, Alex")
         let nameless = model(today: scored(84), history: history(), status: .scored, name: "")
         #expect(nameless.firstName == nil && nameless.greeting == "Good morning")
     }

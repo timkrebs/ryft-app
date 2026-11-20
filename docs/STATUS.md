@@ -1,4 +1,4 @@
-# Status — 2026-11-14
+# Status — 2026-11-20
 
 ## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
 
@@ -39,6 +39,15 @@ matched move; #117) and the AX3 fix for Welcome and the live workout (#115) are 
 nightly with P1 (below, #116), as the user asked. PR 5 (Strain, Insights, Profile, the dot tab bar) and PR 6 (every
 remaining screen, `docs/work/2026-11-16-nocturne/audit.md`) follow. Simulator-verified only: the icon on a device Home
 Screen and the widget in system-light mode are not checked yet.
+
+2026-11-20: PR 5 (`feat/nocturne-tabs`: Strain, Insights, Profile, Sleep's Week/Month/Bedtime, the tab bar, and PR 6's
+shared parts) is reviewed and integrated (`docs/work/2026-11-16-nocturne/review.md`, PR 5). It opens now and merges
+on the same day as PR 6 (onboarding, Train, settings; three branches combined into one PR), then the gate PR (T5.9).
+New for every screen: sheets and covers end with `.presentedRoot()`, because on iOS 27.2 the window's toggle style
+doesn't reach presented content; `PresentedRootTests` fails a presentation without it. Simulator-verified only (iPhone
+17 Pro, iOS 27.2, default and AX3). On a device still to check: the tab bar's Large Content Viewer, VoiceOver speech
+and rotor order on Strain, Insights and Sleep, Insights in airplane mode, and Profile's Log out, Set new password and
+Delete account with a real session.
 
 2026-11-17: read-model writes off the main actor (P1, ADR 0018, `docs/work/2026-11-17-persistence-off-main/`): two
 review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback crash). Simulator-verified on iOS 17.0,

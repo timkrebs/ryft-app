@@ -30,7 +30,9 @@ struct SafariView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let vc = SFSafariViewController(url: url)
-        vc.preferredControlTintColor = UIColor(named: "Accent")
+        // Nocturne (PR 6 A B8, C §4.16): the bar's controls in ink on the app's background, never teal.
+        vc.preferredControlTintColor = UIColor(named: "TextPrimary")
+        vc.preferredBarTintColor = UIColor(named: "Background")
         return vc
     }
 
@@ -41,7 +43,7 @@ extension View {
     /// Presents `page` in an in-app Safari sheet, and routes taps on our legal
     /// links in Markdown text to it.
     func safariSheet(_ page: Binding<LegalPage?>) -> some View {
-        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea() }
+        sheet(item: page) { SafariView(url: $0.url).ignoresSafeArea().presentedRoot() }
             .environment(\.openURL, OpenURLAction { url in
                 guard let legal = LegalPage(url: url) else { return .systemAction }
                 page.wrappedValue = legal

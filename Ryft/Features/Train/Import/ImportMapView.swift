@@ -55,6 +55,7 @@ struct ImportMapView: View {
                 model.choose(target.key, exercise)
             }
             .environment(model.deps.library)
+            .presentedRoot()
         }
         .sheet(item: $createFor) { target in
             if let draft = model.draft(for: target.key) {
@@ -62,6 +63,7 @@ struct ImportMapView: View {
                     model.create(target.key, ImportCustomDraft(edited, base: draft))
                 }
                 .environment(model.deps.library)
+                .presentedRoot()
             }
         }
     }

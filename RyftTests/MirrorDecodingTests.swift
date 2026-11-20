@@ -139,7 +139,7 @@ struct BetaMirrorDecodingTests {
         #expect(u.betaAccess && u.birthYear == 1990 && u.maxHrSource == .estimated)
         #expect(u.consent?.policyVersion == "2026-10-20" && u.consent?.grantedAt != nil)
         #expect(u.accountHint == nil)
-        #expect(u.sources.map(\.name) == ["Tim's Apple Watch", "Tim's iPhone"])
+        #expect(u.sources.map(\.name) == ["Alex's Apple Watch", "Alex's iPhone"])
         #expect(u.sources[0].kinds.contains(.hrv) && u.sources[1].kinds == [.steps])
         #expect(u.hasConsented(to: "2026-10-20") && !u.hasConsented(to: "2026-11-01"))
     }

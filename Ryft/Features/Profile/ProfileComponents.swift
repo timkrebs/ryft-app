@@ -110,29 +110,6 @@ struct ProfileSection<Content: View>: View {
     }
 }
 
-struct LinkRow: View {
-    let title: LocalizedStringKey
-    let url: URL?
-
-    var body: some View {
-        if let url {
-            Link(destination: url) {
-                HStack {
-                    Text(title)
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-        }
-    }
-}
-
 struct PrimaryButton: View {
     enum Style { case primary, secondary, destructive }
 

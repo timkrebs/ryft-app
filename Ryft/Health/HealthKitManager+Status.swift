@@ -52,7 +52,7 @@ struct TrackerCatalog: Equatable, Sendable {
     }
 
     /// What RYFT calls a source (§5): a vendor app by its name ("Garmin Connect", not HealthKit's
-    /// "Connect"); an Apple device by its own name ("Tim's Apple Watch"), which is more precise; anything
+    /// "Connect"); an Apple device by its own name ("Alex's Apple Watch"), which is more precise; anything
     /// else as HealthKit names it.
     func displayName(_ source: SourceRef) -> String {
         guard let tracker = match(source) else { return source.name }

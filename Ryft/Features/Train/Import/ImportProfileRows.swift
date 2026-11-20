@@ -17,9 +17,9 @@ struct ImportProfileRows: View {
                 Button {
                     if importer.showsResumeRow { importer.resume() } else { importer.start() }
                 } label: {
-                    row(systemImage: "square.and.arrow.down",
-                        title: String(localized: "Import training data", comment: "Training import: the flow's title, and Profile → Data's row."),
-                        detail: ImportResumeText.profileDetail(importer.uploader.status))
+                    ImportProfileRow(systemImage: "square.and.arrow.down",
+                                     title: String(localized: "Import training data", comment: "Training import: the flow's title, and Profile → Data's row."),
+                                     detail: ImportResumeText.profileDetail(importer.uploader.status))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("profile.importTraining")
@@ -32,11 +32,11 @@ struct ImportProfileRows: View {
                 Button {
                     confirmsClear = true
                 } label: {
-                    row(systemImage: "eraser",
-                        title: String(localized: "Clear remembered matches", comment: "Profile → Data: forget the import's exercise matches."),
-                        detail: String(localized: "RYFT forgets how it matched imported exercises.",
-                                       comment: "Profile → Data: under Clear remembered matches."),
-                        chevron: false)
+                    ImportProfileRow(systemImage: "eraser",
+                                     title: String(localized: "Clear remembered matches", comment: "Profile → Data: forget the import's exercise matches."),
+                                     detail: String(localized: "RYFT forgets how it matched imported exercises.",
+                                                    comment: "Profile → Data: under Clear remembered matches."),
+                                     chevron: false)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("profile.clearMatches")
@@ -62,12 +62,27 @@ struct ImportProfileRows: View {
                  comment: "Profile → Data: what clearing the remembered matches does.")
         }
     }
+}
 
-    private func row(systemImage: String, title: String, detail: String, chevron: Bool = true) -> some View {
+/// One of Profile → Data's import rows: the glyph in a column of one width, so every title starts at the same x whatever
+/// the glyph ("square.and.arrow.down" is 18 wide, "eraser" 19), the title and its detail 10 from the hairlines
+/// above and below as a grouped row's text (`GroupedListSpec.textPadding`), the chevron at the end. Profile gives the row its
+/// side inset, its 46 pt height and its hairline (T5.8 N10).
+struct ImportProfileRow: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    var chevron = true
+
+    /// The glyph column: wider than either 15 pt glyph, which keeps its size at every text size.
+    static let glyphColumn: CGFloat = 20
+
+    var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
+                .frame(width: Self.glyphColumn)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: title)
@@ -87,20 +102,40 @@ struct ImportProfileRows: View {
                     .accessibilityHidden(true)
             }
         }
+        .padding(.vertical, GroupedListSpec.textPadding)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
 
-#Preview("Profile import rows · dark", traits: .sizeThatFitsLayout) {
-    Card { VStack(alignment: .leading, spacing: 14) { ImportProfileRows() } }
-        .padding()
-        .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
+#Preview("Profile import rows", traits: .sizeThatFitsLayout) {
+    // As Profile lays them out: each row 16 in, at least 46 high, with the card's hairline.
+    DarkPreview {
+        GroupedCard(Text(verbatim: "Data")) {
+            ImportProfileRows()
+                .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
+        }
+    }
+    .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
 }
 
-#Preview("Profile import rows · light", traits: .sizeThatFitsLayout) {
-    Card { VStack(alignment: .leading, spacing: 14) { ImportProfileRows() } }
-        .padding()
-        .previewEnvironment(AppState.preview(flags: [.trainImport: true]), scheme: .light)
+#Preview("Profile import rows · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        GroupedCard(Text(verbatim: "Data")) {
+            ImportProfileRow(systemImage: "square.and.arrow.down", title: "Import training data",
+                             detail: "Import finished: 3 workouts")
+                .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
+            ImportProfileRow(systemImage: "eraser", title: "Clear remembered matches",
+                             detail: "RYFT forgets how it matched imported exercises.", chevron: false)
+                .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

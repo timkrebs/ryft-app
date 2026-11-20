@@ -54,14 +54,18 @@ final class ProfileViewModel {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+    /// The platform's `User` while it is the account's. In demo mode the store holds the demo's (`MockData.user`), which
+    /// never stands in for a signed-in account: its name, email, provider and zone come from the session then.
+    private var accountUser: User? { env.isDemo ? nil : state.user }
+
     /// `User.name` → email → "Apple ID".
     var accountTitle: String {
-        if let name = state.user?.name, !name.isEmpty { return name }
+        if let name = accountUser?.name, !name.isEmpty { return name }
         return accountEmail ?? auth.identityDescription
     }
 
     var accountEmail: String? {
-        let email = state.user?.email ?? auth.user?.email
+        let email = accountUser?.email ?? auth.user?.email
         return email?.isEmpty == false ? email : nil
     }
 
@@ -71,8 +75,52 @@ final class ProfileViewModel {
         return email
     }
 
-    /// The platform's `User.provider`, else the session's `app_metadata.provider`.
-    var provider: String? { state.user?.provider ?? auth.provider }
+    // MARK: identity row (Nocturne, design.md §P5-6.1)
+
+    /// Today's strain for the avatar's ring; nil until today is scored (the ring's track only).
+    var strainToday: Double? {
+        state.today?.score.strain ?? state.score(for: env.clock.now())?.strain
+    }
+
+    /// The identity row: signed in, the account's (`accountTitle`'s fallbacks: name → email → the account's description,
+    /// never the demo's person); signed out, the demo's person ("Alex Doe"), else "Demo data". The initials and today's
+    /// strain follow.
+    var identity: ProfileIdentity {
+        guard isSignedIn else {
+            return ProfileIdentity.resolve(name: state.user?.name, email: state.user?.email,
+                                           fallback: String(localized: "Demo data"), strain: strainToday)
+        }
+        return ProfileIdentity.resolve(name: accountUser?.name, email: accountEmail, fallback: auth.identityDescription,
+                                       strain: strainToday)
+    }
+
+    /// The status row under the name for Today's line (`TodayViewModel.syncLine`): the word, the dot, the tap. Its ages
+    /// are the data's last load (`lastUpdated`) and Apple Health's last good upload (`Settings.lastSync`).
+    func status(line: SyncLine) -> ProfileStatus {
+        ProfileStatus.decide(line, isDemo: demoMode, lastUpdated: state.lastUpdated, lastSync: settings.lastSync)
+    }
+
+    /// The status row's tap, as Today's line does it: true asks the page to push Sync details (the page owns its
+    /// navigation); the gate's screen, the retry and signing in again start here (`statusWork`).
+    func tapStatus(_ tap: ProfileStatus.Tap) -> Bool {
+        switch tap {
+        case .syncDetails: return true
+        case .gate(let step): onboarding?.show(step)
+        case .retry: statusWork = Task { await syncNow() }
+        case .signIn: statusWork = Task { await state.signInAgain() }
+        case .none: break
+        }
+        return false
+    }
+
+    /// The status tap's work in flight (tests await it).
+    @ObservationIgnored private(set) var statusWork: Task<Void, Never>?
+
+    /// The Email row: only while the name is the title (an email title says it already; "Apple ID" has none).
+    var showsEmailRow: Bool { isSignedIn && identity.source == .name && accountEmail != nil }
+
+    /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
+    var provider: String? { accountUser?.provider ?? auth.provider }
     var canChangePassword: Bool { provider == "email" }
 
     struct Badge: Equatable {
@@ -88,7 +136,8 @@ final class ProfileViewModel {
         }
     }
 
-    var timezone: String? { state.user?.tz }
+    /// The account's zone; none in demo mode (the demo's person has its own).
+    var timezone: String? { accountUser?.tz }
 
     /// "Phone: Europe/Lisbon" when the phone is elsewhere than the account's zone.
     var timezoneDetail: String? {
@@ -165,16 +214,35 @@ final class ProfileViewModel {
 
     // MARK: privacy (consent to health-data processing)
 
-    /// Consent to the policy in force (`GET /v1/config`), from `User.consent`.
-    var consentIsCurrent: Bool { state.user?.hasConsented(to: onboarding?.policyVersion) ?? false }
+    /// The consent rows describe the signed-in account, and only outside Demo data. With it on, `state.user` is the demo's
+    /// person, `ConsentState` reads nothing and every consent call goes to the demo's platform (`AppEnvironment.api`):
+    /// the account's standing isn't known there, and Review or Withdraw would never reach it.
+    var showsAccountConsent: Bool { isSignedIn && !env.isDemo }
+
+    /// Consent to the policy in force (`GET /v1/config`), from the account's `User.consent`.
+    var consentIsCurrent: Bool {
+        showsAccountConsent && (state.user?.hasConsented(to: onboarding?.policyVersion) ?? false)
+    }
+
+    /// The consent row's value in `warning`: not given, or to an older policy.
+    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent }
 
     var consentText: String {
+        guard showsAccountConsent else {
+            return String(localized: "Not shown",
+                          comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
+        }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
-    /// "Agreed on 20 Oct 2026 · policy 2026-10-20".
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is.
     var consentDetail: String? {
+        guard isSignedIn else { return nil }
+        guard !env.isDemo else {
+            return String(localized: "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it.",
+                          comment: "Footer under Profile → Privacy with Demo data on while signed in.")
+        }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
         }
@@ -240,14 +308,6 @@ final class ProfileViewModel {
     /// Like pull to refresh: the upload starts, today and the sync status load at once, the rest after.
     func syncNow() async {
         await state.pullToRefresh(coordinator: coordinator)
-    }
-
-    /// Forget the anchors, upload 90 days again, rescore them, reload.
-    func fullResync() async {
-        await sync.fullResync()
-        let now = env.clock.now()
-        try? await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
-        await state.refresh()
     }
 
     // MARK: notifications

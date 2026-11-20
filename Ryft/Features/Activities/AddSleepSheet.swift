@@ -152,12 +152,16 @@ private enum SleepPreview {
 }
 
 #Preview("Add sleep · dark") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)) }
+    Color.clear.sheet(isPresented: .constant(true)) {
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)).presentedRoot()
+    }
         .previewEnvironment(SleepPreview.state)
 }
 
 #Preview("Add sleep · light · de") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)) }
+    Color.clear.sheet(isPresented: .constant(true)) {
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)).presentedRoot()
+    }
         .previewEnvironment(SleepPreview.state, scheme: .light)
         .environment(\.locale, Locale(identifier: "de"))
 }
@@ -166,7 +170,7 @@ private enum SleepPreview {
     Color.clear.sheet(isPresented: .constant(true)) {
         let model = AddSleepModel(env: SleepPreview.state.env, day: .now)
         model.wake = model.bed.addingTimeInterval(1_800)
-        return AddSleepSheet(model: model)
+        return AddSleepSheet(model: model).presentedRoot()
     }
     .previewEnvironment(SleepPreview.state)
 }
@@ -174,6 +178,7 @@ private enum SleepPreview {
 #Preview("Add sleep · tracker has the night") {
     Color.clear.sheet(isPresented: .constant(true)) {
         AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now, night: { _ in .recorded }))
+            .presentedRoot()
     }
     .previewEnvironment(SleepPreview.state)
 }

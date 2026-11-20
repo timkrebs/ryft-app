@@ -1,8 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// Common screen frame: RYFT header at the top, scrolling content, Graphite
-/// background, pull-to-refresh (sync + reload).
+/// A tab's root page: the RYFT header at the top (or the screen's own), scrolling content on the screen colour,
+/// pull-to-refresh (sync + reload), no navigation bar.
+///
+/// The tab bar (`RyftTabBar`, design.md §P5-2) is not over the page: the tab ends at the bar's top (`ryftTab()`), so the
+/// page's viewport does too, and nothing sits under the bar at the end of the scroll; the 32 pt under the content are the
+/// air under the last card, not room for the bar. A re-tap on the selected tab rebuilds the tab (`AppState.reselect`), so
+/// the page starts at the top again: nothing to expose or wire here.
 struct ScreenScaffold<Content: View>: View {
     @Environment(ScreenModels.self) private var screens
     /// The centred `RyftHeader` above the content. Today and Sleep in Nocturne draw their own `ScreenHeader` as the
@@ -29,151 +34,225 @@ struct ScreenScaffold<Content: View>: View {
     }
 }
 
-/// Calm inline message for routine failures — never a bare alert.
+/// The banner's numbers (Nocturne, PR 6 A G6, D6A-10; C §2.7): an opaque `surface` card, the grouped card's radius, no
+/// stroke, 14 above and 16 at the sides.
+enum InlineMessageSpec {
+    static let radius = Theme.Metrics.neutralTileRadius
+    static let topPadding: CGFloat = 14
+    static let horizontalPadding: CGFloat = 16
+    /// Under the text when there are no buttons; with buttons their 44 pt targets leave room under their labels, so 2.
+    static let bottomPadding: CGFloat = 14, bottomPaddingUnderButtons: CGFloat = 2
+    /// The glyph: 16 pt at the default size, growing with the sentence; 12 to the text.
+    static let glyphSize: CGFloat = 16
+    static let glyphGap: CGFloat = 12
+    /// The sentence → its caption, and the text → the buttons' row.
+    static let captionGap: CGFloat = 4
+    static let buttonsGap: CGFloat = 6
+    /// Between two text buttons in a row.
+    static let buttonSpacing: CGFloat = 18
+}
+
+/// Calm inline message for routine failures and notices — never a bare alert, never coral for a failure (Nocturne, PR 6
+/// A G6): an opaque `surface` card, radius 22; a 16 pt glyph and the sentence in `textPrimary`; a caption in
+/// `textSecondary` (tabular digits); text buttons under it from the card's leading edge, 18 apart, each at least 44 × 44:
+/// "Try again" 16 Medium in ink, "Details" 15 in `textSecondary`, a plain `action` 16 Medium in ink. They go in a row while
+/// they fit, one under the other otherwise and at accessibility sizes. While `retry` runs, "Trying again…" (or
+/// `retryingTitle`) in `textSecondary`, never a spinner.
+///
+/// Severity is the glyph and the words: `.neutral` (the default) draws the glyph in ink; `.attention` in `warning`, only
+/// where the user has something to fix; `.destructive` in `alert`, only for a destructive outcome. The sentence says it.
+///
+/// VoiceOver: the sentence and the caption are read in order, then each button. `readsAsOne` makes the glyph, the sentence
+/// and the caption one element (a settings notice). A banner is announced when it appears and when its sentence changes
+/// (low priority: it waits for what VoiceOver is saying), once per sentence; `announces: false` for a notice that is part
+/// of the page.
 struct InlineMessage: View {
+    /// How much the message asks of the user: the glyph's ink.
+    enum Severity: Sendable {
+        case neutral, attention, destructive
+
+        var glyphColor: Color {
+            switch self {
+            case .neutral: return Theme.textPrimary
+            case .attention: return Theme.warning
+            case .destructive: return Theme.alert
+            }
+        }
+    }
+
     let message: String
     var systemImage = "wifi.exclamationmark"
     var retryTitle: LocalizedStringKey = "Try again"
     /// Status and request ID behind a "Details" toggle (for support and server logs).
-    var details: String? = nil
-    var retry: (() async -> Void)? = nil
+    var details: String?
+    var retry: (() async -> Void)?
     /// A second line under the message ("Showing data from 14:05"), monospaced digits.
-    var caption: String? = nil
-    /// While `retry` runs, this label (disabled) instead of a spinner ("Trying again…").
-    var retryingTitle: LocalizedStringKey? = nil
+    var caption: String?
+    /// While `retry` runs, this label (disabled); "Trying again…" when nil.
+    var retryingTitle: LocalizedStringKey?
     /// Shows the retrying state from outside (previews).
     var isRetrying = false
     /// "Details" opens something (a sheet) instead of the inline toggle.
-    var onDetails: (() -> Void)? = nil
+    var onDetails: (() -> Void)?
     /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details", "<prefix>.action".
     var identifier = "inlineMessage"
-    /// A plain action, not a retry ("Garmin Connect in the App Store"): a secondary capsule where the buttons
-    /// sit. Its title is already localized (`String(localized:)`) and shown verbatim.
+    /// A plain action, not a retry ("Garmin Connect in the App Store"): a text button in the buttons' row, after "Try
+    /// again". Its title is already localized (`String(localized:)`) and shown verbatim.
     var action: (title: String, perform: () -> Void)?
+    /// The glyph's ink; the sentence carries the words.
+    var severity: Severity = .neutral
+    /// Announce the sentence when the banner appears and when it changes.
+    var announces = true
+    /// The glyph, the sentence and the caption as one VoiceOver element.
+    var readsAsOne = false
 
     @State private var retrying = false
     @State private var showDetails = false
+    /// The sentence last announced: a banner that scrolls out and back in isn't announced again.
+    @State private var announced: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// 15 pt at the default size, growing with the message's callout text.
-    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
+    /// 16 pt at the default size, growing with the message's callout text.
+    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = InlineMessageSpec.glyphSize
 
-    private var hasTextButtons: Bool { retry != nil || details != nil || onDetails != nil }
+    private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil || action != nil }
+    private var isBusy: Bool { retrying || isRetrying }
 
-    /// A button row's 44 pt targets leave room under their labels at default sizes; at accessibility sizes a label is
-    /// taller than its target and would sit on the card's edge.
     private var bottomPadding: CGFloat {
-        guard hasTextButtons, !showDetails else { return 14 }
-        return typeSize.isAccessibilitySize ? 14 : 2
+        guard hasButtons, !showDetails else { return InlineMessageSpec.bottomPadding }
+        // At accessibility sizes a label is taller than its target and would sit on the card's edge.
+        return typeSize.isAccessibilitySize ? InlineMessageSpec.bottomPadding : InlineMessageSpec.bottomPaddingUnderButtons
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: iconSize, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                    .padding(.top, 1)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(message)
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let caption {
-                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
-                        Text(caption)
-                            .font(.ryft(.caption))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            if let action { actionButton(action) }
-            // ui.md §3.2: the buttons start at the card's leading edge, 18 pt apart; stacked at AX sizes.
-            if hasTextButtons { buttons }
+        VStack(alignment: .leading, spacing: InlineMessageSpec.buttonsGap) {
+            sentence
+            if hasButtons { buttons }
             if showDetails, let details {
                 Text(details)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(Theme.textSecondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, InlineMessageSpec.bottomPadding - InlineMessageSpec.bottomPaddingUnderButtons)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
+        .padding(.horizontal, InlineMessageSpec.horizontalPadding)
+        .padding(.top, InlineMessageSpec.topPadding)
         .padding(.bottom, bottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-            .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: InlineMessageSpec.radius, style: .continuous))
+        .onAppear { announce() }
+        .onChange(of: message) { announce() }
     }
 
-    /// The plain action: `PrimaryButton`'s secondary look, wrapping instead of shrinking at large sizes.
-    private func actionButton(_ action: (title: String, perform: () -> Void)) -> some View {
-        Button(action: action.perform) {
-            Text(verbatim: action.title)
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(Theme.surfaceRaised, in: Capsule())
+    @ViewBuilder private var sentence: some View {
+        let row = HStack(alignment: .top, spacing: InlineMessageSpec.glyphGap) {
+            Image(systemName: systemImage)
+                .font(.system(size: iconSize, weight: .regular))
+                .foregroundStyle(severity.glyphColor)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: InlineMessageSpec.captionGap) {
+                Text(message)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let caption {
+                    Text(caption)
+                        .font(.ryft(.caption))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
         }
-        .buttonStyle(PressableButtonStyle())
-        .padding(.top, 4)
-        .accessibilityIdentifier("\(identifier).action")
+        if readsAsOne {
+            row.accessibilityElement(children: .combine)
+        } else {
+            row
+        }
     }
 
-    /// Try again and Details: each at least 44 × 44 pt.
-    private var buttons: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout(spacing: 18))
-        return layout {
-            if let retry {
-                Button {
-                    Task {
-                        retrying = true
-                        await retry()
-                        retrying = false
-                    }
-                } label: {
-                    if retrying || isRetrying, let retryingTitle {
-                        Text(retryingTitle).font(.ryft(.callout)).foregroundStyle(Theme.textTertiary)
-                    } else if retrying || isRetrying {
-                        ProgressView().controlSize(.small).tint(Theme.accent)
+    /// The text buttons: a row while they fit on one line each, else (and at accessibility sizes) one under the other.
+    @ViewBuilder private var buttons: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 0) { buttonViews(stacked: true) }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: InlineMessageSpec.buttonSpacing) { buttonViews(stacked: false) }
+                VStack(alignment: .leading, spacing: 0) { buttonViews(stacked: true) }
+            }
+        }
+    }
+
+    @ViewBuilder private func buttonViews(stacked: Bool) -> some View {
+        if let retry {
+            Button {
+                Task {
+                    retrying = true
+                    await retry()
+                    retrying = false
+                }
+            } label: {
+                Group {
+                    if isBusy {
+                        Text(retryingTitle ?? "Trying again…").foregroundStyle(Theme.textSecondary)
                     } else {
-                        Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
+                        Text(retryTitle).foregroundStyle(Theme.textPrimary)
                     }
                 }
-                .frame(minWidth: 44, minHeight: 44)
-                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
-                .contentShape(Rectangle())
-                .buttonStyle(.plain)
-                .disabled(retrying || isRetrying)
-                .accessibilityIdentifier("\(identifier).retry")
+                .font(.ryft(.button))
             }
-            if let onDetails {
-                Button("Details", action: onDetails)
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("\(identifier).details")
-            } else if details != nil {
-                Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-                    .buttonStyle(.plain)
-            }
+            .modifier(TextButtonFrame(stacked: stacked))
+            .disabled(isBusy)
+            .accessibilityIdentifier("\(identifier).retry")
         }
+        if let action {
+            Button(action: action.perform) {
+                Text(verbatim: action.title)
+                    .font(.ryft(.button))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .modifier(TextButtonFrame(stacked: stacked))
+            .accessibilityIdentifier("\(identifier).action")
+        }
+        if let onDetails {
+            Button(action: onDetails) {
+                Text("Details").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+            }
+            .modifier(TextButtonFrame(stacked: stacked))
+            .accessibilityIdentifier("\(identifier).details")
+        } else if details != nil {
+            Button { showDetails.toggle() } label: {
+                Text(showDetails ? "Hide details" : "Details").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+            }
+            .modifier(TextButtonFrame(stacked: stacked))
+        }
+    }
+
+    private func announce() {
+        guard announces, announced != message else { return }
+        announced = message
+        var text = AttributedString(message)
+        text.accessibilitySpeechAnnouncementPriority = .low
+        AccessibilityNotification.Announcement(text).post()
+    }
+}
+
+/// A text button's 44 × 44 pt target: one line in a row, wrapping and full width when the buttons stack.
+private struct TextButtonFrame: ViewModifier {
+    let stacked: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .lineLimit(stacked ? nil : 1)
+            .fixedSize(horizontal: !stacked, vertical: true)
+            .multilineTextAlignment(.leading)
+            .frame(minWidth: Theme.Metrics.minHitTarget, minHeight: Theme.Metrics.minHitTarget, alignment: .leading)
+            .frame(maxWidth: stacked ? .infinity : nil, alignment: .leading)
+            .contentShape(Rectangle())
+            .buttonStyle(.plain)
     }
 }
 
@@ -281,15 +360,16 @@ struct SyncStatusLineView: View {
     private func content(now: Date) -> some View {
         switch current {
         case .actionNeeded:
+            // In the ink, as the line's other actions (L27: teal is recovery only); its glyph says what's needed.
             if let action {
                 Button(action: action) {
-                    tapTarget(label(now: now).foregroundStyle(Theme.accent))
+                    tapTarget(label(now: now).foregroundStyle(Theme.textPrimary))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Text("Opens what's needed"))
                 .accessibilityIdentifier("today.actionNeeded")
             } else {
-                label(now: now).foregroundStyle(Theme.accent)
+                label(now: now).foregroundStyle(Theme.textPrimary)
             }
         case .stale:
             let layout = typeSize.isAccessibilitySize
@@ -310,7 +390,7 @@ struct SyncStatusLineView: View {
                         tapTarget(Text("Try again")
                             .font(.ryft(.caption))
                             .fontWeight(.medium)
-                            .foregroundStyle(Theme.accent))
+                            .foregroundStyle(Theme.textPrimary))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint(Text("Tries to load your data again"))
@@ -514,7 +594,7 @@ struct RefreshIssueCard: View {
                       retryTitle: action.title, retry: action.button(retry: retry, signIn: signIn), caption: age,
                       retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
-            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
+            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue).presentedRoot() }
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
@@ -540,6 +620,8 @@ struct RefreshDetailsSheet: View {
     @Environment(\.reportProblemDestination) private var reportProblem
     @Environment(\.locale) private var locale
     @State private var copied = false
+    /// "Send to RYFT" was tapped: Report a problem is pushed on the sheet's stack.
+    @State private var sends = false
 
     var body: some View {
         NavigationStack {
@@ -565,6 +647,12 @@ struct RefreshDetailsSheet: View {
             .scrollIndicators(.hidden)
             // Pinned: "Send to RYFT" (and Copy details) are reachable at the opening (medium) detent.
             .safeAreaInset(edge: .bottom) { actions }
+            // On the stack's root, which is always there: a pill is a button, so the push is the stack's destination.
+            .navigationDestination(isPresented: $sends) {
+                if let reportProblem {
+                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
+                }
+            }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(Text("Details"))
             .navigationBarTitleDisplayMode(.inline)
@@ -578,27 +666,20 @@ struct RefreshDetailsSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// "Send to RYFT" (only once Report a problem is wired), "Copy details", and what's sent.
+    /// "Send to RYFT" (only once Report a problem is wired; the light pill, it pushes Report a problem), "Copy details" (the
+    /// outline pill), and what's sent (§P5-1.2).
     private var actions: some View {
         VStack(spacing: 10) {
-            if let reportProblem {
-                NavigationLink {
-                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
-                } label: {
-                    Text("Send to RYFT")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityIdentifier("refreshDetails.send")
+            if reportProblem != nil {
+                PillButton(Text("Send to RYFT")) { sends = true }
+                    .accessibilityIdentifier("refreshDetails.send")
             }
-            PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
+            PillButton(copied ? Text("Copied") : Text("Copy details"), style: .secondary) {
                 // On this iPhone only, and not for long (`LocalPasteboard`).
                 LocalPasteboard.copy(issue.copyText)
                 copied = true
             }
+            .accessibilityIdentifier("refreshDetails.copy")
             if reportProblem != nil {
                 Text("Sends this and the last 20 requests. No health values.")
                     .font(.ryft(.caption))
@@ -683,7 +764,7 @@ private struct RequestIDRow: View {
                     Button(action: copy) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(copied ? Theme.accent : Theme.textSecondary)
+                            .foregroundStyle(copied ? Theme.textPrimary : Theme.textSecondary)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -758,12 +839,13 @@ struct DayMarker: View {
     }
 }
 
-/// One signal in Check sync (ui.md §5.2): glyph, name and result, every state with its own symbol and words,
-/// never colour alone. Not tappable. At accessibility sizes the result goes under the name.
+/// One signal in Check sync (ui.md §5.2; Nocturne PR 6 A §A-12, C §4.5): glyph, name and result, every state with its own
+/// symbol and words, never colour alone. Not tappable. 46 high (a list row); at accessibility sizes the result goes under
+/// the name.
 struct CheckRow: View {
     enum Kind: Equatable {
         case waiting, checking
-        /// Arrived: the one accent.
+        /// Arrived: the filled check in ink (it was the teal accent; Nocturne keeps teal for recovery).
         case ok
         /// Not shared by the tracker: a neutral fact, never red or amber.
         case expected
@@ -788,7 +870,7 @@ struct CheckRow: View {
 
         var color: Color {
             switch self {
-            case .ok: return Theme.accent
+            case .ok: return Theme.textPrimary
             case .fix: return Theme.warning
             case .checking, .late: return Theme.textSecondary
             case .waiting, .expected, .neutral: return Theme.textTertiary
@@ -827,7 +909,7 @@ struct CheckRow: View {
                 resultText.multilineTextAlignment(.trailing)
             }
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: Theme.Metrics.listRowHeight)
         .animation(Theme.Motion.respecting(reduceMotion), value: kind)
         .animation(Theme.Motion.respecting(reduceMotion), value: result)
         .accessibilityElement(children: .ignore)
@@ -853,7 +935,7 @@ struct CheckRow: View {
 }
 
 extension CheckRow.Kind {
-    /// A check's row: arrived is the one accent, an expected gap neutral, only an unexpected one amber.
+    /// A check's row: arrived in ink, an expected gap neutral, only an unexpected one amber.
     init(_ check: SignalCheck) {
         switch check {
         case .waiting: self = .waiting
@@ -868,15 +950,11 @@ extension CheckRow.Kind {
 }
 
 #Preview("Check row · states", traits: .sizeThatFitsLayout) {
-    SchemePair { CheckRowPreview() }
+    DarkPreview { CheckRowPreview() }
 }
 
-#Preview("Check row · de · AX3", traits: .sizeThatFitsLayout) {
-    CheckRowPreview()
-        .padding(20)
-        .frame(width: 390)
-        .background(Theme.background)
-        .environment(\.locale, Locale(identifier: "de_DE"))
+#Preview("Check row · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { CheckRowPreview() }
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
@@ -956,6 +1034,10 @@ struct SetupCard: View {
 /// One tracker's setup card (ui.md §3): what reaches RYFT and what that means for its features, how to set the
 /// tracker up, how to keep it flowing, and the store button. Catalog text is plain (`Text(verbatim:)`); the only
 /// links are the vendor's allowlisted guide and the App Store page built from digits (ADR 0002).
+///
+/// Nocturne (PR 6 A §A-12, tokens only; the layout is area C's): a `Card` (radius 22), full-width hairlines between the
+/// header, the summary and each section, section titles in `textTertiary`, arrived signals in ink, and the store and
+/// "Add a tracker" buttons as secondary pills.
 struct TrackerSetupCard: View {
     let tracker: Tracker
     /// In a list of several (onboarding): the header opens and closes the card.
@@ -993,12 +1075,15 @@ struct TrackerSetupCard: View {
                 } else {
                     header
                 }
-                if isOpen { content }
+                if isOpen {
+                    Self.hairline
+                    content
+                }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tracker.card.\(tracker.id)")
-        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea() }
+        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea().presentedRoot() }
     }
 
     // MARK: header
@@ -1092,7 +1177,7 @@ struct TrackerSetupCard: View {
         section("What reaches RYFT") {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(TrackerSignal.rows.enumerated()), id: \.element) { index, signal in
-                    if index > 0 { Divider().overlay(Theme.separator) }
+                    if index > 0 { Self.hairline }
                     CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: state(of: signal),
                                   detail: detail(of: signal))
                         .accessibilityIdentifier("tracker.capability.\(signal.rawValue)")
@@ -1127,7 +1212,7 @@ struct TrackerSetupCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach([TrackerSignal.heartRate, .hrv, .restingHR, .sleep, .respiratoryRate, .spo2], id: \.self) { signal in
                         CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: .notAvailable)
-                        Divider().overlay(Theme.separator)
+                        Self.hairline
                     }
                     CapabilityRow(title: TrackerSignal.steps.title, state: .partial, word: String(localized: "From your iPhone"))
                 }
@@ -1237,14 +1322,14 @@ struct TrackerSetupCard: View {
         if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
             // The App Store page, which says "Open" itself when the app is installed. Only Today's hint opens the app by
             // its compiled scheme (`Tracker.appURL`, plan.md decision 3 (data quality), ADR 0012); this card keeps the store page.
-            PrimaryButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
+            PillButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
                 openURL(store)
             }
             .accessibilityHint(Text("Opens the App Store."))
             .accessibilityIdentifier("tracker.open")
         }
         if let addTracker {
-            PrimaryButton(title: "Add a tracker", style: .secondary) { addTracker() }
+            PillButton(Text("Add a tracker"), style: .secondary) { addTracker() }
                 .accessibilityIdentifier("tracker.add")
         }
         if let later {
@@ -1277,15 +1362,27 @@ struct TrackerSetupCard: View {
         }
     }
 
-    /// A hairline, a label (capped at AX3, like `ProfileSection`), then the content.
+    /// A hairline across the whole card, a label (13 pt `textTertiary`, capped at AX3 like `ProfileSection`), then the
+    /// content.
     private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Divider().overlay(Theme.separator)
-            Text(title).ryftLabelStyle()
+            Self.hairline
+            Text(title)
+                .font(.ryft(.label))
+                .foregroundStyle(Theme.textTertiary)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityAddTraits(.isHeader)
             content()
         }
+    }
+
+    /// 1 pt `separator` (the grouped list's) across the whole card, past its padding.
+    private static var hairline: some View {
+        Rectangle()
+            .fill(Theme.separator)
+            .frame(height: Theme.Metrics.hairline)
+            .padding(.horizontal, -CardSpec.padding)
+            .accessibilityHidden(true)
     }
 
     private struct GuidePage: Identifiable {
@@ -1332,62 +1429,69 @@ private struct TrackerCardsPreview: View {
 }
 
 #Preview("Tracker card · Garmin", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["garmin"]) }
 }
 
-#Preview("Tracker card · Garmin · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
-        .environment(\.locale, Locale(identifier: "de"))
+#Preview("Tracker card · Garmin · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { TrackerCardsPreview(ids: ["garmin"]) }
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Tracker card · collapsed list", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["garmin", "oura"], collapsible: true) }
+    DarkPreview { TrackerCardsPreview(ids: ["garmin", "oura"], collapsible: true) }
 }
 
 #Preview("Tracker card · guide stale", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["garmin"], checked: "2026-03-03") }
+    DarkPreview { TrackerCardsPreview(ids: ["garmin"], checked: "2026-03-03") }
 }
 
 #Preview("Tracker card · Fitbit", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["fitbit"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["fitbit"]) }
 }
 
 #Preview("Tracker card · Samsung", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
 }
 
-#Preview("Tracker card · Samsung · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
-        .environment(\.locale, Locale(identifier: "de"))
+#Preview("Tracker card · Samsung · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Tracker card · Just my iPhone", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["iphone"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["iphone"]) }
 }
 
 #Preview("Tracker card · Other", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["other"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["other"]) }
 }
 
 #Preview("Tracker card · Apple Watch", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["apple_watch"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["apple_watch"]) }
 }
 
 #Preview("Tracker card · Oura", traits: .sizeThatFitsLayout) {
-    SchemePair { TrackerCardsPreview(ids: ["oura"]) }
+    DarkPreview { TrackerCardsPreview(ids: ["oura"]) }
 }
 
-/// One step of a numbered run ("1  Open the app's settings."): setup cards and their fixes.
-/// Catalog text goes in verbatim, never as Markdown.
+/// The numbered step's numbers (Nocturne, PR 6 C #9, A §A-12): an outlined circle, no tinted fill.
+enum NumberedStepSpec {
+    /// The circle at the default size; it grows with the text.
+    static let badge: CGFloat = 22
+    /// Its outline: 1 pt `textPrimary` at 32 %.
+    static let strokeWidth: CGFloat = 1
+    static let strokeOpacity = 0.32
+}
+
+/// One step of a numbered run ("1  Open the app's settings."): setup cards and their fixes. The number in `textPrimary` in
+/// an outlined circle, the step in `textSecondary`. Catalog text goes in verbatim, never as Markdown.
 struct NumberedStep: View {
     let number: Int
     let text: Text
     /// VoiceOver says "Step 1 of 4" when the run's length is known.
     var total: Int?
-    /// The number's circle grows with the text (18 pt at the default size).
-    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = 18
+    /// The number's circle grows with the text (22 pt at the default size).
+    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = NumberedStepSpec.badge
 
     init(number: Int, text: LocalizedStringKey, total: Int? = nil) {
         self.number = number
@@ -1406,9 +1510,12 @@ struct NumberedStep: View {
             Text("\(number)")
                 .font(.ryft(.caption))
                 .monospacedDigit()
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.textPrimary)
                 .frame(width: badge, height: badge)
-                .background(Theme.accent.opacity(0.14), in: Circle())
+                .overlay {
+                    Circle().strokeBorder(Theme.textPrimary.opacity(NumberedStepSpec.strokeOpacity),
+                                          lineWidth: NumberedStepSpec.strokeWidth)
+                }
             text
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
@@ -1420,7 +1527,7 @@ struct NumberedStep: View {
 }
 
 #Preview("Status", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             InlineMessage(message: "Couldn't reach RYFT. Showing what was loaded earlier.",
                           details: "HTTP 503 · Request ID 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c", retry: {})
@@ -1518,10 +1625,38 @@ struct NumberedStep: View {
 }
 
 #Preview("Inline message · action", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         InlineMessage(message: "Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it.", systemImage: "moon.zzz",
                       caption: "Last data from Garmin Connect: Wed 23:24", action: ("Garmin Connect in the App Store", {}))
     }
+}
+
+/// Every look of the banner once (a-17): error with actions, retrying, notices, attention and destructive glyphs.
+private struct InlineMessageStates: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            InlineMessage(message: "Couldn't reach RYFT. Showing what was loaded earlier.",
+                          details: "HTTP 503 · Request ID 01JD8K2V9Q7M3X", retry: {}, caption: "Showing data from 9:20",
+                          announces: false)
+            InlineMessage(message: "Couldn't reach RYFT. Showing what was loaded earlier.", retry: {}, isRetrying: true,
+                          onDetails: {}, announces: false)
+            InlineMessage(message: "Your file is ready. Sign in to continue.", systemImage: "doc.text", announces: false)
+            InlineMessage(message: "Sign-in isn't set up in this build.", systemImage: "key", announces: false)
+            InlineMessage(message: "Notifications are off for RYFT. Turn them on in Settings.", systemImage: "bell.slash",
+                          action: ("Open Settings", {}), severity: .attention, announces: false)
+            InlineMessage(message: "Your account is being deleted. This activity is deleted with it.", systemImage: "trash",
+                          severity: .destructive, announces: false, readsAsOne: true)
+        }
+    }
+}
+
+#Preview("Inline message · states", traits: .sizeThatFitsLayout) {
+    DarkPreview { InlineMessageStates() }
+}
+
+#Preview("Inline message · states · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { InlineMessageStates() }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Sync status line · stale · AX3", traits: .sizeThatFitsLayout) {
@@ -1585,18 +1720,14 @@ private enum PreviewIssue {
         .preferredColorScheme(.dark)
 }
 
-#Preview("Details sheet · with ID · light") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
-        .preferredColorScheme(.light)
-}
-
 #Preview("Details sheet · no ID · dark") {
     RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
         .preferredColorScheme(.dark)
 }
 
-#Preview("Details sheet · no ID · light · de") {
+#Preview("Details sheet · no request ID · AX3") {
     RefreshDetailsSheet(issue: PreviewIssue.make(.busy, requestID: nil))
-        .preferredColorScheme(.light)
-        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }

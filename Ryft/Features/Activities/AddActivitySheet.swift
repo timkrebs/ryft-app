@@ -377,12 +377,12 @@ private enum AddPreview {
 }
 
 #Preview("Add activity · dark") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()).presentedRoot() }
         .previewEnvironment(AddPreview.state)
 }
 
 #Preview("Add activity · light") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()).presentedRoot() }
         .previewEnvironment(AddPreview.state, scheme: .light)
 }
 
@@ -392,12 +392,13 @@ private enum AddPreview {
             $0.end = $0.start.addingTimeInterval(-600)
             $0.distanceText = "0"
         })
+        .presentedRoot()
     }
     .previewEnvironment(AddPreview.state)
 }
 
 #Preview("Add activity · strength") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add { $0.sport = .strength }) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add { $0.sport = .strength }).presentedRoot() }
         .previewEnvironment(AddPreview.state)
 }
 
@@ -408,13 +409,14 @@ private enum AddPreview {
             $0.distanceText = "60"
             $0.effort = 7
         })
+        .presentedRoot()
     }
     .previewEnvironment(AddPreview.state, scheme: .light)
     .environment(\.locale, Locale(identifier: "de"))
 }
 
 #Preview("Add activity · AX3") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add { $0.effort = 6 }) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add { $0.effort = 6 }).presentedRoot() }
         .previewEnvironment(AddPreview.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
@@ -422,6 +424,7 @@ private enum AddPreview {
 #Preview("Edit activity · recorded") {
     Color.clear.sheet(isPresented: .constant(true)) {
         AddActivitySheet(model: AddActivityModel(env: AddPreview.state.env, editing: AddPreview.recordedRun, merged: false))
+            .presentedRoot()
     }
     .previewEnvironment(AddPreview.state)
 }

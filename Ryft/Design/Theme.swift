@@ -42,7 +42,7 @@ enum Theme {
     static let accent = Color("Accent")
     /// Recovery, the orbit's teal: the same colour as `accent` (one accent per screen, and it is the recovery
     /// metric's colour), so the legend reads `recovery`, `metricSleep`, `metricStrain`.
-    static let recovery = Color("Accent")
+    static let recovery = Color("Recovery")
     /// Text and icons on an `accent` fill (buttons, checks): `#0A0C0B`, 10.7:1.
     static let onAccent = Color("OnAccent")
     /// Volt `#D8FF4F`, the signal. Only for the ruler's needle, the readiness marker in the inner ring, the
@@ -129,6 +129,18 @@ enum Theme {
         static let pillHeight: CGFloat = 52
         /// The gap between items in a row or a stack (§2 "Abstand 12").
         static let itemSpacing: CGFloat = 12
+
+        // Nocturne controls (design.md §P5-1.4). Additive.
+
+        /// An outline that carries a state, where a hairline would be too faint: the toggle's off track
+        /// (`RyftToggleStyle`), a selected row's or chip's ring. Hue never carries the state; this line does.
+        static let controlOutline: CGFloat = 1.5
+
+        // MARK: T5.0-B
+
+        /// The least height of a row in a grouped card (`GroupedRow`, design.md §P5-6.1, PR 6 A's `listRowHeight`): 46. A row
+        /// with a second line or a leading icon disc grows with them.
+        static let listRowHeight: CGFloat = 46
     }
 
     // MARK: motion

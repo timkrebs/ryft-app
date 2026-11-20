@@ -34,6 +34,16 @@ extension XCTestCase {
 }
 
 extension XCUIApplication {
+    /// The tab bar (`RyftTabBar`, design.md §P5-2): a container, identifier `tab.bar`. The system tab bar is hidden, so
+    /// `tabBars` finds nothing.
+    var tabBar: XCUIElement { otherElements["tab.bar"] }
+
+    /// A tab bar item by its title ("Sleep"): the button `tab.sleep`, whatever the language. It reads "selected" when it
+    /// is the current tab, and its value is its position ("Tab 2 of 5").
+    func tab(_ title: String) -> XCUIElement {
+        buttons["tab.\(title.lowercased())"]
+    }
+
     /// Scrolls until `element` can be tapped.
     func reveal(_ element: XCUIElement) {
         var tries = 0
