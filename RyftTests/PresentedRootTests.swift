@@ -218,13 +218,39 @@ struct PresentedRootTests {
             try await w.wait("the error card") { w.node("Details", exactly: true) != nil }
             try #require(w.node("Details", exactly: true)).activate()
             let sheet = try await Self.presented(w, "the Details sheet") { $0.contains { $0.label == "Send to RYFT" } }
-            try await Self.expectNocturne(w, sheet, "Details")
+            // PR 6 A §A-16: a SubpageScaffold sheet (the close circle, no system bar, no field to read a tint from).
+            try await Self.expectNocturneFrame(w, sheet, "Details", header: "subpage.close")
             try await Self.expectPills(w, sheet)
             try #require(w.nodes(in: sheet).first { $0.label == "Send to RYFT" }).activate()
             try await w.wait("Report a problem, pushed") {
                 w.nodes(in: sheet).contains { $0.label == "Reports are limited to 10 a day." }
             }
             try await Self.expectNocturne(w, sheet, "Report a problem")
+            try await Self.dismiss(w)
+        }
+    }
+
+    /// PR 6 A §A-6: a reset link opened while signed out. RootView's own presenter (`auth.needsNewPassword`) puts Set new
+    /// password over Welcome; the password field is the control UIKit tints. The app's settings are the test's own, with
+    /// Demo data off (the simulator's default is on, which shows the tabs instead of Welcome).
+    @Test("A reset link's Set new password, presented by RootView over Welcome: no stock switch, the field in the ink")
+    func setNewPasswordOverWelcome() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.presented-root.\(UUID().uuidString)"))
+        let auth = AuthService.preview(signedIn: false)
+        let settings = Settings(defaults: defaults)
+        settings.demoMode = false
+        let root = RootView().environment(settings).previewEnvironment(auth: auth)
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(root)) { w in
+            try await w.wait("Welcome", timeout: .seconds(10)) {
+                w.nodes().contains { $0.identifier == "welcome.createAccount" }
+            }
+            auth.needsNewPassword = true
+            let sheet = try await Self.presented(w, "Set new password") {
+                $0.contains { $0.identifier == "newPassword.save" }
+            }
+            try await Self.expectNocturneFrame(w, sheet, "Set new password", header: "subpage.close")
+            // The field is there to read the tint from: it must be the ink.
+            try await Self.expectNocturne(w, sheet, "Set new password")
             try await Self.dismiss(w)
         }
     }

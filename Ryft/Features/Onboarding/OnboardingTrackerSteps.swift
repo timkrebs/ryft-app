@@ -1,24 +1,5 @@
 import SwiftUI
 
-/// The pinned bar of a long onboarding screen (ui.md §2.4): the main button above "not now", on Graphite or
-/// Mist with a hairline on top, reachable at every text size.
-private struct PinnedBar<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(spacing: 6) { content() }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 4)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
-            .background(Theme.background.ignoresSafeArea(edges: .bottom))
-            .overlay(alignment: .top) {
-                Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
-            }
-    }
-}
-
 /// "What do you wear?" (ui.md §2): the first run's step after About you, before Apple Health. Continue saves the
 /// choice for this account; Skip saves nothing and doesn't ask again. Profile → Devices & sync changes it later.
 struct TrackerPickerView: View {
@@ -33,23 +14,22 @@ struct TrackerPickerView: View {
     }
 
     var body: some View {
-        OnboardingScreen(symbol: "antenna.radiowaves.left.and.right",
-                         title: "What do you wear?",
-                         text: "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
+        OnboardingScreen(title: Text("What do you wear?"),
+                         lead: Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health."),
+                         showsLockup: model.isFirstRun) {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
             Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, OnboardingSpec.actionGap)
         }
-        .safeAreaInset(edge: .bottom) {
-            PinnedBar {
-                PrimaryButton(title: "Continue") { model.answerWear(picked) }
-                    .disabled(picked.isEmpty)
-                    .accessibilityIdentifier("wear.continue")
-                LaterButton(title: "Skip") { model.later(.wear) }
-                    .accessibilityIdentifier("wear.skip")
-            }
+        .pinnedBar {
+            PillButton(Text("Continue")) { model.answerWear(picked) }
+                .disabled(picked.isEmpty)
+                .accessibilityIdentifier("wear.continue")
+            LaterButton(title: "Skip") { model.later(.wear) }
+                .accessibilityIdentifier("wear.skip")
         }
         .task { await env.catalogStore.refreshIfDue() }
     }
@@ -75,10 +55,10 @@ struct TrackerSetupStepView: View {
 
     var body: some View {
         let trackers = model.setupTrackers
-        OnboardingScreen(symbol: "checklist",
-                         title: trackers.count > 1 ? "Set up your trackers" : "Set up your tracker",
-                         text: "A few minutes now saves a silent week of missing data.") {
-            VStack(spacing: 12) {
+        OnboardingScreen(title: trackers.count > 1 ? Text("Set up your trackers") : Text("Set up your tracker"),
+                         lead: Text("A few minutes now saves a silent week of missing data."),
+                         showsLockup: true) {
+            VStack(spacing: OnboardingSpec.actionGap) {
                 ForEach(trackers) { tracker in
                     if trackers.count == 1 {
                         TrackerSetupCard(tracker: tracker)
@@ -99,20 +79,18 @@ struct TrackerSetupStepView: View {
             // below them, with its own Check again.
             if let check {
                 TrackerCheckView(model: check, embedded: true)
-                    .padding(.top, 12)
+                    .padding(.top, OnboardingSpec.actionGap)
             } else {
-                PrimaryButton(title: "Check sync", style: .secondary) { openCheck() }
-                    .padding(.top, 12)
+                PillButton(Text("Check sync"), style: .secondary) { openCheck() }
+                    .padding(.top, OnboardingSpec.actionGap)
                     .accessibilityIdentifier("trackerSetup.checkSync")
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            PinnedBar {
-                PrimaryButton(title: "Done") { model.finishTrackerSetup(later: false) }
-                    .accessibilityIdentifier("trackerSetup.done")
-                LaterButton(title: "Show me again later") { model.finishTrackerSetup(later: true) }
-                    .accessibilityIdentifier("trackerSetup.later")
-            }
+        .pinnedBar {
+            PillButton(Text("Done"), systemImage: PillButton.Icon.confirm) { model.finishTrackerSetup(later: false) }
+                .accessibilityIdentifier("trackerSetup.done")
+            LaterButton(title: "Show me again later") { model.finishTrackerSetup(later: true) }
+                .accessibilityIdentifier("trackerSetup.later")
         }
         .onAppear { if checkOpen { openCheck() } }
     }
@@ -124,10 +102,10 @@ struct TrackerSetupStepView: View {
     }
 }
 
-/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog.
+/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog. Dark only (NOCTURNE_STYLE §1).
 @MainActor
-private func trackerStepPreview(setup: Bool = false, picked: [String] = [], scheme: ColorScheme = .dark,
-                                de: Bool = false, size: DynamicTypeSize = .large, checkOpen: Bool = false) -> some View {
+private func trackerStepPreview(setup: Bool = false, picked: [String] = [], size: DynamicTypeSize = .large,
+                                checkOpen: Bool = false) -> some View {
     let state = AppState.preview()
     let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
     model.devices.stage(picked)
@@ -138,28 +116,16 @@ private func trackerStepPreview(setup: Bool = false, picked: [String] = [], sche
             TrackerPickerView(model: model, picked: picked)
         }
     }
-    .previewEnvironment(state, scheme: scheme)
-    .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+    .previewEnvironment(state)
     .dynamicTypeSize(size)
 }
 
-#Preview("Tracker picker · empty · dark") { trackerStepPreview() }
-#Preview("Tracker picker · empty · light") { trackerStepPreview(scheme: .light) }
-#Preview("Tracker picker · Garmin and Oura · dark") { trackerStepPreview(picked: ["garmin", "oura"]) }
-#Preview("Tracker picker · Garmin and Oura · light · de") {
-    trackerStepPreview(picked: ["garmin", "oura"], scheme: .light, de: true)
-}
-#Preview("Tracker picker · just my iPhone · dark") { trackerStepPreview(picked: ["iphone"]) }
+#Preview("Tracker picker · empty") { trackerStepPreview() }
+#Preview("Tracker picker · Garmin and Oura") { trackerStepPreview(picked: ["garmin", "oura"]) }
+#Preview("Tracker picker · just my iPhone") { trackerStepPreview(picked: ["iphone"]) }
 #Preview("Tracker picker · AX3") { trackerStepPreview(picked: ["garmin"], size: .accessibility3) }
 #Preview("Tracker picker · AX5") { trackerStepPreview(picked: ["garmin"], size: .accessibility5) }
-#Preview("Tracker setup · Garmin · dark") { trackerStepPreview(setup: true, picked: ["garmin"]) }
-#Preview("Tracker setup · Garmin · light · de") { trackerStepPreview(setup: true, picked: ["garmin"], scheme: .light, de: true) }
-#Preview("Tracker setup · Garmin and Oura · dark") { trackerStepPreview(setup: true, picked: ["garmin", "oura"]) }
-#Preview("Tracker setup · Garmin and Oura · light") {
-    trackerStepPreview(setup: true, picked: ["garmin", "oura"], scheme: .light)
-}
+#Preview("Tracker setup · Garmin") { trackerStepPreview(setup: true, picked: ["garmin"]) }
+#Preview("Tracker setup · Garmin and Oura") { trackerStepPreview(setup: true, picked: ["garmin", "oura"]) }
 #Preview("Tracker setup · AX3") { trackerStepPreview(setup: true, picked: ["fitbit"], size: .accessibility3) }
-#Preview("Tracker setup · check open · dark") { trackerStepPreview(setup: true, picked: ["garmin"], checkOpen: true) }
-#Preview("Tracker setup · check open · light · de") {
-    trackerStepPreview(setup: true, picked: ["garmin"], scheme: .light, de: true, checkOpen: true)
-}
+#Preview("Tracker setup · check open") { trackerStepPreview(setup: true, picked: ["garmin"], checkOpen: true) }

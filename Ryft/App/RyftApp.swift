@@ -458,6 +458,8 @@ struct RootView: View {
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
     @Environment(\.launchInterrupt) private var launchInterrupt
+    /// The root's cross-fades (splash, Welcome, the steps, the tabs) are `Theme.Motion.quick`, none under Reduce Motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -526,10 +528,10 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
-        .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.showsTrackerSetup)
+        .animation(rootFade, value: settings.demoMode ? .signedIn : auth.state)
+        .animation(rootFade, value: needsHealthIntro)
+        .animation(rootFade, value: onboarding.flowStep)
+        .animation(rootFade, value: onboarding.showsTrackerSetup)
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
@@ -548,6 +550,9 @@ struct RootView: View {
             SetNewPasswordView(mode: .recovery).presentedRoot()
         }
     }
+
+    /// One screen of the root replacing another (PR 6 A G10): `quick`, or none under Reduce Motion.
+    private var rootFade: Animation? { Theme.Motion.respecting(reduceMotion, Theme.Motion.quick) }
 
     /// After sign-in, once per account: explain Apple Health before iOS asks.
     private var needsHealthIntro: Bool {
@@ -919,22 +924,6 @@ private final class NextFrame: NSObject {
         body?()
         body = nil
     }
-}
-
-/// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
-struct SplashView: View {
-    var body: some View {
-        RyftMark()
-            .frame(width: 64, height: 64)
-            .foregroundStyle(Theme.textPrimary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.background.ignoresSafeArea())
-            .accessibilityLabel(Text("RYFT"))
-    }
-}
-
-#Preview("Splash · dark") {
-    SplashView().preferredColorScheme(.dark)
 }
 
 #Preview("App · dark") {

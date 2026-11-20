@@ -230,8 +230,36 @@ final class OnboardingCoordinator {
 
     // MARK: the policy
 
-    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to.
-    var policyVersion: String? { consent.latestPolicyVersion }
+    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to. Where
+    /// the record keeps nothing (demo data, a store not readable before the first unlock), the version consent's own
+    /// read brought.
+    var policyVersion: String? { consent.latestPolicyVersion ?? readPolicyVersion }
+
+    /// The version `loadPolicyIfMissing()` read, for when the record couldn't keep it.
+    private var readPolicyVersion: String?
+
+    /// Consent's read of the policy version when none is known yet (`loadPolicyIfMissing()`).
+    enum PolicyRead: Equatable { case idle, loading, failed }
+
+    private(set) var policyRead: PolicyRead = .idle
+
+    /// Agree has a version to record: the one on screen (while it runs, the pill shows busy).
+    var canAgree: Bool { policyVersion != nil }
+
+    /// The consent step opened with no policy version: one `GET /v1/config` (joined with any read in flight), so the
+    /// version agreed to is always one the screen showed. A failure leaves Agree off and the step offers Try again.
+    func loadPolicyIfMissing() async {
+        guard policyVersion == nil, policyRead != .loading else { return }
+        policyRead = .loading
+        do {
+            remember(try await consent.fetchConfig(userInitiated: true))
+            policyRead = policyVersion == nil ? .failed : .idle
+        } catch where error.isCancellation {
+            policyRead = .idle
+        } catch {
+            policyRead = .failed
+        }
+    }
 
     /// Where the policy is published; the in-app Safari sheet opens it.
     var policyPage: LegalPage {
@@ -412,6 +440,8 @@ final class OnboardingCoordinator {
         clearError()
         phase = .idle
         aboutYouSaved = false
+        readPolicyVersion = nil
+        policyRead = .idle
         firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
         aboutYouDone = account.map { defaults.bool(forKey: Self.key("aboutYouDone", $0)) } ?? false
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
@@ -440,17 +470,30 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// `POST /v1/me/consent` for the policy in force, then the first sync.
+    /// The version a config read brought, for when the record can't keep it (demo data).
+    private func remember(_ config: RemoteConfig?) {
+        if let version = config?.privacyPolicyVersion { readPolicyVersion = version }
+    }
+
+    /// The policy changed between drawing the step and agreeing: the new one is on screen now.
+    private struct PolicyChangedOnScreen: Error {}
+
+    /// `POST /v1/me/consent` for the policy version on screen (`shown`: the one the step drew; nil takes the current
+    /// one), then the first sync. Nothing without a version, or when `shown` isn't the current one any more; a stale
+    /// version is checked first, and a newer policy is shown, not agreed to.
     @discardableResult
-    func agree() async -> Bool {
+    func agree(shown: String? = nil) async -> Bool {
+        guard let version = policyVersion, shown == nil || shown == version else { return false }
         let ok = await perform {
-            let version: String
-            if let v = self.consent.latestPolicyVersion, self.consent.isPolicyFresh(at: self.env.clock.now()) {
-                version = v
-            } else {
-                let fresh = try await self.consent.fetchConfig(userInitiated: true)
-                guard let v = fresh?.privacyPolicyVersion else { throw APIError.http(422, "no policy version") }
-                version = v
+            if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
+                // Nil: nothing was sent (offline, a Retry-After window).
+                guard let fresh = try await self.consent.fetchConfig(userInitiated: true) else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                guard fresh.privacyPolicyVersion == version else {
+                    self.remember(fresh)
+                    throw PolicyChangedOnScreen()
+                }
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
             // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
@@ -459,10 +502,15 @@ final class OnboardingCoordinator {
             self.deferred.remove(.consent)
             await self.check(force: true)
         } message: { error in
+            let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            if error is PolicyChangedOnScreen { return updated }
             guard (error as? APIError)?.status == 422 else { return nil }
-            // The text on screen was an older policy: show the new one.
-            Task { [weak self] in _ = try? await self?.consent.fetchConfig(userInitiated: true) }
-            return String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            // The platform refused an older policy than the one in force: read and show the new one.
+            Task { [weak self] in
+                guard let self else { return }
+                remember(try? await consent.fetchConfig(userInitiated: true))
+            }
+            return updated
         }
         if ok { await startSync() }
         return ok
@@ -526,6 +574,30 @@ final class OnboardingCoordinator {
         errorDetails = nil
     }
 
+    /// The banner's words for a failure the step has none of its own for (PR 6 A §A-7): not reaching the platform says
+    /// so (the sentence `AuthMessage` uses); `APIError`'s own sentences stay (429, 503, …); a server's text, an answer
+    /// that didn't decode and anything unknown say only that it didn't work. The details (request ID) stay behind Details.
+    nonisolated static func fallbackMessage(for error: Error) -> String {
+        let offline = String(localized: "No connection. Check your internet and try again.")
+        let other = String(localized: "Something went wrong. Please try again.")
+        if let api = error as? APIError {
+            if case .transport = api { return offline }
+            return hasOwnWords(api) ? api.localizedDescription : other
+        }
+        return error is URLError || (error as NSError).domain == NSURLErrorDomain ? offline : other
+    }
+
+    /// `APIError`'s own, vetted sentences (`APIError.errorDescription`): the rest there is the server's text, or a bare
+    /// status.
+    private nonisolated static func hasOwnWords(_ error: APIError) -> Bool {
+        switch error {
+        case .notConfigured, .signedOut: return true
+        case .http(401, _, _, _, _), .http(429, _, _, _, _), .http(500, _, _, _, _), .http(503, _, _, _, _): return true
+        case .http(403, _, _, .inviteRequired?, _), .http(403, _, _, .consentRequired?, _), .http(403, _, _, nil, _): return true
+        case .http, .transport: return false
+        }
+    }
+
     // MARK: private
 
     private func perform(_ body: @MainActor () async throws -> Void,
@@ -539,7 +611,7 @@ final class OnboardingCoordinator {
         } catch where error.isCancellation {
             return false
         } catch {
-            errorMessage = message(error) ?? error.localizedDescription
+            errorMessage = message(error) ?? Self.fallbackMessage(for: error)
             errorDetails = error.diagnosticDetails
             return false
         }

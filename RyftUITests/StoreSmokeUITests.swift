@@ -65,7 +65,8 @@ final class StoreSmokeUITests: XCTestCase {
             app.sheets.buttons["Log out"].firstMatch.tap()
         }
 
-        let welcomeLogIn = app.buttons["Log in"]
+        // "Have an account? Log in" is one button; its label is both parts, so it is found by its id.
+        let welcomeLogIn = app.buttons["welcome.logIn"]
         XCTAssertTrue(welcomeLogIn.waitForExistence(timeout: 10), "Welcome")
         welcomeLogIn.tap()
 
@@ -76,7 +77,7 @@ final class StoreSmokeUITests: XCTestCase {
         let passwordField = app.secureTextFields["Password"]
         passwordField.tap()
         passwordField.typeText(password)
-        app.buttons["Log in"].firstMatch.tap()
+        app.buttons["logIn.submit"].tap()
 
         // The Health explanation comes once per account; the simulator has no data anyway.
         let notNow = app.buttons["health.notNow"]
