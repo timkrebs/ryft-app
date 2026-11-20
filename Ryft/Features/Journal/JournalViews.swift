@@ -190,7 +190,8 @@ struct JournalSheetActions {
 
 /// The journal sheet: yesterday by default, the strip steps back 14 days. Loads the day on open, and again when the iPhone is back
 /// online while the day isn't on it (not when it is: that would undo answers being given). Saving closes it. Answers that aren't
-/// saved are never dropped without asking: closing (the circle or a swipe) and switching days confirm first.
+/// saved are never dropped without asking: closing (the circle or a swipe) and switching days confirm first. Once the account or
+/// side isn't the one it opened on, it closes by itself (`JournalSheetModel.isCurrent`).
 struct JournalSheet: View {
     @State var model: JournalSheetModel
     @Environment(\.dismiss) private var dismiss
@@ -224,6 +225,11 @@ struct JournalSheet: View {
             }
         }
         .task { await model.load() }
+        // Another account or side than it opened on (a sign-out, another account, the Demo data switch, a wipe): its rows
+        // aren't the journal's any more, to show or to send, so the sheet closes without a word.
+        .onChange(of: model.isCurrent, initial: true) { _, current in
+            if !current { dismiss() }
+        }
         // The store's word for the network (it observes the iPhone's connection): demo data, answering on the phone, is never
         // offline, so it never shows the Offline pill or waits to read.
         .onChange(of: model.isOnline) { _, online in

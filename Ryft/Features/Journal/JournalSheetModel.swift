@@ -79,8 +79,9 @@ final class JournalSheetModel {
     /// The failed save's status and request ID, for the message's Details (API.md → Errors).
     private(set) var errorDetails: String?
     private(set) var saved = false
-    /// Save found the sheet on another account or side than it opened on (a sign-out, another account, the Demo data
-    /// switch): nothing was sent, and the sheet closes without a word, as a save whose account went ends.
+    /// The sheet found itself on another account or side than it opened on (a sign-out, another account, the Demo data
+    /// switch, a wipe): nothing more was read into it, rebuilt or sent, and it closes without a word, as a save whose
+    /// account went ends.
     private(set) var leftItsSide = false
     /// The day is on this phone (in memory or the SwiftData cache): its rows say what it holds.
     private(set) var hasDay = false
@@ -107,6 +108,10 @@ final class JournalSheetModel {
         self.day = day ?? store.yesterday
         rebuild()
     }
+
+    /// Still the account and side the sheet opened on, with nothing forgotten since (`JournalStore.owns`). Once not, nothing of
+    /// either side's journal goes into the rows, from the cache or the platform, and nothing leaves them: the sheet closes.
+    var isCurrent: Bool { store.owns(opened) }
 
     var title: String {
         guard let date = DayFormat.date(from: day) else { return day }
@@ -142,7 +147,7 @@ final class JournalSheetModel {
     /// Shows `day`, dropping answers not saved (callers that keep them ask first: `requestSelect`). The selected day stays as
     /// it is, with its error.
     func select(_ day: String) async {
-        guard day != self.day else { return }
+        guard staysOnItsSide(), day != self.day else { return }
         self.day = day
         saved = false
         clearError()
@@ -152,7 +157,7 @@ final class JournalSheetModel {
 
     /// The strip's tap: switches at once, or asks first while answers aren't saved.
     func requestSelect(_ day: String) async {
-        guard day != self.day else { return }
+        guard staysOnItsSide(), day != self.day else { return }
         if isDirty {
             pendingDiscard = .day(day)
             return
@@ -195,12 +200,14 @@ final class JournalSheetModel {
     }
 
     private func load(userInitiated: Bool) async {
+        guard staysOnItsSide() else { return }
         if store.behaviors.isEmpty { await store.load(userInitiated: userInitiated) }
         await loadDay(userInitiated: userInitiated)
     }
 
     /// Back from Profile → Journal: the habits chosen there at once, then the day from the platform.
     func habitsChanged() async {
+        guard staysOnItsSide() else { return }
         if !isDirty { rebuild() }
         await load()
     }
@@ -211,8 +218,10 @@ final class JournalSheetModel {
     }
 
     /// The selected day from the platform (the cache first). A newer `select` while it's on its way owns the state after it,
-    /// and an answer given while it was on its way stays: the rows aren't rebuilt over it.
+    /// and an answer given while it was on its way stays: the rows aren't rebuilt over it. Neither are they when the account
+    /// or side changed meanwhile: the read (or none) isn't this sheet's to show, and the sheet closes.
     private func loadDay(userInitiated: Bool = false) async {
+        guard staysOnItsSide() else { return }
         let asked = day
         let editsBefore = edits
         isLoading = true
@@ -220,8 +229,16 @@ final class JournalSheetModel {
         let found = await store.loadDay(asked, userInitiated: userInitiated)
         guard asked == day else { return }
         isLoading = false
+        guard staysOnItsSide() else { return }
         loadFailed = found == nil
         if edits == editsBefore { rebuild() }
+    }
+
+    /// `isCurrent`; when not, the sheet asks to close (`leftItsSide`).
+    private func staysOnItsSide() -> Bool {
+        if isCurrent { return true }
+        leftItsSide = true
+        return false
     }
 
     private func clearError() {
@@ -285,10 +302,7 @@ final class JournalSheetModel {
     func save() async -> Bool {
         guard editable, hasDay, !isSaving else { return false }
         // The rows are another account's (or side's) answers: never sent as this one's.
-        guard store.owns(opened) else {
-            leftItsSide = true
-            return false
-        }
+        guard staysOnItsSide() else { return false }
         let asked = day
         let entries = put.entries
         isSaving = true
@@ -296,16 +310,17 @@ final class JournalSheetModel {
         defer { isSaving = false }
         do {
             try await saver(asked, entries)
-            guard asked == day else { return false }
+            // Answered after the account or side changed: nothing is rebuilt from the other side's journal.
+            guard staysOnItsSide(), asked == day else { return false }
             saved = true
             rebuild()
             return true
         } catch where error.isCancellation {
             // The answer came for an account or side that's gone (`JournalStore.save`): the sheet closes quietly too.
-            if !store.owns(opened) { leftItsSide = true }
+            if !isCurrent { leftItsSide = true }
             return false
         } catch {
-            guard asked == day else { return false }
+            guard staysOnItsSide(), asked == day else { return false }
             self.error = Self.message(for: error)
             errorDetails = error.diagnosticDetails
             errorIsOffline = (error as? JournalStore.JournalError) == .offline
