@@ -30,7 +30,8 @@ the config".
 7. `501` (or `404` without a `code`) from the challenge under `warn`: not served, no header (the route stays
    authoritative).
 8. Cached `off`, then `403 app_attest_required`: one renewal and one retry (the server went `on`).
-9. An account switch or sign-out forgets the mode (back to absent).
+9. An account or demo switch publishes the new side's cached mode, or absent when it has none; a reset (sign-out)
+   publishes absent.
 
 ## Risks
 - The mode must be known at a background launch (from the cached config) before the first request.

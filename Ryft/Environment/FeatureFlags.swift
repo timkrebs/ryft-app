@@ -55,6 +55,8 @@ final class FlagStore: FeatureFlagProvider {
     @ObservationIgnored private let appAttest: AppAttestor?
     /// The shown answer's `app_attest` (set in `show`, nil in `clear`).
     @ObservationIgnored private var shownAppAttest: AppAttestMode?
+    /// What `publishAppAttest` last told the attestor.
+    @ObservationIgnored private var published: (mode: AppAttestMode?, fetchedAt: Date?)?
 
     /// `appAttest`: `.live` for `shared`; it learns the cached mode here, before any request of a cold or background
     /// launch.
@@ -171,14 +173,16 @@ final class FlagStore: FeatureFlagProvider {
         shownAppAttest = cached.config.appAttestMode
     }
 
-    /// The newest answer's mode, once per change (never the nil between `clear` and `show`): a pending answer's, even
-    /// absent, else the shown one's. `applyPending` doesn't publish: the newest answer is the same.
+    /// The newest answer's mode (never the nil between `clear` and `show`): a pending answer's, even absent, else the
+    /// shown one's. Only when it differs from what was last published: republishing the same cached answer (a demo
+    /// round trip) would end a `403` lift on an answer that didn't come with a token. `applyPending` doesn't publish:
+    /// the newest answer is the same.
     private func publishAppAttest() {
-        if let pending {
-            appAttest?.configure(pending.config.appAttestMode, fetchedAt: pending.fetchedAt)
-        } else {
-            appAttest?.configure(shownAppAttest, fetchedAt: fetchedAt)
-        }
+        let mode = pending.map { $0.config.appAttestMode } ?? shownAppAttest
+        let fetched = pending?.fetchedAt ?? fetchedAt
+        if let published, published.mode == mode, published.fetchedAt == fetched { return }
+        published = (mode, fetched)
+        appAttest?.configure(mode, fetchedAt: fetched)
     }
 
     private static func ttl(of config: RemoteConfig) -> TimeInterval {

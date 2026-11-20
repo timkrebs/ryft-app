@@ -1276,7 +1276,7 @@ struct RemoteConfig: Codable, Hashable {   // GET /v1/config
     var privacyPolicyUrl: String? = nil
     /// API.md → `app_attest` (AA2, D247): "off" | "warn" | "on", absent before D247. A string, so an unknown
     /// value can't fail the whole config; read it through `appAttestMode`.
-    var appAttest: String?
+    var appAttest: String? = nil
 
     var appAttestMode: AppAttestMode? { appAttest.flatMap(AppAttestMode.init(rawValue:)) }
 }
