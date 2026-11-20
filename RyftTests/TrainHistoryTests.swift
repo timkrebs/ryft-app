@@ -70,11 +70,11 @@ struct TrainHistoryTests {
     @Test func aWeekSumsItsSessions() {
         let a = SessionSummary(session(load: 85.4, volume: 7_500)), b = SessionSummary(session(load: 40.2, volume: 4_700))
         let week = TrainHistoryViewModel.Week(start: friday, sessions: [a, b])
-        #expect(plain(week.summary) == "2 sessions · 12.2 t · load 126")
+        #expect(plain(week.summary(locale: english)) == "2 sessions · 12.2 t · load 126")
         #expect(week.spokenSummary(locale: english) == "2 sessions, 12,200 kilograms, Muscular load 126")
         #expect(week.title(locale: english) == "Week of Nov 13")
         let unscored = TrainHistoryViewModel.Week(start: friday, sessions: [SessionSummary(session(load: nil))])
-        #expect(plain(unscored.summary)?.hasSuffix("load –") == true)
+        #expect(plain(unscored.summary(locale: english))?.hasSuffix("load –") == true)
     }
 
     @Test func historyLoadsWithOutlinesThenSaysWhereSessionsComeFrom() async {
@@ -181,12 +181,12 @@ struct TrainHistoryTests {
     }
 
     @Test func timedAndDistanceSetsShowTheirTimeAndDistance() {
-        #expect(SessionDetailContent.text(set(0, seconds: 45)) == "0:45")
+        #expect(SessionDetailContent.text(set(0, seconds: 45), locale: english) == "0:45")
         // A distance in the locale's road unit, as the app's other distances ("5.0 km", "3.1 mi").
-        let distance = SessionDetailContent.text(set(0, meters: 5_000))
-        #expect(plain(distance) == plain(Fmt.distance(meters: 5_000)) && distance != Fmt.placeholder)
-        #expect(plain(SessionDetailContent.text(set(0, seconds: 1_500, meters: 5_000))) == plain("\(distance) · 25:00"))
-        #expect(SessionDetailContent.text(set(0, reps: 8)) == "× 8")
+        let distance = SessionDetailContent.text(set(0, meters: 5_000), locale: english)
+        #expect(plain(distance) == "3.1 mi" && plain(distance) == plain(Fmt.distance(meters: 5_000, locale: english)))
+        #expect(plain(SessionDetailContent.text(set(0, seconds: 1_500, meters: 5_000), locale: english)) == plain("\(distance) · 25:00"))
+        #expect(SessionDetailContent.text(set(0, reps: 8), locale: english) == "× 8")
     }
 
     @Test func timedAndDistanceSetsAreSpokenInWords() {
@@ -213,11 +213,11 @@ struct TrainHistoryTests {
     // MARK: exercise page
 
     @Test func theChangeIsBlueOnlyWhenItRises() {
-        #expect(plain(E1RMChange.text(11.6)) == "▲ 11.6 kg" && E1RMChange.color(11.6) == Theme.metricStrain)
-        #expect(plain(E1RMChange.text(-1.5)) == "▼ 1.5 kg" && E1RMChange.color(-1.5) == Theme.textSecondary, "no red")
-        #expect(E1RMChange.text(0.04) == String(localized: "Steady") && E1RMChange.color(0.04) == Theme.textSecondary)
-        #expect(E1RMChange.spoken(11.6) == "Up 11.6 kg" && E1RMChange.spoken(-1.5) == "Down 1.5 kg")
-        #expect(plain(E1RMChange.overWindow(E1RMChange.text(11.6))) == "▲ 11.6 kg in 90 days")
+        #expect(plain(E1RMChange.text(11.6, locale: english)) == "▲ 11.6 kg" && E1RMChange.color(11.6) == Theme.metricStrain)
+        #expect(plain(E1RMChange.text(-1.5, locale: english)) == "▼ 1.5 kg" && E1RMChange.color(-1.5) == Theme.textSecondary, "no red")
+        #expect(E1RMChange.text(0.04, locale: english) == String(localized: "Steady") && E1RMChange.color(0.04) == Theme.textSecondary)
+        #expect(E1RMChange.spoken(11.6, locale: english) == "Up 11.6 kg" && E1RMChange.spoken(-1.5, locale: english) == "Down 1.5 kg")
+        #expect(plain(E1RMChange.overWindow(E1RMChange.text(11.6, locale: english))) == "▲ 11.6 kg in 90 days")
     }
 
     @Test func e1rmIsATrainingMetricInStrainBlue() {
@@ -263,10 +263,28 @@ struct TrainHistoryTests {
     }
 
     @Test func aRecentSessionsBestIsToTheTenth() {
-        let row = ExerciseDetailViewModel.RecentRow(id: 0, date: "Nov 13", sets: "", spokenSets: "", best: 93.33)
+        let row = ExerciseDetailViewModel.RecentRow(id: 0, date: "Nov 13", sets: "", spokenSets: "", best: 93.33, locale: english)
         #expect(row.bestText == "93.3", "as the hero and the chart, not to the half kilogram (93.5)")
         #expect(plain(row.bestSpoken) == "e1RM 93.3 kg")
-        #expect(ExerciseDetailViewModel.RecentRow(id: 1, date: "", sets: "", spokenSets: "", best: 99.96).bestText == "100")
+        #expect(ExerciseDetailViewModel.RecentRow(id: 1, date: "", sets: "", spokenSets: "", best: 99.96, locale: english).bestText == "100")
+    }
+
+    /// The locale handed in, not the phone's: a German one writes German numbers on any simulator (the app passes its own).
+    @Test func theNumbersFollowTheLocaleTheyAreGiven() throws {
+        let german = Locale(identifier: "de_DE")
+        let row = TrainHistoryRows.row(SessionSummary(session()), locale: german)
+        #expect(plain(row.meta)?.hasSuffix(" · 7.500 kg") == true && row.value == "85,0", "\(row.meta) · \(row.value ?? "")")
+        let a = SessionSummary(session(load: 85.4, volume: 7_500)), b = SessionSummary(session(load: 40.2, volume: 4_700))
+        let week = TrainHistoryViewModel.Week(start: friday, sessions: [a, b])
+        #expect(plain(week.summary(locale: german)) == "2 sessions · 12,2 t · load 126")
+        let s = session()
+        let content = SessionDetailContent(summary: SessionSummary(s), session: s, loaded: true, locale: german) { _ in "Bench press" }
+        #expect(content.tiles[0].value == "7.500" && content.tiles[1].value == "85,0")
+        let lines = try #require(content.exercises.first?.sets)
+        #expect(lines[1].rpe == "RPE 8,5" && lines[1].spokenValue == "5 reps at 80 kilograms, RPE 8,5")
+        #expect(plain(E1RMChange.text(11.6, locale: german)) == "▲ 11,6 kg" && E1RMChange.spoken(-1.5, locale: german) == "Down 1,5 kg")
+        let recent = ExerciseDetailViewModel.RecentRow(id: 0, date: "", sets: "", spokenSets: "", best: 93.33, locale: german)
+        #expect(recent.bestText == "93,3" && plain(recent.bestSpoken) == "e1RM 93,3 kg")
     }
 
     @Test func aFailedExerciseReadWithNothingCachedIsAFailure() async {

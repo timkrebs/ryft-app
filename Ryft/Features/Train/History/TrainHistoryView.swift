@@ -30,13 +30,13 @@ enum TrainHistoryRows {
             spoken.append(Fmt.spokenDuration(minutes: min, locale: locale))
         }
         if let v = s.volumeKg {
-            meta.append(Fmt.volume(v))
+            meta.append(Fmt.volume(v, locale: locale))
             spoken.append(HistorySpeech.kilograms(v, locale: locale))
         }
         spoken.append(s.muscularTrimp.map { String(localized: "Muscular load \(HistorySpeech.number($0, locale: locale))") }
             ?? String(localized: "No muscular load", comment: "VoiceOver: a History row whose session has no muscular load (yet)."))
         return ActivityListRow.Content(systemImage: "dumbbell.fill", title: title, meta: StrainRows.join(meta),
-                                       value: s.muscularTrimp.map { Fmt.load($0) }, spoken: spoken.joined(separator: ", "),
+                                       value: s.muscularTrimp.map { Fmt.load($0, locale: locale) }, spoken: spoken.joined(separator: ", "),
                                        valueCaption: loadCaption)
     }
 
@@ -153,7 +153,7 @@ struct TrainHistoryPage: View {
 
     private func week(_ week: TrainHistoryViewModel.Week) -> some View {
         VStack(alignment: .leading, spacing: TrainHistoryLayout.weekTitleGap) {
-            HistoryWeekHeader(title: week.title(locale: locale), summary: week.summary,
+            HistoryWeekHeader(title: week.title(locale: locale), summary: week.summary(locale: locale),
                               spokenSummary: week.spokenSummary(locale: locale))
             VStack(spacing: TrainHistoryLayout.rowSpacing) {
                 ForEach(week.sessions) { s in
@@ -239,12 +239,12 @@ private struct HistoryWeekHeader: View {
 
 enum SetText {
     /// "100 kg × 5", "× 8", "45 s".
-    static func short(_ s: SessionSet) -> String {
+    static func short(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         if let d = s.durationSec, s.reps == nil { return String(localized: "\(d) s") }
         switch (s.weightKg, s.reps) {
-        case let (kg?, r?): return "\(Fmt.kg(kg)) × \(r)"
+        case let (kg?, r?): return "\(Fmt.kg(kg, locale: locale)) × \(r)"
         case let (nil, r?): return "× \(r)"
-        case let (kg?, nil): return Fmt.kg(kg)
+        case let (kg?, nil): return Fmt.kg(kg, locale: locale)
         default: return Fmt.placeholder
         }
     }

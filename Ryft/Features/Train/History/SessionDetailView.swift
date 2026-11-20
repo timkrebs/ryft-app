@@ -116,10 +116,10 @@ struct SessionDetailContent: Equatable {
         hero = StrainHero(strain: strain, namesStrain: true, missingCaption: known ? Self.noStrainCaption : nil)
 
         let volumeKg = session.map { $0.volumeKg ?? Volume.of($0.exercises.flatMap(\.sets)) } ?? summary?.volumeKg
-        let volume = SessionSummaryContent.volumeParts(volumeKg)
+        let volume = SessionSummaryContent.volumeParts(volumeKg, locale: locale)
         tiles = [
             WorkoutStat(id: "volume", label: String(localized: "Volume"), value: volume.value, unit: volume.unit),
-            WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(load)),
+            WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(load, locale: locale)),
         ]
 
         let note = session?.notes.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -145,10 +145,10 @@ struct SessionDetailContent: Equatable {
     static func lines(_ sets: [SessionSet], locale: Locale = .autoupdatingCurrent) -> [SetLine] {
         let ordered = sets.sorted { $0.setIndex < $1.setIndex }
         return ordered.enumerated().map { i, set in
-            let rpe = set.rpe.map { String(localized: "RPE \(Fmt.kgNumber($0))") }
+            let rpe = set.rpe.map { String(localized: "RPE \(Fmt.kgNumber($0, locale: locale))") }
             var position = [String(localized: "Set \(i + 1) of \(ordered.count)")]
             if set.isWarmup { position.append(String(localized: "warm-up")) }
-            return SetLine(id: set.id, position: set.isWarmup ? "W" : "\(i + 1)", text: text(set), rpe: rpe,
+            return SetLine(id: set.id, position: set.isWarmup ? "W" : "\(i + 1)", text: text(set, locale: locale), rpe: rpe,
                            spokenPosition: position.joined(separator: ", "),
                            spokenValue: [spoken(set, locale: locale), rpe].compactMap(\.self).joined(separator: ", "))
         }
@@ -157,15 +157,15 @@ struct SessionDetailContent: Equatable {
     /// "5 reps at 80 kilograms", "8 reps", "80 kilograms"; a timed set "45 seconds", a distance "3.1 miles, 25 minutes".
     static func spoken(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         switch (s.reps, s.weightKg) {
-        case let (r?, kg?): return String(localized: "\(r) reps at \(Fmt.kgNumber(kg)) kilograms")
+        case let (r?, kg?): return String(localized: "\(r) reps at \(Fmt.kgNumber(kg, locale: locale)) kilograms")
         case let (r?, nil): return String(localized: "\(r) reps")
-        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg)) kilograms")
+        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg, locale: locale)) kilograms")
         default:
             let time = s.durationSec.map { spokenDuration(seconds: $0, locale: locale) }
             if let m = s.distanceM, m > 0 {
                 return ([StrainFormat.spokenDistance(m, locale: locale)] + [time].compactMap(\.self)).joined(separator: ", ")
             }
-            return time ?? text(s)
+            return time ?? text(s, locale: locale)
         }
     }
 
@@ -176,13 +176,13 @@ struct SessionDetailContent: Equatable {
     }
 
     /// "80 kg × 5", "× 8"; a timed set "0:45", a distance "5.0 km" (with its time when there is one).
-    static func text(_ s: SessionSet) -> String {
-        guard s.reps == nil, s.weightKg == nil else { return SetText.short(s) }
+    static func text(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
+        guard s.reps == nil, s.weightKg == nil else { return SetText.short(s, locale: locale) }
         if let m = s.distanceM, m > 0 {
-            return StrainRows.join([Fmt.distance(meters: m)] + (s.durationSec.map { [Fmt.clock(TimeInterval($0))] } ?? []))
+            return StrainRows.join([Fmt.distance(meters: m, locale: locale)] + (s.durationSec.map { [Fmt.clock(TimeInterval($0))] } ?? []))
         }
         if let d = s.durationSec { return Fmt.clock(TimeInterval(d)) }
-        return SetText.short(s)
+        return SetText.short(s, locale: locale)
     }
 }
 

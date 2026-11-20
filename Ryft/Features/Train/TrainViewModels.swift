@@ -44,15 +44,15 @@ final class TrainHistoryViewModel {
         }
 
         /// "2 sessions · 12.2 t · load 126" (PR 6 B §7.1): the week's load summed, without decimals.
-        var summary: String {
-            StrainRows.join([Self.sessionCount(sessions.count), Fmt.volume(volume),
-                             String(localized: "load \(Self.loadText(load))")])
+        func summary(locale: Locale = .autoupdatingCurrent) -> String {
+            StrainRows.join([Self.sessionCount(sessions.count), Fmt.volume(volume, locale: locale),
+                             String(localized: "load \(Self.loadText(load, locale: locale))")])
         }
 
         /// "2 sessions, 12,200 kilograms, muscular load 126" (VoiceOver).
         func spokenSummary(locale: Locale = .autoupdatingCurrent) -> String {
             [Self.sessionCount(sessions.count), HistorySpeech.kilograms(volume, locale: locale),
-             String(localized: "Muscular load \(Self.loadText(load))")].joined(separator: ", ")
+             String(localized: "Muscular load \(Self.loadText(load, locale: locale))")].joined(separator: ", ")
         }
 
         static func sessionCount(_ n: Int) -> String {
@@ -60,8 +60,8 @@ final class TrainHistoryViewModel {
         }
 
         /// The week's load: "126"; "–" without one.
-        static func loadText(_ load: Double?) -> String {
-            load.map { $0.formatted(.number.precision(.fractionLength(0))) } ?? Fmt.placeholder
+        static func loadText(_ load: Double?, locale: Locale = .autoupdatingCurrent) -> String {
+            load.map { $0.formatted(.number.precision(.fractionLength(0)).locale(locale)) } ?? Fmt.placeholder
         }
     }
 
@@ -256,9 +256,11 @@ final class ExerciseDetailViewModel {
         /// "5 reps at 80 kilograms, 5 reps at 80 kilograms", "45 seconds, 45 seconds" (VoiceOver).
         let spokenSets: String
         let best: Double?
+        /// The locale `bestText` and `bestSpoken` are written in (`recentRows(locale:)`'s).
+        var locale: Locale = .autoupdatingCurrent
         /// "93.3": to the tenth, as the API's estimates and the chart are.
-        var bestText: String? { best.map { E1RMChange.number(E1RMChange.rounded($0)) } }
-        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RMChange.rounded($0)))") } }
+        var bestText: String? { best.map { E1RMChange.number(E1RMChange.rounded($0), locale: locale) } }
+        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RMChange.rounded($0), locale: locale))") } }
     }
 
     /// The last ten sessions with this exercise; a set as the session detail draws it ("80 kg × 5", "0:45", "3.1 mi").
@@ -266,9 +268,9 @@ final class ExerciseDetailViewModel {
         (history?.sessions ?? []).prefix(10).enumerated().map { i, entry in
             let working = entry.sets.filter { !$0.isWarmup }
             return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated).locale(locale)),
-                             sets: StrainRows.join(working.map { SessionDetailContent.text($0) }),
+                             sets: StrainRows.join(working.map { SessionDetailContent.text($0, locale: locale) }),
                              spokenSets: working.map { SessionDetailContent.spoken($0, locale: locale) }.joined(separator: ", "),
-                             best: E1RM.best(of: working))
+                             best: E1RM.best(of: working), locale: locale)
         }
     }
 

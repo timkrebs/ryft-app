@@ -46,9 +46,9 @@ enum E1RMChange {
         return r > 0 ? .up : (r < 0 ? .down : .steady)
     }
 
-    /// "▲ 11.6 kg", "▼ 1.5 kg", "Steady".
-    static func text(_ kg: Double) -> String {
-        let size = Fmt.kg(abs(rounded(kg))).replacingOccurrences(of: " ", with: DeltaLabel.noBreakSpace)
+    /// "▲ 11.6 kg", "▼ 1.5 kg", "Steady"; the number in `locale` (the default is the user's own).
+    static func text(_ kg: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let size = Fmt.kg(abs(rounded(kg)), locale: locale).replacingOccurrences(of: " ", with: DeltaLabel.noBreakSpace)
         switch direction(kg) {
         case .up: return "▲" + DeltaLabel.noBreakSpace + size
         case .down: return "▼" + DeltaLabel.noBreakSpace + size
@@ -57,8 +57,8 @@ enum E1RMChange {
     }
 
     /// "Up 11.6 kg", "Down 1.5 kg", "No change".
-    static func spoken(_ kg: Double) -> String {
-        let size = Fmt.kg(abs(rounded(kg)))
+    static func spoken(_ kg: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let size = Fmt.kg(abs(rounded(kg)), locale: locale)
         switch direction(kg) {
         case .up: return String(localized: "Up \(size)")
         case .down: return String(localized: "Down \(size)")
@@ -213,7 +213,7 @@ struct ExerciseDetailPage: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, ExerciseDetailLayout.captionGap)
             if let change = model.change {
-                Text(verbatim: E1RMChange.overWindow(E1RMChange.text(change)))
+                Text(verbatim: E1RMChange.overWindow(E1RMChange.text(change, locale: locale)))
                     .font(.ryft(.label))
                     .monospacedDigit()
                     .foregroundStyle(E1RMChange.color(change))
@@ -248,7 +248,7 @@ struct ExerciseDetailPage: View {
         }
         var parts = [HistorySpeech.kilograms(latest, locale: locale)]
         if let change = model.change {
-            parts.append(E1RMChange.overWindow(E1RMChange.spoken(change)))
+            parts.append(E1RMChange.overWindow(E1RMChange.spoken(change, locale: locale)))
         } else if let date = model.heroDate(locale: locale) {
             parts.append(date)
         }
@@ -317,7 +317,7 @@ struct ExerciseDetailPage: View {
     private var chartHeadSpoken: String {
         guard let latest = model.points.last?.value else { return String(localized: "No data") }
         var parts = [HistorySpeech.kilograms(latest, locale: locale)]
-        if let change = model.lastChange { parts.append("\(E1RMChange.spoken(change)) \(String(localized: "vs last"))") }
+        if let change = model.lastChange { parts.append("\(E1RMChange.spoken(change, locale: locale)) \(String(localized: "vs last"))") }
         return parts.joined(separator: ", ")
     }
 
@@ -399,7 +399,7 @@ private struct ChartValueLine: View {
             }
             if let lastChange {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(verbatim: E1RMChange.text(lastChange))
+                    Text(verbatim: E1RMChange.text(lastChange, locale: locale))
                         .fixedSize()
                     Text("vs last")
                         .fixedSize(horizontal: false, vertical: true)
@@ -492,6 +492,7 @@ struct E1RMChart: View {
     var now: Date = .now
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.locale) private var locale
 
     private var values: [Double] { points.map(\.value) }
 
@@ -509,7 +510,7 @@ struct E1RMChart: View {
                     .foregroundStyle(Theme.textPrimary.opacity(ExerciseDetailLayout.prRuleOpacity))
                     .lineStyle(ChartStyle.baseline)
                     .annotation(position: .top, alignment: .leading, spacing: 2) {
-                        Text("PR \(Fmt.kg(best))")
+                        Text("PR \(Fmt.kg(best, locale: locale))")
                             .font(ChartStyle.axisFont)
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -537,13 +538,14 @@ struct E1RMChart: View {
         .accessibilityValue(Text(summary))
         .accessibilityChartDescriptor(SeriesChartDescriptor(title: String(localized: "Estimated 1RM"), valueName: "kg",
                                                             points: points.map { ($0.date, $0.value) },
-                                                            valueText: { Fmt.kg($0) }))
+                                                            valueText: { [locale] in Fmt.kg($0, locale: locale) }))
         .accessibilityIdentifier("exerciseDetail.chart")
     }
 
     private var summary: String {
         guard let first = values.first, let last = values.last else { return String(localized: "No data") }
-        return String(localized: "From \(Fmt.kg(first)) to \(Fmt.kg(last)), best \(Fmt.kg(best ?? values.max() ?? last)).")
+        let kg = { (value: Double) in Fmt.kg(value, locale: locale) }
+        return String(localized: "From \(kg(first)) to \(kg(last)), best \(kg(best ?? values.max() ?? last)).")
     }
 }
 
