@@ -199,6 +199,8 @@ final class SessionDetailViewModel {
     private(set) var loaded = false
     /// The failed read's status and request ID (Details under the failure); nil when it didn't fail.
     private(set) var failureDetails: String?
+    /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`): RYFT is busy, not "when you're online".
+    private(set) var heldBack = false
     /// The list's summary of it, read once, at the first paint (`summary`).
     @ObservationIgnored private var summaryRead: SessionSummary??
 
@@ -234,6 +236,7 @@ final class SessionDetailViewModel {
         }
         session = read.value ?? session
         failureDetails = session == nil ? read.failure : nil
+        heldBack = read.heldBack
         loaded = true
     }
 }
@@ -258,7 +261,7 @@ private struct SessionDetailScreen: View {
     var body: some View {
         SessionDetailPage(content: model.content(locale: locale), key: model.sessionID.uuidString,
                           numeralStyle: env.settings.heroNumerals.style, failureDetails: model.failureDetails,
-                          retry: { await model.load(userInitiated: true) })
+                          heldBack: model.heldBack, retry: { await model.load(userInitiated: true) })
             .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
@@ -273,6 +276,8 @@ struct SessionDetailPage: View {
     var numeralStyle: DotNumeral.Style = .dots
     /// The failed read's status and request ID, behind the failure's Details.
     var failureDetails: String?
+    /// The read was held back by a `Retry-After`, online: the failure says RYFT is busy (code review N4).
+    var heldBack = false
     /// The failure's Try again: the session's read.
     var retry: () async -> Void = {}
 
@@ -305,7 +310,8 @@ struct SessionDetailPage: View {
                     case .loading:
                         placeholders
                     case .failed:
-                        InlineMessage(message: String(localized: "This workout couldn't be loaded. Try again when you're online."),
+                        InlineMessage(message: heldBack ? RefreshIssue.Reason.busy.message
+                                          : String(localized: "This workout couldn't be loaded. Try again when you're online."),
                                       details: failureDetails, retry: retry, identifier: "sessionDetail.failure")
                     }
                 }

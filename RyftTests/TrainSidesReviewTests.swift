@@ -354,3 +354,169 @@ struct PlanPageFailureTests {
         }
     }
 }
+
+/// Code review N4: online, but a `Retry-After` holds Train's automatic reads back. Nothing is sent, and no page says
+/// "Offline": a copy shows as the status line's "Showing data from …"; with nothing cached the failed state says RYFT is
+/// busy, with the Details of the failure that set the hold, and its Try again goes through. Synthetic data only.
+@MainActor
+@Suite("R4T N4: held back online isn't Offline", .serialized)
+struct TrainHeldBackTests {
+    private static let holdDetails = "HTTP 503 · Request ID rid-hold-503"
+    private let busy = RefreshIssue.Reason.busy.message
+
+    /// Online and signed in, with Train's reads held back for five minutes by a 503's `Retry-After`.
+    private static func heldEnvironment() -> AppEnvironment {
+        let env = AppEnvironment.test(clock: TestClock(now: .now))
+        let failure = ResourceError(kind: .transient, status: 503, code: nil, requestID: "rid-hold-503", transport: nil,
+                                    attempts: 3, at: env.clock.now())
+        env.reads.seed([.train: ResourceState(lastError: failure, consecutiveFailures: 1,
+                                              retryNotBefore: env.clock.now().addingTimeInterval(300))])
+        return env
+    }
+
+    private func ids(_ w: HostedWindow) -> [String] { w.nodes().compactMap(\.identifier) }
+
+    /// No sentence on the page says the iPhone is offline or should go online.
+    private func saysOffline(_ text: String?) -> Bool {
+        guard let text = text?.lowercased() else { return false }
+        return text.contains("offline") || text.contains("online")
+    }
+
+    private func summary(daysAgo days: Int, now: Date) -> SessionSummary {
+        let start = now.addingTimeInterval(-Double(days) * 86_400)
+        return SessionSummary(TrainSession(title: "Upper A", startedAt: start, endedAt: start.addingTimeInterval(55 * 60),
+                                           status: .completed, muscularTrimp: 85, strain: 10.4, volumeKg: 7_500, exercises: []))
+    }
+
+    /// The pipeline says why it would send nothing: offline (or signed out), held back online, or nothing (it sends).
+    /// A user's read (`userInitiated`) goes through the hold, and only then is anything sent (security review N-C).
+    @Test func theSchedulerSaysWhyAndLetsTheUsersReadThrough() async throws {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let key = ReadKey(.train, id: "alex-doe/plans")
+        #expect(env.reads.hold(key, userInitiated: false) == .heldBack)
+        #expect(env.reads.hold(key, userInitiated: true) == nil)
+        let sent = SentCount()
+        let automatic: Int? = try await env.reads.run(key) { sent.n += 1; return 1 }
+        #expect(automatic == nil && sent.n == 0, "held back: nothing sent")
+        let mine: Int? = try await env.reads.run(key, userInitiated: true) { sent.n += 1; return 2 }
+        #expect(mine == 2 && sent.n == 1, "Try again goes through")
+        // Another resource isn't held.
+        #expect(env.reads.hold(ReadKey(.journal), userInitiated: false) == nil)
+        let offline = AppEnvironment.test(online: false)
+        #expect(offline.reads.hold(key, userInitiated: true) == .offline, "offline: nothing can be sent, the user's neither")
+    }
+
+    /// History with a copy: no "Offline · as of", but "Showing data from …", the hold's Details; pull to refresh sends.
+    @Test func historysCopyIsNotOffline() async {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let now = env.clock.now()
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex], reads: env.reads)
+        let fetched = now.addingTimeInterval(-3_600)
+        rig.store.saveDocument([summary(daysAgo: 3, now: now)], key: "train.sessions", at: fetched)
+        let vm = TrainHistoryViewModel(library: rig.library, clock: env.clock)
+        await vm.load()
+        #expect(alex.count(.sessions) == 0, "held back: nothing sent")
+        #expect(vm.state == .list && !vm.isOffline && vm.isStale && !vm.fresh)
+        #expect(vm.failureDetails == Self.holdDetails)
+        let note = TrainOfflineNote.text(fetchedAt: vm.fetchedAt, offline: false, now: vm.now)
+        #expect(note.hasPrefix("Showing data from ") && !saysOffline(note), "\(note)")
+        await vm.refresh()
+        #expect(alex.count(.sessions) == 1 && vm.fresh && !vm.isStale && !vm.isOffline, "pull to refresh goes through")
+    }
+
+    /// The exercise page and the session detail with nothing cached: the failed state says RYFT is busy, never "when
+    /// you're online"; their Try again sends.
+    @Test func nothingCachedIsTheBusyFailure() async {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex], reads: env.reads)
+        let history = TrainHistoryViewModel(library: rig.library, clock: env.clock)
+        await history.load()
+        #expect(history.failed && !history.isOffline && history.failureText == busy)
+        #expect(history.failureDetails == Self.holdDetails)
+        let exercise = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id, library: rig.library, clock: env.clock)
+        await exercise.load()
+        #expect(exercise.failed && !exercise.isOffline && !exercise.isStale && exercise.failureText == busy)
+        #expect(exercise.failureDetails == Self.holdDetails)
+        let session = SessionDetailViewModel(sessionID: MockTrain.history[0].id, library: rig.library)
+        await session.load()
+        #expect(session.session == nil && session.heldBack && session.failureDetails == Self.holdDetails)
+        #expect(alex.calls == 0, "nothing sent")
+        await exercise.load(userInitiated: true)
+        #expect(alex.count(.history) == 1 && exercise.fresh && exercise.failureText != busy)
+        // Offline, the same pages keep their own words.
+        let offlineEnv = AppEnvironment.test(online: false)
+        let offline = TrainHistoryViewModel(library: TrainSides([SideSwitch.alex: SideTrainSource(.demo)],
+                                                                reads: offlineEnv.reads).library)
+        await offline.load()
+        withExtendedLifetime(offlineEnv) {}
+        #expect(offline.failed && offline.failureText == TrainHistoryRows.failureText)
+    }
+
+    /// Plans with nothing cached: not "Plans appear once you're online.", but the busy failure with the hold's Details; Try
+    /// again goes through.
+    @Test func plansWithNothingCachedIsTheBusyFailure() async {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex], reads: env.reads)
+        let model = PlansViewModel(library: rig.library)
+        await model.loadIfNeeded()
+        #expect(alex.count(.plans) == 0)
+        #expect(!model.isOffline && !model.isLoading && !model.hasCatalog)
+        #expect(model.error == busy && model.errorDetails == Self.holdDetails)
+        #expect(rig.library.error == nil, "nothing failed: the library has no message of its own")
+        await model.refresh()
+        #expect(alex.count(.plans) == 1 && model.hasCatalog && model.error == nil && model.errorDetails == nil)
+    }
+
+    /// Offline with nothing cached, Plans keeps its calm line.
+    @Test func plansOfflineKeepsItsLine() async {
+        let env = AppEnvironment.test(online: false)
+        defer { withExtendedLifetime(env) {} }
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo)], reads: env.reads)
+        let model = PlansViewModel(library: rig.library)
+        await model.loadIfNeeded()
+        #expect(model.isOffline && model.error == nil && rig.library.plansDeclined == .offline)
+    }
+
+    /// The plan page with nothing cached: the busy failure with the hold's Details, not the offline line; Try again sends.
+    @Test func thePlanPageIsTheBusyFailure() async {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex], reads: env.reads)
+        let model = PlanDetailViewModel(planID: MockTrain.fullBody.id, library: rig.library)
+        await model.load()
+        #expect(alex.count(.plan) == 0 && !model.isOffline)
+        #expect(model.failure == busy && model.failureDetails == Self.holdDetails)
+        await model.load(userInitiated: true)
+        #expect(alex.count(.plan) == 1 && model.plan?.id == MockTrain.fullBody.id && model.failure == nil)
+    }
+
+    /// On History's page: the copy with "Showing data from …" and nothing about being offline.
+    @Test func historysPageSaysNothingOfOffline() async throws {
+        let env = Self.heldEnvironment()
+        defer { withExtendedLifetime(env) {} }
+        let now = env.clock.now()
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo)], reads: env.reads)
+        rig.store.saveDocument([summary(daysAgo: 3, now: now)], key: "train.sessions", at: now.addingTimeInterval(-3_600))
+        let view = NavigationStack { TrainHistoryView() }.environment(rig.library).environment(\.appEnvironment, env)
+        try await HostedWindow.run(width: 390, height: 1_000, bottomInset: 0, view) { w in
+            try await w.wait("the stale line") { ids(w).contains("history.stale") }
+            let line = try #require(w.nodes().first { $0.identifier == "history.stale" })
+            #expect(line.label.hasPrefix("Showing data from "), "\(line.label)")
+            #expect(!ids(w).contains("history.offline"))
+            #expect(!w.nodes().contains { saysOffline($0.label) }, "\(w.nodes().map(\.label))")
+        }
+    }
+}
+
+@MainActor
+final class SentCount {
+    var n = 0
+}

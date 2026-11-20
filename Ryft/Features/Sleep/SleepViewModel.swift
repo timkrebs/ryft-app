@@ -278,8 +278,9 @@ struct SleepLoadFailure: Equatable {
         self.action = action
     }
 
-    /// The phone has no connection: URLSession says so, whatever the connectivity monitor last heard.
-    private static func lostConnection(_ error: Error) -> Bool {
+    /// The phone has no connection: URLSession says so, whatever the connectivity monitor last heard (Train's pages call
+    /// it offline too).
+    static func lostConnection(_ error: Error) -> Bool {
         var url = error as? URLError
         if case .transport(let inner)? = error as? APIError { url = inner as? URLError }
         guard let code = url?.code else { return false }

@@ -52,14 +52,18 @@ enum TrainHistoryRows {
     }
 }
 
-/// "Offline · as of 14:05" (History, the exercise page): the copy on this phone after a failed read, quiet (`caption`,
-/// `textTertiary`, `wifi.slash`). The time is when the copy was fetched, never relative ("14:05", "Yesterday 14:05", "Tue 14:05").
+/// "Offline · as of 14:05" (History, the exercise page): the copy on this phone after a read the iPhone couldn't send, quiet
+/// (`caption`, `textTertiary`, `wifi.slash`). The time is when the copy was fetched, never relative ("14:05", "Yesterday
+/// 14:05", "Tue 14:05"). Not `offline` (online, but the read was held back by a `Retry-After` or failed): the status line's
+/// "Showing data from 14:05" with its `clock`, no offline words (code review N4).
 struct TrainOfflineNote: View {
     let fetchedAt: Date?
+    var offline = true
     var identifier = "train.offline"
     var now: Date = .now
 
-    static func text(fetchedAt: Date?, now: Date) -> String {
+    static func text(fetchedAt: Date?, offline: Bool = true, now: Date) -> String {
+        if !offline, let fetchedAt { return SyncLine.stale(since: fetchedAt).text(now: now) }
         guard let fetchedAt else { return String(localized: "Offline") }
         return String(localized: "Offline · as of \(SyncLine.dataTime(fetchedAt, now: now))",
                       comment: "Train's History and exercise page: offline, showing the copy fetched at this time (\"14:05\", \"Yesterday 14:05\").")
@@ -67,10 +71,10 @@ struct TrainOfflineNote: View {
 
     var body: some View {
         Label {
-            Text(verbatim: Self.text(fetchedAt: fetchedAt, now: now))
+            Text(verbatim: Self.text(fetchedAt: fetchedAt, offline: offline, now: now))
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: "wifi.slash")
+            Image(systemName: offline ? "wifi.slash" : "clock")
         }
         .font(.ryft(.caption))
         .monospacedDigit()
@@ -133,6 +137,8 @@ struct TrainHistoryPage: View {
                 VStack(alignment: .leading, spacing: TrainHistoryLayout.weekSpacing) {
                     if model.isOffline {
                         TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline", now: model.now)
+                    } else if model.isStale {
+                        TrainOfflineNote(fetchedAt: model.fetchedAt, offline: false, identifier: "history.stale", now: model.now)
                     }
                     switch model.state {
                     case .loading: placeholders
@@ -203,7 +209,7 @@ struct TrainHistoryPage: View {
     /// The read failed and nothing is cached: say so, with Try again (the session detail's words) and the failure's status
     /// and request ID behind Details.
     private var failure: some View {
-        InlineMessage(message: TrainHistoryRows.failureText, details: model.failureDetails, retry: { await model.refresh() },
+        InlineMessage(message: model.failureText, details: model.failureDetails, retry: { await model.refresh() },
                       identifier: "history.failure")
     }
 }

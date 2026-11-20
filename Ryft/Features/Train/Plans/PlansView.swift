@@ -211,8 +211,8 @@ private struct PlansScreen: View {
         .accessibilityIdentifier("plans.loading")
     }
 
-    /// Nothing cached and no load running (offline, or the reads wait to retry): a calm line instead of outlines that
-    /// would never fill. Try again, or pull, loads again.
+    /// Nothing cached and no load running, offline: a calm line instead of outlines that would never fill. Try again, or
+    /// pull, loads again. Held back online is the failure above instead (`PlansViewModel.error`).
     private var offline: some View {
         InlineMessage(message: String(localized: "Plans appear once you're online.",
                                       comment: "Plans, with no plans saved on this iPhone and no connection to load them."),
