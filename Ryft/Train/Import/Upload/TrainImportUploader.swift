@@ -1042,7 +1042,7 @@ final class TrainImportUploader {
         // the gates the user can answer (consent, the invite) are `gated`; any other is `held`.
         if api?.status == 403 {
             record(failure(error))
-            stop(api?.code.map { ImportPause.gated(.gate($0)) } ?? .held)
+            stop(api?.code.flatMap { $0.isGate ? ImportPause.gated(.gate($0)) : nil } ?? .held)
             return false
         }
         switch FailureKind.of(error) {

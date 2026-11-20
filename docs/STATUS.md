@@ -82,6 +82,27 @@ on 18.6 and 27.2. On 18.6 the wipe's release of the open workout is a precaution
 traps there, but the hosted screen never did (only on 18.0). W4a and W7 come before the External build, and C2 goes
 into force with it (Sign-out wipe, below).
 
+2026-11-19: the App Attest client (D245, ADR 0023, `feat/app-attest`, `docs/work/2026-11-19-app-attest/`). Every api
+and ingest request carries `X-RYFT-App-Token` once the app holds one, and a `403 app_attest_required` gets one renewal
+and one resend. A refused Train write, activity or import stays queued, and a refused sync page commits no HealthKit anchor.
+The key ID is in the Keychain (this device only), the token in memory, and the wipe drops both. While the server
+doesn't serve the routes (today: `404`), the app sends no header and probes again at most every 6 h.
+- **Verified on the simulator** (iPhone 18 Pro, 27.2, with `main` and #126 merged in):
+  - `make build` with 0 warnings in our code; `make lint`.
+  - The App Attest suites three times.
+  - The full Unit plan: 5,634 test cases passed, 3 failed. The failures also fail on `origin/main` (cf31743) on this
+    simulator: `FocusedPolishHostedTests/theRPELineTakesItsRoom` (known), and one case each of
+    `TodayTwoUpTileTests/noCaptionIsSqueezedBelow80Percent` and `thePairsCaptionsSitAlike` (not on the known list
+    before; checked on main).
+  - The simulator has no App Attest (`isSupported` false), so UI smoke is unaffected; it wasn't run here.
+- **Not verified on a device:** any attestation. The entitlement isn't in `Ryft.entitlements` yet (a hook allows it
+  only through Xcode's + Capability: the user's step).
+- **Not pushed:** `gitleaks` was refused in the run, and the brief says no push without it. PR title and body:
+  `docs/work/2026-11-19-app-attest/pr.md`.
+- **Open:**
+  - S2 (`review.md`): a redirect off the two hosts would carry the bearer and the app token. A separate PR.
+  - `docs/API_REQUESTS.md` → App Attest, AA1–AA4.
+
 2026-11-19: Train never loses a workout (O1 + O2 logic, ADR 0022, `fix/train-refusals-kept`). A custom exercise made
 offline is an outbox op, sent ahead of the workouts that use it, so on reconnect it's exercise, `PUT`, `complete`. A
 refusal (`400`, `409` after the merge rounds, `413`, `422`, any other `4xx` but the holds, `404` on `complete`, or a

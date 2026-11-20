@@ -2875,6 +2875,7 @@
     },
     "RYFT couldn't take that change. Try again later." : {},
     "RYFT couldn't take this report. Copy your message and try again later." : {},
+    "RYFT couldn't verify this app on this iPhone. Try again later." : {},
     "RYFT didn't accept this one." : {
       "comment" : "Training import I4: a refusal with no code this build knows."
     },

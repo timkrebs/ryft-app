@@ -14,6 +14,8 @@
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
 // Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
 // in warn mode) is reported like a refusal's code.
+// Every request but the three App Attest routes carries `X-RYFT-App-Token` once `AppAttestor` has one; a
+// `403 app_attest_required` gets one new token and one more try, next to the 401's (ADR 0023).
 import Foundation
 import zlib
 
@@ -33,6 +35,9 @@ enum APIError: LocalizedError {
             return String(localized: "RYFT is invite-only during the beta. Enter your invite code to continue.")
         case .http(403, _, _, .consentRequired?, _):
             return String(localized: "RYFT needs your consent before it can sync your health data.")
+        // App Attest refused the request again after one new token, or this iPhone can't attest (ADR 0023).
+        case .http(403, _, _, .appAttestRequired?, _):
+            return String(localized: "RYFT couldn't verify this app on this iPhone. Try again later.")
         // API.md: without a code, a 403 means changing something built in (exercise, plan, behavior).
         case .http(403, _, _, nil, _): return String(localized: "This is built into RYFT and can't be changed.")
         case .http(429, _, _, _, _): return String(localized: "Too many requests. Try again in a minute.")
@@ -252,7 +257,7 @@ protocol RyftDataSource {
 }
 
 final class APIClient: RyftDataSource {
-    static let shared = APIClient()
+    static let shared = APIClient(appAttest: .live)
 
     private let settings: Settings
     private let session: URLSession
@@ -265,6 +270,8 @@ final class APIClient: RyftDataSource {
     private let ingestURL: URL?
     /// Where gates, 503 waits and failures are reported; `APIStatus.shared` unless a test injects one.
     private let status: APIStatus?
+    /// The app token's owner (`AppAttestor.live` for `shared`); nil: no header and no App Attest retry (tests).
+    private let appAttest: AppAttestor?
 
     /// 503 retries per request before giving up, and the longest wait honoured.
     static let maxUnavailableRetries = 3
@@ -276,6 +283,9 @@ final class APIClient: RyftDataSource {
         c.timeoutIntervalForRequest = 60
         c.timeoutIntervalForResource = 300 // first backfill can be tens of MB
         c.waitsForConnectivity = true
+        // No `Cache.db`: a stored response keeps its request's headers (the bearer, the app token), and no wipe
+        // clears it. The platform's `no-store` says the same; the client doesn't rely on it.
+        c.urlCache = nil
         return c
     }()
 
@@ -286,6 +296,7 @@ final class APIClient: RyftDataSource {
         c.timeoutIntervalForRequest = 20
         c.timeoutIntervalForResource = 25
         c.waitsForConnectivity = false
+        c.urlCache = nil
         return c
     }()
 
@@ -302,10 +313,12 @@ final class APIClient: RyftDataSource {
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
     /// `session` (tests: a stubbed one) serves background runs too unless `backgroundSession` is given.
     /// `settings` (tests: their own) supplies the hosts `baseURL` / `ingestURL` don't replace, and the device ID.
+    /// `appAttest` supplies `X-RYFT-App-Token` (nil: none, as in every test that doesn't give one).
     init(session: URLSession? = nil, backgroundSession: URLSession? = nil,
          tokens: AccessTokenProvider? = nil,
          sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
-         baseURL: URL? = nil, ingestURL: URL? = nil, status: APIStatus? = nil, settings: Settings? = nil) {
+         baseURL: URL? = nil, ingestURL: URL? = nil, status: APIStatus? = nil, settings: Settings? = nil,
+         appAttest: AppAttestor? = nil) {
         self.session = session ?? URLSession(configuration: APIClient.defaultConfiguration)
         self.backgroundSession = backgroundSession ?? session
             ?? URLSession(configuration: APIClient.backgroundConfiguration)
@@ -315,12 +328,15 @@ final class APIClient: RyftDataSource {
         self.tokens = tokens
         self.sleep = sleep
         self.status = status
+        self.appAttest = appAttest
     }
 
-    /// Routes the invite gate leaves open (API.md → Errors): the onboarding calls.
+    /// Routes the invite gate leaves open (API.md → Errors): the onboarding calls, and the App Attest routes, which
+    /// are outside the beta gate (an invite-gated client needs a token to send its code under `on`).
     static let openBehindInviteGate: Set<String> = [
         "GET /v1/me", "GET /v1/me/sync", "GET /v1/config", "GET /v1/model", "POST /v1/me/invite",
         "POST /v1/me/consent", "DELETE /v1/me/consent", "POST /v1/feedback", "DELETE /v1/me",
+        "POST /v1/app-attest/challenge", "POST /v1/app-attest/keys", "POST /v1/app-attest/token",
     ]
 
     static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
@@ -334,8 +350,13 @@ final class APIClient: RyftDataSource {
     }
 
     /// The path without its query.
-    private static func route(_ path: String) -> String {
+    static func route(_ path: String) -> String {
         path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
+    }
+
+    /// The error body's `code`, if it has one this build knows.
+    static func errorCode(in data: Data) -> APIErrorCode? {
+        (try? jsonDecoder.decode(APIErrorBody.self, from: data))?.code
     }
 
     /// `X-RYFT-Gate: invite_required, consent_required` (comma-separated, or repeated,
@@ -493,8 +514,23 @@ final class APIClient: RyftDataSource {
         }
         let tokens = await tokenProvider()
         var bearer = try await tokens.accessToken()
+        // The app token, after the bearer (ADR 0023): never on the three routes that mint it, nor to a host a caller
+        // chose (`base`). Nil goes without. The routes App Attest exempts carry a token the attestor holds, but never
+        // start a renewal or wait for one (sign-out's unregistering mustn't stall, nor renew for the leaving account).
+        let attests = appAttest != nil && base == nil && !Self.appAttestRoutes.contains("\(method) \(Self.route(path))")
+        let exempt = attests && Self.isAppAttestExempt(method, path)
+        var appToken: String?
+        if exempt {
+            appToken = await appAttest?.heldToken(epoch: epoch)
+        } else if attests {
+            appToken = await appAttest?.token(epoch: epoch, via: self)
+            // The wait for a first token (up to 3 s) may have outlived the account: A's request never goes out after
+            // A's wipe.
+            guard await status.epoch == epoch else { throw CancellationError() }
+        }
+        let renews = attests && !exempt
         let single = Self.singleAttempt
-        var refreshed = false, rateLimited = false, unavailable = 0
+        var refreshed = false, rateLimited = false, unavailable = 0, renewedToken = false
         /// A retry's step (its wait, the 401 refresh, the final 401's sign-out): it stops like a cancellation when
         /// the account changed since the request started, so A's body never goes out with B's token and A's late
         /// 401 never signs B out; and any throw ends "RYFT is catching up".
@@ -513,7 +549,7 @@ final class APIClient: RyftDataSource {
             let started = Date()
             let data: Data, response: HTTPURLResponse?
             do {
-                (data, response) = try await perform(req, bearer: bearer)
+                (data, response) = try await perform(req, bearer: bearer, appToken: appToken)
             } catch {
                 // No response: recorded with its duration and URLError name (status 0), so Sync
                 // details and Copy diagnostics show timeouts too. A cancellation isn't a failure.
@@ -553,6 +589,15 @@ final class APIClient: RyftDataSource {
                 continue
             case 401:
                 try await retryStep { await tokens.rejectedAfterRefresh() }
+            case 403 where renews && !renewedToken && Self.errorCode(in: data) == .appAttestRequired:
+                // App Attest refused it before routing and the body, so any method may go again: once, with a new
+                // token (the renewal in flight's, if there is one). None to be had: thrown below with its request ID.
+                renewedToken = true
+                guard let fresh = try await retryStep({
+                    try await appAttest?.renewed(after: appToken, epoch: epoch, via: self)
+                }) else { break }
+                appToken = fresh
+                continue
             case 429 where retriesRateLimit && !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
@@ -597,9 +642,11 @@ final class APIClient: RyftDataSource {
     /// One round trip. A scheduled read (`singleAttempt`) uses the fail-fast session like a background
     /// run: 20 s, and no waiting for a network that isn't there (the scheduler retries). A cancelled
     /// task's `URLError.cancelled` comes back as `CancellationError`: cancelling isn't failing.
-    private func perform(_ request: URLRequest, bearer: String) async throws -> (Data, HTTPURLResponse?) {
+    /// `appToken`: `X-RYFT-App-Token`, set on each attempt (the 403 retry sends a new one).
+    private func perform(_ request: URLRequest, bearer: String, appToken: String?) async throws -> (Data, HTTPURLResponse?) {
         var req = request
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue(appToken, forHTTPHeaderField: "X-RYFT-App-Token")
         let failFast = Self.runsInBackground || Self.singleAttempt
         do {
             let (data, resp) = try await (failFast ? backgroundSession : session).data(for: req)
