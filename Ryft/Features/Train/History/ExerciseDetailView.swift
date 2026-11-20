@@ -101,7 +101,8 @@ struct ExerciseDetailView: View {
     }
 }
 
-/// Wiring; the first model handed in is kept for the screen's lifetime.
+/// Wiring; the first model handed in is kept for the screen's lifetime. It reads again when the iPhone goes online (and
+/// offline, which ends at once on the copy).
 private struct ExerciseDetailScreen: View {
     @State var model: ExerciseDetailViewModel
     let onClose: (() -> Void)?
@@ -109,7 +110,7 @@ private struct ExerciseDetailScreen: View {
 
     var body: some View {
         ExerciseDetailPage(model: model, numeralStyle: env.settings.heroNumerals.style, onClose: onClose)
-            .task { await model.load() }
+            .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
 
@@ -131,7 +132,8 @@ struct ExerciseDetailPage: View {
                 header
                 if model.failed {
                     // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
-                    InlineMessage(message: Self.failureText, retry: { await model.load() }, identifier: "exerciseDetail.failure")
+                    InlineMessage(message: Self.failureText, details: model.failureDetails,
+                                  retry: { await model.load(userInitiated: true) }, identifier: "exerciseDetail.failure")
                         .padding(.top, ExerciseDetailLayout.heroGap)
                 } else {
                     content
@@ -158,7 +160,7 @@ struct ExerciseDetailPage: View {
     /// distance exercise has no 1RM and leads with its recent sets.
     @ViewBuilder private var content: some View {
         if model.isOffline {
-            TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline")
+            TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline", now: model.now)
                 .padding(.top, ExerciseDetailLayout.offlineGap)
         }
         switch model.lead {

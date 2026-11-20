@@ -99,19 +99,22 @@ enum HistorySpeech {
 /// Finished sessions by week, with each week's count, volume and muscular load.
 struct TrainHistoryView: View {
     @Environment(TrainLibrary.self) private var library
+    @Environment(\.appEnvironment) private var env
 
     var body: some View {
-        TrainHistoryScreen(model: TrainHistoryViewModel(library: library))
+        TrainHistoryScreen(model: TrainHistoryViewModel(library: library, clock: env.clock))
     }
 }
 
-/// Wiring; the first model handed in is kept for the screen's lifetime.
+/// Wiring; the first model handed in is kept for the screen's lifetime. It reads again when the iPhone goes online (and
+/// offline, which ends at once on the copy).
 private struct TrainHistoryScreen: View {
     @State var model: TrainHistoryViewModel
+    @Environment(\.appEnvironment) private var env
 
     var body: some View {
         TrainHistoryPage(model: model)
-            .task { await model.load() }
+            .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
 
@@ -129,7 +132,7 @@ struct TrainHistoryPage: View {
                 PushedHeader(Text("History"), subtitle: model.subtitle.map { Text(verbatim: $0) }, identifierPrefix: "history")
                 VStack(alignment: .leading, spacing: TrainHistoryLayout.weekSpacing) {
                     if model.isOffline {
-                        TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline")
+                        TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline", now: model.now)
                     }
                     switch model.state {
                     case .loading: placeholders
@@ -197,9 +200,11 @@ struct TrainHistoryPage: View {
         .accessibilityIdentifier("history.empty")
     }
 
-    /// The read failed and nothing is cached: say so, with Try again (the session detail's words).
+    /// The read failed and nothing is cached: say so, with Try again (the session detail's words) and the failure's status
+    /// and request ID behind Details.
     private var failure: some View {
-        InlineMessage(message: TrainHistoryRows.failureText, retry: { await model.refresh() }, identifier: "history.failure")
+        InlineMessage(message: TrainHistoryRows.failureText, details: model.failureDetails, retry: { await model.refresh() },
+                      identifier: "history.failure")
     }
 }
 

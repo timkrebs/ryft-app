@@ -218,6 +218,10 @@ struct RyftApp: App {
                     sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
+                    // Train's cache is one store for both sides (ADR 0019): what was read for the other side goes, and
+                    // the plans and today's plan day are read for this one.
+                    trainLibrary.demoModeChanged()
+                    Task { await trainLibrary.refresh() }
                     // A start asked for in the demo doesn't carry over, as one doesn't across an account change.
                     if !on { WorkoutLauncher.discardPending() }
                     // Demo's remembered import matches and its import job go with it (also when it's switched off

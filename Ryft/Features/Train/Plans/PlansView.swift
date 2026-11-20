@@ -326,6 +326,12 @@ struct PlanDetailView: View {
     }
 }
 
+/// What the plan page loads for: the plan, and again when the iPhone goes online (or offline, which ends at once).
+private struct PlanLoadKey: Equatable {
+    let plan: UUID
+    let online: Bool
+}
+
 /// The pushed page (PR 6 B §6.2, `b-11`): Back, the plan's name over its summary; the description and its progression; the
 /// one primary action (Switch to / Start this plan, or Resume) or the active plan's week with Pause; Copy and edit (built-in)
 /// or Edit (mine); the weeks; a card per day with its exercises and its own Start; Delete at the end of the user's own.
@@ -333,6 +339,7 @@ struct PlanDetailView: View {
 private struct PlanDetailScreen: View {
     @State var model: PlanDetailViewModel
     @Environment(TrainCoordinator.self) private var coordinator
+    @Environment(\.appEnvironment) private var env
     @Environment(\.dismiss) private var dismiss
     @State private var editing: Plan?
     @State private var confirmSwitch = false
@@ -366,8 +373,15 @@ private struct PlanDetailScreen: View {
                             .padding(.top, PlansLayout.daysGap)
                     }
                 } else if let failure = model.failure {
-                    InlineMessage(message: failure, details: model.errorDetails, retry: { await model.load() },
+                    InlineMessage(message: failure, details: model.errorDetails, retry: { await model.load(userInitiated: true) },
                                   identifier: "plan.loadError")
+                        .padding(.top, PlansLayout.headerGap)
+                } else if model.isOffline {
+                    // Not cached and nothing could be sent: Plans' calm line, not outlines that would never fill.
+                    InlineMessage(message: String(localized: "Plans appear once you're online.",
+                                                  comment: "Plans, with no plans saved on this iPhone and no connection to load them."),
+                                  systemImage: "wifi.slash", retry: { await model.load(userInitiated: true) },
+                                  identifier: "plan.offline", announces: false)
                         .padding(.top, PlansLayout.headerGap)
                 } else {
                     loading
@@ -381,7 +395,7 @@ private struct PlanDetailScreen: View {
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
-        .task(id: model.planID) { await model.load() }
+        .task(id: PlanLoadKey(plan: model.planID, online: env.connectivity.isOnline)) { await model.load() }
         .sheet(item: $editing, onDismiss: { Task { await model.load() } }) {
             PlanBuilderView(plan: $0).presentedRoot()
         }
