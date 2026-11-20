@@ -1479,6 +1479,9 @@
     "Add workouts file" : {
       "comment" : "Training import D2: opens the picker."
     },
+    "add your birth year for an estimate" : {
+      "comment" : "Maximum heart rate, after \"Default\": a birth year gives RYFT an estimate."
+    },
     "addActivity.title" : {
       "comment" : "The Add activity sheet's title, between Cancel and Save: keep it short."
     },
@@ -2023,7 +2026,6 @@
       "comment" : "Sleep's Restorative tile, under the value: the time is deep plus REM sleep."
     },
     "Default" : {},
-    "Default · add your birth year for an estimate" : {},
     "Delete %@" : {
       "comment" : "Journal settings: the trash button of one of your own habits."
     },
@@ -2539,6 +2541,9 @@
     "Last time, %@: %@" : {
       "comment" : "VoiceOver: the last-time card. 1: the date, 2: its sets."
     },
+    "learned %@" : {
+      "comment" : "Baseline sleep need, after \"Set by you\": the baseline RYFT learned from the nights (\"learned 7h 52m\")."
+    },
     "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
       "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7)."
     },
@@ -2601,6 +2606,17 @@
     },
     "My Day appears once you're online." : {
       "comment" : "My Day: offline with nothing saved on this iPhone for the day yet."
+    },
+    "myday.state.strain" : {
+      "comment" : "My Day row: the word under a scored activity's strain (\"10.6\" over \"Strain\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strain"
+          }
+        }
+      }
     },
     "Name this plan" : {
       "comment" : "Training import, step 5: the plan name field, empty."
@@ -3018,7 +3034,7 @@
     "Starts the workout" : {
       "comment" : "VoiceOver hint on a start-sheet option: it starts the workout."
     },
-    "Strain comes once RYFT has this activity." : {
+    "Strain arrives once RYFT has this activity." : {
       "comment" : "Activity detail: the activity hasn't reached RYFT yet (unsent, offline, held), so there is no strain."
     },
     "Strain scale" : {
@@ -3212,7 +3228,6 @@
       "comment" : "Training import, step 5: the help under the plan."
     },
     "Learned" : {},
-    "Learned · updated %@" : {},
     "Learning your baselines: %lld of %lld nights." : {
       "comment" : "Note under Today's gauge while the baselines fill. Arguments: nights so far, nights needed (7)."
     },
@@ -3857,7 +3872,6 @@
     "Send to RYFT" : {},
     "Sends this and the last 20 requests. No health values." : {},
     "Set by you" : {},
-    "Set by you · learned %@" : {},
     "Set it up" : {
       "comment" : "Section of a setup card: the steps."
     },
