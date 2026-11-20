@@ -233,7 +233,7 @@ struct MyDayCardBody: View {
             MyDaySkeleton(rows: MyDayLayout.placeholderRows)
                 .padding(.top, MyDayLayout.stateGap)
         case .failed:
-            MyDayFailedMessage(retry: actions.retry)
+            MyDayFailedMessage(details: content.failedDetails, retry: actions.retry)
                 .padding(.top, MyDayLayout.stateGap)
         case .offline:
             MyDayOfflineMessage(retry: actions.retry)
@@ -302,13 +302,15 @@ struct MyDayCardBody: View {
     }
 }
 
-/// Nothing cached and the read failed (or was held back): "Couldn't load My Day." with Try again.
+/// Nothing cached and the read failed (or was held back): "Couldn't load My Day." with Try again, and the failure's status
+/// and request ID behind Details (`MyDayContent.failedDetails`).
 struct MyDayFailedMessage: View {
+    var details: String?
     var retry: () async -> Void = {}
 
     var body: some View {
         InlineMessage(message: String(localized: "Couldn't load My Day.", comment: "My Day: nothing cached and the read failed."),
-                      retry: retry, identifier: "myday.failed")
+                      details: details, retry: retry, identifier: "myday.failed")
     }
 }
 

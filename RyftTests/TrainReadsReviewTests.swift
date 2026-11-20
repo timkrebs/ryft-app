@@ -254,6 +254,36 @@ struct TrainReadsReviewTests {
         try await expectDetails("sessionDetail.failure", on: SessionDetailView(sessionID: platformSession))
     }
 
+    // MARK: S1: My Day's Details
+
+    /// My Day's failure: the day's read's status and request ID, from the pipeline's record (as the Journal's).
+    @Test func myDaysFailureCarriesTheReadsDetails() async {
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: TestClock(now: .now), flags: [.todayMyDay: true])
+        let vm = MyDayViewModel(state: AppState(env: env), store: TrainStore(inMemory: true))
+        api.failure = refused
+        await vm.load(vm.today)
+        #expect(vm.card.phase == .failed)
+        #expect(vm.card.failedDetails == refusedDetails, "\(vm.card.failedDetails ?? "nil")")
+        #expect(MyDayContent(day: vm.today, isToday: true, phase: .failed, items: []).failedDetails == nil)
+        withExtendedLifetime(env) {}
+    }
+
+    @Test func myDaysFailedMessageShowsTheDetails() async throws {
+        let content = MyDayContent(day: MockMyDay.today, isToday: true, phase: .failed, items: [], failedDetails: refusedDetails)
+        let views: [AnyView] = [
+            AnyView(ScrollView { MyDayCardBody(content: content).padding(20) }),
+            AnyView(NavigationStack { MyDayPage(content: content, week: [], actions: MyDayActions(), select: { _ in }) }),
+        ]
+        for view in views {
+            try await HostedWindow.run(width: Self.width, height: 1_200, bottomInset: 0, view.previewEnvironment()) { w in
+                try await w.wait("Try again") { ids(w).contains("myday.failed.retry") }
+                try #require(w.nodes().first { $0.label == "Details" }).activate()
+                try await w.wait("the request ID") { w.nodes().contains { $0.label.contains("Request ID rid-r1-400") } }
+            }
+        }
+    }
+
     // MARK: N-1: the Demo data switch
 
     /// Demo data on, an exercise opened; then off, before RyftApp's onChange: the history in memory was the demo's, so the

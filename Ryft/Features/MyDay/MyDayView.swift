@@ -249,7 +249,7 @@ struct MyDayPage: View {
         case .loading:
             MyDaySkeleton()
         case .failed:
-            MyDayFailedMessage(retry: actions.retry)
+            MyDayFailedMessage(details: content.failedDetails, retry: actions.retry)
         case .offline:
             MyDayOfflineMessage(retry: actions.retry)
         case .ready:

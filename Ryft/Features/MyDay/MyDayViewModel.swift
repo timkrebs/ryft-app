@@ -73,7 +73,15 @@ final class MyDayViewModel {
                             offersRetry: stale.map { env.clock.now().timeIntervalSince($0) > MyDayContent.retryAfter } ?? false,
                             dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil,
                             title: Fmt.dayTitle(day, today: today),
-                            isYesterday: calendar.isDate(day, inSameDayAs: DayFormat.shift(today, days: -1)))
+                            isYesterday: calendar.isDate(day, inSameDayAs: DayFormat.shift(today, days: -1)),
+                            failedDetails: phase == .failed ? failedDetails(isToday: isToday) : nil)
+    }
+
+    /// A failed load's status and request ID for Details, from the read pipeline's record as the Journal's: the day's read
+    /// (`.today` or `.day`), else the activities'. Nil when neither failed with an answer (held back by a `Retry-After`).
+    private func failedDetails(isToday: Bool) -> String? {
+        let states = env.reads.states
+        return JournalSheetModel.readDetails(states[isToday ? .today : .day]) ?? JournalSheetModel.readDetails(states[.activities])
     }
 
     /// The full screen's week strip: today and the six days before, the selected one highlighted.
@@ -307,6 +315,8 @@ struct MyDayContent: Equatable {
     var title: String?
     /// The day before today on the environment's clock and calendar (the full screen's "Yesterday · Tue, Nov 17").
     var isYesterday = false
+    /// `failed`: the failure's status and request ID, behind the message's Details ("HTTP 503 · Request ID …").
+    var failedDetails: String?
 
     /// No workout, session or activity (the night may be there): "Nothing logged yet today." (ui.md §2.1 M2).
     var hasNoActivities: Bool { !items.contains { !$0.kind.isSleep } }
