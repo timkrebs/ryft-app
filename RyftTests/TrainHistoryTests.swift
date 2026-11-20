@@ -410,6 +410,32 @@ struct TrainHistoryTests {
         }
     }
 
+    /// R3: a session opened before anything of it is known (a link from outside History). At AX3 the header stacks, and the
+    /// title's outline goes where the title will be, from the leading inset under Back: it was centred over the whole stacked
+    /// header, between Back's line and the title's.
+    @Test func theLoadingTitlesOutlineSitsUnderBackAtAX3() async throws {
+        let view = NavigationStack { SessionDetailPage(content: SessionDetailContent(summary: nil, session: nil, loaded: false)) }
+        try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, typeSize: .accessibility3,
+                                   category: .accessibilityExtraLarge, view) { w in
+            try await w.wait("the header") { ids(w).contains("sessionDetail.header") }
+            try await w.settle()
+            let nodes = w.nodes()
+            let header = try #require(nodes.first { $0.identifier == "sessionDetail.header" })
+            let back = try #require(nodes.first { $0.identifier == "sessionDetail.back" })
+            #expect(header.label == String(localized: "Loading the workout") && header.traits.contains(.header))
+            #expect(header.frame.minY >= back.frame.maxY - 1, "stacked: the title's line under Back's \(back.frame), \(header.frame)")
+            // The outline (`surface` and a hairline on `background`): the only thing drawn between Back and the hero.
+            let region = CGRect(x: 0, y: back.frame.maxY + 1, width: Self.width, height: header.frame.maxY + 4 - back.frame.maxY - 1)
+            let pixels = try WindowPixels(w, scale: 2)
+            let paper = pixels.at(2, region.midY)
+            let outline = try #require(pixels.box(in: region) { abs($0.r - paper.r) + abs($0.g - paper.g) + abs($0.b - paper.b) > 0.05 },
+                                       "the outline under \(back.frame)")
+            #expect(abs(outline.minX - header.frame.minX) <= 2, "from the leading inset: \(outline), the header \(header.frame)")
+            #expect(abs(outline.width - SessionDetailLayout.titlePlaceholderWidth) <= 3, "\(outline)")
+            #expect(outline.midY >= header.frame.minY && outline.midY <= header.frame.maxY, "on the title's line: \(outline) in \(header.frame)")
+        }
+    }
+
     @Test func theExercisePageLeadsWithItsEstimate() async throws {
         let view = NavigationStack { ExerciseDetailView(exerciseID: MockTrain.bench.id).trainDestinations() }
             .environment(TrainHistoryFixtures.library())

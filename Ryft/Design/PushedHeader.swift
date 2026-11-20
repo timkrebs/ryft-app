@@ -32,6 +32,8 @@ struct PushedHeader<Trailing: View>: View {
     private let identifierPrefix: String
     private let onBack: (() -> Void)?
     private let trailing: Trailing
+    /// The outline drawn where the title goes while it isn't known (`init(loading:placeholder:)`).
+    private var titlePlaceholder: CGSize?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -92,9 +94,7 @@ struct PushedHeader<Trailing: View>: View {
     /// The title over the subtitle: one header element.
     private func middle(_ alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: PushedHeaderSpec.subtitleGap) {
-            title
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
+            titleLine(alignment)
             if let subtitleParts, subtitle == nil || typeSize.isAccessibilitySize {
                 PartsLine(subtitleParts)
                     .font(.ryft(.caption))
@@ -116,6 +116,25 @@ struct PushedHeader<Trailing: View>: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("\(identifierPrefix).header")
     }
+
+    /// The title; while it isn't known, the outline capsule in its place: on the title's one line (the header keeps its
+    /// height), centred like the title below AX1 and from the leading inset under Back from AX1.
+    @ViewBuilder private func titleLine(_ alignment: HorizontalAlignment) -> some View {
+        if let titlePlaceholder {
+            title
+                .font(.ryft(.callout))
+                .foregroundStyle(.clear)
+                .lineLimit(1)
+                .overlay(alignment: alignment == .leading ? .leading : .center) {
+                    PlaceholderOutline(Capsule())
+                        .frame(width: titlePlaceholder.width, height: titlePlaceholder.height)
+                }
+        } else {
+            title
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+        }
+    }
 }
 
 extension PushedHeader where Trailing == PushedHeaderEmptySlot {
@@ -124,6 +143,14 @@ extension PushedHeader where Trailing == PushedHeaderEmptySlot {
          identifierPrefix: String = "header", onBack: (() -> Void)? = nil) {
         self.init(title, subtitle: subtitle, subtitleParts: subtitleParts, spokenSubtitle: spokenSubtitle,
                   identifierPrefix: identifierPrefix, onBack: onBack) { PushedHeaderEmptySlot() }
+    }
+
+    /// A page whose title isn't known yet (a session opened from outside History while it loads): an outline capsule of
+    /// `placeholder`'s size where the title goes, which follows the header's layout (centred below AX1, under Back from
+    /// AX1). VoiceOver hears `label` as the header ("Loading the workout").
+    init(loading label: Text, placeholder: CGSize, identifierPrefix: String = "header", onBack: (() -> Void)? = nil) {
+        self.init(label, identifierPrefix: identifierPrefix, onBack: onBack)
+        titlePlaceholder = placeholder
     }
 }
 
@@ -153,6 +180,7 @@ private struct PushedHeaderPreviewList: View {
                          subtitleParts: ["Hypertrophy", "4 days/week", "repeating"]) {
                 CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) {}
             }
+            PushedHeader(loading: Text(verbatim: "Loading the workout"), placeholder: CGSize(width: 120, height: 14))
         }
     }
 }
