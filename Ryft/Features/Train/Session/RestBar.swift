@@ -260,7 +260,7 @@ private struct RestTimeElement: ViewModifier {
             element(content)
                 .accessibilityAction(named: Text(
                     "Show rest timer",
-                    comment: "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.")) {
+                    comment: "VoiceOver action on the rest bar's small pill (large text sizes): opens the rest sheet.")) {
                     onOpen()
                 }
         } else {
