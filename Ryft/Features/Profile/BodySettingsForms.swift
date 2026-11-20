@@ -196,6 +196,8 @@ struct BodySettingContent: Equatable {
     /// Where the saved value comes from, and the saved value while the numeral shows an unsaved one: "Set by you · saved 7:30".
     /// `nil` while the account isn't here.
     let source: String?
+    /// `source`'s parts ("Set by you", "saved 7:30"), one per line from AX1 (`PartsLine`).
+    let sourceParts: [String]?
     /// `source` as VoiceOver reads it: "Set by you, saved 7 hours 30 minutes" (a clock would be read as a time of day).
     let spokenSource: String?
     /// The numeral differs from what is saved.
@@ -215,19 +217,19 @@ struct BodySettingContent: Equatable {
         numeral = loaded ? setting.numeral(draft) : nil
         spoken = loaded ? setting.spoken(draft) : String(localized: "Not loaded yet")
         let saved: Int
-        let source: String?
+        let source: [String]?
         switch setting {
         case .sleepBase:
             saved = editor.sleepBase
             // Set by you: the learned value is on the "Use RYFT's estimate" row under it, not repeated here.
-            source = editor.sleepBaseSource == .manual ? String(localized: "Set by you") : editor.sleepBaseSourceText
+            source = editor.sleepBaseSource == .manual ? [String(localized: "Set by you")] : editor.sleepBaseSourceParts
             estimate = editor.canUseLearnedBase
                 ? Estimate(title: editor.usesLearnedTitle, value: editor.sleepBaseLearned.map { setting.text($0) },
                            spokenValue: editor.sleepBaseLearned.map { setting.spoken($0) })
                 : nil
         case .maxHR:
             saved = editor.maxHR
-            source = editor.maxHRSourceText
+            source = editor.maxHRSourceParts
             // The platform's estimate isn't sent, so the row has no value (the phone computes none).
             estimate = editor.canUseMaxHREstimate ? Estimate(title: editor.usesMaxHREstimateTitle, value: nil, spokenValue: nil)
                 : nil
@@ -235,10 +237,14 @@ struct BodySettingContent: Equatable {
         self.saved = saved
         isChanged = draft != saved
         if loaded, let source {
-            self.source = isChanged ? [source, Self.savedWords(setting.text(saved))].joined(separator: " · ") : source
-            spokenSource = isChanged ? [source, Self.savedWords(setting.spoken(saved))].joined(separator: ", ") : source
+            let parts = isChanged ? source + [Self.savedWords(setting.text(saved))] : source
+            sourceParts = parts
+            self.source = parts.joined(separator: " · ")
+            let said = source.joined(separator: " · ")
+            spokenSource = isChanged ? [said, Self.savedWords(setting.spoken(saved))].joined(separator: ", ") : said
         } else {
             self.source = nil
+            sourceParts = nil
             spokenSource = nil
         }
         canSave = isChanged && loaded && editor.canSave && !editor.isBusy
@@ -326,14 +332,14 @@ private struct BodySettingPage: View {
             VStack(alignment: .leading, spacing: 0) {
                 stepper(content)
                 if let source = content.source {
-                    Text(verbatim: source)
+                    // From AX1 one part per line ("Default" / "add your birth year for an estimate"), no "·" left at a
+                    // line's end.
+                    PartsLine(content.sourceParts ?? [], joined: source, spoken: content.spokenSource ?? source)
                         .font(.ryft(.label))
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity)
                         .padding(.top, BodySettingsLayout.numeralToSource)
-                        .accessibilityLabel(Text(verbatim: content.spokenSource ?? source))
                         .accessibilityIdentifier("bodySettings.source")
                 }
                 RulerScale(range: Double(setting.range.lowerBound)...Double(setting.range.upperBound), value: Double(draft),

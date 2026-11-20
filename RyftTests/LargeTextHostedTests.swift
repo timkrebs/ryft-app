@@ -90,7 +90,8 @@ struct LargeTextHostedTests {
 
     @Test("Start workout: an option's detail line wraps whole", arguments: [ax3, ax5])
     func startSheetDetailWraps(_ s: SizeCase) async throws {
-        let detail = try #require(TrainPreview.library.today.map { "\($0.day.name) · \(TodayPlanText.detail($0))" })
+        // As drawn at these sizes: one part per line ("Upper A", "5 exercises", "~55 min").
+        let detail = try #require(TrainPreview.library.today.map { PartsLine.text(StartOptionText.todayParts($0), stacked: true) })
         try await run(s, StartWorkoutSheet()) { w in
             try await w.settle()
             let option = try #require(w.nodes().first { $0.label.contains("From today's plan") }, "\(w.nodes().map(\.label))")

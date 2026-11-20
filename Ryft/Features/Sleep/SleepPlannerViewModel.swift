@@ -468,12 +468,18 @@ final class BedtimePlanner {
     }
 
     /// "Peak · reminder · alarm".
-    var summaryDetail: String? {
+    var summaryDetail: String? { summaryDetailParts?.joined(separator: " · ") }
+
+    /// The detail's parts ("Peak", "reminder", "alarm"), which Profile's row stands one per line from AX1 (`PartsLine`).
+    var summaryDetailParts: [String]? { Self.summaryDetailParts(schedule) }
+
+    /// `summaryDetailParts` for `schedule`; nil without one.
+    static func summaryDetailParts(_ schedule: SleepSchedule?) -> [String]? {
         guard let schedule else { return nil }
         var parts = [schedule.goal.title]
         if schedule.reminderOn { parts.append(String(localized: "reminder")) }
         if schedule.alarmOn { parts.append(String(localized: "alarm")) }
-        return parts.joined(separator: " · ")
+        return parts
     }
 
     /// Today shows Tonight from 17:00, and after midnight while tonight's bedtime is still ahead.

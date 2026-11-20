@@ -14,7 +14,8 @@ enum PushedHeaderSpec {
 /// subtitle 2 under it (`caption`, `textTertiary`, tabular digits) · the caller's `CircleButton` (a menu, "Add") or, without one,
 /// an empty 40 pt slot, so the title stays centred. 40 high; it grows only when the title or the subtitle wraps (large text).
 /// A subtitle of facts ("Fri, Nov 13 · 55 min · 17 sets") comes as `subtitleParts`: one line joined, one part per line from
-/// AX1 (`PartsLine`), so no "·" dangles at a line's end.
+/// AX1 (`PartsLine`), so no "·" dangles at a line's end. With a `subtitle` as well, that is the line below AX1 (the page's
+/// own wording: "Today · Wed, Nov 18", "Barbell · Chest") and the parts are only how it stands from AX1.
 /// From AX1 (C §2.9, as `SubpageHeader` stacks): Back and the trailing circle on the first 40 pt line, 12 under it the title
 /// and then the subtitle, from the leading inset across the whole width, wrapping; never squeezed between the circles.
 ///
@@ -35,7 +36,9 @@ struct PushedHeader<Trailing: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// `subtitleParts`: the subtitle as parts (`PartsLine`), in place of `subtitle`; nil or empty: `subtitle`.
+    /// `subtitleParts`: the subtitle as parts, one per line from AX1 (`PartsLine`). Below AX1 `subtitle` is drawn when there
+    /// is one, else the parts joined (`MyDayText.join`); VoiceOver hears `spokenSubtitle`, else `subtitle`, else the parts
+    /// joined. Nil or empty: `subtitle` at every size.
     init(_ title: Text, subtitle: Text? = nil, subtitleParts: [String]? = nil, spokenSubtitle: Text? = nil,
          identifierPrefix: String = "header", onBack: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -92,7 +95,7 @@ struct PushedHeader<Trailing: View>: View {
             title
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
-            if let subtitleParts {
+            if let subtitleParts, subtitle == nil || typeSize.isAccessibilitySize {
                 PartsLine(subtitleParts)
                     .font(.ryft(.caption))
                     .monospacedDigit()
@@ -108,7 +111,7 @@ struct PushedHeader<Trailing: View>: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue(spokenSubtitle ?? subtitleParts.map { Text(verbatim: MyDayText.join($0)) } ?? subtitle
+        .accessibilityValue(spokenSubtitle ?? subtitle ?? subtitleParts.map { Text(verbatim: MyDayText.join($0)) }
             ?? Text(verbatim: ""))
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("\(identifierPrefix).header")
@@ -142,7 +145,8 @@ private struct PushedHeaderPreviewList: View {
             PushedHeader(Text(verbatim: "Plans"))
             PushedHeader(Text(verbatim: "History"), subtitleParts: ["25 workouts", "last 90 days"])
             PushedHeader(Text(verbatim: "Upper A"), subtitleParts: ["Fri, Nov 13", "55 min", "17 sets"])
-            PushedHeader(Text(verbatim: "My Day"), subtitle: Text(verbatim: "Today · Wed, Nov 18")) {
+            PushedHeader(Text(verbatim: "My Day"), subtitle: Text(verbatim: "Today · Wed, Nov 18"),
+                         subtitleParts: ["Today", "Wed, Nov 18"]) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add")) {}
             }
             PushedHeader(Text(verbatim: "Upper/Lower 4× (copy) for the winter block"),

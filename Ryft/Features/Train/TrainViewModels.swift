@@ -217,8 +217,11 @@ final class ExerciseDetailViewModel {
     var now: Date { clock.now() }
 
     /// "Barbell · Chest · Triceps".
-    var subtitle: String? {
-        exercise.map { ([$0.kind.title] + $0.primaryMuscles.map(\.title)).joined(separator: " · ") }
+    var subtitle: String? { subtitleParts?.joined(separator: " · ") }
+
+    /// The subtitle's parts ("Barbell", "Chest", "Triceps"), one per line from AX1 (`PartsLine`).
+    var subtitleParts: [String]? {
+        exercise.map { [$0.kind.title] + $0.primaryMuscles.map(\.title) }
     }
 
     var lead: Lead {
@@ -578,7 +581,9 @@ final class TrainTodayViewModel {
     }
 
     var today: PlanToday? { library.today }
-    var todayText: String? { today.map { "\($0.day.name) · \(TodayPlanText.detail($0))" } }
+    var todayText: String? { todayParts.map(StartOptionText.line) }
+    /// `todayText`'s parts ("Upper A", "5 exercises", "~55 min"), one per line from AX1 on the start sheet.
+    var todayParts: [String]? { today.map(StartOptionText.todayParts) }
 
     /// Strain → Train: "Today's plan: Upper A".
     var todayLinkTitle: String? { today.map { String(localized: "Today's plan: \($0.day.name)") } }

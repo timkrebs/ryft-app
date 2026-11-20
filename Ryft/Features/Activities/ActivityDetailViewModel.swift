@@ -127,10 +127,15 @@ final class ActivityDetailViewModel {
 
     /// The pushed header's subtitle (§10.3): "Tue, Nov 17 · 6:00 – 6:20 AM", the times as one interval in the locale's clock.
     func subtitle(locale: Locale) -> String {
-        guard let a = activity else { return "" }
+        subtitleParts(locale: locale).joined(separator: " · ")
+    }
+
+    /// The subtitle's parts, "Tue, Nov 17" and "6:00 – 6:20 AM", one per line from AX1 (`PartsLine`); none before it loads.
+    func subtitleParts(locale: Locale) -> [String] {
+        guard let a = activity else { return [] }
         let date = a.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().locale(locale))
         let times = (a.start..<max(a.start, a.end)).formatted(Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale))
-        return "\(date) · \(times)"
+        return [date, times]
     }
 
     /// The hero numeral's style (Profile → Hero numbers: dots or thin).
