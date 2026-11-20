@@ -20,6 +20,23 @@ enum SheetFrameSpec {
     }
 }
 
+extension View {
+    /// §12's detents (`SheetFrameSpec.detents(for:compact:)`) at the sheet content's own text size, for a sheet whose view
+    /// doesn't read it (the plate calculator): `.large` from XL, `compact` below it.
+    func sheetDetents(compact: Set<PresentationDetent> = [.medium, .large]) -> some View {
+        modifier(SheetDetents(compact: compact))
+    }
+}
+
+private struct SheetDetents: ViewModifier {
+    let compact: Set<PresentationDetent>
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    func body(content: Content) -> some View {
+        content.presentationDetents(SheetFrameSpec.detents(for: typeSize, compact: compact))
+    }
+}
+
 /// A sheet's frame (PR 6 B §4.8, D6B-13): `SheetHeader` on top (the close circle, the centred title, the trailing slot), 26 under
 /// the sheet's edge and 20 from the sides; an optional pinned part under it, 10 below (Add exercise's search field); then the
 /// scrolling body. Neither the header nor the pinned part scrolls, so the commit and the search stay in reach. `background`
