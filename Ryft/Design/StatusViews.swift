@@ -360,15 +360,16 @@ struct SyncStatusLineView: View {
     private func content(now: Date) -> some View {
         switch current {
         case .actionNeeded:
+            // In the ink, as the line's other actions (L27: teal is recovery only); its glyph says what's needed.
             if let action {
                 Button(action: action) {
-                    tapTarget(label(now: now).foregroundStyle(Theme.accent))
+                    tapTarget(label(now: now).foregroundStyle(Theme.textPrimary))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Text("Opens what's needed"))
                 .accessibilityIdentifier("today.actionNeeded")
             } else {
-                label(now: now).foregroundStyle(Theme.accent)
+                label(now: now).foregroundStyle(Theme.textPrimary)
             }
         case .stale:
             let layout = typeSize.isAccessibilitySize
@@ -389,7 +390,7 @@ struct SyncStatusLineView: View {
                         tapTarget(Text("Try again")
                             .font(.ryft(.caption))
                             .fontWeight(.medium)
-                            .foregroundStyle(Theme.accent))
+                            .foregroundStyle(Theme.textPrimary))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint(Text("Tries to load your data again"))
@@ -620,6 +621,7 @@ struct RefreshDetailsSheet: View {
     @Environment(\.reportProblemDestination) private var reportProblem
     @Environment(\.locale) private var locale
     @State private var copied = false
+    /// "Send to RYFT" was tapped: Report a problem is pushed on the sheet's stack.
     @State private var sends = false
 
     var body: some View {
@@ -650,6 +652,7 @@ struct RefreshDetailsSheet: View {
                 .disabled(copied)
                 .accessibilityIdentifier("refreshDetails.copy")
             }
+            // On the stack's root, which is always there: a pill is a button, so the push is the stack's destination.
             .navigationDestination(isPresented: $sends) {
                 if let reportProblem {
                     reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)

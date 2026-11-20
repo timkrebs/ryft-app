@@ -11,11 +11,21 @@ import UIKit
 @Suite(.serialized) struct SleepModesHostedTests {
     nonisolated private static let width: CGFloat = 390
 
+    /// The accessibility sizes the AX tests run at: AX3, and AX5, where the validator's "AX3" shots were taken (its "vs 7 d"
+    /// is 103 × 48, as here at AX5; at AX3 it is 79 × 36).
+    enum Large: CaseIterable, Sendable {
+        case ax3, ax5
+
+        var typeSize: DynamicTypeSize { self == .ax3 ? .accessibility3 : .accessibility5 }
+        var category: UIContentSizeCategory { self == .ax3 ? .accessibilityExtraLarge : .accessibilityExtraExtraExtraLarge }
+    }
+
     private func host<Content: View>(_ view: Content, ready: String, height: CGFloat = 2400, ax3: Bool = false,
-                                     body: (HostedWindow) async throws -> Void) async throws {
+                                     large: Large? = nil, body: (HostedWindow) async throws -> Void) async throws {
+        let large = large ?? (ax3 ? .ax3 : nil)
         try await HostedWindow.run(width: Self.width, height: height, bottomInset: 0,
-                                   typeSize: ax3 ? .accessibility3 : .large,
-                                   category: ax3 ? .accessibilityExtraLarge : .large, view) { w in
+                                   typeSize: large?.typeSize ?? .large,
+                                   category: large?.category ?? .large, view) { w in
             try await w.wait(ready) { w.nodes().contains { $0.identifier == ready || $0.label == ready } }
             try await w.settle()
             try await body(w)
@@ -110,10 +120,56 @@ import UIKit
             for row in nightRows(w) {
                 #expect(row.frame.width <= Self.width - 40 + 0.5, "\(row.identifier ?? "") \(row.frame)")
             }
-            // The delta takes two lines, the strip's tile 20 under it (a squeezed "vs 7 d" once stood a letter per line).
+            // The delta takes three lines (the night, the change, "vs 7 d"), the strip's tile 20 under it (a squeezed
+            // "vs 7 d" once stood a letter per line).
             let delta = try frame(w, "sleep.range.delta"), tile = try frame(w, "sleep.range.bedtimes")
-            #expect(delta.height < 120, "delta \(delta)")
+            #expect(delta.height < 180, "delta \(delta)")
             #expect(abs(tile.minY - delta.maxY - SleepModesLayout.tileGap) < 1, "delta→tile \(tile.minY - delta.maxY)")
+        }
+    }
+
+    /// T5.8 S1: at AX5 "Last night ▼ −12m · −2 % vs 7 d" was the night over a change and "vs 7 d" 390 wide, which widened
+    /// the column to about 394, so the picker and the tiles started 4 from the edge. From AX1 the change and "vs 7 d" go on
+    /// their own lines.
+    @Test("AX3 and AX5: Week and Month keep the 20 pt margins: the picker 20 in and the screen less 40 wide, nothing wider",
+          arguments: [SleepRangePreviewPage.Scene.week, .month], Large.allCases)
+    func rangeKeepsItsMarginsAtAX3(_ scene: SleepRangePreviewPage.Scene, _ large: Large) async throws {
+        try await host(SleepRangePreviewPage(scene), ready: "sleep.range.stages", height: 8000, large: large) { w in
+            let column = Self.width - 2 * Theme.Metrics.screenPadding
+            let mode = try frame(w, "sleep.mode")
+            #expect(abs(mode.minX - Theme.Metrics.screenPadding) < 0.5 && abs(mode.width - column) < 0.5, "sleep.mode \(mode)")
+            let delta = try frame(w, "sleep.range.delta")
+            #expect(delta.width <= column + 0.5, "sleep.range.delta \(delta)")
+            for node in w.nodes() {
+                #expect(node.frame.width <= column + 0.5 && node.frame.minX >= Theme.Metrics.screenPadding - 0.5,
+                        "\(node.identifier ?? node.label) \(node.frame)")
+            }
+        }
+    }
+
+    /// T5.8 S1: from AX1 the range head is three centred lines: the night, the change, "vs 7 d". Before, the fallback put
+    /// "vs 7 d" beside the change, squeezed into what the change left and broken over two lines at the right. Read from
+    /// the pixels: the delta is one element.
+    @Test("AX5: the range head is three centred lines, the night, the change and \"vs 7 d\"")
+    func rangeHeadStacksAtAX5() async throws {
+        try await host(SleepRangePreviewPage(.week), ready: "sleep.range.stages", height: 2400, large: .ax5) { w in
+            let delta = try frame(w, "sleep.range.delta")
+            let shot = try WindowPixels(w, scale: 2)
+            let ground = shot.at(delta.minX + 1, delta.minY + 1)
+            // The bands of pixel rows with ink in the delta's frame: its lines.
+            var bands: [CGRect] = []
+            var y = delta.minY
+            while y < delta.maxY {
+                if let ink = shot.box(in: CGRect(x: delta.minX, y: y, width: delta.width, height: 0.5),
+                                      where: { !$0.near(ground, 24) }) {
+                    if let last = bands.last, ink.minY - last.maxY < 1 { bands[bands.count - 1] = last.union(ink) } else { bands.append(ink) }
+                }
+                y += 0.5
+            }
+            #expect(bands.count == 3, "lines \(bands)")
+            for band in bands {
+                #expect(abs(band.midX - delta.midX) < 3, "line \(band) in \(delta)")
+            }
         }
     }
 

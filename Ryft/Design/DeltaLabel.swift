@@ -16,26 +16,66 @@ struct DeltaLabel: View {
     /// The reference's ink; `nil` is `textTertiary`. Today's label row passes the change's own colour
     /// (`DeltaLabel.color(_:spec:)`), so "▲ +11 vs 7 d" is one colour (design.md §P4-1, row 7).
     var referenceColor: Color?
+    /// The reference on its own line under the change, and the change free to wrap after its "·": for a caller whose one
+    /// line outgrows its width at accessibility sizes (Sleep's range head, "▼ −12m · −2 % vs 7 d" at AX3). The caller
+    /// sets the alignment (`multilineTextAlignment`, its frame).
+    var stacked = false
+
+    /// The gap between the change and the reference at the default size: a word space of the 12–13 pt label, growing with
+    /// Dynamic Type as the text does (`gap`), so "Steady vs 7 d" stays two words at AX3 (T5.8 N6).
+    nonisolated static let referenceGap: CGFloat = 4
+    /// Between the change and the reference when stacked.
+    nonisolated static let stackedLineGap: CGFloat = 2
+
+    @ScaledMetric(relativeTo: .caption) private var gap: CGFloat = DeltaLabel.referenceGap
+
+    init(spec: MetricSpec, delta: MetricDelta?, reference: String? = nil, font: Font = .ryft(.caption),
+         referenceColor: Color? = nil, stacked: Bool = false) {
+        self.spec = spec
+        self.delta = delta
+        self.reference = reference
+        self.font = font
+        self.referenceColor = referenceColor
+        self.stacked = stacked
+    }
 
     /// The change stays whole ("▲ +11"); the reference wraps beside it when the line is too long
     /// (German at large text sizes), never cut off. A caller that needs one line limits it.
     var body: some View {
         if let delta {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(Self.text(delta, spec: spec))
-                    .font(font)
-                    .monospacedDigit()
-                    .foregroundStyle(Self.color(delta, spec: spec))
-                    .fixedSize()
-                if let reference {
-                    Text(reference)
-                        .font(font)
-                        .foregroundStyle(referenceColor ?? Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+            Group {
+                if stacked {
+                    VStack(spacing: Self.stackedLineGap) {
+                        change(delta)
+                            .fixedSize(horizontal: false, vertical: true)
+                        referenceText
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: gap) {
+                        change(delta)
+                            .fixedSize()
+                        referenceText
+                    }
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(Self.spoken(delta, spec: spec, reference: reference)))
+        }
+    }
+
+    private func change(_ delta: MetricDelta) -> some View {
+        Text(Self.text(delta, spec: spec))
+            .font(font)
+            .monospacedDigit()
+            .foregroundStyle(Self.color(delta, spec: spec))
+    }
+
+    @ViewBuilder private var referenceText: some View {
+        if let reference {
+            Text(reference)
+                .font(font)
+                .foregroundStyle(referenceColor ?? Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -145,6 +185,11 @@ struct DeltaLabel: View {
             DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
             ChartHeader(spec: .readiness, value: 80, delta: MetricDelta(current: 80, reference: 79.6))
             ChartHeader(spec: .readiness, value: 80, delta: nil)
+            // Stacked (Sleep's range head from AX1): the change, then "vs 7 d", centred.
+            DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 466, reference: 478), reference: String(localized: "vs 7 d"),
+                       stacked: true)
+                .multilineTextAlignment(.center)
+                .frame(width: 362)
         }
     }
     .environment(\.dynamicTypeSize, .accessibility3)

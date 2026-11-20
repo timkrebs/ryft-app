@@ -592,7 +592,8 @@ final class BedtimePlanner {
             content.title = String(localized: "Wind down")
             content.body = schedule.goal == .peak
                 ? String(localized: "In bed by \(Fmt.time(bed)) for your full \(Fmt.duration(minutes: sleepMin)).")
-                : String(localized: "In bed by \(Fmt.time(bed)) for \(schedule.goal.rawValue) % of your need: \(Fmt.duration(minutes: sleepMin)).")
+                : String(localized: "In bed by \(Fmt.time(bed)) for \(schedule.goal.rawValue)\u{00A0}% of your need: \(Fmt.duration(minutes: sleepMin)).",
+                         comment: "The wind-down reminder: the bedtime, the share of the sleep need it gives, that sleep. The % sign is literal.")
             content.sound = .default
             content.categoryIdentifier = PushCategories.bedtime
             let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire)

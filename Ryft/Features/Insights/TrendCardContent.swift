@@ -189,10 +189,11 @@ struct TrendCardContent: Identifiable, Equatable {
         return (spec.number(v), spec.unit)
     }
 
-    /// "7:31 h", "66 ms", "78 %", "12.4".
+    /// "7:31 h", "66 ms", "78 %", "12.4"; a no-break space before the unit, so a note never ends a line on "Avg 68" with the
+    /// "%" on the next (as `DeltaLabel` holds a number to its unit).
     static func valueText(_ metric: TrendMetric, _ v: Double) -> String {
         let parts = valueParts(metric, v)
-        return parts.unit.map { "\(parts.number) \($0)" } ?? parts.number
+        return parts.unit.map { "\(parts.number)\u{00A0}\($0)" } ?? parts.number
     }
 
     // MARK: VoiceOver
