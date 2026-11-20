@@ -600,8 +600,11 @@ final class OnboardingCoordinator {
 
     // MARK: private
 
+    /// One step's request at a time: a second Continue or Agree while one is out sends nothing and changes nothing (the busy
+    /// pill takes no tap either, but the coordinator doesn't count on its view).
     private func perform(_ body: @MainActor () async throws -> Void,
                          message: (Error) -> String?) async -> Bool {
+        guard !isWorking else { return false }
         isWorking = true
         clearError()
         defer { isWorking = false }
