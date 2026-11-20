@@ -256,7 +256,8 @@ struct JournalNocturneTests {
 
     @Test("Offline with the day not on this iPhone: a line with Try again, no outlines; back online it loads by itself")
     func uncachedOfflineLive() async throws {
-        let state = AppState.preview(online: false)
+        // The account's journal (PR 6 C): demo data answers on the phone and is never offline.
+        let state = AppState(env: .test(clock: TestClock(now: .now), online: false))
         state.env.persistence.saveDocument(MockJournal.behaviors, key: JournalStore.behaviorsKey, at: .now)
         let store = JournalStore(env: state.env)
         let view = JournalSheet(model: JournalSheetModel(store: store)).previewEnvironment(state).environment(\.locale, Self.english)
@@ -309,13 +310,12 @@ struct JournalNocturneTests {
     @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet")
     func noHabitsLink() async throws {
         let state = AppState.preview()
-        state.env.persistence.saveDocument(MockJournal.noneEnabled, key: JournalStore.behaviorsKey, at: .now)
         let store = JournalStore(env: state.env)
         // Yesterday by the store's own clock (the preview's), unanswered here and on the platform (the mock answers it as
-        // API.md's example otherwise).
+        // API.md's example otherwise). Demo data's journal lives in memory only (PR 6 C), so it is seeded there.
         let yesterday = store.yesterday
         let unanswered = JournalDay(day: yesterday, answered: false, answeredAt: nil, editable: true, entries: [])
-        state.env.persistence.saveDocument(unanswered, key: JournalStore.dayKey(yesterday), at: .now)
+        store.seedForPreview(behaviors: MockJournal.noneEnabled, days: [unanswered])
         let api = try #require(state.env.api as? MockPlatformAPI)
         _ = try await api.putJournal(day: yesterday, JournalPut(entries: []))
         let view = JournalSheet(model: JournalSheetModel(store: store)).previewEnvironment(state).environment(\.locale, Self.english)

@@ -790,8 +790,10 @@ struct ProfileSubpagesHostedTests {
         try await host(sheet, height: 1_400) { w in
             try await w.wait("the sheet") { w.node("Close", exactly: true) != nil }
             try await w.settle()
-            let pill = w.node("Offline. Showing your last loaded data.", exactly: true)
+            // PR 6 B's pill (`JournalOfflinePill`): saving needs the network, so it says so.
+            let pill = w.nodes().first { $0.identifier == "journal.offlinePill" }
             #expect((pill != nil) == !demo, "\(w.nodes().map(\.label))")
+            #expect(pill.map { $0.label == "Offline. You can save once you're back online." } ?? true, "\(pill?.label ?? "")")
         }
     }
 
