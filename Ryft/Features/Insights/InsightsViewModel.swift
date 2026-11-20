@@ -32,8 +32,8 @@ final class InsightsViewModel {
     /// The cards open in place (§P5-5.2, D5-8). Kept here, so a rebuilt tab keeps them.
     private(set) var expanded: Set<TrendMetric> = []
 
-    /// Bumped by each `load()`. `.task(id:)` starts the new range's load before the old one unwinds, so only the newest
-    /// load sets `isLoadingTrends` and `loadedRange`.
+    /// Bumped by each `load()` and by `forget()`. `.task(id:)` starts the new range's load before the old one unwinds, so
+    /// only the newest load sets `isLoadingTrends` and `loadedRange`; a load of a side that ended sets neither.
     @ObservationIgnored private var loadGeneration = 0
     /// The newest load is running.
     private(set) var isLoadingTrends = false
@@ -179,6 +179,16 @@ final class InsightsViewModel {
             if !Task.isCancelled { loadedRange = r }
         }
         await journalLoaded
+    }
+
+    /// A sign-out, another account or the Demo data switch (`ScreenModels`, with the other account-state forgetters): the
+    /// range was loaded for the side that ended, whose trends the reset wiped. The next side's cards with nothing cached
+    /// show their outlines until its own load, never "Not loaded" first; a load still out marks nothing. This model lives
+    /// as long as the app.
+    func forget() {
+        loadGeneration += 1
+        loadedRange = nil
+        isLoadingTrends = false
     }
 
     private func loadJournal() async {
