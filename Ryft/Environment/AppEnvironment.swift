@@ -49,10 +49,11 @@ final class AppEnvironment {
     /// refusal (ADR 0008). Every upload of health data decides from it.
     lazy var consent = ConsentState(env: self)
     /// What sends opted-in usage analytics: the SDK in the live graph on a device (phase 2), a no-op in every other.
-    let analyticsSink: AnalyticsSink
+    private let analyticsSink: AnalyticsSink
     /// Opt-in usage analytics: the answer, the gate and the only door to the sink (analytics design.md).
     lazy var analytics = Analytics(sink: analyticsSink, flags: flags, defaults: defaults,
-                                   isDemo: { [weak self] in self?.isDemo ?? false })
+                                   isDemo: { [weak self] in self?.isDemo ?? false },
+                                   isSignedIn: { [weak self] in self?.auth.isSignedIn ?? false })
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "Share anonymous usage analytics?" (analytics ui.md): once, over the tabs, after the onboarding. Two equal
+/// "Share usage analytics?" (analytics ui.md): once, over the tabs, after the onboarding. Two equal
 /// buttons; a swipe down is "Don't share". Any answer holds until sign-out; Profile → Privacy changes it.
 struct AnalyticsOptInSheet: View {
     /// `true`: share. The sheet's presenter records it (`Analytics.setOptIn`).
@@ -8,7 +8,7 @@ struct AnalyticsOptInSheet: View {
 
     var body: some View {
         OnboardingScreen(symbol: "chart.bar",
-                         title: "Share anonymous usage analytics?",
+                         title: "Share usage analytics?",
                          text: "This is separate from your health-data consent. It stays off unless you say yes.") {
             VStack(alignment: .leading, spacing: 14) {
                 ConsentPoint(symbol: "square.grid.2x2",
@@ -58,8 +58,9 @@ private struct AnalyticsOptInPrompt: ViewModifier {
         let analytics = env.analytics
         content
             .sheet(isPresented: $presented, onDismiss: {
-                // A swipe down: "Don't share".
-                if !withdrawn, analytics.optIn == nil { analytics.setOptIn(false) }
+                // A swipe down: "Don't share". Not when the prompt went away under it (a sign-out's `accountLeft`):
+                // that would answer for whoever signs in next.
+                if !withdrawn, analytics.optIn == nil, analytics.showsPrompt { analytics.setOptIn(false) }
                 withdrawn = false
             }) {
                 AnalyticsOptInSheet { analytics.setOptIn($0) }

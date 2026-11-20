@@ -311,7 +311,6 @@ final class TrainCoordinator {
         let generation = sync.generation
         let result = await controller.finish(bodyweightKg: bodyweightKg)
         active = nil
-        analytics(.featureUsed(.trainSessionFinished))
         // Signed out or another account meanwhile: no summary or Health export over theirs.
         guard sync.generation == generation else { return }
         // Shown over the session; Done closes both (`summaryDone`).

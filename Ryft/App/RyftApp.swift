@@ -268,9 +268,10 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
-                    // Usage analytics from the cached config (its sink starts only if the user opted in).
-                    env.analytics.reevaluate()
                     await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
+                    // Usage analytics from the cached config (its sink starts only if the user opted in), after an
+                    // owed wipe has forgotten the last account's answer.
+                    env.analytics.reevaluate()
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.
@@ -480,6 +481,8 @@ struct RootView: View {
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
     @Environment(\.launchInterrupt) private var launchInterrupt
+    /// The tabs are on screen: the only place the analytics prompt presents from.
+    @State private var tabsShown = false
 
     var body: some View {
         Group {
@@ -505,7 +508,7 @@ struct RootView: View {
 
     /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
     private var presentsSomething: Bool {
-        presentsBesidesAnalytics || env.analytics.showsPrompt
+        presentsBesidesAnalytics || (tabsShown && env.analytics.showsPrompt)
     }
 
     /// The other root presentations: the analytics prompt waits for them (`analyticsOptInPrompt(blocked:)`).
@@ -596,7 +599,11 @@ struct RootView: View {
         tabBar
             .onAppear { Task { await WorkoutLauncher.tabsAppeared() } }
             .onDisappear { WorkoutLauncher.tabsDisappeared() }
-            .onAppear { env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab))) }
+            .onAppear {
+                tabsShown = true
+                env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab)))
+            }
+            .onDisappear { tabsShown = false }
             .analyticsOptInPrompt(blocked: presentsBesidesAnalytics)
     }
 

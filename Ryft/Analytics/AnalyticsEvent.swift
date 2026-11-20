@@ -111,8 +111,8 @@ enum AnalyticsScreen: String, AnalyticsToken {
 
 /// `feature_used` → `feature`.
 enum AnalyticsFeature: String, AnalyticsToken {
+    /// Only the start: a start and a finish together would give a workout's duration (privacy review).
     case trainSessionStarted = "train_session_started"
-    case trainSessionFinished = "train_session_finished"
     case activityAdded = "activity_added"
     case sleepAdded = "sleep_added"
     case journalSaved = "journal_saved"

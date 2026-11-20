@@ -7230,7 +7230,7 @@
     "A random ID for this install. Never your account or email." : {
       "comment" : "Analytics prompt: the third point (what identifies the events)."
     },
-    "Anonymous. Turning it off resets your random ID." : {
+    "Uses a random ID, never your account. Turning it off resets it." : {
       "comment" : "Profile → Privacy: the VoiceOver hint of the usage analytics switch."
     },
     "Change this any time in Profile → Privacy." : {
@@ -7248,7 +7248,7 @@
     "Screens used and errors shown. No health data. Turning it off stops sending now and resets your random ID." : {
       "comment" : "Profile → Privacy: the caption under the usage analytics switch."
     },
-    "Share anonymous usage analytics?" : {
+    "Share usage analytics?" : {
       "comment" : "Analytics prompt: the title of the sheet shown once after the onboarding."
     },
     "Share usage analytics" : {

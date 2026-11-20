@@ -1292,6 +1292,19 @@ struct AnalyticsConfig: Codable, Hashable, CustomStringConvertible, CustomDebugS
     }
 }
 
+extension AnalyticsConfig {
+    private enum CodingKeys: String, CodingKey { case host, projectKey }
+
+    /// Never throws: a malformed `analytics` (a field missing or mistyped, not an object) decodes with empty fields,
+    /// which `AnalyticsDestination` refuses like `null`, so the rest of the config (the kill switch included) still
+    /// arrives.
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        host = (try? c?.decodeIfPresent(String.self, forKey: .host)) ?? ""
+        projectKey = (try? c?.decodeIfPresent(String.self, forKey: .projectKey)) ?? ""
+    }
+}
+
 enum NotificationCategory: String, Codable, CaseIterable, Identifiable {
     case morningScore = "MORNING_SCORE", sessionScored = "SESSION_SCORED", pr = "PR", syncStale = "SYNC_STALE"
     var id: String { rawValue }

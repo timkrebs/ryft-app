@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// Where events go: a checked `GET /v1/config` → `analytics`. `host` must be `https://<host>` with no user, port,
-/// path, query or fragment; `projectKey` must be `phc_` and 8 to 128 of `[A-Za-z0-9_-]`. Anything else counts as
+/// Where events go: a checked `GET /v1/config` → `analytics`. `host` must be `https://eu.i.posthog.com` with no user,
+/// port, path, query or fragment; `projectKey` must be `phc_` and 8 to 128 of `[A-Za-z0-9_-]`. Anything else counts as
 /// `null`. Every description of it redacts the key.
 struct AnalyticsDestination: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible,
                              CustomReflectable {
@@ -13,10 +13,10 @@ struct AnalyticsDestination: Hashable, Sendable, CustomStringConvertible, Custom
     init?(_ config: AnalyticsConfig?) {
         guard let config, Self.isValidKey(config.projectKey),
               let parts = URLComponents(string: config.host), parts.scheme == "https",
-              let name = parts.host, Self.isValidHostName(name),
+              let name = parts.host, name.lowercased() == Self.allowedHost,
               parts.user == nil, parts.password == nil, parts.port == nil,
               parts.path.isEmpty || parts.path == "/", parts.query == nil, parts.fragment == nil,
-              let url = URL(string: "https://\(name)")
+              let url = URL(string: "https://\(Self.allowedHost)")
         else { return nil }
         host = url
         projectKey = config.projectKey
@@ -28,20 +28,16 @@ struct AnalyticsDestination: Hashable, Sendable, CustomStringConvertible, Custom
         Mirror(self, children: ["host": host.absoluteString, "project_key": "<redacted>"], displayStyle: .struct)
     }
 
+    /// PostHog's EU cloud, the only host the prompt's "Sent to PostHog, in the EU" holds for. A proxy or another
+    /// region needs a new build (and new copy), whatever the config says.
+    static let allowedHost = "eu.i.posthog.com"
     private static let keyCharacters = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-    private static let hostCharacters = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
 
     /// `^phc_[A-Za-z0-9_-]{8,128}$`.
     private static func isValidKey(_ key: String) -> Bool {
         guard key.hasPrefix("phc_") else { return false }
         let rest = key.dropFirst(4)
         return (8...128).contains(rest.count) && rest.allSatisfy(keyCharacters.contains)
-    }
-
-    /// A DNS name: letters, digits, dots and dashes, nothing percent-encoded, no empty label.
-    private static func isValidHostName(_ name: String) -> Bool {
-        !name.isEmpty && name.allSatisfy(hostCharacters.contains) && !name.split(separator: ".", omittingEmptySubsequences: false)
-            .contains { $0.isEmpty }
     }
 }
 
@@ -61,8 +57,8 @@ final class Analytics {
         case optedOut = "out"
     }
 
-    static let optInKey = "analytics.optIn"
-    static let resetOwedKey = "analytics.resetOwed"
+    nonisolated static let optInKey = "analytics.optIn"
+    nonisolated static let resetOwedKey = "analytics.resetOwed"
 
     /// nil: not asked (or asked before the last sign-out).
     private(set) var optIn: OptIn?
@@ -74,17 +70,22 @@ final class Analytics {
     /// The next start forgets the anonymous id first (an opt-out or sign-out while not started in this process).
     @ObservationIgnored private(set) var resetOwed: Bool
 
-    let sink: AnalyticsSink
+    /// Private: this owner is the only door, so nothing skips the gate or the token types.
+    private let sink: AnalyticsSink
     private let flags: FeatureFlagProvider
     private let defaults: UserDefaults
     private let isDemo: @MainActor () -> Bool
+    /// Closed while nobody is signed in: an owed wipe at launch (which forgets the last account's answer) runs while
+    /// signed out, so a stale answer never opens the gate before it.
+    private let isSignedIn: @MainActor () -> Bool
 
     init(sink: AnalyticsSink, flags: FeatureFlagProvider, defaults: UserDefaults,
-         isDemo: @escaping @MainActor () -> Bool) {
+         isDemo: @escaping @MainActor () -> Bool, isSignedIn: @escaping @MainActor () -> Bool = { true }) {
         self.sink = sink
         self.flags = flags
         self.defaults = defaults
         self.isDemo = isDemo
+        self.isSignedIn = isSignedIn
         optIn = defaults.string(forKey: Self.optInKey).flatMap(OptIn.init(rawValue:))
         resetOwed = defaults.bool(forKey: Self.resetOwedKey)
     }
@@ -99,8 +100,9 @@ final class Analytics {
     }
 
     private var gate: AnalyticsDestination? {
-        Self.destination(flag: flags.newest(.analyticsEnabled), config: flags.newestAnalytics, optIn: optIn,
-                         demo: isDemo())
+        guard isSignedIn() else { return nil }
+        return Self.destination(flag: flags.newest(.analyticsEnabled), config: flags.newestAnalytics, optIn: optIn,
+                                demo: isDemo())
     }
 
     // MARK: what call sites see
@@ -141,7 +143,7 @@ final class Analytics {
             setResetOwed(true)
             optIn = .optedOut
             defaults.set(OptIn.optedOut.rawValue, forKey: Self.optInKey)
-            stopNow()
+            stopAndForget()
         }
     }
 
@@ -149,9 +151,16 @@ final class Analytics {
     /// and the answer is forgotten, so whoever signs in next is asked after their own onboarding.
     func accountLeft() {
         setResetOwed(true)
-        stopNow()
+        stopAndForget()
         optIn = nil
         defaults.removeObject(forKey: Self.optInKey)
+    }
+
+    /// What `accountLeft()` leaves in `defaults`, for a wipe that runs without this owner (one resumed at launch,
+    /// `AuthService.wipeSharedLocalData`): the answer gone, the next start with a new id.
+    nonisolated static func forgetAnswer(defaults: UserDefaults) {
+        defaults.removeObject(forKey: optInKey)
+        defaults.set(true, forKey: resetOwedKey)
     }
 
     /// The prompt (after the onboarding, once): only where an answer means something.
@@ -199,6 +208,13 @@ final class Analytics {
     private func stopNow() {
         sink.stop()
         running = nil
+    }
+
+    /// An opt-out or a sign-out: stopped, and the stored id deleted now, not only at the next start (`resetOwed`
+    /// stays as the backstop for a sink that couldn't).
+    private func stopAndForget() {
+        stopNow()
+        sink.forgetID()
     }
 
     private func setResetOwed(_ owed: Bool) {

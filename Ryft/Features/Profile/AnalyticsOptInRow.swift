@@ -32,7 +32,7 @@ struct AnalyticsOptInToggle: View {
         }
         .tint(Theme.accent)
         .accessibilityIdentifier("profile.analytics")
-        .accessibilityHint(Text("Anonymous. Turning it off resets your random ID."))
+        .accessibilityHint(Text("Uses a random ID, never your account. Turning it off resets it."))
     }
 }
 

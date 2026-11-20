@@ -9,6 +9,9 @@ protocol AnalyticsSink: AnyObject {
     func capture(_ name: String, properties: [String: String])
     /// Stop sending and drop everything queued, in memory and on disk. Keeps the id.
     func stop()
+    /// Delete the stored anonymous id now (and anything queued), also when nothing was started in this process: an
+    /// opt-out or a sign-out. The next `start` makes a new one.
+    func forgetID()
     /// False for the no-op: no prompt and no toggle are shown for a sink that can't send (design.md, decision 13).
     var canSend: Bool { get }
 }
@@ -22,6 +25,7 @@ final class NoopAnalyticsSink: AnalyticsSink {
     func start(_ destination: AnalyticsDestination, newID: Bool) {}
     func capture(_ name: String, properties: [String: String]) {}
     func stop() {}
+    func forgetID() {}
     var canSend: Bool { false }
 }
 
