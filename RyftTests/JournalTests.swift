@@ -73,6 +73,8 @@ struct JournalStoreTests {
             try await store.create(name: "X", nameDe: nil, kind: .yesNo, category: nil,
                                    id: MockJournal.alcohol, retryID: MockJournal.sauna)
         }
+        // F1: its words say habit.
+        #expect(JournalStore.JournalError.idTaken.errorDescription == "That habit couldn't be saved. Try again.")
     }
 
     @Test func onlyCustomBehaviorsAreDeleted() async throws {
