@@ -424,18 +424,21 @@ struct TrainReadsReviewTests {
 
     // MARK: seams N3: the given locale
 
+    /// Two locales with different decimal marks: the device's, whichever it is, can't pass for both.
     @Test func theSessionDetailsHeroAndTheSummarysLoadTakeTheLocale() {
         var session = MockTrain.completed
         session.strain = 12.4
         session.muscularTrimp = 84.6
-        let hero = SessionDetailContent(summary: nil, session: session, loaded: true, locale: german).hero
-        #expect(hero.numeral == "12,4")
-        #expect(hero.numeralLabel?.contains("12,4") == true, "\(hero.numeralLabel ?? "nil")")
-        #expect(hero.rulerValue.hasPrefix("12,4"), "\(hero.rulerValue)")
-        let tiles = SessionSummaryContent.tiles(session, locale: german)
-        #expect(tiles.first { $0.id == "load" }?.value == "84,6")
-        let summaryHero = SessionSummaryContent(session: session, answered: true, pendingCompletion: false, locale: german).hero
-        #expect(summaryHero.numeral == "12,4")
+        for (locale, strain, load) in [(english, "12.4", "84.6"), (german, "12,4", "84,6")] {
+            let hero = SessionDetailContent(summary: nil, session: session, loaded: true, locale: locale).hero
+            #expect(hero.numeral == strain)
+            #expect(hero.numeralLabel?.contains(strain) == true, "\(hero.numeralLabel ?? "nil")")
+            #expect(hero.rulerValue.hasPrefix(strain), "\(hero.rulerValue)")
+            let tiles = SessionSummaryContent.tiles(session, locale: locale)
+            #expect(tiles.first { $0.id == "load" }?.value == load)
+            let summary = SessionSummaryContent(session: session, answered: true, pendingCompletion: false, locale: locale)
+            #expect(summary.hero.numeral == strain)
+        }
     }
 }
 
