@@ -41,8 +41,11 @@ struct JournalCard: View {
     let store: JournalStore
     let open: () -> Void
 
+    /// The answers' times and list as the screen's locale writes them ("4:30 PM", "16:30").
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        JournalCardBody(summary: store.days[store.yesterday].flatMap { store.summary(of: $0) }, open: open)
+        JournalCardBody(summary: store.days[store.yesterday].flatMap { store.summary(of: $0, locale: locale) }, open: open)
     }
 }
 
@@ -117,8 +120,8 @@ struct JournalCardBody: View {
 
 // MARK: - the sheet
 
-/// What the sheet draws at one moment: the model's state and the iPhone's connection. Previews, shots and tests build it
-/// directly for each state.
+/// What the sheet draws at one moment: the model's state, its network included (the store's word for it). Previews, shots
+/// and tests build it from a model, then set a member for a state a model can't hold still (saving, a failed read).
 struct JournalSheetContent {
     /// "Yesterday" or "Mon, Nov 16".
     var title: String
@@ -161,13 +164,14 @@ struct JournalSheetContent {
 }
 
 extension JournalSheetContent {
-    /// The model as the sheet shows it; `readState` is the read pipeline's record of the journal, for a failed read's Details.
+    /// The model as the sheet shows it, on the model's own network (`JournalSheetModel.isOnline`); `readState` is the read
+    /// pipeline's record of the journal, for a failed read's Details.
     @MainActor
-    init(_ model: JournalSheetModel, isOnline: Bool, readState: ResourceState? = nil) {
-        let phase = model.phase(isOnline: isOnline)
+    init(_ model: JournalSheetModel, readState: ResourceState? = nil) {
+        let phase = model.phase
         self.init(title: model.title, days: model.stripDays, selected: model.day, phase: phase,
                   groups: model.groups, editable: model.editable, readOnlyReason: model.readOnlyReason, isSaving: model.isSaving,
-                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: isOnline,
+                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: model.isOnline,
                   failedDetails: phase == .failed ? JournalSheetModel.readDetails(readState) : nil,
                   keepsOfflineAnswers: model.keepsOfflineAnswers)
     }
@@ -190,7 +194,8 @@ struct JournalSheetActions {
 
 /// The journal sheet: yesterday by default, the strip steps back 14 days. Loads the day on open, and again when the iPhone is back
 /// online while the day isn't on it (not when it is: that would undo answers being given). Saving closes it. Answers that aren't
-/// saved are never dropped without asking: closing (the circle or a swipe) and switching days confirm first.
+/// saved are never dropped without asking: closing (the circle or a swipe) and switching days confirm first. Once the account or
+/// side isn't the one it opened on, it closes by itself (`JournalSheetModel.isCurrent`).
 struct JournalSheet: View {
     @State var model: JournalSheetModel
     @Environment(\.dismiss) private var dismiss
@@ -224,6 +229,11 @@ struct JournalSheet: View {
             }
         }
         .task { await model.load() }
+        // Another account or side than it opened on (a sign-out, another account, the Demo data switch, a wipe): its rows
+        // aren't the journal's any more, to show or to send, so the sheet closes without a word.
+        .onChange(of: model.isCurrent, initial: true) { _, current in
+            if !current { dismiss() }
+        }
         // The store's word for the network (it observes the iPhone's connection): demo data, answering on the phone, is never
         // offline, so it never shows the Offline pill or waits to read.
         .onChange(of: model.isOnline) { _, online in
@@ -237,7 +247,7 @@ struct JournalSheet: View {
     }
 
     private var content: JournalSheetContent {
-        JournalSheetContent(model, isOnline: model.isOnline, readState: env.reads.states[.journal])
+        JournalSheetContent(model, readState: env.reads.states[.journal])
     }
 
     private var actions: JournalSheetActions {

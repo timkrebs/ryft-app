@@ -725,7 +725,8 @@ private struct RequestIDRow: View {
 
     private func copy() {
         guard let requestID else { return }
-        UIPasteboard.general.string = requestID
+        // On this iPhone only, and not for long, as Copy details (`LocalPasteboard`).
+        LocalPasteboard.copy(requestID)
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))

@@ -34,10 +34,10 @@ struct JournalNocturneTests {
     func uncachedDayLoads() async {
         let (store, _) = journalStore()
         let model = JournalSheetModel(store: store, day: MockJournalStates.day(3))
-        #expect(model.phase(isOnline: true) == .loading, "before the read: the outlines")
+        #expect(model.phase == .loading, "before the read: the outlines")
         await model.load()
-        #expect(model.phase(isOnline: true) == .ready)
-        #expect(!model.groups.isEmpty && JournalSheetContent(model, isOnline: true).canSave)
+        #expect(model.phase == .ready)
+        #expect(!model.groups.isEmpty && JournalSheetContent(model).canSave)
     }
 
     @Test("Offline with nothing cached: the offline line at once and after the read, never the outlines")
@@ -45,12 +45,30 @@ struct JournalNocturneTests {
         let api = MockPlatformAPI()
         let (store, _) = journalStore(api, online: false)
         let model = JournalSheetModel(store: store, day: MockJournalStates.day(3))
-        #expect(model.phase(isOnline: false) == .offline)
+        #expect(model.phase == .offline)
         await model.load()
-        #expect(model.phase(isOnline: false) == .offline)
+        #expect(model.phase == .offline)
         #expect(!model.isLoading)
         #expect(api.count("journal") == 0, "nothing was asked")
-        #expect(!JournalSheetContent(model, isOnline: false).canSave, "no Save for a form that would answer no to everything")
+        #expect(!JournalSheetContent(model).canSave, "no Save for a form that would answer no to everything")
+    }
+
+    @Test("One network, the store's: demo data is online with the iPhone offline; the account's sheet is offline, then online with the iPhone")
+    func oneNetwork() {
+        // Demo data answers on the phone: the iPhone's own connection never makes its sheet offline.
+        let demo = journalPreviewStore(AppState(env: .preview(online: false)))
+        let demoContent = JournalSheetContent(JournalSheetModel(store: demo))
+        #expect(demoContent.isOnline && demoContent.phase == .ready && !demoContent.showsOfflinePill)
+        #expect(JournalSheetModel(store: demo, day: MockJournalStates.day(3)).phase == .loading, "no offline line in demo data")
+
+        let (account, env) = journalStore(online: false, cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
+        let sheet = JournalSheetModel(store: account)
+        let uncached = JournalSheetModel(store: account, day: MockJournalStates.day(3))
+        #expect(!JournalSheetContent(sheet).isOnline && JournalSheetContent(sheet).showsOfflinePill)
+        #expect(uncached.phase == .offline)
+        env.connectivityMonitor.update(true)
+        #expect(JournalSheetContent(sheet).isOnline && !JournalSheetContent(sheet).showsOfflinePill)
+        #expect(uncached.phase == .loading, "back online: the day is read")
     }
 
     @Test("A read that failed says so; Try again reads it once it answers")
@@ -60,10 +78,10 @@ struct JournalNocturneTests {
         let model = JournalSheetModel(store: store, day: MockJournalStates.day(3))
         api.failure = APIError.http(400, "bad request")
         await model.load()
-        #expect(model.phase(isOnline: true) == .failed)
+        #expect(model.phase == .failed)
         api.failure = nil
         await model.load()
-        #expect(model.phase(isOnline: true) == .ready)
+        #expect(model.phase == .ready)
     }
 
     @Test("Try again is the user's read: it goes while the journal's reads are held back; the sheet's own reads wait")
@@ -75,10 +93,10 @@ struct JournalNocturneTests {
         env.reads.seed([.journal: ResourceState(consecutiveFailures: 1, retryNotBefore: Self.now.addingTimeInterval(300))])
         await model.load()
         #expect(api.count("journal") == 0, "the opening read waits")
-        #expect(model.phase(isOnline: true) == .failed)
+        #expect(model.phase == .failed)
         await model.retry()
         #expect(api.count("journal") == 1, "Try again goes")
-        #expect(model.phase(isOnline: true) == .ready)
+        #expect(model.phase == .ready)
     }
 
     @Test("The live sheet's Try again is that read: held back, the day fails; the tap reads it and its rows come")
@@ -102,12 +120,12 @@ struct JournalNocturneTests {
     func cachedAndNoHabits() async {
         let (store, _) = journalStore(online: false, cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
         let model = JournalSheetModel(store: store)
-        #expect(model.phase(isOnline: false) == .ready)
+        #expect(model.phase == .ready)
         let unanswered = JournalDay(day: MockJournalStates.day(2), answered: false, answeredAt: nil, editable: true, entries: [])
         let none = MockJournalStates.store(behaviors: MockJournal.noneEnabled, days: [unanswered])
         let empty = JournalSheetModel(store: none, day: unanswered.day)
-        #expect(empty.phase(isOnline: true) == .noHabits)
-        #expect(JournalSheetContent(empty, isOnline: true).saveHint == JournalSheetBody.noHabitsMessage)
+        #expect(empty.phase == .noHabits)
+        #expect(JournalSheetContent(empty).saveHint == JournalSheetBody.noHabitsMessage)
     }
 
     @Test("Save, then \"Saved\" and off; a change makes it Save again")
@@ -117,12 +135,12 @@ struct JournalNocturneTests {
         await store.load()
         let model = JournalSheetModel(store: store, day: MockJournalStates.day(3))
         await model.load()
-        #expect(JournalSheetContent(model, isOnline: true).canSave)
+        #expect(JournalSheetContent(model).canSave)
         await model.save()
-        var content = JournalSheetContent(model, isOnline: true)
+        var content = JournalSheetContent(model)
         #expect(content.saved && !content.canSave && content.saveHint == nil)
         model.set(MockJournal.alcohol, on: true)
-        content = JournalSheetContent(model, isOnline: true)
+        content = JournalSheetContent(model)
         #expect(!content.saved && content.canSave)
     }
 
@@ -147,7 +165,7 @@ struct JournalNocturneTests {
         let failed = JournalSheetModel(store: store, day: MockJournalStates.day(3))
         api.failure = APIError.http(400, "bad request", requestID: "req-read-1")
         await failed.load()
-        let content = JournalSheetContent(failed, isOnline: true, readState: env.reads.states[.journal])
+        let content = JournalSheetContent(failed, readState: env.reads.states[.journal])
         #expect(content.phase == .failed && !content.canSave)
         #expect(content.saveHint == "Couldn't load this day.")
         #expect(content.failedDetails?.contains("req-read-1") == true, "\(content.failedDetails ?? "nil")")
@@ -158,7 +176,7 @@ struct JournalNocturneTests {
         let saving = JournalSheetModel(store: cached, saver: { _, _ in await gate.wait() })
         let task = Task { await saving.save() }
         #expect(await eventually { gate.waiting == 1 })
-        let busy = JournalSheetContent(saving, isOnline: true)
+        let busy = JournalSheetContent(saving)
         #expect(busy.isSaving && !busy.canSave && busy.saveHint == nil)
         gate.open()
         #expect(await task.value)
@@ -540,6 +558,21 @@ struct JournalNocturneTests {
                     #expect(card.label.hasPrefix("Yesterday") && card.label.hasSuffix("Edit"), "\(card.label)")
                 }
                 #expect(card.frame.width >= Self.width - 40 - 0.5)
+            }
+        }
+    }
+
+    @Test("The live card writes yesterday's answers in the screen's locale: 4:30 PM in US English, 16:30 in British English")
+    func cardFollowsTheLocale() async throws {
+        let store = MockJournalStates.store()
+        for (locale, time) in [(Self.english, "4:30\u{202F}PM"), (Locale(identifier: "en_GB"), "16:30")] {
+            let view = ScrollView { JournalCard(store: store) {}.padding(20) }
+                .background(Theme.background)
+                .environment(\.locale, locale)
+            try await HostedWindow.run(width: Self.width, height: 600, view) { w in
+                try await w.settle()
+                let card = try #require(w.nodes().first { $0.identifier == "journal.card" })
+                #expect(card.label.contains("Last caffeine \(time)"), "\(locale.identifier): \(card.label)")
             }
         }
     }
