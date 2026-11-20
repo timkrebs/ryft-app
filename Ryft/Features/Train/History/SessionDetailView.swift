@@ -61,7 +61,9 @@ struct SessionDetailContent: Equatable {
     /// The session's title, "Workout" without one; nil while it loads with nothing known (the header draws an outline).
     let title: String?
     /// "Fri, Nov 13 · 55 min · 17 sets"; nil before anything is known.
-    let subtitle: String?
+    var subtitle: String? { subtitleParts.map(StrainRows.join) }
+    /// The subtitle's parts, one per line from AX1 (`PartsLine`); nil before anything is known.
+    let subtitleParts: [String]?
     /// "Friday, November 13, 55 minutes, 17 sets" (VoiceOver).
     let spokenSubtitle: String?
     /// The numeral, its caption ("Strain · of 21 · moderate") and the ruler (`StrainHeroView`).
@@ -101,10 +103,10 @@ struct SessionDetailContent: Equatable {
                 shown.append(String(localized: "\(sets) sets"))
                 spoken.append(String(localized: "\(sets) sets"))
             }
-            subtitle = StrainRows.join(shown)
+            subtitleParts = shown
             spokenSubtitle = spoken.joined(separator: ", ")
         } else {
-            subtitle = nil
+            subtitleParts = nil
             spokenSubtitle = nil
         }
 
@@ -323,7 +325,7 @@ struct SessionDetailPage: View {
     /// hears "Loading the workout").
     @ViewBuilder private var header: some View {
         if let title = content.title {
-            PushedHeader(Text(verbatim: title), subtitle: content.subtitle.map { Text(verbatim: $0) },
+            PushedHeader(Text(verbatim: title), subtitleParts: content.subtitleParts,
                          spokenSubtitle: content.spokenSubtitle.map { Text(verbatim: $0) },
                          identifierPrefix: "sessionDetail")
         } else {

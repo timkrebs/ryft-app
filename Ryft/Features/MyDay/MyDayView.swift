@@ -212,17 +212,17 @@ struct MyDayPage: View {
     private var showsSummary: Bool { content.phase == .ready && (content.summary != nil || content.dayStrain != nil) }
 
     /// "4 activities · 2h 13m · 6.8 mi" in `label` `textSecondary`; trailing "Strain" in `axis` `textTertiary` and the day's
-    /// strain, 20 Light ("–" while unscored). One VoiceOver element; from AX1 the strain goes under the summary.
+    /// strain, 20 Light ("–" while unscored). One VoiceOver element; from AX1 the summary's parts stand one per line
+    /// (`PartsLine`) and the strain goes under them.
     private var summary: some View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: ActivityListRowSpec.metaGap))
             : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: MyDayLayout.strainLabelGap))
         return layout {
-            Text(verbatim: content.summary ?? "")
+            PartsLine(content.summaryParts ?? [])
                 .font(.ryft(.label))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
             HStack(alignment: .firstTextBaseline, spacing: MyDayLayout.strainLabelGap) {
                 Text("Strain")

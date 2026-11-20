@@ -129,25 +129,28 @@ struct ImportMapView: View {
         }
     }
 
-    /// One line (c-23c): "12 matched · 2 to check · 1 new", or "All 12 matched…". VoiceOver hears the total first.
+    /// One line (c-23c): "12 matched · 2 to check · 1 new" (from AX1 one count per line, `PartsLine`), or "All 12
+    /// matched…". VoiceOver hears the total first.
     private func countLine(_ mapping: ImportMappingState) -> some View {
-        Text(verbatim: breakdown(mapping))
+        PartsLine(breakdownParts(mapping) ?? [], joined: breakdown(mapping),
+                  spoken: "\(String(localized: "\(mapping.rows.count) exercises")). \(breakdown(mapping))")
             .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textPrimary)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel(Text(verbatim: "\(String(localized: "\(mapping.rows.count) exercises")). \(breakdown(mapping))"))
             .accessibilityIdentifier("import.mapCount")
     }
 
     private func breakdown(_ mapping: ImportMappingState) -> String {
-        if mapping.allMatched {
-            return String(localized: "All \(mapping.rows.count) matched. Check them if you like.", comment: "Training import M2.")
-        }
+        breakdownParts(mapping)?.joined(separator: " · ")
+            ?? String(localized: "All \(mapping.rows.count) matched. Check them if you like.", comment: "Training import M2.")
+    }
+
+    /// "12 matched", "2 to check", "1 new"; nil once all are matched (one sentence, not counts).
+    private func breakdownParts(_ mapping: ImportMappingState) -> [String]? {
+        guard !mapping.allMatched else { return nil }
         return [String(localized: "\(mapping.matchedCount) matched", comment: "Training import, step 4: the count line."),
                 String(localized: "\(mapping.checkCount) to check", comment: "Training import, step 4: the count line."),
                 String(localized: "\(mapping.newCount) new", comment: "Training import, step 4: the count line.")]
-            .joined(separator: " · ")
     }
 
     @ViewBuilder

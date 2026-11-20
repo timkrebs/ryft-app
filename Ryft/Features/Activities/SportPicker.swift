@@ -3,7 +3,8 @@ import SwiftUI
 /// "Sport" (Nocturne PR 6 B §10.1): pushed inside Add activity. The pushed header, a search field, then Recent (hidden while
 /// searching) and every sport alphabetically in the app's language, as rows in grouped cards: a 36 pt outline disc with the
 /// sport's glyph, the name, and an ink checkmark on the current one. Search matches a word's start in the name and a few
-/// synonyms ("jog", "bike"); nothing found offers "Use Other". The back swipe stays.
+/// synonyms ("jog", "bike"); nothing found offers "Use Other". The back swipe stays. Inside the sheet the header starts 26
+/// under its edge, 14 under the grabber, as Add activity's own header does (`SheetHeaderSpec.topInset`).
 struct SportPicker: View {
     @Binding var selection: Sport
     /// What may be chosen (a recorded activity: its family only).
@@ -18,6 +19,7 @@ struct SportPicker: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 PushedHeader(Text("Sport"), identifierPrefix: "sportPicker")
+                    .padding(.top, SheetHeaderSpec.topInset)
                 SearchField(text: $query, prompt: Text("Search sports", comment: "Sport picker: the search field's prompt."),
                             identifier: "sportPicker.search")
                     .padding(.top, ActivitiesLayout.pickerHeaderGap)

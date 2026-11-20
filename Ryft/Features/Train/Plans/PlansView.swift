@@ -17,8 +17,13 @@ extension PlanExercise {
 /// "Hypertrophy · 4 days/week · repeating", joined as My Day's and Strain's meta lines (`MyDayText.join`): a plan row
 /// (`ActivityListRow`) stands its parts one per line from AX1, and no line ends on a lone "·" before that.
 private func planSummaryText(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> String {
+    MyDayText.join(planSummaryParts(goal: goal, daysPerWeek: daysPerWeek, weeks: weeks))
+}
+
+/// The summary's parts: the plan page's header draws them one per line from AX1 (`PartsLine`).
+private func planSummaryParts(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> [String] {
     let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
-    return MyDayText.join([goal.title, String(localized: "\(daysPerWeek) days/week"), length])
+    return [goal.title, String(localized: "\(daysPerWeek) days/week"), length]
 }
 
 extension PlanSummary {
@@ -27,6 +32,7 @@ extension PlanSummary {
 
 extension Plan {
     var summaryText: String { planSummaryText(goal: goal, daysPerWeek: daysPerWeek, weeks: weeks) }
+    var summaryParts: [String] { planSummaryParts(goal: goal, daysPerWeek: daysPerWeek, weeks: weeks) }
 
     static func blank() -> Plan {
         Plan(name: "", goal: .general, weeks: nil, daysPerWeek: 3, description: "", progression: .linear,
@@ -418,7 +424,7 @@ private struct PlanDetailScreen: View {
     /// Back · the name over "Strength · 3 days/week · 12 weeks" (VoiceOver: "Strength, 3 days a week, 12 weeks").
     private var header: some View {
         PushedHeader(Text(verbatim: model.name ?? ""),
-                     subtitle: plan.map { Text(verbatim: $0.summaryText) },
+                     subtitleParts: plan?.summaryParts,
                      spokenSubtitle: plan.map { Text(verbatim: PlanSpeech.summary(goal: $0.goal, daysPerWeek: $0.daysPerWeek,
                                                                                   weeks: $0.weeks)) },
                      identifierPrefix: "plan")

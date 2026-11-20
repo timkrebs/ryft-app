@@ -335,7 +335,10 @@ struct MyDayContent: Equatable {
     var activities: [MyDayItem] { items.filter { !$0.kind.isSleep } }
 
     /// "3 activities · 1h 52m · 14.8 km"; nil without any.
-    var summary: String? {
+    var summary: String? { summaryParts.map(MyDayText.join) }
+
+    /// The summary's parts, one per line from AX1 (`PartsLine`); nil without any activity.
+    var summaryParts: [String]? {
         let list = activities
         guard !list.isEmpty else { return nil }
         var parts = [String(localized: "\(list.count) activities", comment: "My Day: how many workouts and activities a day has.")]
@@ -343,7 +346,7 @@ struct MyDayContent: Equatable {
         if duration >= 60 { parts.append(Fmt.duration(seconds: duration)) }
         let distance = list.compactMap(\.distanceM).reduce(0, +)
         if distance > 0 { parts.append(Fmt.distance(meters: distance)) }
-        return MyDayText.join(parts)
+        return parts
     }
 }
 

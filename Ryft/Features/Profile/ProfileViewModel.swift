@@ -970,9 +970,17 @@ final class BodySettingsEditor {
 
     /// The row's second line: where the saved value comes from; nothing while a change of it is out.
     func rowDetail(_ setting: BodySetting) -> String? {
-        guard !isWriting(setting) else { return nil }
-        return setting == .sleepBase ? sleepBaseSourceText : maxHRSourceText
+        rowDetailParts(setting).map(Self.joinSource)
     }
+
+    /// The second line's parts ("Learned", "updated Wed"), which Profile's rows stand one per line from AX1 (`PartsLine`).
+    func rowDetailParts(_ setting: BodySetting) -> [String]? {
+        guard !isWriting(setting) else { return nil }
+        return setting == .sleepBase ? sleepBaseSourceParts : maxHRSourceParts
+    }
+
+    /// "Learned · updated Wed": a source's parts on one line.
+    private static func joinSource(_ parts: [String]) -> String { parts.joined(separator: " · ") }
 
     static var savingWord: String {
         String(localized: "Saving…",
@@ -988,17 +996,23 @@ final class BodySettingsEditor {
 
     /// Where the value comes from, beside it: "Learned · updated Mon", "Set by you · learned
     /// 7h 35m", "Default".
-    var sleepBaseSourceText: String? {
+    var sleepBaseSourceText: String? { sleepBaseSourceParts.map(Self.joinSource) }
+
+    /// The source's parts: "Learned", "updated Mon"; "Set by you", "learned 7h 35m"; "Default".
+    var sleepBaseSourceParts: [String]? {
         guard let source = sleepBaseSource else { return nil }
         switch source {
         case .learned:
-            guard let at = user?.sleepBaseLearnedAt else { return String(localized: "Learned") }
-            return String(localized: "Learned · updated \(at.formatted(.dateTime.weekday(.abbreviated)))")
+            guard let at = user?.sleepBaseLearnedAt else { return [String(localized: "Learned")] }
+            // The key Profile's status row uses too ("updated %@").
+            return [String(localized: "Learned"), String(localized: "updated \(at.formatted(.dateTime.weekday(.abbreviated)))")]
         case .manual:
-            guard let learned = user?.sleepBaseLearnedMin else { return String(localized: "Set by you") }
-            return String(localized: "Set by you · learned \(Fmt.duration(minutes: learned))")
+            guard let learned = user?.sleepBaseLearnedMin else { return [String(localized: "Set by you")] }
+            return [String(localized: "Set by you"),
+                    String(localized: "learned \(Fmt.duration(minutes: learned))",
+                           comment: "Baseline sleep need, after \"Set by you\": the baseline RYFT learned from the nights (\"learned 7h 52m\").")]
         case .default:
-            return String(localized: "Default")
+            return [String(localized: "Default")]
         }
     }
 
@@ -1046,14 +1060,20 @@ final class BodySettingsEditor {
     var maxHRText: String { "\(maxHR) bpm" }
 
     /// "Estimated from your age (born 1990)", "Set by you", "Default · add your birth year".
-    var maxHRSourceText: String? {
+    var maxHRSourceText: String? { maxHRSourceParts.map(Self.joinSource) }
+
+    /// The source's parts: one, or "Default", "add your birth year for an estimate".
+    var maxHRSourceParts: [String]? {
         guard let u = user else { return nil }
         switch u.maxHrSource {
         case .estimated:
-            return u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
-                ?? String(localized: "Estimated from your age")
-        case .manual: return String(localized: "Set by you")
-        case .default: return String(localized: "Default · add your birth year for an estimate")
+            return [u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
+                ?? String(localized: "Estimated from your age")]
+        case .manual: return [String(localized: "Set by you")]
+        case .default:
+            return [String(localized: "Default"),
+                    String(localized: "add your birth year for an estimate",
+                           comment: "Maximum heart rate, after \"Default\": a birth year gives RYFT an estimate.")]
         }
     }
 

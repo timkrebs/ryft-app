@@ -189,8 +189,8 @@ struct MyDayCardBody: View {
 
     // MARK: header
 
-    /// The title block is one button (one VoiceOver element, a header): "My Day" over "3 activities · 2h 13m · 6.8 mi"; the
-    /// plus menu beside it, its circle on the card's inset.
+    /// The title block is one button (one VoiceOver element, a header): "My Day" over "3 activities · 2h 13m · 6.8 mi" (one
+    /// part per line from AX1, `PartsLine`); the plus menu beside it, its circle on the card's inset.
     private var header: some View {
         HStack(alignment: .center, spacing: ScreenHeaderSpec.minGap) {
             Button(action: actions.openDay) {
@@ -198,12 +198,11 @@ struct MyDayCardBody: View {
                     Text("My Day", comment: "The card and screen with the day's sleep, workouts and activities.")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
-                    if content.phase == .ready, let summary = content.summary {
-                        Text(verbatim: summary)
+                    if content.phase == .ready, let summary = content.summaryParts {
+                        PartsLine(summary)
                             .font(.ryft(.caption))
                             .monospacedDigit()
                             .foregroundStyle(Theme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: MyDayLayout.headerHeight, alignment: .leading)

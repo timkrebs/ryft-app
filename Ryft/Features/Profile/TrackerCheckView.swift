@@ -170,6 +170,22 @@ enum CheckSyncSpec {
     static let blockPadding: CGFloat = 14, stepSpacing: CGFloat = 10
     /// CheckRow's glyph column → its name ("That's normal." lines up with the names).
     static let rowGlyphGap: CGFloat = 10
+    /// Above and below a row's two lines from AX1, where they outgrow the row's 46 pt (a grouped row's 10).
+    static let stackedRowPadding = GroupedListSpec.textPadding
+}
+
+/// A Check sync row in its card: as wide as the card, its content from the leading inset, 16 at the sides; from AX1 10 above
+/// and below; the hairline above it.
+private struct CheckRowFrame: ViewModifier {
+    let stacked: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.vertical, stacked ? CheckSyncSpec.stackedRowPadding : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .groupedRowHairline()
+    }
 }
 
 /// One tracker in Check sync: the glyph and name, the summary, the rows card with the fix under the last gap, and the
@@ -187,6 +203,7 @@ private struct TrackerCheckBlock: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .headline) private var headerGlyph: CGFloat = 17
     @ScaledMetric(relativeTo: .headline) private var headerGlyphWidth: CGFloat = 24
     @ScaledMetric(relativeTo: .callout) private var trayGlyph: CGFloat = 24
@@ -285,7 +302,9 @@ private struct TrackerCheckBlock: View {
     }
 
     /// The rows; "That's normal." once, under the first expected gap; the fix once, under the last unexpected one.
-    /// Just my iPhone folds what an iPhone can't record into one quiet row (D2 C3).
+    /// Just my iPhone folds what an iPhone can't record into one quiet row (D2 C3). Each row is the card's width, so its
+    /// hairline runs from inset to inset however short its words (from AX1 the result goes under the name, and nothing
+    /// pushes the row out to the edge any more); from AX1 its two lines keep 10 above and below.
     @ViewBuilder private var rows: some View {
         let phone = tracker.id == "iphone" && check.overall != .checking
         let shown = phone ? check.rows.filter { $0.check.isArrived || $0.check.isMissing || $0.signal == .steps } : check.rows
@@ -304,8 +323,7 @@ private struct TrackerCheckBlock: View {
                         .padding(.bottom, CheckSyncSpec.stepSpacing)
                 }
             }
-            .padding(.horizontal, GroupedListSpec.rowInset)
-            .groupedRowHairline()
+            .modifier(CheckRowFrame(stacked: typeSize.isAccessibilitySize))
             if row.signal == lastMissing {
                 fix
                     .padding(.horizontal, CheckSyncSpec.fixInset)
@@ -316,8 +334,7 @@ private struct TrackerCheckBlock: View {
             CheckRow(name: String(localized: "Other signals", bundle: text.bundle, locale: locale),
                      result: String(localized: "not available from an iPhone", bundle: text.bundle, locale: locale),
                      kind: .expected)
-                .padding(.horizontal, GroupedListSpec.rowInset)
-                .groupedRowHairline()
+                .modifier(CheckRowFrame(stacked: typeSize.isAccessibilitySize))
         }
     }
 

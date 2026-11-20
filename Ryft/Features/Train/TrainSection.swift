@@ -104,7 +104,7 @@ struct StartWorkoutSheet: View {
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)
         .presentationDragIndicator(.visible)
-        .presentationDetents([.medium, .large])
+        .presentationDetents(SheetFrameSpec.detents(for: typeSize))
         // The last session to repeat, and the active plan's days for "A day from …".
         .task {
             await model.loadStartOptions()

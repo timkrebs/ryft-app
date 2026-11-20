@@ -190,7 +190,7 @@ struct PlateCalculatorSheet: View {
             }
         }
         .background(Theme.background.ignoresSafeArea())
-        .presentationDetents([.medium, .large])
+        .sheetDetents()
     }
 
     private var perSideText: String {

@@ -61,6 +61,10 @@ struct NocturneTrainPrimitivesHostedTests {
             #expect(back.frame.width >= 44 && back.frame.height >= 44 && add.frame.width >= 44)
             #expect(abs(title.frame.midX - 195) < 1, "centred between the edges: \(title.frame)")
             #expect(abs(back.frame.minX - (20 - ScreenHeaderSpec.buttonOverhang)) < 1, "the circle's edge on the inset")
+            // One row at the default size: the title beside Back, on its line.
+            #expect(title.frame.minY < back.frame.maxY && title.frame.maxY > back.frame.minY,
+                    "beside Back: \(title.frame) vs \(back.frame)")
+            #expect(title.frame.minX >= back.frame.maxX && abs(add.frame.midY - back.frame.midY) < 1)
             let order = w.nodes().map(\.label)
             let b = try #require(order.firstIndex(of: "Back")), t = try #require(order.firstIndex(of: "My Day"))
             let a = try #require(order.firstIndex(of: "Add"))
@@ -81,14 +85,21 @@ struct NocturneTrainPrimitivesHostedTests {
         }
     }
 
-    @Test("Pushed header at AX3: a long title wraps between the buttons, whole")
+    /// R2 V1 S1 (C §2.9, as `SubpageHeader`): at the accessibility sizes the title isn't squeezed between the circles.
+    @Test("Pushed header at AX3: Back and the trailing circle on the first line, the title under them from the inset, whole")
     func pushedHeaderAX3() async throws {
-        let header = PushedHeader(Text(verbatim: "Upper/Lower 4× (copy)"), subtitle: Text(verbatim: "Hypertrophy · 4 days/week"))
+        let header = PushedHeader(Text(verbatim: "Upper/Lower 4× (copy)"), subtitle: Text(verbatim: "Hypertrophy · 4 days/week")) {
+            CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) {}
+        }
         try await host(header.padding(.top, 20), typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
             try await w.settle()
-            let title = try node(w, "Upper/Lower 4× (copy)"), back = try node(w, "Back")
-            #expect(title.frame.minX >= back.frame.maxX - 0.5 && title.frame.maxX <= 370 + 0.5, "\(title.frame)")
-            #expect(title.frame.height > back.frame.height, "it wrapped instead of being cut: \(title.frame)")
+            let title = try node(w, "Upper/Lower 4× (copy)"), back = try node(w, "Back"), more = try node(w, "More")
+            #expect(title.frame.minY >= back.frame.maxY, "under Back: \(title.frame) vs \(back.frame)")
+            #expect(abs(more.frame.midY - back.frame.midY) < 1 && abs(more.frame.maxX - (370 + ScreenHeaderSpec.buttonOverhang)) < 1,
+                    "the circles share the first line, edges on the insets: \(more.frame)")
+            #expect(abs(title.frame.minX - 20) < 1 && title.frame.maxX <= 370 + 0.5, "from the inset, inside it: \(title.frame)")
+            #expect(title.traits.contains(.header) && title.value == "Hypertrophy · 4 days/week")
+            #expect(w.nodes().map(\.label) == ["Back", "More", "Upper/Lower 4× (copy)"], "in the order drawn")
         }
     }
 

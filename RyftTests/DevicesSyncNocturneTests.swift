@@ -339,6 +339,38 @@ struct DevicesSyncNocturneTests {
         }
     }
 
+    /// R2 V1 S5: from AX1 the result goes under the name, and nothing pushes a row out to the card's edge any more; the
+    /// hairline above a short row stopped at its words, and the two lines touched the hairlines.
+    @Test("Check sync at AX3: every row is the card's width, its hairline inset to inset, with 10 above and below")
+    func checkSyncRowsAtAX3() async throws {
+        let g = MockDevicesStates.graph(trackers: SyncCheckScenario.appleWatch.trackers)
+        let check = g.check(.appleWatch)
+        MockDevicesStates.staged(check, .done, scenario: .appleWatch)
+        try await host(g, typeSize: .accessibility3, category: .accessibilityExtraLarge, height: 2_400,
+                       NavigationStack { TrackerCheckView(model: check) }) { w in
+            let rows = w.nodes().filter { $0.identifier?.hasPrefix("check.row.") == true }
+            #expect(rows.count >= 5, "\(rows.map(\.label))")
+            // The hairline as drawn: `separator` over the card's `surface`.
+            let line = NocturneTokenTests.resolve(Theme.separator), card = NocturneTokenTests.resolve(Theme.surface)
+            let ink = (r: card.r + (line.r - card.r) * line.a, g: card.g + (line.g - card.g) * line.a,
+                       b: card.b + (line.b - card.b) * line.a)
+            let pixels = try WindowPixels(w, scale: 2)
+            let padding = CheckSyncSpec.stackedRowPadding
+            // The page's column is 350 at 20 from the sides; a row's hairline is 16 in from the card's edges.
+            let inset = SubpageSpec.sidePadding + GroupedListSpec.rowInset
+            for (above, row) in zip(rows, rows.dropFirst()) {
+                #expect(row.frame.minY - above.frame.maxY >= 2 * padding - 0.5,
+                        "10 under \(above.label), 10 above \(row.label): \(above.frame) \(row.frame)")
+                let band = CGRect(x: 0, y: row.frame.minY - padding - 3, width: 390, height: 5)
+                let hairline = pixels.box(in: band) {
+                    abs($0.r - ink.r) < 0.03 && abs($0.g - ink.g) < 0.03 && abs($0.b - ink.b) < 0.03
+                }
+                #expect(hairline.map { abs($0.minX - inset) < 1.5 && abs($0.maxX - (390 - inset)) < 1.5 } == true,
+                        "above \(row.label): \(hairline.map { "\($0)" } ?? "none")")
+            }
+        }
+    }
+
     // MARK: review round: Sync details' State after a held, failed or stopped run (B1)
 
     /// One branch of `SyncIdleState.decide` each: what it's given, what it says.
