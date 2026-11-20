@@ -136,6 +136,21 @@ struct StrainHostedTests {
         }
     }
 
+    /// The logged session's row reads as a button: the row's sentence, then where it leads (the same as the link it was
+    /// before it pushed by item, review S2).
+    @Test func theLoggedSessionRowReadsAsAButtonWithItsHint() async throws {
+        let board = WorkoutPreview.board(session: true)
+        let spoken = try #require(board.sessionRow?.spoken)
+        try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0, workout(board)) { w in
+            try await w.settle()
+            let row = try #require(w.nodes().first { $0.identifier == "workout.session" })
+            #expect(row.label == spoken)
+            #expect(row.hint == "Opens the session")
+            #expect(row.traits.contains(.button), "\(row.traits)")
+            #expect(row.isEnabled)
+        }
+    }
+
     @Test func theWorkoutsIdentifiersAndHeader() async throws {
         let board = WorkoutPreview.board(session: true)
         try await HostedWindow.run(width: Self.width, height: 2_600, bottomInset: 0, workout(board)) { w in
