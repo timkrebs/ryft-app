@@ -421,6 +421,22 @@ struct TrainReadsReviewTests {
         #expect(vm.summary?.id == summary.id)
         #expect(vm.content(locale: english).title == "Upper A")
     }
+
+    // MARK: seams N3: the given locale
+
+    @Test func theSessionDetailsHeroAndTheSummarysLoadTakeTheLocale() {
+        var session = MockTrain.completed
+        session.strain = 12.4
+        session.muscularTrimp = 84.6
+        let hero = SessionDetailContent(summary: nil, session: session, loaded: true, locale: german).hero
+        #expect(hero.numeral == "12,4")
+        #expect(hero.numeralLabel?.contains("12,4") == true, "\(hero.numeralLabel ?? "nil")")
+        #expect(hero.rulerValue.hasPrefix("12,4"), "\(hero.rulerValue)")
+        let tiles = SessionSummaryContent.tiles(session, locale: german)
+        #expect(tiles.first { $0.id == "load" }?.value == "84,6")
+        let summaryHero = SessionSummaryContent(session: session, answered: true, pendingCompletion: false, locale: german).hero
+        #expect(summaryHero.numeral == "12,4")
+    }
 }
 
 /// Whose requests the rig's outbox sends (`TrainSyncService.Binding.owner`): a test switches it as the Demo data switch

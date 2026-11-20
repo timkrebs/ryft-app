@@ -113,7 +113,7 @@ struct SessionDetailContent: Equatable {
         let strain: Double? = if let session { session.strain } else { summary?.strain }
         let load: Double? = if let session { session.muscularTrimp } else { summary?.muscularTrimp }
         let known = session != nil || summary != nil
-        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: known ? Self.noStrainCaption : nil)
+        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: known ? Self.noStrainCaption : nil, locale: locale)
 
         let volumeKg = session.map { $0.volumeKg ?? Volume.of($0.exercises.flatMap(\.sets)) } ?? summary?.volumeKg
         let volume = SessionSummaryContent.volumeParts(volumeKg, locale: locale)
