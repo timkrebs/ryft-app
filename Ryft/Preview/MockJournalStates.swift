@@ -49,9 +49,9 @@ enum MockJournalStates {
     static func content(_ state: Sheet, clock: AppClock = clock) -> JournalSheetContent {
         switch state {
         case .answered:
-            return JournalSheetContent(JournalSheetModel(store: store(clock: clock)), isOnline: true)
+            return JournalSheetContent(JournalSheetModel(store: store(clock: clock)))
         case .offline:
-            return JournalSheetContent(JournalSheetModel(store: store(online: false, clock: clock)), isOnline: false)
+            return JournalSheetContent(JournalSheetModel(store: store(online: false, clock: clock)))
         case .readOnly:
             // The strip's oldest day, as the platform answers a day that can't change any more.
             let oldest = day(JournalSheetModel.daysBack, clock: clock)
@@ -61,20 +61,17 @@ enum MockJournalStates {
                                                 JournalEntry(behaviorId: MockJournal.lastCaffeine, valueBool: true, valueTime: "14:15"),
                                                 JournalEntry(behaviorId: MockJournal.sauna, valueBool: true),
                                                 JournalEntry(behaviorId: MockJournal.stretching, valueBool: true)])
-            return JournalSheetContent(JournalSheetModel(store: store(days: [answered], clock: clock), day: oldest), isOnline: true)
+            return JournalSheetContent(JournalSheetModel(store: store(days: [answered], clock: clock), day: oldest))
         case .noHabits:
             let unanswered = JournalDay(day: day(1, clock: clock), answered: false, answeredAt: nil, editable: true, entries: [])
             let none = store(behaviors: MockJournal.noneEnabled, days: [unanswered], clock: clock)
-            return JournalSheetContent(JournalSheetModel(store: none), isOnline: true)
+            return JournalSheetContent(JournalSheetModel(store: none))
         case .loading:
-            return JournalSheetContent(JournalSheetModel(store: store(days: [], clock: clock), day: day(3, clock: clock)),
-                                       isOnline: true)
+            return JournalSheetContent(JournalSheetModel(store: store(days: [], clock: clock), day: day(3, clock: clock)))
         case .offlineUncached:
-            return JournalSheetContent(JournalSheetModel(store: store(days: [], online: false, clock: clock), day: day(3, clock: clock)),
-                                       isOnline: false)
+            return JournalSheetContent(JournalSheetModel(store: store(days: [], online: false, clock: clock), day: day(3, clock: clock)))
         case .failed:
-            var content = JournalSheetContent(JournalSheetModel(store: store(days: [], clock: clock), day: day(3, clock: clock)),
-                                              isOnline: true)
+            var content = JournalSheetContent(JournalSheetModel(store: store(days: [], clock: clock), day: day(3, clock: clock)))
             content.phase = .failed
             content.failedDetails = JournalSheetModel.readDetails(
                 ResourceState(lastError: ResourceError(kind: .transient, status: 503, code: nil, requestID: "01JD8K2V9Q7M3X",

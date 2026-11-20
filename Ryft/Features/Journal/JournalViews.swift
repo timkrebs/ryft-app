@@ -117,8 +117,8 @@ struct JournalCardBody: View {
 
 // MARK: - the sheet
 
-/// What the sheet draws at one moment: the model's state and the iPhone's connection. Previews, shots and tests build it
-/// directly for each state.
+/// What the sheet draws at one moment: the model's state, its network included (the store's word for it). Previews, shots
+/// and tests build it from a model, then set a member for a state a model can't hold still (saving, a failed read).
 struct JournalSheetContent {
     /// "Yesterday" or "Mon, Nov 16".
     var title: String
@@ -161,13 +161,14 @@ struct JournalSheetContent {
 }
 
 extension JournalSheetContent {
-    /// The model as the sheet shows it; `readState` is the read pipeline's record of the journal, for a failed read's Details.
+    /// The model as the sheet shows it, on the model's own network (`JournalSheetModel.isOnline`); `readState` is the read
+    /// pipeline's record of the journal, for a failed read's Details.
     @MainActor
-    init(_ model: JournalSheetModel, isOnline: Bool, readState: ResourceState? = nil) {
-        let phase = model.phase(isOnline: isOnline)
+    init(_ model: JournalSheetModel, readState: ResourceState? = nil) {
+        let phase = model.phase
         self.init(title: model.title, days: model.stripDays, selected: model.day, phase: phase,
                   groups: model.groups, editable: model.editable, readOnlyReason: model.readOnlyReason, isSaving: model.isSaving,
-                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: isOnline,
+                  saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: model.isOnline,
                   failedDetails: phase == .failed ? JournalSheetModel.readDetails(readState) : nil,
                   keepsOfflineAnswers: model.keepsOfflineAnswers)
     }
@@ -243,7 +244,7 @@ struct JournalSheet: View {
     }
 
     private var content: JournalSheetContent {
-        JournalSheetContent(model, isOnline: model.isOnline, readState: env.reads.states[.journal])
+        JournalSheetContent(model, readState: env.reads.states[.journal])
     }
 
     private var actions: JournalSheetActions {

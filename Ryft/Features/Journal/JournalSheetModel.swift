@@ -87,7 +87,7 @@ final class JournalSheetModel {
     private(set) var hasDay = false
     /// A read of the day is on its way.
     private(set) var isLoading = false
-    /// The last read of the day brought nothing back (offline is the caller's to tell apart: `phase(isOnline:)`).
+    /// The last read of the day brought nothing back (offline or not: `phase` tells them apart).
     private(set) var loadFailed = false
     /// Answers changed since the rows were last built from the day or saved: closing or switching days asks first.
     private(set) var isDirty = false
@@ -135,9 +135,9 @@ final class JournalSheetModel {
                                 comment: "Journal sheet: the selected day is too far back to answer or change (lock glyph).")
     }
 
-    /// The rows, or what stands in their place. `isOnline` is the sheet's word for the network (`isOnline`: demo data,
-    /// answering on the phone, is never offline).
-    func phase(isOnline: Bool) -> Phase {
+    /// The rows, or what stands in their place. The network is the store's word for it (`isOnline`: demo data, answering
+    /// on the phone, is never offline), the one the whole sheet goes by.
+    var phase: Phase {
         if hasDay { return groups.isEmpty ? .noHabits : .ready }
         if !isOnline { return .offline }
         if isLoading { return .loading }

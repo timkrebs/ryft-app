@@ -246,12 +246,12 @@ struct JournalSheetSafetyTests {
         env.persistence.saveDocument(unanswered, key: JournalStore.dayKey(Self.yesterday), at: Self.now)
         let store = JournalStore(env: env)
         let model = JournalSheetModel(store: store)
-        #expect(model.phase(isOnline: true) == .noHabits)
+        #expect(model.phase == .noHabits)
         try await store.setEnabled(MockJournal.alcohol, true)
         holdNextRead(Fixture(api: api, clock: clock, env: env, store: store))
         let back = Task { await model.habitsChanged() }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        #expect(model.phase(isOnline: true) == .ready && row(model, MockJournal.alcohol) != nil, "before the read answers")
+        #expect(model.phase == .ready && row(model, MockJournal.alcohol) != nil, "before the read answers")
         clock.advance(by: .seconds(2))
         await back.value
     }
