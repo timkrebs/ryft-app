@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// "Sport" (ui.md §3.2): pushed from Add activity. Recent sports first (hidden while searching), then every sport
-/// alphabetically in the app's language. Search matches a word's start in the name and a few synonyms ("jog",
-/// "bike", "laufen", "rad"); nothing found offers "Use Other".
+/// "Sport" (Nocturne PR 6 B §10.1): pushed inside Add activity. The pushed header, a search field, then Recent (hidden while
+/// searching) and every sport alphabetically in the app's language, as rows in grouped cards: a 36 pt outline disc with the
+/// sport's glyph, the name, and an ink checkmark on the current one. Search matches a word's start in the name and a few
+/// synonyms ("jog", "bike"); nothing found offers "Use Other". The back swipe stays. Inside the sheet the header starts 26
+/// under its edge, 14 under the grabber, as Add activity's own header does (`SheetHeaderSpec.topInset`).
 struct SportPicker: View {
     @Binding var selection: Sport
     /// What may be chosen (a recorded activity: its family only).
@@ -11,36 +13,42 @@ struct SportPicker: View {
     var recents: [Sport] = []
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var query = ""
 
     var body: some View {
-        List {
-            if query.isEmpty, !recentSports.isEmpty {
-                Section {
-                    ForEach(recentSports) { row($0, idPrefix: "sportPicker.recent") }
-                } header: {
-                    Text("Recent", comment: "Sport picker: the sports used last.").ryftLabelStyle()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PushedHeader(Text("Sport"), identifierPrefix: "sportPicker")
+                    .padding(.top, SheetHeaderSpec.topInset)
+                SearchField(text: $query, prompt: Text("Search sports", comment: "Sport picker: the search field's prompt."),
+                            identifier: "sportPicker.search")
+                    .padding(.top, ActivitiesLayout.pickerHeaderGap)
+                VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+                    if query.isEmpty, !recentSports.isEmpty {
+                        GroupedCard(Text("Recent", comment: "Sport picker: the sports used last.")) {
+                            ForEach(recentSports) { row($0, idPrefix: "sportPicker.recent") }
+                        }
+                        GroupedCard(Text("All sports", comment: "Sport picker: every sport, alphabetically.")) {
+                            ForEach(results) { row($0, idPrefix: "sportPicker.sport") }
+                        }
+                    } else if !results.isEmpty {
+                        GroupedCard {
+                            ForEach(results) { row($0, idPrefix: "sportPicker.sport") }
+                        }
+                    } else {
+                        noMatch
+                    }
                 }
+                .padding(.top, ActivitiesLayout.pickerSearchGap)
             }
-            Section {
-                ForEach(results) { row($0, idPrefix: "sportPicker.sport") }
-            } header: {
-                if query.isEmpty, !recentSports.isEmpty {
-                    Text("All sports", comment: "Sport picker: every sport, alphabetically.").ryftLabelStyle()
-                }
-            }
-            if results.isEmpty {
-                noMatch
-            }
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.bottom, ActivitiesLayout.bottomPadding)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.interactively)
         .background(Theme.background.ignoresSafeArea())
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: Text("Search sports", comment: "Sport picker: the search field's prompt."))
-        .navigationTitle(Text("Sport"))
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
         .accessibilityIdentifier("sportPicker")
     }
 
@@ -85,59 +93,35 @@ struct SportPicker: View {
         .football: ["soccer", "fussball"],
     ]
 
+    /// A select row: the disc, the name, the checkmark on the current sport (and the selected trait).
     private func row(_ sport: Sport, idPrefix: String) -> some View {
-        Button {
+        GroupedRow.select(Text(verbatim: sport.name), icon: sport.symbol, isSelected: sport == selection) {
             selection = sport
             dismiss()
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: sport.symbol)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.accent.opacity(0.12), in: Circle())
-                    .accessibilityHidden(true)
-                Text(verbatim: sport.name)
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                Spacer(minLength: 8)
-                if sport == selection {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .accessibilityHidden(true)
-                }
-            }
-            .frame(minHeight: 48)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        // 56 pt rows (ui.md §3.2): the list's own vertical insets would add 30 pt.
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .listRowBackground(Theme.surface)
-        .accessibilityAddTraits(sport == selection ? .isSelected : [])
         .accessibilityIdentifier("\(idPrefix).\(sport.rawValue)")
     }
 
-    /// "No sport matches “kite”" and Use Other.
+    /// "No sport matches “curling”" and Use Other.
     private var noMatch: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ActivitiesLayout.blockSpacing) {
             Text("No sport matches “\(query)”", comment: "Sport picker: the search found nothing; the search text.")
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             if sports.contains(.other) {
-                // A button (ui.md §3.2), not tinted text.
-                PrimaryButton(verbatim: String(localized: "Use Other", comment: "Sport picker: choose the sport 'Other' when nothing matched."),
-                              style: .secondary) {
+                PillButton(Text("Use Other", comment: "Sport picker: choose the sport 'Other' when nothing matched."),
+                           style: .secondary) {
                     selection = .other
                     dismiss()
                 }
                 .accessibilityIdentifier("sportPicker.useOther")
             }
         }
-        .listRowBackground(Color.clear)
     }
 }
+
+// MARK: - previews (dark only)
 
 #Preview("Sport picker") {
     struct Host: View {
@@ -146,15 +130,15 @@ struct SportPicker: View {
             NavigationStack { SportPicker(selection: $sport, recents: [.cycling, .running, .yoga]) }
         }
     }
-    return Host().preferredColorScheme(.dark)
+    return Host().previewEnvironment()
 }
 
-#Preview("Sport picker · light · de") {
+#Preview("Sport picker · AX3") {
     struct Host: View {
         @State var sport = Sport.running
         var body: some View {
             NavigationStack { SportPicker(selection: $sport, recents: [.running, .strength]) }
         }
     }
-    return Host().preferredColorScheme(.light).environment(\.locale, Locale(identifier: "de"))
+    return Host().previewEnvironment().environment(\.dynamicTypeSize, .accessibility3)
 }

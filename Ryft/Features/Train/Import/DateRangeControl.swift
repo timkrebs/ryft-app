@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Step 3's history range (ui.md §6): a menu of presets, From and Until for a custom range (limited to the file's first
-/// and last day), and the result in figures underneath. Dates are the file's days in the flow's zone.
+/// Step 3's history range (ui.md §6; PR 6 C §4.14) as rows of the history group: a menu row of presets with the result in
+/// figures on its detail line ("10 workouts from 2 Mar to 27 Apr 2026", or "0 workouts in this range" after the attention
+/// glyph), and for a custom range From and Until with compact date pickers (limited to the file's first and last day).
+/// Dates are the file's days in the flow's zone. At accessibility sizes the menu row's value goes under its title.
 struct DateRangeControl: View {
     @Binding var preset: ImportSelection.RangePreset
     @Binding var from: LocalDate
@@ -14,85 +16,40 @@ struct DateRangeControl: View {
     let isEmpty: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if typeSize.isAccessibilitySize {
-                accessibilityRangeMenu
-            } else {
-                rangePicker
-                    .pickerStyle(.menu)
-                    .tint(Theme.accent)
-                    .frame(minHeight: 44)
-                    .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
-                    .accessibilityIdentifier("import.range")
-            }
-            if preset == .custom {
-                VStack(spacing: 4) {
-                    DatePicker(selection: binding($from), in: dateLimits, displayedComponents: .date) {
-                        Text("From").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
-                    }
-                    DatePicker(selection: binding($to), in: dateLimits, displayedComponents: .date) {
-                        Text("Until")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                }
-                .environment(\.timeZone, zone)
-                .transition(.opacity)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if isEmpty {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(Theme.warning)
-                        .accessibilityHidden(true)
-                }
-                Text(verbatim: result)
-                    .font(.ryft(.callout))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.numericText())
+        GroupedRow.menu(Text("Range", comment: "Training import, step 3: the history range picker."),
+                        value: Text(verbatim: preset.title), detail: resultText, identifier: "import.range") {
+            Picker(selection: $preset) {
+                ForEach(ImportSelection.RangePreset.allCases) { Text(verbatim: $0.title).tag($0) }
+            } label: {
+                Text("Range", comment: "Training import, step 3: the history range picker.")
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: preset)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: result)
-    }
-
-    private var rangePicker: some View {
-        Picker(selection: $preset) {
-            ForEach(ImportSelection.RangePreset.allCases) { Text(verbatim: $0.title).tag($0) }
-        } label: {
-            Text("Range", comment: "Training import, step 3: the history range picker.")
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
-        }
-    }
-
-    /// At accessibility sizes the system's menu button was squeezed into a narrow column and wrapped per character:
-    /// the same picker behind a full-width label of our own that wraps by word and grows downwards.
-    private var accessibilityRangeMenu: some View {
-        Menu {
-            rangePicker.pickerStyle(.inline)
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(verbatim: preset.title)
-                    .font(.ryft(.body))
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.ryft(.callout))
-                    .accessibilityHidden(true)
-            }
-            .foregroundStyle(Theme.accent)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel(Text("Range", comment: "Training import, step 3: the history range picker."))
+        // What the row says: the preset and the result's words; the empty range's glyph is drawn, not read.
         .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
-        .accessibilityIdentifier("import.range")
+        .animation(Theme.Motion.respecting(reduceMotion), value: result)
+        if preset == .custom {
+            dateRow(Text("From"), day: $from)
+            dateRow(Text("Until"), day: $to)
+        }
+    }
+
+    /// The result, after the attention glyph when the range holds no workout (the words say it too, so VoiceOver gets the
+    /// words alone: see the row's value).
+    private var resultText: Text {
+        guard isEmpty else { return Text(verbatim: result) }
+        return Text(Image(systemName: "exclamationmark.circle")).foregroundStyle(Theme.warning) + Text(verbatim: " \(result)")
+    }
+
+    private func dateRow(_ title: Text, day: Binding<LocalDate>) -> some View {
+        GroupedRow.custom(title) {
+            DatePicker(selection: binding(day), in: dateLimits, displayedComponents: .date) { title }
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .environment(\.timeZone, zone)
+        }
+        .transition(.opacity)
     }
 
     private var dateLimits: ClosedRange<Date> {
@@ -116,7 +73,7 @@ struct DateRangeControl: View {
                              zone: ImportMockData.zone, result: "10 workouts from 2 Mar to 27 Apr 2026", isEmpty: false)
         }
     }
-    return SchemePair { Demo() }
+    return DarkPreview { GroupedCard { Demo() } }
 }
 
 #Preview("Date range · AX5", traits: .sizeThatFitsLayout) {
@@ -130,6 +87,6 @@ struct DateRangeControl: View {
                              zone: ImportMockData.zone, result: "10 workouts from 2 Mar to 27 Apr 2026", isEmpty: false)
         }
     }
-    return SchemePair { Demo() }
+    return DarkPreview { GroupedCard { Demo() } }
         .environment(\.dynamicTypeSize, .accessibility5)
 }

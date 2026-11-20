@@ -84,6 +84,23 @@ struct PresentedRootTests {
             .toggleStyle(.ryft)
     }
 
+    /// A page in a Nocturne frame: PR 6 C's `SubpageScaffold` (its header `subpage.close` or `subpage.back`) or PR 6 B's
+    /// `SheetHeader` (its close circle `sheet.close`). Neither has a system bar, and often no field, so there may be nothing
+    /// UIKit to read the tint from: its header (`header`), no visible navigation bar, no stock switch in the window, and
+    /// whatever UIKit draws tinted under `sheet` (a field) in the ink. The tint crosses a sheet anyway (`whatCrossesASheet`);
+    /// a toggle is what a missing `presentedRoot()` would show, and that the content gets it is the scan's job
+    /// (`everyPresentationHasIt`).
+    private static func expectNocturneFrame(_ w: HostedWindow, _ sheet: UIView, _ screen: String, header: String) async throws {
+        try await w.wait("\(screen): its header") { w.nodes(in: sheet).contains { $0.identifier == header } }
+        let stock = switches(in: w.window)
+        #expect(stock.isEmpty, "\(screen): \(stock.count) stock switch(es)")
+        let bars = views(under: sheet).filter { $0 is UINavigationBar && !$0.isHidden && $0.alpha > 0.01 && $0.window != nil }
+        #expect(bars.isEmpty, "\(screen): a system bar shows")
+        let inkHex = try ink(for: sheet)
+        let off = tinted(under: sheet).filter { hex($0.tintColor, for: $0) != inkHex }
+        #expect(off.isEmpty, "\(screen): tinted \(off.map { "\(type(of: $0)) \(hex($0.tintColor, for: $0))" }), not the ink \(inkHex)")
+    }
+
     /// Dismisses what's presented, so the next window starts without it.
     private static func dismiss(_ w: HostedWindow) async throws {
         w.host.dismiss(animated: false)
@@ -203,7 +220,8 @@ struct PresentedRootTests {
             try await w.wait("the error card") { w.node("Details", exactly: true) != nil }
             try #require(w.node("Details", exactly: true)).activate()
             let sheet = try await Self.presented(w, "the Details sheet") { $0.contains { $0.label == "Send to RYFT" } }
-            try await Self.expectNocturne(w, sheet, "Details")
+            // PR 6 A §A-16: a SubpageScaffold sheet (the close circle, no system bar, no field to read a tint from).
+            try await Self.expectNocturneFrame(w, sheet, "Details", header: "subpage.close")
             try await Self.expectPills(w, sheet)
             try #require(w.nodes(in: sheet).first { $0.label == "Send to RYFT" }).activate()
             try await w.wait("Report a problem, pushed") {
@@ -214,7 +232,32 @@ struct PresentedRootTests {
         }
     }
 
-    @Test("Sleep's need sheet and the baseline form it pushes: the Nocturne look, the ink tint")
+    /// PR 6 A §A-6: a reset link opened while signed out. RootView's own presenter (`auth.needsNewPassword`) puts Set new
+    /// password over Welcome; the password field is the control UIKit tints. The app's settings are the test's own, with
+    /// Demo data off (the simulator's default is on, which shows the tabs instead of Welcome).
+    @Test("A reset link's Set new password, presented by RootView over Welcome: no stock switch, the field in the ink")
+    func setNewPasswordOverWelcome() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.presented-root.\(UUID().uuidString)"))
+        let auth = AuthService.preview(signedIn: false)
+        let settings = Settings(defaults: defaults)
+        settings.demoMode = false
+        let root = RootView().environment(settings).previewEnvironment(auth: auth)
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(root)) { w in
+            try await w.wait("Welcome", timeout: .seconds(10)) {
+                w.nodes().contains { $0.identifier == "welcome.createAccount" }
+            }
+            auth.needsNewPassword = true
+            let sheet = try await Self.presented(w, "Set new password") {
+                $0.contains { $0.identifier == "newPassword.save" }
+            }
+            try await Self.expectNocturneFrame(w, sheet, "Set new password", header: "subpage.close")
+            // The field is there to read the tint from: it must be the ink.
+            try await Self.expectNocturne(w, sheet, "Set new password")
+            try await Self.dismiss(w)
+        }
+    }
+
+    @Test("Sleep's need sheet and the baseline form it pushes: the Nocturne frame (no system bar), no stock switch")
     func sleepNeedAndItsForm() async throws {
         try await HostedWindow.run(width: 390, height: 2000, bottomInset: 0, Self.appRoot(SleepPreviewPage(.latest))) { w in
             try await w.wait("Sleep's need card") { w.nodes().contains { $0.identifier == "sleep.need" } }
@@ -222,17 +265,17 @@ struct PresentedRootTests {
             let sheet = try await Self.presented(w, "the need sheet") {
                 $0.contains { $0.identifier == "sleepNeed.changeBaseline" }
             }
-            try await Self.expectNocturne(w, sheet, "Sleep need")
+            try await Self.expectNocturneFrame(w, sheet, "Sleep need", header: "subpage.close")
             try #require(w.nodes(in: sheet).first { $0.identifier == "sleepNeed.changeBaseline" }).activate()
             try await w.wait("the baseline form, pushed") {
                 w.nodes(in: sheet).contains { $0.label.hasPrefix("Each night's sleep need starts from this baseline") }
             }
-            try await Self.expectNocturne(w, sheet, "Baseline sleep need")
+            try await Self.expectNocturneFrame(w, sheet, "Baseline sleep need", header: "subpage.back")
             try await Self.dismiss(w)
         }
     }
 
-    @Test("Today's journal sheet: its rows are Nocturne switches, its bar in the ink")
+    @Test("Today's journal sheet: its rows are Nocturne switches, its frame PR 6 B's sheet header")
     func todaysJournal() async throws {
         let state = AppState.preview()
         let today = TodayView().previewEnvironment(state).environment(\.locale, Locale(identifier: "en_US"))
@@ -242,7 +285,73 @@ struct PresentedRootTests {
             }
             try #require(w.nodes().first { $0.hint == "Opens the journal" }).activate()
             let sheet = try await Self.presented(w, "the journal's groups") { $0.contains { $0.label == "Substances" } }
-            try await Self.expectNocturne(w, sheet, "Journal")
+            try await Self.expectNocturneFrame(w, sheet, "Journal", header: "sheet.close")
+            try await Self.dismiss(w)
+        }
+    }
+
+    /// PR 6 B: Add exercise presents Custom exercise (`AddExerciseSheet`'s own `.sheet`, with `presentedRoot()`), a form with
+    /// a toggle ("One side at a time") and a text field (the name, whose caret takes the tint).
+    @Test("Add exercise's Custom exercise sheet: its toggle is the Nocturne switch, its name field in the ink")
+    func customExerciseFromAddExercise() async throws {
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
+        let add = AddExerciseSheet(initialQuery: "Landmine press") { _ in }
+            .environment(TrainLibrary.preview(store: store, outbox: outbox))
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(add)) { w in
+            try await w.wait("Add exercise") { w.node("Custom exercise", exactly: true) != nil }
+            #expect(try #require(w.node("Custom exercise", exactly: true)).activate())
+            let sheet = try await Self.presented(w, "the custom exercise form") {
+                $0.contains { $0.label.hasPrefix("One side at a time") }
+            }
+            try await Self.expectNocturne(w, sheet, "Custom exercise")
+            try await Self.dismiss(w)
+        }
+    }
+
+    // MARK: PR 6 C's presenters
+
+    /// The tab bar's import presentations (`RootView` carries `importPresentations`) over an empty page, showing `flow`.
+    private struct ImportHost: View {
+        let flow: ImportFlowModel
+        @Environment(ScreenModels.self) private var screens
+
+        var body: some View {
+            Color.clear
+                .importPresentations(screens.importer)
+                .onAppear { screens.importer.flow = flow }
+        }
+    }
+
+    @Test("The import cover, step 3: its switches are the Nocturne toggle, none a stock UISwitch (the integrated app's)")
+    func importCoverStepThree() async throws {
+        let flow = ImportMockData.flow(.choose, enrolled: false)
+        let host = ImportHost(flow: flow).previewEnvironment().environment(\.locale, Locale(identifier: "en_US"))
+        try await HostedWindow.run(width: 390, height: 844, Self.appRoot(host)) { w in
+            let cover = try await Self.presented(w, "step 3 in the cover") { $0.contains { $0.identifier == "import.plan.0" } }
+            // Not vacuous: step 3's rows are switches, on.
+            let plan = try #require(w.nodes(in: cover).first { $0.identifier == "import.plan.0" })
+            #expect(plan.value == "1", "the plan's switch: \(plan.value ?? "nil")")
+            #expect(w.nodes(in: cover).contains { $0.identifier == "import.history" }, "history's switch")
+            let stock = Self.switches(in: w.window)
+            #expect(stock.isEmpty, "the import cover: \(stock.count) stock switch(es)")
+            try await Self.dismiss(w)
+        }
+    }
+
+    @Test("Journal settings' Add a habit sheet, through its + button: no stock switch, its field in the ink")
+    func journalAddSheet() async throws {
+        let state = AppState.preview()
+        let page = NavigationStack { JournalSettingsView(store: journalPreviewStore(state)) }
+            .previewEnvironment(state)
+            .environment(\.locale, Locale(identifier: "en_US"))
+        try await HostedWindow.run(width: 390, height: 1600, Self.appRoot(page)) { w in
+            try await w.wait("the journal's + button", timeout: .seconds(10)) {
+                w.nodes().contains { $0.identifier == "journal.add" }
+            }
+            #expect(try #require(w.nodes().first { $0.identifier == "journal.add" }).activate(), "+ took the tap")
+            // The name field is one element with its FormField (no identifier of its own); Add is the sheet's.
+            let sheet = try await Self.presented(w, "Add a habit") { $0.contains { $0.identifier == "addHabit.add" } }
+            try await Self.expectNocturne(w, sheet, "Add a habit")
             try await Self.dismiss(w)
         }
     }

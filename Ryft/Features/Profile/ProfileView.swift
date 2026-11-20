@@ -45,6 +45,11 @@ struct ProfileView: View {
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
+        // The Journal row is there while the journal is live: after the Demo data switch forgot the other side's, this
+        // side's is asked for here too (as Today and Insights ask), so the row doesn't wait for them.
+        .task(id: model.demoMode) {
+            if screens.journal.availability == .unknown { await screens.journal.load() }
+        }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
             if unsentAtLogOut > 0 {
                 // Send first (10 s at most), then log out if nothing is left and it's still the same account;
@@ -186,17 +191,21 @@ struct ProfileView: View {
         case .birthYear:
             BirthYearMenuRow(editor: editor)
         case .maxHR:
-            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.maxHRText),
-                            detail: editor.maxHRSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+            // The saved value, or "Saving…" while a change is out (the value on its way is the editor page's alone).
+            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.rowValue(.maxHR, saved: editor.maxHRText)),
+                            detail: editor.rowDetail(.maxHR).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: id) {
                 editing = .maxHR
             }
+            .detailParts(editor.rowDetailParts(.maxHR))
         case .sleepBase:
-            GroupedRow.push(Text("Baseline sleep need"), value: Text(verbatim: editor.sleepBaseText),
-                            detail: editor.sleepBaseSourceText.map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
+            GroupedRow.push(Text("Baseline sleep need"),
+                            value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
+                            detail: editor.rowDetail(.sleepBase).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
                             identifier: id) {
                 editing = .sleepBase
             }
+            .detailParts(editor.rowDetailParts(.sleepBase))
         case .rescore:
             GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
                               identifier: id) {
@@ -272,6 +281,7 @@ struct ProfileView: View {
             GroupedRow.push(Text("Bedtime & wake"), value: Text(verbatim: screens.bedtime.summary),
                             detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, identifier: id,
                             route: ProfileRoute.bedtime)
+                .detailParts(screens.bedtime.summaryDetailParts)
         // Privacy
         case .consent:
             GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)
@@ -372,6 +382,11 @@ struct ProfileView: View {
                 if let error = editor.birthYearError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
                 }
+                // A save whose answer came after its editor page went: said here, where the user is.
+                if editor.errorMissed, let error = editor.error {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
+                        .accessibilityIdentifier("profile.bodySettingsError")
+                }
                 RescoreStatus(editor: editor)
                 GroupFooter(Text("Changing a setting doesn't rescore past days on its own."))
             }
@@ -412,7 +427,7 @@ struct ProfileView: View {
         case .privacy:
             FooterStack {
                 if let error = model.consentError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
                 }
                 if let detail = model.consentDetail {
                     GroupFooter(consentFooter(detail))

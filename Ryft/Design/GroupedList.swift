@@ -1,7 +1,7 @@
 // The grouped list (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2; design.md §P5-6.1–6.2; PR 6 B §1.3 S4, C §2.2,
 // A's `ListGroup`): a group title, a `surface` card of rows with a hairline between them, and an optional footer. One row type
-// with seven kinds, so Profile's list, its subpages and every form in PR 6 read as the same list. It replaces `ProfileSection`,
-// `SettingRow`, `SettingRowLabel` and `LinkRow` (their callers move in the screen tickets).
+// with seven kinds, so Profile's list, its subpages and every form in PR 6 read as the same list. It replaced `ProfileSection`,
+// `SettingRow`, `SettingRowLabel` and `LinkRow`, which went once their callers had moved.
 import SwiftUI
 
 /// The grouped list's numbers (a separate, non-generic type: `GroupedCard` is generic).
@@ -191,6 +191,8 @@ extension GroupedCard where Footer == GroupFooter {
 /// | `menu` | the current value, `chevron.up.chevron.down`; the row opens a `Menu` | a button: the title, the value |
 /// | `destructive` | the title in `alert`, an optional glyph | a button; the dialog that follows says the rest |
 /// | `custom` | the caller's view (a stepper, chips) | the title, then the caller's control |
+///
+/// A detail made of facts ("Learned · updated Wed") can stand one fact per line from AX1: `.detailParts(_:)` (`PartsLine`).
 struct GroupedRow: View {
     enum Kind: Equatable, Sendable {
         case value, push, linkOut, action, select, toggle, menu, destructive, custom
@@ -219,6 +221,8 @@ struct GroupedRow: View {
     /// The control's accessibility identifier: on the one element VoiceOver and UI tests see (the button, the switch, the
     /// menu), never on the row around it.
     private let identifier: String?
+    /// The detail's parts, drawn one per line from AX1 (`detailParts(_:)`).
+    private var detailParts: [String]?
 
     @Environment(\.openURL) private var openURL
 
@@ -333,7 +337,17 @@ struct GroupedRow: View {
 
     var body: some View {
         content
+            .environment(\.groupedRowDetailParts, detail == nil ? nil : detailParts)
             .groupedRowHairline()
+    }
+
+    /// The detail as parts ("Learned", "updated Wed"): from AX1 they stand one per line without the "·" (`PartsLine`), so the
+    /// line never ends on a lone separator; below AX1 `detail` is drawn as given. VoiceOver hears `detail` at every size. Only
+    /// with a `detail`, whose words the parts are.
+    func detailParts(_ parts: [String]?) -> GroupedRow {
+        var row = self
+        row.detailParts = parts?.isEmpty == false ? parts : nil
+        return row
     }
 
     @ViewBuilder private var content: some View {
@@ -558,6 +572,17 @@ private struct GroupedRowText: View {
     let icon: String?
     let titleColor: Color
 
+    /// The row's `detailParts(_:)`.
+    @Environment(\.groupedRowDetailParts) private var detailParts
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The detail as drawn: its parts one per line from AX1 (when the row has them; VoiceOver still hears `detail`), else
+    /// as given.
+    private func drawn(_ detail: Text) -> Text {
+        guard let detailParts, typeSize.isAccessibilitySize else { return detail }
+        return Text(verbatim: PartsLine.text(detailParts, stacked: true)).accessibilityLabel(detail)
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
             if let icon {
@@ -569,14 +594,14 @@ private struct GroupedRowText: View {
                     .foregroundStyle(titleColor)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail {
-                    detail
+                    drawn(detail)
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let value {
-                    GroupedRowValue(text: value)
-                        .multilineTextAlignment(.leading)
+                    // Under the title its lines start at the title's edge, as the title's do.
+                    GroupedRowValue(text: value, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -586,16 +611,23 @@ private struct GroupedRowText: View {
 }
 
 /// A row's value: 15 pt in `textTertiary` (4.54:1 on `surface`), tabular digits. A caller's `Text.foregroundStyle` wins (a
-/// value that needs attention is `warning` with its words, §P5-6.3).
+/// value that needs attention is `warning` with its words, §P5-6.3). Its lines align to the trailing edge beside the title,
+/// to the leading one under it (from AX1).
 private struct GroupedRowValue: View {
     let text: Text
+    var alignment = TextAlignment.trailing
 
     var body: some View {
         text
             .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textTertiary)
-            .multilineTextAlignment(.trailing)
+            .multilineTextAlignment(alignment)
             .fixedSize(horizontal: false, vertical: true)
     }
+}
+
+extension EnvironmentValues {
+    /// A row's detail as parts (`GroupedRow.detailParts(_:)`), for its text wherever its kind builds the label.
+    @Entry var groupedRowDetailParts: [String]?
 }

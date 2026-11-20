@@ -218,7 +218,8 @@ struct SleepBedtimeSection: View {
     var signIn: (() async -> Void)?
 
     @Environment(ScreenModels.self) private var screens
-    @State private var showsSchedule = false
+    /// Bedtime & wake, pushed: from the settings card, or from Set up (leaving it without a change sets it up).
+    @State private var opening: SleepScheduleView.Opening?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -230,7 +231,7 @@ struct SleepBedtimeSection: View {
             }
             planned
         }
-        .navigationDestination(isPresented: $showsSchedule) { SleepScheduleView(planner: screens.bedtime) }
+        .navigationDestination(item: $opening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
     }
 
     @ViewBuilder private var planned: some View {
@@ -248,12 +249,14 @@ struct SleepBedtimeSection: View {
             case .failed:
                 let failure = board.failure
                 let action = failure?.action ?? .retry
+                // Part of the section, as on Bedtime & wake and Tonight: read in place, not announced.
                 InlineMessage(message: board.message ?? "", systemImage: failure?.systemImage ?? "exclamationmark.circle",
                               retryTitle: action.title, details: failure?.details,
-                              retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.bedtime.failure")
+                              retry: action.button(retry: retry, signIn: signIn), identifier: "sleep.bedtime.failure",
+                              announces: false)
             case .offline:
                 InlineMessage(message: board.message ?? "", systemImage: "wifi.exclamationmark",
-                              identifier: "sleep.bedtime.failure")
+                              identifier: "sleep.bedtime.failure", announces: false)
             case .planned, .planning:
                 SleepGoToBedTile(board: board, reduceTransparency: reduceTransparency)
             }
@@ -263,10 +266,11 @@ struct SleepBedtimeSection: View {
             SleepTileGrid(tiles: board.tiles, isOutline: board.isOutline)
                 .padding(.top, SleepModesLayout.tilesGap)
         }
-        SleepBedtimeSettings(board: board, wake: $wake) { showsSchedule = true }
+        SleepBedtimeSettings(board: board, wake: $wake) { opening = .edit }
             .padding(.top, SleepModesLayout.settingsGap)
         if let problem = board.alarmProblem {
-            InlineMessage(message: problem, systemImage: "alarm", identifier: "sleep.bedtime.alarm", severity: .attention)
+            InlineMessage(message: problem, systemImage: "alarm", identifier: "sleep.bedtime.alarm", severity: .attention,
+                          announces: false)
                 .padding(.top, SleepModesLayout.cardGap)
         }
         if let asOf = board.asOf {
@@ -283,7 +287,8 @@ struct SleepBedtimeSection: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-            PillButton(Text("Set up Bedtime & wake"), systemImage: "arrow.right") { showsSchedule = true }
+            // Tonight's glyph for the same action (§4.13).
+            PillButton(Text("Set up Bedtime & wake"), systemImage: "bed.double") { opening = .setUp }
                 .accessibilityIdentifier("sleep.bedtime.setUp")
         }
     }
@@ -449,16 +454,11 @@ struct SleepGoalMarker: View {
 }
 
 /// The settings card (§P5-7.3 row 6): "Wake up at" with the compact time picker, "Why this need" (opens the need's terms in
-/// the card), "Bedtime & wake" (→ the editor, its summary as the value).
+/// the card, as Tonight's does: `NeedDisclosure`), "Bedtime & wake" (→ the editor, its summary as the value).
 struct SleepBedtimeSettings: View {
     let board: SleepBedtimeBoard
     @Binding var wake: Date
     let openSchedule: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showsWhy = false
-    /// The chevron grows as the grouped rows' does.
-    @ScaledMetric(relativeTo: .callout) private var glyphScale: CGFloat = 1
 
     var body: some View {
         GroupedCard {
@@ -469,45 +469,11 @@ struct SleepBedtimeSettings: View {
                     .accessibilityIdentifier("sleep.bedtime.wake")
             }
             if let plan = board.plan {
-                whyRow
-                if showsWhy {
-                    NeedBasisRows(plan: plan)
-                        .font(.ryft(.callout))
-                        .padding(.horizontal, GroupedListSpec.rowInset)
-                        .padding(.bottom, GroupedListSpec.textPadding)
-                        .transition(.opacity)
-                }
+                NeedDisclosure(plan: plan, identifier: "sleep.bedtime.why")
             }
             GroupedRow.push(Text("Bedtime & wake"), value: Text(board.summary), action: openSchedule)
                 .accessibilityIdentifier("sleep.bedtime.schedule")
         }
-    }
-
-    /// "Why this need" and a chevron that turns down while the terms show.
-    private var whyRow: some View {
-        Button {
-            withAnimation(Theme.Motion.respecting(reduceMotion)) { showsWhy.toggle() }
-        } label: {
-            HStack(spacing: GroupedListSpec.rowSpacing) {
-                Text("Why this need")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: GroupedListSpec.chevronSize * glyphScale, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.accessoryOpacity))
-                    .rotationEffect(.degrees(showsWhy ? 90 : 0))
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, GroupedListSpec.rowInset)
-            .padding(.vertical, GroupedListSpec.textPadding)
-            .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(showsWhy ? Text("Expanded") : Text("Collapsed"))
-        .accessibilityIdentifier("sleep.bedtime.why")
-        .groupedRowHairline()
     }
 }
 

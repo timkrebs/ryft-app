@@ -41,7 +41,7 @@ extension PlanGoal {
 extension TargetKind {
     var title: String {
         switch self {
-        case .pct1rm: return String(localized: "% 1RM")
+        case .pct1rm: return String(localized: "%\u{00A0}1RM")
         case .rpe: return String(localized: "RPE")
         case .kg: return String(localized: "kg")
         case .bodyweight: return String(localized: "Bodyweight")
@@ -119,9 +119,11 @@ extension Muscle {
 
 // MARK: - buttons and rows
 
-/// The big teal call to action ("Start workout"), 56 pt tall.
+/// The big teal call to action, 56 pt tall. Area B's screens call `PillButton` (D6B-17); this stays for the callers outside
+/// them until the gate (T5.9) deletes it.
 struct TealButtonStyle: ButtonStyle {
     var prominent = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -131,158 +133,213 @@ struct TealButtonStyle: ButtonStyle {
             .background(prominent ? Theme.accent : Theme.accent.opacity(0.14), in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(Theme.Motion.respecting(reduceMotion, PressableButtonStyle.pressAnimation), value: configuration.isPressed)
     }
 }
 
-/// "My plans ›" rows: icon, title, optional detail.
-struct TrainLinkRow: View {
-    let title: String
-    var detail: String? = nil
-    let systemImage: String
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 40, height: 40)
-                .background(Theme.accent.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                if let detail {
-                    Text(detail)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(2)
-                }
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary)
-        }
-        .padding(14)
-        .frame(minHeight: 56)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
+/// The resume banner's numbers (PR 6 B §3.1, `b-23`).
+enum WorkoutBannerSpec {
+    /// 68 high at least (it grows with its text), radius 22, `surface`, a 1 pt ink 20 % border: the one outlined row, because
+    /// it is the live thing.
+    nonisolated static let minHeight: CGFloat = 68, radius: CGFloat = 22, borderOpacity = 0.20
+    /// 16 at the sides, 12 above and below the text, 12 between the dot, the text and "Resume"; the meta 2 under the title.
+    nonisolated static let sidePadding: CGFloat = 16, verticalPadding: CGFloat = 12, spacing: CGFloat = 12
+    nonisolated static let metaGap: CGFloat = 2
+    /// The 8 pt `textPrimary` dot pulses 1 → 0.35 over 1 s (static under Reduce Motion). Not Volt: Strain's screen has its
+    /// needle.
+    nonisolated static let dot: CGFloat = 8, pulseOpacity = 0.35, pulseDuration: Double = 1
+    /// The minutes in the meta line move on every 30 s.
+    nonisolated static let refreshInterval: TimeInterval = 30
 }
 
-/// "Workout in progress · 23 min" — resumes the live session.
+/// "Workout in progress", "Upper A · 23 min · 6 sets done" and a light "Resume" (PR 6 B §3.1): resumes the live session, on
+/// Strain's Train group and on Today. The whole banner is the one button (`train.resume`); VoiceOver reads "Workout in
+/// progress", then "Upper A, 23 minutes, 6 sets done", with the hint "Opens the workout". The "Resume" pill is its look,
+/// not a second button. From AX1 the pill goes under the text.
 struct WorkoutInProgressBanner: View {
     let session: LocalSession
     let action: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        Button(action: action) {
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                let minutes = max(0, Int(context.date.timeIntervalSince(session.startedAt) / 60))
-                HStack(spacing: 14) {
-                    PulsingDot()
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Workout in progress · \(minutes) min")
-                            .font(.ryft(.body))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text("\(session.title) · \(session.completedSetCount) sets done")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    Spacer()
-                    Text("Resume")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.onAccent)
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: 40)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .padding(14)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-                    .strokeBorder(Theme.accent.opacity(0.5), lineWidth: Theme.Metrics.hairline))
+        TimelineView(.periodic(from: .now, by: WorkoutBannerSpec.refreshInterval)) { context in
+            let minutes = Self.minutes(since: session.startedAt, now: context.date)
+            let sets = session.completedSetCount
+            Button(action: action) {
+                label(meta: Self.meta(title: session.title, minutes: minutes, sets: sets))
             }
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityLabel(Text("Workout in progress", comment: "The resume banner's title: a workout is running."))
+            .accessibilityValue(Text(verbatim: Self.spoken(title: session.title, minutes: minutes, sets: sets)))
+            .accessibilityHint(Text("Opens the workout"))
+            .accessibilityIdentifier("train.resume")
         }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityHint(Text("Opens the workout"))
-        .accessibilityIdentifier("train.resume")
+    }
+
+    private func label(meta: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: WorkoutBannerSpec.radius, style: .continuous)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: WorkoutBannerSpec.spacing))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: WorkoutBannerSpec.spacing))
+        // The dot beside both lines; once they wrap, beside the title.
+        let dotAlignment: VerticalAlignment = typeSize.isAccessibilitySize ? .firstTextBaseline : .center
+        return layout {
+            HStack(alignment: dotAlignment, spacing: WorkoutBannerSpec.spacing) {
+                PulsingDot()
+                VStack(alignment: .leading, spacing: WorkoutBannerSpec.metaGap) {
+                    Text("Workout in progress", comment: "The resume banner's title: a workout is running.")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: meta)
+                        .font(.ryft(.caption))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The pill's look; the banner is the button. Its one line never wraps (`PillButton.compact`).
+            PillButton(Text("Resume"), size: .compact) {}
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, WorkoutBannerSpec.sidePadding)
+        .padding(.vertical, WorkoutBannerSpec.verticalPadding)
+        .frame(maxWidth: .infinity, minHeight: WorkoutBannerSpec.minHeight, alignment: .leading)
+        .background(Theme.surface, in: shape)
+        .overlay {
+            shape.strokeBorder(Theme.textPrimary.opacity(WorkoutBannerSpec.borderOpacity), lineWidth: Theme.Metrics.hairline)
+        }
+        .contentShape(shape)
+    }
+
+    /// Whole minutes since `start`, never negative (a clock moved back).
+    nonisolated static func minutes(since start: Date, now: Date) -> Int {
+        max(0, Int(now.timeIntervalSince(start) / 60))
+    }
+
+    /// "Upper A · 23 min · 6 sets done".
+    static func meta(title: String, minutes: Int, sets: Int) -> String {
+        String(localized: "\(title) · \(minutes)\u{00A0}min · \(sets) sets done",
+               comment: "The resume banner's meta line: the session's title, the minutes since it started, the sets checked off.")
+    }
+
+    /// "Upper A, 23 minutes, 6 sets done": the meta line for VoiceOver.
+    static func spoken(title: String, minutes: Int, sets: Int) -> String {
+        String(localized: "\(title), \(Fmt.spokenDuration(minutes: minutes)), \(sets) sets done",
+               comment: "VoiceOver value of the resume banner: the session's title, how long it has run (\"23 minutes\"), the sets checked off.")
     }
 }
 
+/// The banner's 8 pt dot: `textPrimary`, its opacity going 1 → 0.35 and back every second; still under Reduce Motion.
 private struct PulsingDot: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var on = false
+    @State private var dimmed = false
 
     var body: some View {
         Circle()
-            .fill(Theme.accent)
-            .frame(width: 10, height: 10)
-            .opacity(on ? 0.35 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1).repeatForever()) { on = true }
-            }
+            .fill(Theme.textPrimary)
+            .frame(width: WorkoutBannerSpec.dot, height: WorkoutBannerSpec.dot)
+            .opacity(reduceMotion || !dimmed ? 1 : WorkoutBannerSpec.pulseOpacity)
+            .onAppear { pulse() }
+            .onChange(of: reduceMotion) { pulse() }
             .accessibilityHidden(true)
     }
-}
 
-/// Muscular load chip next to a session ("Load 84.6").
-struct LoadChip: View {
-    let load: Double?
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "dumbbell.fill").imageScale(.small)
-            Text(Fmt.load(load))
-                .monospacedDigit()
-        }
-        .font(.ryft(.caption))
-        .foregroundStyle(load == nil ? Theme.textTertiary : Theme.accentSecondary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Theme.accentSecondary.opacity(load == nil ? 0.06 : 0.14), in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Muscular load \(Fmt.load(load))"))
+    private func pulse() {
+        dimmed = false
+        guard !reduceMotion else { return }
+        let pulse = Animation.easeInOut(duration: WorkoutBannerSpec.pulseDuration).repeatForever(autoreverses: true)
+        withAnimation(Theme.Motion.respecting(reduceMotion, pulse)) { dimmed = true }
     }
 }
 
-/// A personal record: trophy, kind, value.
+/// The record row's numbers (PR 6 B §5.1 row 4, §7.3).
+enum PRBadgeSpec {
+    /// 52 high at least, 12 between the trophy disc, the text and the value; the detail 2 under the title.
+    nonisolated static let minHeight: CGFloat = 52, spacing: CGFloat = 12, detailGap: CGFloat = 2
+    /// The value: 20 Light at the default size, growing like `.title3`; from AX1 it goes under the text, this far.
+    nonisolated static let valueSize: CGFloat = 20, stackedValueGap: CGFloat = 4
+}
+
+/// A personal record (D6B-9): the trophy in a 36 pt outline disc (ink, no amber), the exercise (`callout`) over the kind
+/// (`caption`, `textSecondary`: "Est. 1RM", "Most reps"), or the kind over its date ("Nov 13") on the exercise's own page, and
+/// the value at the right in 20 Light ("93.5 kg"). The record's sentence ("Estimated one-rep max 93.5 kg.") is VoiceOver's:
+/// one element, the exercise with the sentence as its value, or the sentence with the date.
 struct PRBadge: View {
     let record: PersonalRecord
-    var exerciseName: String? = nil
+    var exerciseName: String?
     var showsDate = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = PRBadgeSpec.valueSize
+
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "trophy.fill")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.warning)
-                .frame(width: 34, height: 34)
-                .background(Theme.warning.opacity(0.14), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                if let exerciseName {
-                    Text(exerciseName)
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textPrimary)
-                }
-                Text(showsDate ? "\(record.kind.title) · \(record.achievedAt.formatted(.dateTime.day().month(.abbreviated).year()))"
-                               : record.kind.title)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                Text(record.kind.sentence(record.value))
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
+        HStack(alignment: .center, spacing: PRBadgeSpec.spacing) {
+            IconDisc(systemImage: "trophy")
+            VStack(alignment: .leading, spacing: PRBadgeSpec.detailGap) {
+                Text(verbatim: Self.title(record, exerciseName: exerciseName))
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let detail = Self.detail(record, exerciseName: exerciseName, showsDate: showsDate) {
+                    Text(verbatim: detail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if typeSize.isAccessibilitySize {
+                    value.padding(.top, PRBadgeSpec.stackedValueGap - PRBadgeSpec.detailGap)
+                }
             }
-            Spacer(minLength: 6)
-            Text(record.kind.format(record.value))
-                .font(.ryft(.body))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !typeSize.isAccessibilitySize {
+                value
+            }
         }
-        .accessibilityElement(children: .combine)
+        .frame(maxWidth: .infinity, minHeight: PRBadgeSpec.minHeight, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: Self.spokenLabel(record, exerciseName: exerciseName)))
+        .accessibilityValue(Text(verbatim: Self.spokenValue(record, exerciseName: exerciseName, showsDate: showsDate)))
+    }
+
+    private var value: some View {
+        Text(verbatim: record.kind.format(record.value))
+            .font(.ryftNumber(size: valueSize, weight: .light))
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    /// The exercise, or the kind on the exercise's own page.
+    static func title(_ record: PersonalRecord, exerciseName: String?) -> String {
+        exerciseName ?? record.kind.title
+    }
+
+    /// Under the title: the kind (under the exercise), or the date (under the kind).
+    static func detail(_ record: PersonalRecord, exerciseName: String?, showsDate: Bool, now: Date = .now) -> String? {
+        if exerciseName != nil { return record.kind.title }
+        return showsDate ? date(record.achievedAt, now: now) : nil
+    }
+
+    /// "Nov 13"; "Nov 13, 2025" for a record from another year.
+    static func date(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        calendar.isDate(date, equalTo: now, toGranularity: .year)
+            ? date.formatted(.dateTime.month(.abbreviated).day())
+            : date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
+    /// VoiceOver's label: the exercise, or (on its own page) the record's sentence.
+    static func spokenLabel(_ record: PersonalRecord, exerciseName: String?) -> String {
+        exerciseName ?? record.kind.sentence(record.value)
+    }
+
+    /// VoiceOver's value: the sentence after the exercise, or the date after the sentence.
+    static func spokenValue(_ record: PersonalRecord, exerciseName: String?, showsDate: Bool) -> String {
+        if exerciseName != nil { return record.kind.sentence(record.value) }
+        return showsDate ? record.achievedAt.formatted(.dateTime.month(.wide).day().year()) : ""
     }
 }
 
@@ -307,15 +364,36 @@ struct TrainSectionTitle: View {
     }
 }
 
-#Preview("Train components", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 14) {
-            Button("Start workout") {}.buttonStyle(TealButtonStyle())
-            WorkoutInProgressBanner(session: MockTrain.liveSession(in: TrainPreview.store)) {}
-            TrainLinkRow(title: "My plans", detail: "Upper/Lower 4× · week 6", systemImage: "list.bullet.rectangle")
-            HStack { LoadChip(load: 84.6); LoadChip(load: nil); StrainPill(strain: 9.8) }
-            PRBadge(record: MockTrain.completed.prs[0], exerciseName: "Bench press")
-            WillSyncNote()
+#Preview("Train components") {
+    TrainComponentsPreview()
+        .previewEnvironment()
+}
+
+#Preview("Train components · AX3") {
+    TrainComponentsPreview()
+        .previewEnvironment()
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// The banner (six sets in), the records as the summary and the exercise page list them, and the will-sync note.
+private struct TrainComponentsPreview: View {
+    var body: some View {
+        ScrollView {
+            DarkPreview {
+                VStack(alignment: .leading, spacing: 16) {
+                    WorkoutInProgressBanner(session: MockTrain.liveSession(in: TrainPreview.store, checked: 6)) {}
+                    Card {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(MockTrain.completed.prs, id: \.self) { pr in
+                                PRBadge(record: pr, exerciseName: pr.exerciseId == MockTrain.bench.id ? "Bench press" : "Barbell row")
+                            }
+                        }
+                    }
+                    Card { PRBadge(record: MockTrain.completed.prs[0], showsDate: true) }
+                    WillSyncNote()
+                }
+            }
         }
+        .background(Theme.background)
     }
 }

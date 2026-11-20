@@ -1,9 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// The tiles of "What do you wear?" (ui.md §2.2): two columns, "Other" and "Just my iPhone" full width and last.
+/// The tiles of "What do you wear?" (ui.md §2.2; Nocturne PR 6 A §A-11): two columns 10 apart, "Other" and "Just my iPhone"
+/// full width and last, each a `SelectableTile` (selected: the 1.5 pt ink border and the filled check, never colour alone).
 /// One column at accessibility sizes, and whenever a name's longest word wouldn't fit a tile on this screen at
-/// this text size (a word is never broken). Several may be picked; "Just my iPhone" only on its own.
+/// this text size (a word is never broken). Several may be picked; "Just my iPhone" only on its own. Profile's
+/// `TrackerPickerSheet` shows the same grid.
 struct TrackerPickerGrid: View {
     let catalog: TrackerCatalog
     @Binding var picked: [String]
@@ -45,10 +47,12 @@ struct TrackerPickerGrid: View {
         return widestWord(names, size: size) <= room - 1
     }
 
-    /// The widest single word among `names` in the tiles' font (Satoshi callout, scaled like `.ryft(.callout)`).
+    /// The widest single word among `names` in the tiles' font (Satoshi callout, 15 pt, scaled like `.ryft(.callout)`).
     static func widestWord(_ names: [String], size: DynamicTypeSize) -> CGFloat {
         let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(size))
-        let base = UIFont(name: RyftFonts.postScriptName(for: .regular), size: 14) ?? .systemFont(ofSize: 14)
+        let points = RyftTextStyle.callout.size
+        let base = UIFont(name: RyftFonts.postScriptName(for: RyftTextStyle.callout.weight), size: points)
+            ?? .systemFont(ofSize: points)
         let font = UIFontMetrics(forTextStyle: .callout).scaledFont(for: base, compatibleWith: traits)
         let words = names.flatMap { $0.split(whereSeparator: \.isWhitespace) }
         return words.map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0

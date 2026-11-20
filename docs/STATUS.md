@@ -60,7 +60,19 @@ New for every screen: sheets and covers end with `.presentedRoot()`, because on 
 doesn't reach presented content; `PresentedRootTests` fails a presentation without it. Simulator-verified only (iPhone
 17 Pro, iOS 27.2, default and AX3). On a device still to check: the tab bar's Large Content Viewer, VoiceOver speech
 and rotor order on Strain, Insights and Sleep, Insights in airplane mode, and Profile's Log out, Set new password and
-Delete account with a real session.
+Delete account with a real session. PR 5 merged as #127 on 2026-11-20.
+
+2026-11-20: PR 6 (`feat/nocturne-pr6`: onboarding and sign-in, Train, My Day, Activities, the journal, Profile's
+pages, the import, widgets and the Lock Screen rest card) is reviewed and integrated
+(`docs/work/2026-11-16-nocturne/review.md`, PR 6): three branches combined, a colour lint in `make lint`
+(`scripts/check-accent-use.py`), Train's pages through `ReadScheduler` (offline at once with what's cached, reload on
+reconnect, Details on failure), every Train read and action bound to its account and side, `PartsLine` and the
+stacked `PushedHeader` at AX sizes, and Reduce Motion through `Theme.Motion.respecting` with a source scan.
+Simulator-verified only (iPhone 17 Pro, iOS 27.2, Demo data, default, AX3 and AX5). On a device still to check: Train
+in airplane mode and back; Demo data on and off with an exercise's page open; "Logged session" from Today's card; the
+widgets and the Lock Screen rest card (locked redaction); Add sleep; the Apple Health step in onboarding; Log in's busy
+button with a real account; the journal with no habits and its side guard; Reduce Motion as a real run. Open: a demo
+Train store (ADR 0019 follow-up; `APP_STORE.md`'s Demo line is marked open until then) and the T5.9 gate PR.
 
 2026-11-17: read-model writes off the main actor (P1, ADR 0018, `docs/work/2026-11-17-persistence-off-main/`): two
 review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback crash). Simulator-verified on iOS 17.0,
@@ -151,6 +163,12 @@ tests). **Device steps (the user):**
    with set 51 still there. Remove set 51: the `PUT` goes, and the platform's copy (another device, or after a
    reinstall) has set 1 at 65 kg.
 5. Downgrade: install the previous TestFlight build over this one. The workouts are still listed.
+
+2026-11-19: the widget's Dynamic Type (Nocturne W, `Shared/WidgetLook.swift`). Above the default size the lock screen
+rectangle folds to three lines and the rest timer's lock screen card drops the session title and keeps the next set to
+one line; the caps that remain are where even that no longer fits: the small tile at AX1 (past it the caption takes the
+readiness number's place), the rectangle at xxLarge (72 pt high), the rest timer and snooze at AX4 (iOS's 160 pt for
+a Live Activity on the lock screen), and the island's compact and minimal glyphs at the default size (fixed regions).
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 

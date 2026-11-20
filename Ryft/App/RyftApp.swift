@@ -219,6 +219,9 @@ struct RyftApp: App {
                     sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
+                    // Train's cache is one store for both sides (ADR 0019): what was read for the other side goes, and
+                    // the plans and today's plan day are read for this one.
+                    screens.trainDemoModeChanged()
                     // A start asked for in the demo doesn't carry over, as one doesn't across an account change.
                     if !on { WorkoutLauncher.discardPending() }
                     // Demo's remembered import matches and its import job go with it (also when it's switched off
@@ -230,6 +233,11 @@ struct RyftApp: App {
                     screens.trainImport.accountChanged()
                     // The import flow and any file it holds stay with the side they arrived on.
                     screens.importer.demoModeChanged()
+                    // Tonight's plan, schedule and planned nights are the side's: the other side's went with the reset
+                    // (`BedtimePlanner.forget`), and this one's plan is asked for now. Reminders and alarms are only ever
+                    // the account's: demo data sets none and leaves the account's as they are; off again, they're set
+                    // afresh.
+                    Task { await screens.bedtime.refresh() }
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
@@ -459,6 +467,8 @@ struct RootView: View {
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
     @Environment(\.launchInterrupt) private var launchInterrupt
+    /// The root's cross-fades (splash, Welcome, the steps, the tabs) are `Theme.Motion.quick`, none under Reduce Motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The tabs are on screen: the only place the analytics prompt presents from.
     @State private var tabsShown = false
 
@@ -542,10 +552,10 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
-        .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.showsTrackerSetup)
+        .animation(rootFade, value: settings.demoMode ? .signedIn : auth.state)
+        .animation(rootFade, value: needsHealthIntro)
+        .animation(rootFade, value: onboarding.flowStep)
+        .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
@@ -565,6 +575,9 @@ struct RootView: View {
             SetNewPasswordView(mode: .recovery).presentedRoot()
         }
     }
+
+    /// One screen of the root replacing another (PR 6 A G10): `quick`, or none under Reduce Motion.
+    private var rootFade: Animation? { Theme.Motion.respecting(reduceMotion, Theme.Motion.quick) }
 
     /// After sign-in, once per account: explain Apple Health before iOS asks.
     private var needsHealthIntro: Bool {
@@ -600,8 +613,7 @@ struct RootView: View {
     private var tabBar: some View {
         RootTabs()
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
-            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0).presentedRoot() }
-            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
+            .importPresentations(screens.importer)
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
@@ -743,7 +755,7 @@ private struct DebugBedtime: View {
     var body: some View {
         NavigationStack {
             if screen == .bedtime {
-                SleepScheduleView(planner: screens.bedtime)
+                SleepScheduleView(planner: screens.bedtime, placement: .root)
             } else {
                 ScrollView { TonightCard(planner: screens.bedtime).padding() }
                     .background(Theme.background.ignoresSafeArea())
@@ -833,9 +845,9 @@ private struct DebugDevices: View {
                 case .trackerSetup: TrackerSetupStepView(model: screens.onboarding)
                 case .trackerCard:
                     NavigationStack {
-                        TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                        TrackerDetailView(tracker: tracker, model: screens.profile.devices, placement: .root) {}
                     }
-                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices) }
+                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices, placement: .root) }
                 }
             }
         }
@@ -865,7 +877,7 @@ private struct DebugSyncCheck: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers)) }
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers), placement: .root) }
     }
 }
 
@@ -874,7 +886,7 @@ private struct DebugSyncDetails: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails) }
+        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails, placement: .root) }
     }
 }
 #endif
@@ -947,22 +959,6 @@ private final class NextFrame: NSObject {
         body?()
         body = nil
     }
-}
-
-/// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
-struct SplashView: View {
-    var body: some View {
-        RyftMark()
-            .frame(width: 64, height: 64)
-            .foregroundStyle(Theme.textPrimary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.background.ignoresSafeArea())
-            .accessibilityLabel(Text("RYFT"))
-    }
-}
-
-#Preview("Splash · dark") {
-    SplashView().preferredColorScheme(.dark)
 }
 
 #Preview("App · dark") {

@@ -70,10 +70,10 @@ enum Fmt {
         return parts.compactMap(\.self).joined(separator: " ")
     }
 
-    /// Strain: one decimal ("12.4").
-    static func strain(_ v: Double?) -> String {
+    /// Strain: one decimal ("12.4"; "12,4" in German). The default is the user's own locale; a view passes its environment's.
+    static func strain(_ v: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let v else { return placeholder }
-        return v.formatted(.number.precision(.fractionLength(1)))
+        return v.formatted(.number.precision(.fractionLength(1)).locale(locale))
     }
 
     static func percent(_ v: Int?) -> String {
@@ -108,10 +108,12 @@ enum Fmt {
         return d.formatted(date: .abbreviated, time: .omitted)
     }
 
-    static func distance(meters: Double?) -> String {
+    /// "5.0 km", "3.1 mi": the locale's road unit and its decimal mark.
+    static func distance(meters: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let meters, meters > 0 else { return placeholder }
         let m = Measurement(value: meters, unit: UnitLength.meters)
-        return m.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1))))
+        return m.formatted(.measurement(width: .abbreviated, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1)))
+            .locale(locale))
     }
 
     static func kcal(_ v: Double?) -> String {

@@ -1,111 +1,33 @@
 import SwiftUI
 
-/// A setting you can tap: title and value, where the value comes from underneath, a chevron.
-struct SettingRow: View {
-    let title: LocalizedStringKey
-    let value: String
-    var detail: String? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            SettingRowLabel(title: title, value: value, detail: detail)
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(Text("Opens the editor"))
-    }
-}
-
-/// `SettingRow`'s look, for a `NavigationLink` too. At accessibility sizes the value goes
-/// under the title instead of fighting it for the line.
-struct SettingRowLabel: View {
-    let title: LocalizedStringKey
-    let value: String
-    var detail: String? = nil
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if typeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title)
-                                .font(.ryft(.body))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text(value)
-                                .font(.ryft(.body))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.textPrimary)
-                        }
-                        Spacer(minLength: 8)
-                    } else {
-                        Text(title)
-                            .font(.ryft(.body))
-                            .foregroundStyle(Theme.textPrimary)
-                        Spacer(minLength: 8)
-                        Text(value)
-                            .font(.ryft(.body))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textPrimary)
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                        .accessibilityHidden(true)
-                }
-                if let detail {
-                    Text(detail)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
-    }
-}
-
-/// A sheet's title between its two buttons: smaller rather than cut off (German runs long).
-struct SheetTitle: View {
-    let text: LocalizedStringKey
-
-    var body: some View {
-        Text(text)
-            .font(.headline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 /// How the rescore went; a failure with its request ID.
 struct RescoreStatus: View {
     let editor: BodySettingsEditor
 
+    /// How the footer shows the rescore: a failure (offline too, without details) as a notice with the error glyph, and
+    /// Details when RYFT answered; otherwise the status in words.
+    enum Look: Equatable {
+        case failure(String, details: String?)
+        case note(String)
+    }
+
+    @MainActor
+    static func look(_ editor: BodySettingsEditor) -> Look? {
+        guard let status = editor.rescoreStatus else { return nil }
+        return editor.rescoreFailed ? .failure(status, details: editor.rescoreDetails) : .note(status)
+    }
+
     var body: some View {
-        if let details = editor.rescoreDetails, let status = editor.rescoreStatus {
+        switch Self.look(editor) {
+        case .failure(let status, let details)?:
             InlineMessage(message: status, systemImage: "exclamationmark.circle", details: details)
-        } else if let status = editor.rescoreStatus {
+                .accessibilityIdentifier("profile.rescoreFailed")
+        case .note(let status)?:
             Text(status)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
-        }
-    }
-}
-
-struct ProfileSection<Content: View>: View {
-    let title: LocalizedStringKey
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).ryftLabelStyle()
-                // A label, not a headline: past AX3 it would crowd out the content.
-                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
-            Card {
-                VStack(alignment: .leading, spacing: 14) { content() }
-            }
+        case nil:
+            EmptyView()
         }
     }
 }

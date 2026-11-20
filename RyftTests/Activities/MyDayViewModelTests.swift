@@ -162,11 +162,12 @@ struct MyDayLoadTests {
 @Suite("My Day view model: failed and stale")
 @MainActor
 struct MyDayFailureTests {
-    private let offline = APIError.transport(URLError(.notConnectedToInternet))
+    /// The request fails while the iPhone reports a network path (online): a failed read, not offline.
+    private let transportFailure = APIError.transport(URLError(.notConnectedToInternet))
 
     @Test func aFailedLoadWithNothingCachedIsFailedNotLoading() async {
         let g = Graph()
-        g.api.failure = offline
+        g.api.failure = transportFailure
 
         await g.vm.load(g.today)
 
@@ -176,16 +177,67 @@ struct MyDayFailureTests {
         #expect(g.vm.card.staleSince == nil)
     }
 
+    /// The user's offline rule: offline the scheduler sends nothing and throws nothing, so an uncached day used to keep its
+    /// outline rows for good. Offline through connectivity, the card and the full screen's day say so instead.
+    @Test func offlineWithNothingCachedIsOfflineNotLoading() async {
+        let g = Graph()
+        g.env.connectivityMonitor.update(false)
+        let yesterday = DayFormat.shift(g.today, days: -1)
+
+        await g.vm.load(g.today)
+        await g.vm.load(yesterday)
+
+        #expect(g.vm.card.phase == .offline, "the card")
+        #expect(g.vm.content(for: yesterday).phase == .offline, "the full screen's day")
+        #expect(g.api.calls.isEmpty, "nothing was sent: \(g.api.calls)")
+        #expect(g.vm.card.staleSince == nil)
+    }
+
+    @Test func offlineIsOfflineBeforeAnyLoad() {
+        let g = Graph()
+        g.env.connectivityMonitor.update(false)
+        #expect(g.vm.card.phase == .offline, "never the outlines while nothing can be read")
+    }
+
+    @Test func backOnlineTheDayLoads() async {
+        let g = Graph()
+        g.env.connectivityMonitor.update(false)
+        await g.vm.load(g.today)
+        #expect(g.vm.card.phase == .offline)
+
+        g.env.connectivityMonitor.update(true)
+        await g.vm.load(g.today)
+
+        #expect(g.vm.card.phase == .ready)
+    }
+
+    /// A `Retry-After` holds automatic reads back (up to `maxHoldBack`): the scheduler sends nothing and throws nothing.
+    /// Online, that is a failed read with Try again (which isn't held back), never the outlines for good.
+    @Test func aHeldBackReadWithNothingCachedIsFailedNotLoading() async {
+        let g = Graph()
+        // Both of the day's reads (the activities alone would make the day `.ready`, with what they list).
+        g.api.faults["day"] = .init(.status(429, retryAfter: 600), times: 1)
+        g.api.faults["activities"] = .init(.status(429, retryAfter: 600), times: 1)
+        await g.vm.load(g.today)
+        #expect(g.vm.card.phase == .failed)
+        #expect(g.api.count("day") == 1 && g.api.count("activities") == 1)
+
+        await g.vm.load(g.today)
+
+        #expect(g.api.count("day") == 1 && g.api.count("activities") == 1, "held back: nothing sent")
+        #expect(g.vm.card.phase == .failed, "not the outline rows")
+    }
+
     @Test func failedIsPerDay() async {
         let g = Graph()
-        g.api.failure = offline
+        g.api.failure = transportFailure
         await g.vm.load(g.today)
         #expect(g.vm.content(for: DayFormat.shift(g.today, days: -1)).phase == .loading)
     }
 
     @Test func tryAgainClearsTheFailureWhenTheLoadWorks() async {
         let g = Graph()
-        g.api.failure = offline
+        g.api.failure = transportFailure
         await g.vm.load(g.today)
         g.api.failure = nil
 
@@ -209,7 +261,7 @@ struct MyDayFailureTests {
         let loaded = g.clock.now()
         let rows = g.vm.card.items.map(\.id)
         g.clock.advance(by: .seconds(30))
-        g.api.failure = offline
+        g.api.failure = transportFailure
 
         await g.vm.load(g.today, force: true)
 
@@ -224,7 +276,7 @@ struct MyDayFailureTests {
         let g = Graph()
         await g.vm.load(g.today)
         g.clock.advance(by: .seconds(MyDayContent.retryAfter + 1))
-        g.api.failure = offline
+        g.api.failure = transportFailure
 
         await g.vm.load(g.today, force: true)
 
@@ -236,7 +288,7 @@ struct MyDayFailureTests {
         let g = Graph()
         await g.vm.load(g.today)
         g.clock.advance(by: .seconds(600))
-        g.api.failure = offline
+        g.api.failure = transportFailure
         await g.vm.load(g.today, force: true)
         #expect(g.vm.card.staleSince != nil)
         g.api.failure = nil
@@ -290,7 +342,6 @@ struct MyDayContentTests {
     @Test func upToFiveRowsAreAllShown() {
         let c = content((1...5).map { item($0, hour: $0 + 6) })
         #expect(c.cardRows.count == 5)
-        #expect(!c.showsAll)
     }
 
     @Test func overFiveTheNightStaysAndTheLatestOthersFollow() {
@@ -298,7 +349,6 @@ struct MyDayContentTests {
         #expect(c.cardRows.count == 5)
         #expect(c.cardRows.first?.kind.isSleep == true)
         #expect(c.cardRows.dropFirst().map(\.id) == c.items.suffix(4).map(\.id))
-        #expect(c.showsAll)
     }
 
     @Test func aDayWithOnlyTheNightHasNoActivities() {

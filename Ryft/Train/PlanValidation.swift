@@ -26,7 +26,7 @@ enum PlanIssue: Hashable, Identifiable {
         case .emptyDay: return String(localized: "Every day needs at least one exercise.")
         case .sets: return String(localized: "Sets must be 1 to 20.")
         case .reps: return String(localized: "Reps must be 1 to 100, and the minimum can't exceed the maximum.")
-        case .target: return String(localized: "Check the target: % 1RM 30–110, RPE 1–10, kg 0–500.")
+        case .target: return String(localized: "Check the target: %\u{00A0}1RM 30–110, RPE 1–10, kg 0–500.")
         case .rest: return String(localized: "Rest must be 0 to 15 minutes.")
         case .lonelySuperset: return String(localized: "A superset needs at least two exercises.")
         }

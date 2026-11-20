@@ -6,7 +6,7 @@ struct ZoneBar: View {
     /// Minutes in zones 1–5 (`DayStrain.zone_min`); nil or empty shows a placeholder.
     let minutes: [Double]?
 
-    static let ranges = ["50–60 %", "60–70 %", "70–80 %", "80–90 %", "≥ 90 %"]
+    static let ranges = ["50–60\u{00A0}%", "60–70\u{00A0}%", "70–80\u{00A0}%", "80–90\u{00A0}%", "≥ 90\u{00A0}%"]
 
     private var values: [Double] {
         guard let minutes, minutes.count == 5 else { return [] }

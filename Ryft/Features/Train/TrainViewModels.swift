@@ -5,14 +5,32 @@ import Observation
 // `TrainLibrary` (offline library + platform) and `TrainSyncService` (outbox) are
 // the services these read from.
 
-/// Finished sessions grouped by calendar week, newest first.
+/// Finished sessions of the last 90 days grouped by calendar week, newest first.
 @MainActor
 @Observable
 final class TrainHistoryViewModel {
     private let library: TrainLibrary
+    /// The app's clock (`env.clock`): the window ends on its day.
+    private let clock: AppClock
 
     private(set) var sessions: [SessionSummary] = []
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the list on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+    /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
+    private(set) var failureDetails: String?
+    /// The last read found the iPhone offline (`TrainRead.offline`); not when it was held back or failed online.
+    private(set) var offline = false
+    /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`).
+    private(set) var heldBack = false
+
+    /// What the page shows. `empty` only after the platform answered with no session (now, or in the copy on this phone);
+    /// a failed read with nothing cached is `failed`, never "No workouts logged yet".
+    enum State: Equatable {
+        case loading, failed, empty, list
+    }
 
     struct Week: Identifiable, Equatable {
         let start: Date
@@ -23,12 +41,53 @@ final class TrainHistoryViewModel {
             let loads = sessions.compactMap(\.muscularTrimp)
             return loads.isEmpty ? nil : loads.reduce(0, +)
         }
-        var title: String { String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated)))") }
-        var summary: String { "\(sessions.count) · \(Fmt.volume(volume)) · " + String(localized: "load \(Fmt.load(load))") }
+
+        /// "Week of Nov 8".
+        func title(locale: Locale = .autoupdatingCurrent) -> String {
+            String(localized: "Week of \(start.formatted(.dateTime.day().month(.abbreviated).locale(locale)))")
+        }
+
+        /// "2 sessions · 12.2 t · load 126" (PR 6 B §7.1): the week's load summed, without decimals.
+        func summary(locale: Locale = .autoupdatingCurrent) -> String {
+            StrainRows.join(summaryParts(locale: locale))
+        }
+
+        /// The summary's parts, as drawn one per line from AX1 (`PartsLine`).
+        func summaryParts(locale: Locale = .autoupdatingCurrent) -> [String] {
+            [Self.sessionCount(sessions.count), Fmt.volume(volume, locale: locale),
+             String(localized: "load \(Self.loadText(load, locale: locale))")]
+        }
+
+        /// "2 sessions, 12,200 kilograms, muscular load 126" (VoiceOver).
+        func spokenSummary(locale: Locale = .autoupdatingCurrent) -> String {
+            [Self.sessionCount(sessions.count), HistorySpeech.kilograms(volume, locale: locale),
+             String(localized: "Muscular load \(Self.loadText(load, locale: locale))")].joined(separator: ", ")
+        }
+
+        static func sessionCount(_ n: Int) -> String {
+            String(localized: "\(n) sessions", comment: "History's week header: how many sessions that week (\"2 sessions\").")
+        }
+
+        /// The week's load: "126"; "–" without one.
+        static func loadText(_ load: Double?, locale: Locale = .autoupdatingCurrent) -> String {
+            load.map { $0.formatted(.number.precision(.fractionLength(0)).locale(locale)) } ?? Fmt.placeholder
+        }
     }
 
-    init(library: TrainLibrary) {
+    init(library: TrainLibrary, clock: AppClock = SystemClock()) {
         self.library = library
+        self.clock = clock
+    }
+
+    /// A list already read (previews, tests): `fresh` false is the copy on this phone after a read that didn't reach the
+    /// platform, `offline` because the iPhone was offline.
+    convenience init(library: TrainLibrary, sessions: [SessionSummary], fresh: Bool, fetchedAt: Date? = nil, offline: Bool = true) {
+        self.init(library: library)
+        self.sessions = sessions
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
+        self.offline = offline
+        loaded = true
     }
 
     var weeks: [Week] {
@@ -38,16 +97,64 @@ final class TrainHistoryViewModel {
             .sorted { $0.start > $1.start }
     }
 
-    var isEmpty: Bool { sessions.isEmpty }
+    var state: State {
+        if !sessions.isEmpty { return .list }
+        if !loaded { return .loading }
+        return fresh || fetchedAt != nil ? .empty : .failed
+    }
 
-    /// Cached at once, then the platform's.
+    /// The first visit with nothing cached: outline rows, not a spinner.
+    var isLoading: Bool { state == .loading }
+    /// The platform answered: no session in 90 days.
+    var isEmpty: Bool { state == .empty }
+    /// The read failed and nothing is cached: the message with Try again.
+    var failed: Bool { state == .failed }
+    /// The copy on this phone after a read the iPhone couldn't send: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && offline && (!sessions.isEmpty || fetchedAt != nil) }
+    /// The copy on this phone after a read held back or failed online (code review N4): "Showing data from 14:05", no
+    /// offline words. Without a fetch time (only this phone's sessions) there's nothing to say.
+    var isStale: Bool { loaded && !fresh && !offline && fetchedAt != nil }
+
+    /// Now, by the app's clock: the window ends on its day, and the offline line's time is against it.
+    var now: Date { clock.now() }
+
+    /// The header's subtitle, "25 workouts · last 90 days"; nil while there are none.
+    var subtitle: String? { subtitleParts.map(StrainRows.join) }
+
+    /// The subtitle's parts, as drawn one per line from AX1 (`PartsLine`); nil while there are none.
+    var subtitleParts: [String]? {
+        guard !sessions.isEmpty else { return nil }
+        let window = String(localized: "last 90 days",
+                            comment: "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\").")
+        return [String(localized: "\(sessions.count) workouts"), window]
+    }
+
+    /// The 90 days cached at once (nothing the read would drop), then the platform's. Offline (or held back) nothing is
+    /// sent and it ends at once: the copy, or the failure with nothing cached, never outlines that wait.
     func load() async {
-        sessions = library.cachedSessions()
-        sessions = await library.sessions()
+        if sessions.isEmpty { sessions = library.cachedSessions(now: clock.now()) }
+        await read(userInitiated: false)
+    }
+
+    /// Pull to refresh, and the failure's Try again: also while a `Retry-After` holds automatic reads back.
+    func refresh() async { await read(userInitiated: true) }
+
+    /// A read whose caller went away (a disappearing page, a reconnect that starts another) changes nothing on screen.
+    private func read(userInitiated: Bool) async {
+        guard let read = await library.sessionsRead(now: clock.now(), userInitiated: userInitiated), !Task.isCancelled else {
+            return
+        }
+        sessions = read.value
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
+        failureDetails = read.failure
+        offline = read.offline
+        heldBack = read.heldBack
         loaded = true
     }
 
-    func refresh() async { sessions = await library.sessions() }
+    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
+    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : TrainHistoryRows.failureText }
 }
 
 /// One exercise: e1RM over the last 90 days, records, recent sets.
@@ -61,6 +168,22 @@ final class ExerciseDetailViewModel {
 
     private(set) var history: ExerciseHistory?
     private(set) var loaded = false
+    /// The last read reached the platform.
+    private(set) var fresh = false
+    /// When the history on screen was fetched: the offline line's time.
+    private(set) var fetchedAt: Date?
+    /// The last read found the iPhone offline (`TrainRead.offline`); not when it was held back or failed online.
+    private(set) var offline = false
+    /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`).
+    private(set) var heldBack = false
+    /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
+    private(set) var failureDetails: String?
+
+    /// What leads the page (PR 6 B §7.3, review S6): the estimate (hero and chart); for a bodyweight exercise without
+    /// added weight the unlit hero and why; for a timed or distance exercise, which has no 1RM, the recent sets.
+    enum Lead: Equatable {
+        case estimate, noAddedWeight, sets
+    }
 
     init(exerciseID: UUID, name: String? = nil, library: TrainLibrary, clock: AppClock) {
         self.exerciseID = exerciseID
@@ -69,44 +192,103 @@ final class ExerciseDetailViewModel {
         self.clock = clock
     }
 
+    /// A history already read (previews, tests): the page draws it as loaded; `fresh` false is the copy on this phone after
+    /// a read that didn't reach the platform, `offline` because the iPhone was offline.
+    convenience init(exerciseID: UUID, history: ExerciseHistory?, library: TrainLibrary, clock: AppClock, fresh: Bool = true,
+                     fetchedAt: Date? = nil, offline: Bool = true) {
+        self.init(exerciseID: exerciseID, library: library, clock: clock)
+        self.history = history
+        self.fresh = fresh
+        self.fetchedAt = fetchedAt
+        self.offline = offline
+        loaded = true
+    }
+
     var exercise: Exercise? { library.exercise(id: exerciseID) }
     var title: String { exercise?.name ?? fallbackName ?? "" }
 
-    /// The chart window: the last 90 days.
+    /// Every estimate, oldest first.
+    var allPoints: [E1RMPoint] { (history?.e1rm ?? []).sorted { $0.day < $1.day } }
+
+    /// The chart window: the last 90 days, today and the 89 before.
     var points: [E1RMPoint] {
         let from = DayFormat.string(from: DayFormat.shift(clock.now(), days: -89))
-        return (history?.e1rm ?? []).filter { $0.day >= from }
+        return allPoints.filter { $0.day >= from }
     }
 
-    var current: String { points.last.map { Fmt.kg($0.value) } ?? Fmt.placeholder }
+    /// The hero's estimate: the newest in the window, or, when the last one is older, the newest of all (with its date).
+    var heroPoint: E1RMPoint? { points.last ?? allPoints.last }
+
+    /// The hero's number (PR 6 B §7.3); nil without any estimate.
+    var latest: Double? { heroPoint?.value }
+
+    /// The hero's caption when its estimate is older than the window: "As of Jul 28" ("As of Jul 28, 2025" from another
+    /// year); nil inside it.
+    func heroDate(locale: Locale = .autoupdatingCurrent) -> String? {
+        guard points.isEmpty, let point = allPoints.last else { return nil }
+        let sameYear = Calendar.current.isDate(point.date, equalTo: clock.now(), toGranularity: .year)
+        let style = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(locale)
+        // The key Sleep's planner and Insights use too ("As of %@").
+        return String(localized: "As of \(point.date.formatted(sameYear ? style : style.year()))")
+    }
+
+    /// Now, by the app's clock: the chart's window ends here.
+    var now: Date { clock.now() }
 
     /// "Barbell · Chest · Triceps".
-    var subtitle: String? {
-        exercise.map { ([$0.kind.title] + $0.primaryMuscles.map(\.title)).joined(separator: " · ") }
+    var subtitle: String? { subtitleParts?.joined(separator: " · ") }
+
+    /// The subtitle's parts ("Barbell", "Chest", "Triceps"), one per line from AX1 (`PartsLine`).
+    var subtitleParts: [String]? {
+        exercise.map { [$0.kind.title] + $0.primaryMuscles.map(\.title) }
     }
 
-    /// "+6.5 kg in 90 days".
-    var change: String? {
+    var lead: Lead {
+        switch exercise?.loadType {
+        case .time?, .distance?: return .sets
+        case .bodyweight? where history != nil && allPoints.isEmpty: return .noAddedWeight
+        default: return .estimate
+        }
+    }
+
+    /// The change over the window, first estimate to the newest, in kg ("▲ 11.6 kg in 90 days"); nil with fewer than two.
+    var change: Double? {
         guard let first = points.first?.value, let last = points.last?.value, points.count > 1 else { return nil }
-        let delta = last - first
-        return String(localized: "\(delta >= 0 ? "+" : "−")\(Fmt.kg(abs(delta))) in 90 days")
+        return last - first
     }
 
     var bestE1RM: Double? { history?.prs.first { $0.kind == .e1rm }?.value }
     var records: [PersonalRecord] { history?.prs ?? [] }
 
-    /// The newest session against the one before.
-    var lastDelta: MetricDelta? {
+    /// The newest session against the one before, in kg ("▲ 2.9 kg vs last").
+    var lastChange: Double? {
         guard points.count >= 2 else { return nil }
-        return MetricDelta(current: points[points.count - 1].value, reference: points[points.count - 2].value)
+        return points[points.count - 1].value - points[points.count - 2].value
     }
 
     var hasTrend: Bool { points.count >= 2 }
+    /// The first visit with nothing cached: outline cards, not "Loading…".
+    var isLoading: Bool { !loaded && history == nil }
+    /// The read failed and nothing is cached (the platform sends empty arrays for "no history"): the message with Try
+    /// again, never "No sets logged" or an unlit hero.
+    var failed: Bool { loaded && history == nil }
+    /// The copy on this phone after a read the iPhone couldn't send: the quiet "Offline · as of 14:05" line.
+    var isOffline: Bool { loaded && !fresh && offline && history != nil }
+    /// The copy on this phone after a read held back or failed online (code review N4): "Showing data from 14:05", no
+    /// offline words.
+    var isStale: Bool { loaded && !fresh && !offline && history != nil && fetchedAt != nil }
+
     var emptyChartText: String {
-        loaded ? String(localized: "Log this exercise twice to see a trend.") : String(localized: "Loading…")
+        String(localized: "Log this exercise a few more times to see a trend.",
+               comment: "The exercise page's chart card with fewer than two estimates in 90 days (PR 6 B §7.3).")
     }
-    var emptySetsText: String {
-        loaded ? String(localized: "No sets logged for this exercise yet.") : String(localized: "Loading…")
+
+    var emptySetsText: String { String(localized: "No sets logged for this exercise yet.") }
+
+    /// Under the unlit hero of a bodyweight exercise logged without added weight.
+    var noAddedWeightText: String {
+        String(localized: "An estimated 1RM needs sets with added weight.",
+               comment: "The exercise page of a bodyweight exercise with no weighted set: why there is no estimated 1RM.")
     }
 
     /// One recent session: its day, the working sets, their best e1RM.
@@ -114,26 +296,46 @@ final class ExerciseDetailViewModel {
         let id: Int
         let date: String
         let sets: String
+        /// "5 reps at 80 kilograms, 5 reps at 80 kilograms", "45 seconds, 45 seconds" (VoiceOver).
+        let spokenSets: String
         let best: Double?
-        var bestText: String? { best.map { Fmt.kgNumber(E1RM.rounded($0)) } }
-        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RM.rounded($0)))") } }
+        /// The locale `bestText` and `bestSpoken` are written in (`recentRows(locale:)`'s).
+        var locale: Locale = .autoupdatingCurrent
+        /// "93.3": to the tenth, as the API's estimates and the chart are.
+        var bestText: String? { best.map { E1RMChange.number(E1RMChange.rounded($0), locale: locale) } }
+        var bestSpoken: String? { best.map { String(localized: "e1RM \(Fmt.kg(E1RMChange.rounded($0), locale: locale))") } }
     }
 
-    /// The last ten sessions with this exercise.
-    var recentRows: [RecentRow] {
+    /// The last ten sessions with this exercise; a set as the session detail draws it ("80 kg × 5", "0:45", "3.1 mi").
+    func recentRows(locale: Locale = .autoupdatingCurrent) -> [RecentRow] {
         (history?.sessions ?? []).prefix(10).enumerated().map { i, entry in
             let working = entry.sets.filter { !$0.isWarmup }
-            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated)),
-                             sets: working.map(SetText.short).joined(separator: "  ·  "),
-                             best: E1RM.best(of: working))
+            return RecentRow(id: i, date: entry.startedAt.formatted(.dateTime.day().month(.abbreviated).locale(locale)),
+                             sets: StrainRows.join(working.map { SessionDetailContent.text($0, locale: locale) }),
+                             spokenSets: working.map { SessionDetailContent.spoken($0, locale: locale) }.joined(separator: ", "),
+                             best: E1RM.best(of: working), locale: locale)
         }
     }
 
-    func load() async {
-        history = library.cachedHistory(for: exerciseID)
-        history = await library.history(for: exerciseID) ?? history
+    /// The cached copy at once, then the platform's; a failed read keeps the copy and says so. Offline (or held back)
+    /// nothing is sent and it ends at once. `userInitiated`: the failure's Try again, also while a `Retry-After` holds.
+    /// A read whose caller went away changes nothing on screen.
+    func load(userInitiated: Bool = false) async {
+        if history == nil { history = library.cachedHistory(for: exerciseID) }
+        guard let read = await library.historyRead(for: exerciseID, userInitiated: userInitiated), !Task.isCancelled else {
+            return
+        }
+        history = read.value ?? history
+        fresh = read.fresh
+        fetchedAt = read.fetchedAt
+        failureDetails = read.failure
+        offline = read.offline
+        heldBack = read.heldBack
         loaded = true
     }
+
+    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
+    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : ExerciseDetailPage.failureText }
 }
 
 /// Built-in templates, the user's plans and the current (active or paused) enrolment.
@@ -147,28 +349,66 @@ final class PlansViewModel {
         self.library = library
     }
 
-    /// The plan the card is about: the active one, else the paused one.
+    /// The plan the tile is about: the active one, else the paused one.
     var currentPlanID: UUID? { library.activeEnrollment?.planId ?? library.pausedPlanID }
     var isPaused: Bool { library.isPaused }
     var currentName: String {
         guard let id = currentPlanID else { return String(localized: "Your plan") }
         return library.catalog?.summary(id: id)?.name ?? library.plan(id: id)?.name ?? String(localized: "Your plan")
     }
-    var currentWeekText: String? { library.activeEnrollment.map { String(localized: "Week \($0.currentWeek)") } }
-    /// "Resume continues where you stopped." / "Next: Upper A".
-    var currentDetail: String? {
-        if isPaused { return String(localized: "Resume continues where you stopped.") }
-        return library.today.map { String(localized: "Next: \($0.day.name)") }
+
+    /// The active plan's glow tile, or the paused plan's outline (PR 6 B §6.1). Active: the week, and the next day from
+    /// today's prescription, else (only then: it reads the cached plan) the enrolment's day in it. Paused: neither, since
+    /// `GET /v1/plans` reports no paused enrolment (API_REQUESTS Train #2).
+    var tile: PlanTileContent? {
+        guard let id = currentPlanID else { return nil }
+        if isPaused { return PlanTileContent(planID: id, paused: true, name: currentName, week: nil, nextDay: nil) }
+        let enrollment = library.activeEnrollment
+        let next = library.today?.day.name
+            ?? PlanTileContent.nextDayName(plan: library.plan(id: id), enrollment: enrollment)
+        return PlanTileContent(planID: id, paused: false, name: currentName, week: enrollment?.currentWeek, nextDay: next)
     }
 
     var builtin: [PlanSummary] { library.catalog?.builtin ?? [] }
     var mine: [PlanSummary] { library.catalog?.mine ?? [] }
-    var error: String? { library.error }
-    var errorDetails: String? { library.errorDetails }
+    var builtinRows: [PlanRowContent] { builtin.map { PlanRowContent($0, status: status(of: $0.id)) } }
+    var mineRows: [PlanRowContent] { mine.map { PlanRowContent($0, status: status(of: $0.id)) } }
+
+    private func status(of id: UUID) -> PlanTileContent.State? {
+        guard id == currentPlanID else { return nil }
+        return isPaused ? .paused : .active
+    }
+
+    /// Whether the first load has started: until then, as while it runs, the outline rows show.
+    private(set) var startedLoading = false
+
+    var hasCatalog: Bool { library.catalog != nil }
+    /// The first load, with nothing cached: three outline rows instead of a spinner. Only while a load runs (or is about to).
+    var isLoading: Bool { !hasCatalog && (library.isLoading || !startedLoading) }
+    /// Nothing cached and no load running, without a failure to show, and not held back: offline, the calm line.
+    var isOffline: Bool { !hasCatalog && !isLoading && library.error == nil && heldBack == nil }
+    /// Nothing cached and no load running because a `Retry-After` holds the reads back while online (code review N4): not
+    /// "Offline", but the failed state ("RYFT is busy right now"), its Details the failure that set the hold, and Try
+    /// again, which goes through. The hold's Details (nil inside: none recorded).
+    private var heldBack: String?? {
+        guard !hasCatalog, !isLoading, library.error == nil, case .heldBack(let details)? = library.plansDeclined else {
+            return nil
+        }
+        return .some(details)
+    }
+    var error: String? { library.error ?? heldBack.map { _ in RefreshIssue.Reason.busy.message } }
+    var errorDetails: String? { library.error != nil ? library.errorDetails : heldBack.flatMap { $0 } }
 
     /// Only the first visit loads; pull to refresh reloads.
-    func loadIfNeeded() async { if library.catalog == nil { await library.refresh() } }
-    func refresh() async { await library.refresh() }
+    func loadIfNeeded() async {
+        startedLoading = true
+        if library.catalog == nil { await library.refresh() }
+    }
+    /// Pull to refresh, Try again: the user's, so they go through a `Retry-After`'s hold.
+    func refresh() async {
+        startedLoading = true
+        await library.refresh(userInitiated: true)
+    }
 
     func togglePause() async {
         working = true
@@ -187,6 +427,18 @@ final class PlanDetailViewModel {
     private(set) var plan: Plan?
     var week = 1
     private(set) var working = false
+    /// The last load came back without the plan because the platform failed (not cached): its message and Details, the
+    /// load's own (code review N1). The library's `error` is the Plans page's and a refresh clears it.
+    private(set) var loadFailure: LoadFailure?
+    /// The last load came back without the plan because nothing could be sent (not cached, and offline). Held back online
+    /// is a `loadFailure` (code review N4).
+    private(set) var loadDeclined = false
+
+    /// A failed load's sentence, and its status and request ID for Details.
+    struct LoadFailure: Equatable {
+        let message: String
+        let details: String?
+    }
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -196,6 +448,10 @@ final class PlanDetailViewModel {
     /// Active or paused: this plan is the one the user is on.
     var isCurrent: Bool { (library.activeEnrollment?.planId ?? library.pausedPlanID) == planID }
     var isPaused: Bool { library.isPaused }
+    /// The enrolment's week on this plan, when it is the active one ("Active · week 6").
+    var activeWeek: Int? { isCurrent && !isPaused ? library.activeEnrollment?.currentWeek : nil }
+    /// The header's title before the detail has loaded: the name from the plans overview.
+    var name: String? { plan?.name ?? library.catalog?.summary(id: planID)?.name }
     var hasEnrollment: Bool { library.activeEnrollment != nil }
     var currentPlanName: String { library.activePlanName ?? String(localized: "Your current plan") }
     var error: String? { library.error }
@@ -209,8 +465,25 @@ final class PlanDetailViewModel {
         return days.sorted { $0.dayIndex < $1.dayIndex }
     }
 
-    func load() async {
-        plan = await library.loadPlan(id: planID)
+    /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
+    var failure: String? { plan == nil ? loadFailure?.message : nil }
+    /// The failure's status and request ID, behind its Details.
+    var failureDetails: String? { plan == nil ? loadFailure?.details : nil }
+    /// Not cached and nothing could be sent (offline): a calm line instead of outlines that would never fill.
+    var isOffline: Bool { plan == nil && loadDeclined }
+
+    /// The cached plan at once (read again quietly), else the platform's. `userInitiated`: Try again, also while a
+    /// `Retry-After` holds automatic reads back. A load whose caller went away changes nothing on screen.
+    func load(userInitiated: Bool = false) async {
+        let read = await library.loadPlan(id: planID, userInitiated: userInitiated)
+        guard read != .cancelled, !Task.isCancelled else { return }
+        if let loaded = read.plan { plan = loaded }
+        if case .failed(let message, let details) = read, plan == nil {
+            loadFailure = LoadFailure(message: message, details: details)
+        } else {
+            loadFailure = nil
+        }
+        loadDeclined = plan == nil && read == .offline
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }
 
@@ -299,6 +572,8 @@ final class PlanBuilderViewModel {
             plan.days[d].exercises[i + 1].supersetGroup = nil
             if i == 0 || !isLinked(dayID: dayID, i - 1) { plan.days[d].exercises[i].supersetGroup = nil }
         }
+        // Unlinking A from B in A→B→C leaves C alone in the group: a lonely superset isn't one.
+        renumber(dayID: dayID)
     }
 
     func remove(dayID: UUID, _ i: Int) {
@@ -348,7 +623,15 @@ final class TrainTodayViewModel {
     private let clock: AppClock
 
     private(set) var lastSession: TrainSession?
-    private(set) var activePlan: Plan?
+    /// The active plan's detail as `loadStartOptions` last loaded it.
+    private var loadedPlan: Plan?
+
+    /// The active plan's detail, for "A day from …": only while the enrolment in use is in it, so a plan loaded for another
+    /// account, for the demo or before a switch of plans never offers its days (security review S-A).
+    var activePlan: Plan? {
+        guard let plan = loadedPlan, plan.id == library.activeEnrollment?.planId else { return nil }
+        return plan
+    }
 
     init(library: TrainLibrary, store: TrainStore, clock: AppClock) {
         self.library = library
@@ -357,7 +640,9 @@ final class TrainTodayViewModel {
     }
 
     var today: PlanToday? { library.today }
-    var todayText: String? { today.map { "\($0.day.name) · \(TodayPlanText.detail($0))" } }
+    var todayText: String? { todayParts.map(StartOptionText.line) }
+    /// `todayText`'s parts ("Upper A", "5 exercises", "~55 min"), one per line from AX1 on the start sheet.
+    var todayParts: [String]? { today.map(StartOptionText.todayParts) }
 
     /// Strain → Train: "Today's plan: Upper A".
     var todayLinkTitle: String? { today.map { String(localized: "Today's plan: \($0.day.name)") } }
@@ -385,13 +670,15 @@ final class TrainTodayViewModel {
         store.completedSessions(from: Calendar.current.startOfDay(for: clock.now())).first
     }
 
-    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale.
+    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale. Joined as My Day's and
+    /// Strain's meta lines (`MyDayText.join`): a part never breaks inside, the "·" ends its line, and from AX1 the card stands
+    /// the parts one per line (`ActivityListRow.metaLines`).
     static func doneText(_ s: LocalSession) -> String {
         var parts = [String(localized: "Done")]
         if let load = s.strain { parts.append(String(localized: "load \(Fmt.load(load))")) }
         let prs = s.prs.count
         if prs > 0 { parts.append(String(localized: "\(prs) PRs")) }
-        return parts.joined(separator: " · ")
+        return MyDayText.join(parts)
     }
 
     /// The active plan's days, ordered by week then day.
@@ -399,9 +686,23 @@ final class TrainTodayViewModel {
         (activePlan?.days ?? []).sorted { ($0.week ?? 0, $0.dayIndex) < ($1.week ?? 0, $1.dayIndex) }
     }
 
+    /// The last session to repeat and the active plan's days, for the binding in use when it starts: answers that arrive
+    /// after a sign-out, another account or the Demo data switch are dropped (security review S-A).
     func loadStartOptions() async {
-        lastSession = await library.lastSession()
-        if let id = library.activeEnrollment?.planId { activePlan = await library.loadPlan(id: id) }
+        let asked = library.binding
+        let last = await library.lastSession()
+        guard library.binding == asked else { return }
+        lastSession = last
+        guard let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan,
+              library.binding == asked else { return }
+        loadedPlan = plan
+    }
+
+    /// A sign-out, another account or the Demo data switch (`ScreenModels`, with the other account-state forgetters): the
+    /// last session and the plan were the side's that ended. This model lives as long as the app.
+    func forget() {
+        lastSession = nil
+        loadedPlan = nil
     }
 }
 
@@ -414,9 +715,19 @@ struct CustomExerciseDraft: Equatable {
     var loadType: LoadType = .weight
     var unilateral = false
 
+    /// The platform's limit for an exercise's name: 80 Unicode scalars. It counts runes and refuses a longer name (422), so
+    /// the count is `unicodeScalars`, not Characters (a family emoji is one Character and 7 scalars).
+    static let maxNameLength = TrainLibrary.maxExerciseName
+
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// A name the platform takes (trimmed, 1–80 characters as it counts them) and a muscle.
     var canSave: Bool { TrainLibrary.isValidName(name) && muscle != nil }
+    /// Longer than the platform takes: Save stays off and the form says why. Derived from the same rule as `canSave`
+    /// (`TrainLibrary.isValidName`): a name with something in it, as the platform trims it, that the rule still refuses.
+    var nameIsTooLong: Bool {
+        let counted = TrainLibrary.withoutNUL(name).trimmingCharacters(in: .whitespacesAndNewlines)
+        return !counted.isEmpty && !TrainLibrary.isValidName(name)
+    }
 
     /// "Landmine press" → slug `landmine-press`.
     var slug: String {

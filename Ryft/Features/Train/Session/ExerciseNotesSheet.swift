@@ -1,13 +1,20 @@
 import SwiftUI
 
-/// An exercise's notes in this workout ("pause on chest"); they go up with the session.
+/// An exercise's notes in this workout ("pause on chest"); they go up with the session (PR 6 B §4.8): `SheetHeader("Notes")`
+/// with a compact "Save", then a grouped card holding one multi-line field labelled with the exercise's name (the sheet's
+/// title already says Notes). The close circle ("Cancel") or a drag down keeps the notes as they were. From XL it opens at
+/// full height (§12).
 struct ExerciseNotesSheet: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var text: String
     @FocusState private var focused: Bool
+
+    /// The field: 3 to 8 lines.
+    static let lines = 3...8
 
     init(controller: SessionController, exercise: LocalSessionExercise) {
         self.controller = controller
@@ -16,46 +23,45 @@ struct ExerciseNotesSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField(text: $text, axis: .vertical) {
+        SheetFrame(Text("Notes", comment: "Title of an exercise's notes sheet in a workout."), closeLabel: Text("Cancel")) {
+            PillButton(Text("Save"), size: .compact) {
+                controller.setNotes(text, for: exercise)
+                dismiss()
+            }
+            .accessibilityIdentifier("notes.save")
+        } content: {
+            GroupedCard {
+                FormField(Text(verbatim: exercise.name), isFocused: focused) {
+                    TextField(text: $text,
+                              prompt: Text("Notes for this exercise", comment: "Placeholder of an exercise's notes in a workout.")
+                                  .fieldPrompt(),
+                              axis: .vertical) {
                         Text("Notes for this exercise", comment: "Placeholder of an exercise's notes in a workout.")
                     }
-                    .font(.ryft(.body))
-                    .lineLimit(3...8)
+                    .lineLimit(Self.lines)
                     .focused($focused)
-                } header: {
-                    Text(exercise.name)
+                    .accessibilityIdentifier("notes.field")
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Text("Notes", comment: "Title of an exercise's notes sheet in a workout."))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        controller.setNotes(text, for: exercise)
-                        dismiss()
-                    }
-                }
-            }
-            .onAppear { focused = true }
         }
-        .presentationDetents([.medium, .large])
+        .onAppear { focused = true }
+        .presentationDetents(SheetFrameSpec.detents(for: typeSize))
     }
 }
 
-#Preview("Exercise notes · dark") {
-    let c = TrainPreview.liveController()
-    return ExerciseNotesSheet(controller: c, exercise: c.exercises[0])
-        .preferredColorScheme(.dark)
+// MARK: - previews (dark only)
+
+#Preview("Exercise notes") {
+    let c = SessionSheetsPreview.listDraft()
+    c.exercises[0].notes = "Pause on the chest, elbows in"
+    return Color.clear
+        .sheet(isPresented: .constant(true)) { ExerciseNotesSheet(controller: c, exercise: c.exercises[0]).presentedRoot() }
+        .previewEnvironment()
 }
 
-#Preview("Exercise notes · light") {
-    let c = TrainPreview.liveController()
+#Preview("Exercise notes · empty, AX3") {
+    let c = SessionSheetsPreview.listDraft()
     return ExerciseNotesSheet(controller: c, exercise: c.exercises[0])
-        .preferredColorScheme(.light)
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
 }

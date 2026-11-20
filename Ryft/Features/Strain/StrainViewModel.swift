@@ -254,6 +254,17 @@ final class StrainViewModel {
         }
     }
 
+    /// A sign-out, another account or the Demo data switch (`ScreenModels`, with the other account-state forgetters). The
+    /// day's failure (its sentence, status and request ID), the day loaded and a deep link's Train page were the side's that
+    /// ended; a load still out writes none of them. This model lives as long as the app.
+    func forget() {
+        generation += 1
+        failed = nil
+        loadedDay = nil
+        isLoading = false
+        requestedRoute = nil
+    }
+
     /// A signed-out failure's "Sign in": Today's (`AppState.signInAgain`).
     func signIn() async {
         await state.signInAgain()

@@ -3,10 +3,14 @@ import SwiftUI
 // The rest timer itself is the pinned `RestBar` (RestBar.swift); the large card that scrolled with the list is gone.
 
 /// Number entry for kg / reps / RPE: 56 pt keys, ±2.5 kg or ±1 rep steps,
-/// Next moves kg → reps → the next set. Plate calculator for barbell weights.
+/// Next moves kg → reps → the next set. Plate calculator for barbell weights. Nocturne (PR 6 B §4.6, `b-06`): digits, Next and
+/// Delete raised; the steps outlined; Done the one ink key.
 struct NumberPad: View {
     var controller: SessionController
     var onPlates: (Double) -> Void
+
+    /// The keys: 56 high, radius 14 (the row's). The step keys are `OutlinedKey`s.
+    static let keyHeight: CGFloat = 56, keyRadius = LiveSessionSpec.rowRadius
 
     private var field: SetFocus.Field { controller.focus?.field ?? .kg }
 
@@ -62,8 +66,8 @@ struct NumberPad: View {
                 } label: {
                     Label("Plates", systemImage: "circle.grid.cross")
                         .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
-                        .frame(minHeight: 44)
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(minHeight: Theme.Metrics.minHitTarget)
                 }
                 .buttonStyle(.plain)
             }
@@ -85,8 +89,8 @@ struct NumberPad: View {
             Text(d == "." ? Locale.current.decimalSeparator ?? "." : d)
                 .font(.ryftNumber(size: 26))
                 .foregroundStyle(Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
+                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous))
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(d == "." ? String(localized: "Decimal point") : d))
@@ -103,9 +107,9 @@ struct NumberPad: View {
         } label: {
             Text(label)
                 .font(.ryftNumber(size: 19))
-                .foregroundStyle(Theme.accent)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
+                .outlinedKey()
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(direction > 0 ? "Increase" : "Decrease"))
@@ -121,74 +125,73 @@ struct NumberPad: View {
                     Text(title).font(.ryft(.headline))
                 }
             }
-            .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(prominent ? Theme.accent : Theme.surfaceRaised,
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(prominent ? Theme.background : Theme.textPrimary)
+            .frame(maxWidth: .infinity, minHeight: Self.keyHeight)
+            .background(prominent ? Theme.textPrimary : Theme.surfaceRaised,
+                        in: RoundedRectangle(cornerRadius: Self.keyRadius, style: .continuous))
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(title))
     }
 }
 
-/// What goes on the bar: 20 kg bar, 2.5–25 kg plates, kg only.
+/// What goes on the bar: 20 kg bar, 2.5–25 kg plates, kg only. Nocturne (PR 6 B §4.6): the sheet header, outlined steps, every
+/// plate in ink (height and its label tell them apart), the numbers in a grouped card, "Use" the primary pill at the bottom.
 struct PlateCalculatorSheet: View {
     @State var target: Double
-    var onUse: ((Double) -> Void)? = nil
+    var onUse: ((Double) -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The steps: 72 × 56 `OutlinedKey`s.
+    static let stepWidth: CGFloat = 72, stepHeight: CGFloat = 56
 
     private var load: PlateLoad { PlateCalculator.load(for: target) }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 22) {
-                HStack(spacing: 10) {
-                    stepper("−2.5", -2.5)
-                    VStack(spacing: 2) {
-                        Text(Fmt.kgNumber(target))
-                            .font(.ryftNumber(size: 48))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textPrimary)
-                            .contentTransition(.numericText())
-                        Text("kg target").ryftLabelStyle()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityElement(children: .combine)
-                    stepper("+2.5", 2.5)
-                }
-                BarView(load: load)
-                    .frame(height: 120)
-                Card {
-                    VStack(alignment: .leading, spacing: 12) {
-                        StatRow(title: "Each side", value: perSideText)
-                        StatRow(title: "Bar", value: Fmt.kg(load.bar))
-                        StatRow(title: "Loaded", value: Fmt.kg(load.total),
-                                valueColor: load.total == target ? Theme.textPrimary : Theme.warning)
-                        if load.total != target {
-                            Text("\(Fmt.kg(target)) can't be loaded with 2.5–25 kg plates; this is the closest below.")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textSecondary)
+        VStack(spacing: 0) {
+            SheetHeader(Text("Plate calculator"))
+                .padding(.horizontal, SheetHeaderSpec.sidePadding)
+                .padding(.top, SheetHeaderSpec.topInset)
+            ScrollView {
+                VStack(spacing: 22) {
+                    HStack(spacing: 10) {
+                        stepper("−2.5", -2.5)
+                        VStack(spacing: 2) {
+                            Text(Fmt.kgNumber(target))
+                                .font(.ryftNumber(size: 48))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.textPrimary)
+                                .contentTransition(reduceMotion ? .identity : .numericText())
+                            Text("kg target").ryftLabelStyle()
                         }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .combine)
+                        stepper("+2.5", 2.5)
+                    }
+                    BarView(load: load)
+                        .frame(height: 120)
+                    GroupedCard(footer: load.total == target ? nil
+                                : Text("\(Fmt.kg(target)) can't be loaded with 2.5–25 kg plates; this is the closest below.")) {
+                        GroupedRow.value(Text("Each side"), value: Text(verbatim: perSideText))
+                        GroupedRow.value(Text("Bar"), value: Text(verbatim: Fmt.kg(load.bar)))
+                        GroupedRow.value(Text("Loaded"), value: Text(verbatim: Fmt.kg(load.total)))
                     }
                 }
-                Spacer()
-                if let onUse {
-                    Button("Use \(Fmt.kg(load.total))") {
-                        onUse(load.total)
-                        dismiss()
-                    }
-                    .buttonStyle(TealButtonStyle())
-                }
+                .padding(Theme.Metrics.screenPadding)
             }
-            .padding(Theme.Metrics.screenPadding)
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("Plate calculator")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            .scrollBounceBehavior(.basedOnSize)
+            if let onUse {
+                PillButton(Text("Use \(Fmt.kg(load.total))")) {
+                    onUse(load.total)
+                    dismiss()
+                }
+                .padding(.horizontal, Theme.Metrics.screenPadding)
+                .padding(.bottom, 8)
             }
         }
-        .presentationDetents([.medium, .large])
+        .background(Theme.background.ignoresSafeArea())
+        .sheetDetents()
     }
 
     private var perSideText: String {
@@ -197,13 +200,13 @@ struct PlateCalculatorSheet: View {
 
     private func stepper(_ title: String, _ delta: Double) -> some View {
         Button {
-            withAnimation(Theme.Motion.quick) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
         } label: {
             Text(title)
                 .font(.ryftNumber(size: 19))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 72, height: 56)
-                .background(Theme.accent.opacity(0.14), in: Capsule())
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: Self.stepWidth, height: Self.stepHeight)
+                .outlinedKey()
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text(delta > 0 ? "Add 2.5 kilograms" : "Remove 2.5 kilograms"))
@@ -222,14 +225,14 @@ private struct BarView: View {
                 Rectangle().fill(Theme.textSecondary).frame(width: 8, height: 28)
                 ForEach(Array(load.perSide.enumerated()), id: \.offset) { _, plate in
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Self.color(for: plate))
+                        .fill(Theme.textPrimary)
                         .frame(width: plate >= 10 ? 16 : 11, height: h * Self.height(for: plate))
                         .overlay {
                             Text(Fmt.kgNumber(plate))
                                 .font(.system(size: 8, weight: .bold, design: .rounded))
                                 .rotationEffect(.degrees(-90))
                                 .fixedSize()
-                                .foregroundStyle(Theme.graphite)
+                                .foregroundStyle(Theme.background)
                         }
                 }
                 Rectangle().fill(Theme.textTertiary).frame(maxWidth: .infinity).frame(height: 10)
@@ -251,38 +254,32 @@ private struct BarView: View {
         default: return 0.4
         }
     }
+}
 
-    /// Calibrated-plate colours, muted into the palette.
-    static func color(for plate: Double) -> Color {
-        switch plate {
-        case 25: return Theme.alert
-        case 20: return Theme.stageLight
-        case 15: return Theme.warning
-        case 10: return Theme.accent
-        case 5: return Theme.mist
-        default: return Theme.sage
-        }
+/// `b-06`: the keypad on a barbell's kg, with Plates.
+#Preview("Keypad", traits: .sizeThatFitsLayout) {
+    let c = FocusedPreview.controller(.draft)
+    if let ex = c.pageExercise { c.edit(ex.orderedSets[1], .kg) }
+    return DarkPreview {
+        NumberPad(controller: c, onPlates: { _ in })
     }
 }
 
-#Preview("Rest bar & keypad", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    let set = c.exercises[0].orderedSets[2]
-    c.edit(set, .kg)
-    return SchemePair {
-        VStack(spacing: 16) {
-            RestBar(controller: c, pill: false)
-            NumberPad(controller: c, onPlates: { _ in })
-        }
+#Preview("Keypad · reps", traits: .sizeThatFitsLayout) {
+    let c = FocusedPreview.controller(.draft)
+    if let ex = c.pageExercise { c.edit(ex.orderedSets[1], .reps) }
+    return DarkPreview {
+        NumberPad(controller: c, onPlates: { _ in })
     }
 }
 
-#Preview("Plate calculator · dark") {
+/// 102.5 can't be loaded: the closest below, and the sentence under the card.
+#Preview("Plate calculator") {
     PlateCalculatorSheet(target: 102.5, onUse: { _ in })
-        .preferredColorScheme(.dark)
+        .previewEnvironment()
 }
 
-#Preview("Plate calculator · light") {
-    PlateCalculatorSheet(target: 140, onUse: { _ in })
-        .preferredColorScheme(.light)
+#Preview("Plate calculator · from the menu") {
+    PlateCalculatorSheet(target: 140)
+        .previewEnvironment()
 }

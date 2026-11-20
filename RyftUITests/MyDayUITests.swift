@@ -11,6 +11,8 @@ final class MyDayUITests: XCTestCase {
     private let mergedRun = "00000000-0000-4000-8000-0000000A0001"
     private let padel = "00000000-0000-4000-8000-0000000A0004"
     private let ride = "00000000-0000-4000-8000-0000000A0005"
+    /// Four days back (MockData's day index 85, workout 1): the tracker's strength workout that a Train session belongs to.
+    private let loggedStrength = "00000000-0000-4000-8000-000000000851"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -48,7 +50,12 @@ final class MyDayUITests: XCTestCase {
         title.tap()
 
         XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait), "the full screen")
-        XCTAssertTrue(app.staticTexts["myday.view.header"].waitForExistence(timeout: wait))
+        // The pushed header's title (Nocturne hides the navigation bar on the page, PR 6 B §9.2): one element, not a text.
+        let header = app.descendants(matching: .any)["myday.view.header"]
+        XCTAssertTrue(header.waitForExistence(timeout: wait))
+        XCTAssertEqual(header.label, "My Day")
+        let value = header.value as? String ?? ""
+        XCTAssertTrue(value.hasPrefix("Today"), "the subtitle says today, then the date: \(value)")
         XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait),
                       "today's rows, the merged run once")
         XCTAssertTrue(app.buttons["datestrip.day.\(day(daysBack: 0))"].exists, "the week strip")
@@ -108,6 +115,25 @@ final class MyDayUITests: XCTestCase {
         let header = app.descendants(matching: .any)["workout.header"]
         XCTAssertTrue(header.waitForExistence(timeout: wait), "the workout's detail")
         XCTAssertEqual(header.label, "Walk")
+    }
+
+    /// A strength workout logged as a Train session (MockData's, four days back): its "Logged session" row opens the session
+    /// from My Day's full screen, two pushes deep on Today's stack (review S2).
+    @MainActor
+    func testALoggedSessionOpensFromItsWorkout() throws {
+        let app = launch(openDaysBack: 4)
+        XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait))
+        let strength = app.buttons["myday.view.row.workout.\(loggedStrength)"]
+        XCTAssertTrue(strength.waitForExistence(timeout: wait), "the strength workout")
+        app.reveal(strength)
+        strength.tap()
+
+        let logged = app.buttons["workout.session"]
+        XCTAssertTrue(logged.waitForExistence(timeout: wait), "the workout's Logged session row")
+        app.reveal(logged)
+        logged.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["sessionDetail.header"].waitForExistence(timeout: wait),
+                      "the session detail")
     }
 
     // MARK: VoiceOver

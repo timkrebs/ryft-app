@@ -1,49 +1,36 @@
 import SwiftUI
 
 /// One imported workout's exercises and sets, read-only (ui.md §8.1): "1  60 kg × 10". Skipped sets aren't sent, so
-/// they're counted at the end; a clock change is named in words, never with file text.
+/// they're counted at the end; a clock change is named in words, never with file text. Look (PR 6 C §4.14): a sheet's own
+/// page (`SubpageScaffold`, `isSheet`) with Close; the counts, then a grouped card per exercise with a row per set.
 struct ImportSessionDetailSheet: View {
     let preview: ImportSessionPreview
     /// Exercise names by id: the library's and the new custom ones.
     let names: [UUID: String]
     let zone: TimeZone
 
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                    Text(verbatim: ImportPreviewText.counts(preview))
-                        .font(.ryft(.callout))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                    if let note = preview.clockChange {
-                        ImportNoteLine(systemImage: "clock.badge.exclamationmark", text: String(localized: note.message))
+            SubpageScaffold(Text(verbatim: ImportPreviewText.dayAndTitle(preview, zone: zone)), navigation: .close(), isSheet: true) {
+                VStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
+                    VStack(alignment: .leading, spacing: ImportLayout.lineGap) {
+                        Text(verbatim: ImportPreviewText.counts(preview))
+                            .font(.ryft(.callout))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textSecondary)
+                        if let note = preview.clockChange {
+                            ImportNoteLine(systemImage: "clock.badge.exclamationmark", text: String(localized: note.message))
+                        }
                     }
                     ForEach(preview.session?.exercises ?? []) { exercise in
-                        Card {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(verbatim: names[exercise.exerciseId] ?? "")
-                                    .font(.ryft(.headline))
-                                    .foregroundStyle(Theme.textPrimary)
-                                ForEach(Array(exercise.sets.enumerated()), id: \.offset) { index, set in
-                                    HStack(spacing: 14) {
-                                        Text(verbatim: "\(index + 1)")
-                                            .foregroundStyle(Theme.textTertiary)
-                                            .frame(minWidth: 20, alignment: .leading)
-                                        Text(verbatim: SetText.short(set))
-                                            .foregroundStyle(Theme.textPrimary)
-                                    }
-                                    .font(.ryft(.body))
-                                    .monospacedDigit()
-                                    .accessibilityElement(children: .combine)
-                                }
+                        GroupedCard(Text(verbatim: names[exercise.exerciseId] ?? "")) {
+                            ForEach(Array(exercise.sets.enumerated()), id: \.offset) { index, set in
+                                GroupedRow.value(Text(verbatim: "\(index + 1)"), value: Text(verbatim: SetText.short(set)))
                             }
                         }
                     }
                     if preview.skippedSetCount > 0 {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                             Text("\(preview.skippedSetCount) sets skipped",
                                  comment: "Training import, step 5: sets with no weight or reps.")
                                 .font(.ryft(.callout))
@@ -53,32 +40,20 @@ struct ImportSessionDetailSheet: View {
                                 .font(.ryft(.caption))
                                 .foregroundStyle(Theme.textTertiary)
                         }
+                        .accessibilityElement(children: .combine)
                     }
-                }
-                .padding(Theme.Metrics.screenPadding)
-            }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(ImportPreviewText.dayAndTitle(preview, zone: zone))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "Done")) { dismiss() }
                 }
             }
         }
     }
 }
 
-#Preview("Session detail · dark") {
+#Preview("Session detail") {
     let build = ImportMockData.build()
     let names = Dictionary(MockTrain.exercises.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-    return ImportSessionDetailSheet(preview: build.sessions[1], names: names, zone: ImportMockData.zone)
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Session detail · light") {
-    let build = ImportMockData.build()
-    let names = Dictionary(MockTrain.exercises.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-    return ImportSessionDetailSheet(preview: build.sessions[5], names: names, zone: ImportMockData.zone)
-        .preferredColorScheme(.light)
+    return Theme.background.ignoresSafeArea().sheet(isPresented: .constant(true)) {
+        ImportSessionDetailSheet(preview: build.sessions[1], names: names, zone: ImportMockData.zone)
+            .presentedRoot()
+    }
+    .preferredColorScheme(.dark)
 }

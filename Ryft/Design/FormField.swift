@@ -226,8 +226,9 @@ struct ValueChipGroup<Content: View>: View {
 }
 
 /// A grouped card's row of chips (B §1.3, S9: Start, End, Went to bed): the label leading in `callout` `textSecondary`, the
-/// chips trailing; from AX1 the label goes above and the chips under it at the leading edge, one under the other if they
-/// don't fit. 56 high (a field row); the row draws its hairline in a `GroupedCard`. VoiceOver reads the label, then each chip.
+/// chips trailing, while the label keeps its line beside them (so it never breaks inside a word); otherwise, and always
+/// from AX1, the label goes above and the chips under it at the leading edge, one under the other if they don't fit. 56 high
+/// (a field row); the row draws its hairline in a `GroupedCard`. VoiceOver reads the label, then each chip.
 struct ValueChipRow<Chips: View>: View {
     private let label: Text
     private let chips: Chips
@@ -240,25 +241,43 @@ struct ValueChipRow<Chips: View>: View {
     }
 
     var body: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ValueChipSpec.spacing))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: FormFieldSpec.trailingSpacing))
-        layout {
-            label
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: typeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
-            // The chips are measured first, with the row's whole width, so they stay side by side wherever they fit; the
-            // label takes what's left.
-            ValueChipGroup { chips }
-                .layoutPriority(1)
+        Group {
+            if typeSize.isAccessibilitySize {
+                stacked
+            } else {
+                // Side by side only if the label fits on its line beside both chips; squeezed, it would wrap inside a
+                // word at large text. Stacked, the label and the chips each take the whole width.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: FormFieldSpec.trailingSpacing) {
+                        styledLabel.frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: ValueChipSpec.spacing) { chips }
+                            .fixedSize()
+                    }
+                    stacked
+                }
+            }
         }
         .padding(.vertical, FormFieldSpec.verticalPadding)
         .padding(.horizontal, FormFieldSpec.horizontalPadding)
         .frame(maxWidth: .infinity, minHeight: FormFieldSpec.minHeight, alignment: .leading)
         .groupedRowHairline()
         .accessibilityElement(children: .contain)
+    }
+
+    private var styledLabel: some View {
+        label
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The label above; the chips under it, side by side while they fit the whole width.
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: ValueChipSpec.spacing) {
+            styledLabel
+            ValueChipGroup { chips }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

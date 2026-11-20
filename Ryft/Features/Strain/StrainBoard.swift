@@ -18,6 +18,8 @@ struct StrainHero: Equatable {
     var namesStrain = false
     /// What the caption says without a strain ("No strain recorded for this day."); `nil` keeps an empty line.
     var missingCaption: String?
+    /// The numeral, its VoiceOver label and the ruler's value are written in this (a view passes its environment's).
+    var locale: Locale = .autoupdatingCurrent
 
     /// The scale: 0–21, the moderate band 10–14 marked on the ruler.
     nonisolated static let scale: ClosedRange<Double> = 0...21
@@ -28,7 +30,7 @@ struct StrainHero: Equatable {
     var band: TodayStrainBand? { strain.map(TodayStrainBand.init) }
 
     /// "12.4"; nil while there is none (the unlit placeholder).
-    var numeral: String? { strain.map { Fmt.strain($0) } }
+    var numeral: String? { strain.map { Fmt.strain($0, locale: locale) } }
 
     /// "of 21 · moderate"; the workout's "Strain · of 21 · moderate"; without a strain the caller's sentence.
     var caption: String {
@@ -44,7 +46,7 @@ struct StrainHero: Equatable {
     }
 
     /// The numeral's VoiceOver label: "Strain 12.4 of 21".
-    var numeralLabel: String? { strain.map { String(localized: "Strain \(Fmt.strain($0)) of 21") } }
+    var numeralLabel: String? { strain.map { String(localized: "Strain \(Fmt.strain($0, locale: locale)) of 21") } }
 
     /// The numeral's VoiceOver value: the band, the change, the split ("Moderate strain, Up 1.2 versus 7 days, Cardio 9.2 · …").
     var numeralValue: String {
@@ -70,7 +72,7 @@ struct StrainHero: Equatable {
         // The catalog's key keeps its positional form (Today's tile says the same).
         let format = String(localized: "%1$@, %2$@, on a scale from 0 to 21. The moderate range is 10 to 14.",
                             comment: "VoiceOver on Today's strain tile: the value (12.4), its band (Moderate strain), the scale and the ruler's band.")
-        return String(format: format, Fmt.strain(strain), band.spoken)
+        return String(format: format, Fmt.strain(strain, locale: locale), band.spoken)
     }
 
     /// "vs 7 d" for the strain of `day` ("yyyy-MM-dd"): Today's rule (`MetricDelta.vsSevenDayMean`), so Strain and Insights'

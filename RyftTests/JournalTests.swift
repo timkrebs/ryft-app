@@ -32,9 +32,38 @@ struct JournalStoreTests {
         let (store, _) = makeStore()
         await store.load()
         let day = try #require(await store.loadDay(store.yesterday))
-        let summary = try #require(store.summary(of: day))
-        #expect(summary.contains("Drinks · 2") && summary.contains("16:30"))
+        let summary = try #require(store.summary(of: day, locale: Locale(identifier: "en_US")))
+        #expect(summary.contains("Drinks · 2") && summary.contains("Last caffeine 4:30\u{202F}PM"), "\(summary)")
+        #expect(!summary.contains("16:30"), "the locale's time, not the platform's 24-hour one: \(summary)")
         #expect(!summary.contains("Screens in bed"))   // a "no" isn't listed
+        // A 24-hour locale writes it as it is.
+        #expect(store.summary(of: day, locale: Locale(identifier: "en_GB"))?.contains("Last caffeine 16:30") == true)
+    }
+
+    @Test("F1: an answered day with nothing that happened says habits, never behaviors")
+    func anAnsweredDayWithNoYesSaysHabits() async throws {
+        let (store, _) = makeStore()
+        await store.load()
+        let none = JournalDay(day: store.yesterday, answered: true, answeredAt: .now, editable: true,
+                              entries: [JournalEntry(behaviorId: MockJournal.alcohol, valueBool: false)])
+        #expect(store.summary(of: none) == "None of your habits")
+        #expect(JournalStore.time("07:05", locale: Locale(identifier: "en_US")) == "7:05\u{202F}AM")
+        #expect(JournalStore.time("7:5pm", locale: Locale(identifier: "en_US")) == "7:5pm", "not HH:MM: as it came")
+        #expect(JournalStore.time("25:00", locale: Locale(identifier: "en_US")) == "25:00", "not a time of day: as it came")
+    }
+
+    @Test("The night the clocks go forward, a habit's 02:30 still reads 2:30 AM: the platform's wall time is never moved")
+    func aTimeOnTheClockChangeDay() throws {
+        // Noon on 29 March 2026: Europe/Berlin's clocks went from 02:00 to 03:00 that night, so 02:30 didn't happen on that
+        // date. Set on it (as Today's card once did), the time became 3:00 or 3:30 wherever the iPhone keeps Berlin's time,
+        // as this Mac's simulators do.
+        var berlin = Calendar(identifier: .gregorian)
+        berlin.timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+        let noon = try #require(berlin.date(from: DateComponents(year: 2026, month: 3, day: 29, hour: 12)))
+        let store = MockJournalStates.store(clock: TestClock(now: noon))
+        let day = JournalDay(day: "2026-03-28", answered: true, answeredAt: noon, editable: true,
+                             entries: [JournalEntry(behaviorId: MockJournal.lastCaffeine, valueBool: true, valueTime: "02:30")])
+        #expect(store.summary(of: day, locale: Locale(identifier: "en_US")) == "Last caffeine 2:30\u{202F}AM")
     }
 
     @Test func writesNeedTheNetwork() async {
@@ -59,6 +88,8 @@ struct JournalStoreTests {
             try await store.create(name: "X", nameDe: nil, kind: .yesNo, category: nil,
                                    id: MockJournal.alcohol, retryID: MockJournal.sauna)
         }
+        // F1: its words say habit.
+        #expect(JournalStore.JournalError.idTaken.errorDescription == "That habit couldn't be saved. Try again.")
     }
 
     @Test func onlyCustomBehaviorsAreDeleted() async throws {

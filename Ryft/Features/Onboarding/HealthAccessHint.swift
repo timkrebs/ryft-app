@@ -30,12 +30,9 @@ struct HealthAccessHint: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Button {
-                    HealthLinks.open(with: openURL)
-                } label: {
-                    Text("Open Health")
-                }
-                .buttonStyle(TealButtonStyle(prominent: false))
+                // Neutral (Nocturne, design.md §P5-1.2): an outline pill, no teal.
+                PillButton(Text("Open Health"), style: .secondary) { HealthLinks.open(with: openURL) }
+                    .accessibilityIdentifier("health.openHealth")
             }
         }
         .accessibilityElement(children: .contain)
@@ -64,20 +61,21 @@ struct HealthWriteAccessHint: View {
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.warning)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer()
-            Button("Open Health") { HealthLinks.open(with: openURL) }
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.accent)
+            Spacer(minLength: Theme.Metrics.itemSpacing)
+            // A link in ink, underlined (G2); the sentence before it keeps `warning`: a fault named with its words.
+            Button { HealthLinks.open(with: openURL) } label: { Text("Open Health") }
+                .ryftLink()
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("health.writeAccessHint")
     }
 }
 
+// Dark only (NOCTURNE_STYLE §1).
 #Preview("Health hint", traits: .sizeThatFitsLayout) {
-    SchemePair { HealthAccessHint() }
+    DarkPreview { HealthAccessHint() }
 }
 
 #Preview("Health write access hint", traits: .sizeThatFitsLayout) {
-    SchemePair { Card { HealthWriteAccessHint() }.padding() }
+    DarkPreview { Card { HealthWriteAccessHint() } }
 }

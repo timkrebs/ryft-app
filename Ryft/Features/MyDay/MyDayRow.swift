@@ -1,146 +1,69 @@
 import SwiftUI
 
-/// One My Day row (ui.md §2.2), shared by the card, the full screen and Strain's list:
-/// `[icon 44] 14 [name · times · badges] Spacer [state mark]`. Layout only: the container makes it a button.
+/// One My Day row (ui.md §2.2; PR 6 B §9, S6): a thin adapter from a `MyDayItem` to `ActivityListRow`, shared by the card and
+/// the full screen. The sport's disc (the night's glyph in `metricSleep`), the title, the facts, the sources as badges on a
+/// second meta line, and in the value's place the night's time asleep ("7:48" "h") or the activity's state mark (the strain,
+/// or the state's word). The missing night is the dashed row with "Add sleep". Layout only: the container makes it a button.
 struct MyDayRow: View {
     enum Style {
         /// On the card: no surface of its own (the card doesn't nest surfaces), no chevron.
         case card
-        /// The full screen and Strain: its own tile, a chevron when it opens something.
+        /// The full screen: its own tile, a chevron when it opens something.
         case tile
     }
 
     let item: MyDayItem
     var style: Style = .card
-    /// A chevron at the trailing edge (tile style, rows that open a detail); other tiles keep its column empty.
+    /// A chevron at the trailing edge (tile style, rows that open a detail).
     var showsChevron = false
-    /// Train's muscular load beside the strain (Strain's list).
-    var showsLoad = false
     /// R4's Retry (A2's uploader); nil shows none.
     var retry: (() -> Void)?
-    /// The missing night's "· Add sleep" (`activities.manual`); nil shows none.
+    /// The missing night's "Add sleep" (`activities.manual`); nil shows none.
     var addSleep: (() -> Void)?
 
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.locale) private var locale
 
-    private var isLarge: Bool { typeSize.isAccessibilitySize }
-    private var iconSize: CGFloat { isLarge ? 36 : 44 }
-    private var mark: ActivityStateMark.State { ActivityStateMark.State(item) }
-    private var isMissingSleep: Bool { item.kind.isMissingSleep }
-
     var body: some View {
-        // The missing night is one line: centred on its icon.
-        HStack(alignment: isMissingSleep ? .center : .top, spacing: 14) {
-            icon
-            VStack(alignment: .leading, spacing: 4) {
-                if isMissingSleep, let addSleep {
-                    missingNight(addSleep)
-                } else {
-                    Text(verbatim: item.title)
-                        .font(.ryft(.body))
-                        .foregroundStyle(isMissingSleep ? Theme.textSecondary : Theme.textPrimary)
-                        .lineLimit(isLarge ? 3 : 1)
-                        .truncationMode(.tail)
-                }
-                if !isMissingSleep {
-                    Text(verbatim: MyDayRow.detail(item, locale: locale))
-                        .font(.ryft(.caption))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !item.sources.isEmpty {
-                    SourceBadges(sources: item.sources, merged: item.isMerged)
-                        .padding(.top, 2)
-                }
-                // At the large sizes the mark goes under the text, with its word.
-                if isLarge, mark != .none || showsLoad && item.load != nil {
-                    trailing.padding(.top, 2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if !isLarge { trailing.frame(minWidth: 44, alignment: .trailing) }
-            // Tiles keep the chevron's column on every row, so marks and pills line up whether a row opens or not.
-            if style == .tile {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
-                    .frame(minHeight: 28)
-                    .opacity(showsChevron ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.vertical, style == .card ? 6 : 0)
-        .padding(style == .tile ? 14 : 0)
-        .frame(minHeight: 60, alignment: .topLeading)
-        .background {
-            if style == .tile {
-                RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous).fill(Theme.surface)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: isMissingSleep && addSleep != nil ? .contain : .ignore)
-        .accessibilityLabel(Text(verbatim: MyDayRow.spoken(item, showsLoad: showsLoad, locale: locale)))
-        .accessibilityActions {
-            if let retry { Button(String(localized: "Retry", comment: "My Day: send a failed upload again."), action: retry) }
-        }
+        ActivityListRow(content: MyDayRow.content(item, locale: locale), accessory: showsChevron ? .chevron : .none,
+                        style: rowStyle, retry: retry, action: action)
     }
 
-    /// "No sleep recorded · Add sleep" on one line when it fits (ui.md §2.1 M3); otherwise, and always at
-    /// accessibility sizes, the text with Add sleep under it and no dot, never a line broken mid-phrase.
-    private func missingNight(_ addSleep: @escaping () -> Void) -> some View {
-        ViewThatFits(in: .horizontal) {
-            if !isLarge {
-                HStack(alignment: .center, spacing: 0) {
-                    missingText(item.title + "\u{00A0}·\u{00A0}").lineLimit(1)
-                    addSleepButton(addSleep).lineLimit(1)
-                }
-            }
-            VStack(alignment: .leading, spacing: 0) {
-                missingText(item.title)
-                addSleepButton(addSleep)
-            }
+    private var rowStyle: ActivityListRow.Style {
+        if item.kind.isMissingSleep { return .dashed }
+        return style == .tile ? .tile : .card
+    }
+
+    /// "Add sleep" on the missing night, when it can be added.
+    private var action: ActivityListRow.Action? {
+        guard item.kind.isMissingSleep, let addSleep else { return nil }
+        return ActivityListRow.Action(title: Text("Add sleep"), identifier: "myday.addSleep", perform: addSleep)
+    }
+
+    /// The row as `ActivityListRow` draws it. The night: its time asleep as the value with "h", its glyph in `metricSleep`, and
+    /// its upload's word under the value while a night the user added uploads. An activity: its state mark. A recording in
+    /// progress: no value. The missing night: the dashed row's glyph and title, nothing else.
+    static func content(_ item: MyDayItem, locale: Locale = .autoupdatingCurrent) -> ActivityListRow.Content {
+        if item.kind.isMissingSleep {
+            return ActivityListRow.Content(systemImage: missingNightSymbol, title: item.title, meta: nil, value: nil,
+                                           spoken: spoken(item, locale: locale), showsValue: false)
         }
-    }
-
-    private func missingText(_ text: String) -> some View {
-        Text(verbatim: text)
-            .font(.ryft(.body))
-            .foregroundStyle(Theme.textSecondary)
-    }
-
-    private func addSleepButton(_ addSleep: @escaping () -> Void) -> some View {
-        Button(action: addSleep) {
-            Text("Add sleep")
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+        let mark = ActivityStateMark.State(item)
+        let asleep = item.kind.isSleep && item.duration >= 60 ? Fmt.clock(minutes: Int((item.duration / 60).rounded())) : nil
+        var content = ActivityListRow.Content(systemImage: item.symbol, title: item.title, meta: detail(item, locale: locale),
+                                              value: asleep, spoken: spoken(item, locale: locale),
+                                              showsValue: asleep != nil || mark != .none)
+        content.badges = item.sources.map(\.title)
+        content.mark = mark == .none ? nil : mark
+        content.glyphInk = item.kind.isSleep ? .sleep : .primary
+        if asleep != nil {
+            content.valueUnit = String(localized: "h",
+                                       comment: "Hours, the unit after a clock duration on Today's Sleep tile and on Sleep's tiles: \"7:48 h\", \"0:30 h\".")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("myday.addSleep")
+        return content
     }
 
-    private var icon: some View {
-        let sleep = item.kind.isSleep
-        let tint = isMissingSleep ? Theme.textTertiary : sleep ? Theme.metricSleep : Theme.accent
-        let fill = isMissingSleep ? Theme.surfaceRaised : sleep ? Theme.metricSleep.opacity(0.14) : Theme.accent.opacity(0.12)
-        return Image(systemName: item.symbol)
-            .font(.system(size: isLarge ? 15 : 18, weight: .medium))
-            .foregroundStyle(tint)
-            .frame(width: iconSize, height: iconSize)
-            .background(fill, in: Circle())
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var trailing: some View {
-        HStack(alignment: .center, spacing: 8) {
-            if showsLoad, let load = item.load { LoadChip(load: load) }
-            ActivityStateMark(state: mark, retry: retry)
-        }
-    }
+    /// The missing night's glyph: the bed, filled, in `textTertiary` on the dashed disc (B §9.2).
+    nonisolated static let missingNightSymbol = "bed.double.fill"
 
     // MARK: words
 
@@ -209,36 +132,33 @@ extension MyDayItem.Kind {
 
 }
 
-#Preview("My Day rows", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MockMyDay.gallery) { item in MyDayRow(item: item, retry: MockMyDay.failed(item) ? {} : nil) }
+// MARK: - previews (dark only)
+
+/// Every row of the gallery: sleep, merged, scored, a Train session, uploading, strain pending, not uploaded, no heart rate,
+/// added by you, and the missing night.
+private struct MyDayRowGallery: View {
+    let style: MyDayRow.Style
+
+    var body: some View {
+        let rows = VStack(alignment: .leading, spacing: style == .tile ? 8 : 0) {
+            ForEach(MockMyDay.gallery) { item in
+                MyDayRow(item: item, style: style, showsChevron: style == .tile && item.opensDetail,
+                         retry: MockMyDay.failed(item) ? {} : nil, addSleep: item.kind.isMissingSleep ? {} : nil)
+            }
         }
+        if style == .tile { rows } else { Card { rows } }
     }
+}
+
+#Preview("My Day rows · card", traits: .sizeThatFitsLayout) {
+    DarkPreview { MyDayRowGallery(style: .card) }
 }
 
 #Preview("My Day rows · tiles", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MockMyDay.gallery) { MyDayRow(item: $0, style: .tile, showsChevron: $0.opensDetail, showsLoad: true) }
-        }
-    }
+    DarkPreview { MyDayRowGallery(style: .tile) }
 }
 
 #Preview("My Day rows · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MockMyDay.gallery.prefix(5)) { MyDayRow(item: $0) }
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("My Day rows · AX5", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MockMyDay.gallery.suffix(4)) { MyDayRow(item: $0, style: .tile, showsChevron: true) }
-        }
-    }
-    .environment(\.dynamicTypeSize, .accessibility5)
+    DarkPreview { MyDayRowGallery(style: .tile) }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }

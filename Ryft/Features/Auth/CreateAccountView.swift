@@ -2,45 +2,64 @@ import SwiftUI
 
 /// Name, email, password (≥ 10 characters). With "Confirm email" on in the
 /// Supabase project there's no session yet → Check your inbox; otherwise
-/// RootView switches to the tabs.
+/// RootView switches to the tabs. Nocturne (PR 6 A §A-3): the lead, one card with the three fields, the length hint, the
+/// banner, the primary, and the terms line with its two links.
 struct CreateAccountView: View {
     @Environment(AuthService.self) private var auth
+    @Environment(\.appEnvironment) private var env
     @Binding var path: [AuthRoute]
+    /// Previews and shots: the busy state, which `AuthService` only enters during a request.
+    var showsBusy = false
 
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
     @State private var legal: LegalPage?
+    @FocusState private var focus: AuthField?
 
     private var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && AuthValidation.isEmail(email) && AuthValidation.isPassword(password)
     }
 
+    private var isBusy: Bool { auth.isWorking || showsBusy }
+
     var body: some View {
-        AuthScreen(title: "Create account", subtitle: "One account for your sleep, recovery and strain.") {
-            AuthTextField(title: "Name", text: $name, contentType: .name, capitalization: .words)
-            AuthTextField(title: "Email", text: $email, contentType: .emailAddress, keyboard: .emailAddress)
-            PasswordField(title: "Password", text: $password, isNew: true,
-                          hint: "At least \(AuthService.minimumPasswordLength) characters.")
-            AuthErrorMessage()
-            PrimaryButton(title: "Create account", busy: auth.isWorking) { await submit() }
+        AuthScreen(title: Text("Create account"), lead: Text("One account for your sleep, recovery and strain.")) {
+            GroupedCard {
+                AuthTextField(title: "Name", text: $name, field: .name, focus: $focus, contentType: .name,
+                              capitalization: .words) { focus = .email }
+                AuthTextField(title: "Email", text: $email, field: .email, focus: $focus, contentType: .username,
+                              keyboard: .emailAddress) { focus = .password }
+                PasswordField(title: "Password", text: $password, focus: $focus, isNew: true) {
+                    if isValid { Task { await submit() } }
+                }
+            }
+            .disabled(isBusy)
+            AuthHint(text: Text("At least \(AuthService.minimumPasswordLength) characters."))
+            if auth.errorMessage != nil {
+                AuthErrorMessage()
+                    .padding(.top, AuthScreenSpec.primaryGap)
+            }
+            PillButton(Text("Create account"), busy: isBusy) { await submit() }
                 .disabled(!isValid)
-                .padding(.top, 4)
-            // Links must be literal for Markdown; the pages have to exist on ryftlab.de (STATUS.md).
-            Text("By creating an account you agree to the [Terms](https://ryftlab.de/terms) and the [Privacy Policy](https://ryftlab.de/privacy).")
+                .padding(.top, auth.errorMessage == nil ? AuthScreenSpec.primaryGap : AuthScreenSpec.actionGap)
+                .accessibilityIdentifier("createAccount.submit")
+            // Links must be literal for Markdown; the pages have to exist on ryftlab.de (STATUS.md). They open in-app.
+            Text(inlineLinks: "By creating an account you agree to the [Terms](https://ryftlab.de/terms) and the [Privacy Policy](https://ryftlab.de/privacy).")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
-                .tint(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 16)
         }
         .onAppear { auth.errorMessage = nil }
-        // The Terms and Privacy Policy links open in-app.
+        .authFocus($focus, on: .name, clock: env.clock)
         .safariSheet($legal)
     }
 
     private func submit() async {
-        guard isValid else { return }
+        guard isValid, !isBusy else { return }
+        focus = nil
         if await auth.signUp(name: name, email: email, password: password) == .confirmEmail {
             path.append(.checkInbox(.confirmSignUp, email: email.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
@@ -52,12 +71,22 @@ struct CreateAccountView: View {
         CreateAccountView(path: .constant([]))
     }
     .environment(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.dark)
 }
 
-#Preview("Create account · light system") {
+#Preview("Create account · busy") {
+    NavigationStack {
+        CreateAccountView(path: .constant([]), showsBusy: true)
+    }
+    .environment(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Create account · AX3") {
     NavigationStack {
         CreateAccountView(path: .constant([]))
     }
     .environment(AuthService.preview(signedIn: false))
-    .preferredColorScheme(.light)
+    .preferredColorScheme(.dark)
+    .dynamicTypeSize(.accessibility3)
 }

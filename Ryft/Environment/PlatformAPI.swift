@@ -181,7 +181,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var behaviorList = MockJournal.behaviors
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
-    private(set) var planWakes: [String] = []
+    /// The wake times `sleepPlan` was asked for, in order (read under the lock: a request may be on its way).
+    var planWakes: [String] { lock.withLock { askedWakes } }
+    private var askedWakes: [String] = []
     /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
     var planFor: (@Sendable (String) -> SleepPlan)?
     /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server. The activities
@@ -251,6 +253,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Runs before each sync answers (tests hold an upload open with it).
     var beforeSync: (@Sendable () async -> Void)?
+    #if DEBUG
+    /// Runs before `sleepPlan` answers, with the wake time asked for (tests hold a plan's request open with it).
+    var beforePlan: (@Sendable (String) async -> Void)?
+    #endif
     /// Where a sync's `403` gate refusal is reported, as `APIClient` reports it to `APIStatus.shared` (tests).
     var reportsGates: APIStatus?
 
@@ -374,8 +380,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         return status
     }
 
+    /// Runs before each `POST /v1/me/consent` is taken (tests hold one open with it).
+    var beforeConsent: (@Sendable () async -> Void)?
+
     func consent(policyVersion: String, appVersion: String?) async throws {
         try enter("consent")
+        await beforeConsent?()
         try lock.withLock {
             guard policyVersion == remoteConfig.privacyPolicyVersion else { throw APIError.http(422, "outdated policy") }
             consentPosts.append(policyVersion)
@@ -393,8 +403,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
+    /// Runs before each `POST /v1/me/invite` is taken (tests hold one open with it).
+    var beforeInvite: (@Sendable () async -> Void)?
+
     func redeemInvite(code: String) async throws {
         try enter("redeemInvite")
+        await beforeInvite?()
         try lock.withLock {
             inviteAttempts.append(code)
             guard !betaAccess else { return }
@@ -408,7 +422,14 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func sleepPlan(wake: String) async throws -> SleepPlan {
         try enter("sleepPlan")
-        lock.withLock { planWakes.append(wake) }
+        lock.withLock { askedWakes.append(wake) }
+        #if DEBUG
+        if let hold = beforePlan {
+            // Held open by a test; cancelled meanwhile, it ends as a cancelled request does.
+            await hold(wake)
+            try Task.checkCancellation()
+        }
+        #endif
         if let plan = planFor?(wake) { return plan }
         return MockJournal.sleepPlan(wake: wake, now: now())
     }
@@ -418,6 +439,30 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         if !journalLive { throw APIError.http(404, "not found") }
     }
 
+    #if DEBUG
+    /// Runs before a habit write (`"patchBehaviors"`, `"createBehavior"`, `"deleteBehavior"`) is applied and answered
+    /// (tests hold one open with it).
+    var beforeBehaviorWrite: (@Sendable (String) async -> Void)?
+    #endif
+
+    private func holdBehaviorWrite(_ name: String) async {
+        #if DEBUG
+        await beforeBehaviorWrite?(name)
+        #endif
+    }
+
+    #if DEBUG
+    /// Runs before a day (`"journal"`) or the effects (`"behaviorImpact"`) answer, and before a day's save (`"putJournal"`) is
+    /// applied and answered, with the call's name (tests hold one open with it).
+    var beforeJournalAnswer: (@Sendable (String) async -> Void)?
+    #endif
+
+    private func holdJournalAnswer(_ name: String) async {
+        #if DEBUG
+        await beforeJournalAnswer?(name)
+        #endif
+    }
+
     func behaviors() async throws -> [Behavior] {
         try enterJournal("behaviors")
         return lock.withLock { behaviorList }
@@ -425,6 +470,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func patchBehaviors(_ patch: BehaviorsPatch) async throws -> [Behavior] {
         try enterJournal("patchBehaviors")
+        await holdBehaviorWrite("patchBehaviors")
         return try lock.withLock {
             for (id, on) in patch.enabled {
                 guard let i = behaviorList.firstIndex(where: { $0.id.uuidString.lowercased() == id }) else {
@@ -438,6 +484,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func createBehavior(_ input: BehaviorInput) async throws -> Behavior {
         try enterJournal("createBehavior")
+        await holdBehaviorWrite("createBehavior")
         return try lock.withLock {
             if let existing = behaviorList.first(where: { $0.id == input.id }), !existing.isCustom {
                 throw APIError.http(409, "id taken")
@@ -455,6 +502,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func deleteBehavior(id: UUID) async throws {
         try enterJournal("deleteBehavior")
+        await holdBehaviorWrite("deleteBehavior")
         try lock.withLock {
             if let b = behaviorList.first(where: { $0.id == id }), !b.isCustom { throw APIError.http(403, "built-in") }
             behaviorList.removeAll { $0.id == id }
@@ -463,12 +511,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func journal(day: String) async throws -> JournalDay {
         try enterJournal("journal")
-        return lock.withLock { journals[day] } ?? MockJournal.journal(day: day)
+        // Read when the request arrives, as the platform reads it.
+        let answer = lock.withLock { journals[day] } ?? MockJournal.journal(day: day)
+        await holdJournalAnswer("journal")
+        return answer
     }
 
     func putJournal(day: String, _ body: JournalPut) async throws -> JournalDay {
         try enterJournal("putJournal")
         guard MockJournal.isEditable(day) else { throw APIError.http(422, "not editable") }
+        await holdJournalAnswer("putJournal")
         let saved = JournalDay(day: day, answered: true, answeredAt: .now, editable: true, entries: body.entries)
         lock.withLock {
             journals[day] = saved
@@ -479,6 +531,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func behaviorImpact() async throws -> BehaviorImpacts {
         try enterJournal("behaviorImpact")
+        await holdJournalAnswer("behaviorImpact")
         return MockJournal.impacts
     }
 
@@ -487,8 +540,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before `me()` answers (tests hold an export's archive open with it, or a read answered before a change).
     var beforeMe: (@Sendable () async -> Void)?
 
+    #if DEBUG
+    /// Runs as `me()` arrives, before the user is read (tests let a late write land first).
+    var beforeMeRead: (@Sendable () async -> Void)?
+    #endif
+
     func me() async throws -> User {
         try enter("me")
+        #if DEBUG
+        await beforeMeRead?()
+        #endif
         // Read when the request arrives, as the platform reads it: an answer held on its way back is from then.
         let user: User
         if let patched = lock.withLock({ patchedUser }) {

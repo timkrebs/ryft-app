@@ -62,30 +62,67 @@ enum PlatformConfig {
     }
 }
 
-/// Release only: a build without its platform values can't do anything useful.
+/// Release only: a build without its platform values can't do anything useful. Nocturne (PR 6 A §A-15): the mark (56), 24
+/// below the title (26 Light, centred), 12 below the reason (16 pt `textSecondary`, centred), 32 from the sides, on
+/// `background`. A dead end by design: no button.
 struct MisconfiguredBuildView: View {
+    /// The build settings it lacks, by their xcconfig names; previews pass a sample.
+    var missing: [String] = PlatformConfig.missing
+
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 0) {
             RyftMark()
-                .frame(width: 56, height: 56)
+                .frame(width: MisconfiguredBuildSpec.markSide, height: MisconfiguredBuildSpec.markSide)
                 .foregroundStyle(Theme.textPrimary)
+                .accessibilityHidden(true)
             Text("This build is misconfigured")
                 .font(.ryft(.title))
+                .tracking(ScreenHeaderSpec.titleTracking)
                 .foregroundStyle(Theme.textPrimary)
-            Text("It's missing \(PlatformConfig.missing.formatted(.list(type: .and))). Install the version from the App Store.")
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.top, MisconfiguredBuildSpec.titleGap)
+            if let message = Self.message(missing: missing) {
+                Text(verbatim: message)
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, MisconfiguredBuildSpec.textGap)
+            }
         }
-        .padding(32)
+        .padding(.horizontal, MisconfiguredBuildSpec.sidePadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.graphite.ignoresSafeArea())
+        .background(Theme.background.ignoresSafeArea())
         .environment(\.colorScheme, .dark)
+    }
+
+    /// "It's missing RYFT_API_URL. Install the latest version of RYFT.", or nothing when the list is empty (never "It's
+    /// missing ."). Beta testers install from TestFlight, so it names no store.
+    static func message(missing: [String]) -> String? {
+        guard !missing.isEmpty else { return nil }
+        let list = missing.formatted(.list(type: .and))
+        return String(localized: "It's missing \(list). Install the latest version of RYFT.",
+                      comment: "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names.")
     }
 }
 
+/// The misconfigured build's numbers (A §A-15).
+enum MisconfiguredBuildSpec {
+    static let markSide: CGFloat = 56
+    static let titleGap: CGFloat = 24, textGap: CGFloat = 12
+    static let sidePadding: CGFloat = 32
+}
+
+// Dark only (NOCTURNE_STYLE §1).
 #Preview("Misconfigured build") {
-    MisconfiguredBuildView()
+    MisconfiguredBuildView(missing: ["RYFT_API_URL"])
+}
+
+#Preview("Misconfigured build · AX3") {
+    MisconfiguredBuildView(missing: ["RYFT_API_URL", "RYFT_SUPABASE_URL"])
+        .dynamicTypeSize(.accessibility3)
 }
 
 /// What a request tells the platform about this install (sync, consent, feedback).

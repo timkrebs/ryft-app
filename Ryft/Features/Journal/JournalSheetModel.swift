@@ -47,23 +47,71 @@ final class JournalSheetModel {
         var id: BehaviorCategory { category }
     }
 
-    private let store: JournalStore
+    /// What the sheet shows under the day strip (Nocturne PR 6 B §11.2). A day on this phone shows its rows (or, without a
+    /// habit to ask about, the way to choose some). A day that isn't: outlines while it is read, a line when the iPhone is
+    /// offline, and a failed read with Try again. Never the outlines for good (the user's offline-first rule, 2026-11-19).
+    enum Phase: Equatable, Sendable {
+        case loading, ready, noHabits, offline, failed
+    }
+
+    /// What the sheet asks before it drops answers that aren't saved (PR 6 B §1.2: a sheet that discards confirms first).
+    enum Discard: Equatable, Sendable {
+        /// Closing the sheet.
+        case close
+        /// Switching to that day.
+        case day(String)
+    }
+
+    /// Sends one day's answers (`PUT /v1/journal/{day}`); tests hold it open.
+    typealias Saver = @MainActor (_ day: String, _ entries: [JournalEntry]) async throws -> Void
+
+    /// Profile → Journal's page opens on it (the no-habits link).
+    let store: JournalStore
+    private let saver: Saver
+    /// Whose rows these are: the account and side the sheet opened on, before anything was forgotten since.
+    private let opened: JournalStore.Owner
     /// Up to 14 days back (`editable`); the sheet opens on yesterday.
     private(set) var day: String
     private(set) var groups: [Group] = []
     private(set) var editable = true
     private(set) var isSaving = false
     private(set) var error: String?
+    /// The failed save's status and request ID, for the message's Details (API.md → Errors).
+    private(set) var errorDetails: String?
     private(set) var saved = false
+    /// The sheet found itself on another account or side than it opened on (a sign-out, another account, the Demo data
+    /// switch, a wipe): nothing more was read into it, rebuilt or sent, and it closes without a word, as a save whose
+    /// account went ends.
+    private(set) var leftItsSide = false
+    /// The day is on this phone (in memory or the SwiftData cache): its rows say what it holds.
+    private(set) var hasDay = false
+    /// A read of the day is on its way.
+    private(set) var isLoading = false
+    /// The last read of the day brought nothing back (offline or not: `phase` tells them apart).
+    private(set) var loadFailed = false
+    /// Answers changed since the rows were last built from the day or saved: closing or switching days asks first.
+    private(set) var isDirty = false
+    /// What waits for "Discard" or "Keep editing".
+    private(set) var pendingDiscard: Discard?
+    /// Every change of a row counts here: a read that answers after one doesn't rebuild over it.
+    private var edits = 0
+    /// The shown error is "You're offline…": it goes once the iPhone is back online.
+    private var errorIsOffline = false
 
     static let defaultTime = "18:00"
     static let daysBack = 14
 
-    init(store: JournalStore, day: String? = nil) {
+    init(store: JournalStore, day: String? = nil, saver: Saver? = nil) {
         self.store = store
+        self.saver = saver ?? { [store] day, entries in try await store.save(day: day, entries: entries) }
+        opened = store.owner
         self.day = day ?? store.yesterday
         rebuild()
     }
+
+    /// Still the account and side the sheet opened on, with nothing forgotten since (`JournalStore.owns`). Once not, nothing of
+    /// either side's journal goes into the rows, from the cache or the platform, and nothing leaves them: the sheet closes.
+    var isCurrent: Bool { store.owns(opened) }
 
     var title: String {
         guard let date = DayFormat.date(from: day) else { return day }
@@ -77,29 +125,134 @@ final class JournalSheetModel {
         }
     }
 
+    /// Whether Save can go (the Offline pill when not): demo data answers on the phone, so it's never offline there.
+    var isOnline: Bool { store.isOnline }
+    /// Answers given offline wait on this iPhone (`JournalStore.keepsOfflineAnswers`): the Offline pill's words.
+    var keepsOfflineAnswers: Bool { store.keepsOfflineAnswers }
+
     var readOnlyReason: String? {
-        editable ? nil : String(localized: "Days more than 14 days ago can't be changed.")
+        editable ? nil : String(localized: "This day can't be changed any more.",
+                                comment: "Journal sheet: the selected day is too far back to answer or change (lock glyph).")
     }
 
+    /// The rows, or what stands in their place. The network is the store's word for it (`isOnline`: demo data, answering
+    /// on the phone, is never offline), the one the whole sheet goes by.
+    var phase: Phase {
+        if hasDay { return groups.isEmpty ? .noHabits : .ready }
+        if !isOnline { return .offline }
+        if isLoading { return .loading }
+        return loadFailed ? .failed : .loading
+    }
+
+    /// Shows `day`, dropping answers not saved (callers that keep them ask first: `requestSelect`). The selected day stays as
+    /// it is, with its error.
     func select(_ day: String) async {
+        guard staysOnItsSide(), day != self.day else { return }
         self.day = day
         saved = false
-        error = nil
+        clearError()
         rebuild()
-        await store.loadDay(day)
-        rebuild()
+        await loadDay()
+    }
+
+    /// The strip's tap: switches at once, or asks first while answers aren't saved.
+    func requestSelect(_ day: String) async {
+        guard staysOnItsSide(), day != self.day else { return }
+        if isDirty {
+            pendingDiscard = .day(day)
+            return
+        }
+        await select(day)
+    }
+
+    /// The close circle's tap: true when the sheet may close now; otherwise it asks first.
+    func requestClose() -> Bool {
+        guard isDirty else { return true }
+        pendingDiscard = .close
+        return false
+    }
+
+    /// "Discard": drops the answers and does what waited. True when the sheet should close.
+    func discard(_ pending: Discard) async -> Bool {
+        pendingDiscard = nil
+        switch pending {
+        case .close:
+            return true
+        case .day(let day):
+            await select(day)
+            return false
+        }
+    }
+
+    /// "Keep editing".
+    func cancelDiscard() {
+        pendingDiscard = nil
     }
 
     func load() async {
-        if store.behaviors.isEmpty { await store.load() }
-        await store.loadDay(day)
-        rebuild()
+        await load(userInitiated: false)
+    }
+
+    /// Try again (offline, or a read that failed): the user asked, so the read goes even while the read pipeline holds the
+    /// journal's reads back after a failure (`ReadScheduler.run(userInitiated:)`), as every Try again does.
+    func retry() async {
+        await load(userInitiated: true)
+    }
+
+    private func load(userInitiated: Bool) async {
+        guard staysOnItsSide() else { return }
+        if store.behaviors.isEmpty { await store.load(userInitiated: userInitiated) }
+        await loadDay(userInitiated: userInitiated)
+    }
+
+    /// Back from Profile → Journal: the habits chosen there at once, then the day from the platform.
+    func habitsChanged() async {
+        guard staysOnItsSide() else { return }
+        if !isDirty { rebuild() }
+        await load()
+    }
+
+    /// The iPhone's connection changed: back online, "You're offline…" no longer holds.
+    func connectionChanged(online: Bool) {
+        if online, errorIsOffline { clearError() }
+    }
+
+    /// The selected day from the platform (the cache first). A newer `select` while it's on its way owns the state after it,
+    /// and an answer given while it was on its way stays: the rows aren't rebuilt over it. Neither are they when the account
+    /// or side changed meanwhile: the read (or none) isn't this sheet's to show, and the sheet closes.
+    private func loadDay(userInitiated: Bool = false) async {
+        guard staysOnItsSide() else { return }
+        let asked = day
+        let editsBefore = edits
+        isLoading = true
+        loadFailed = false
+        let found = await store.loadDay(asked, userInitiated: userInitiated)
+        guard asked == day else { return }
+        isLoading = false
+        guard staysOnItsSide() else { return }
+        loadFailed = found == nil
+        if edits == editsBefore { rebuild() }
+    }
+
+    /// `isCurrent`; when not, the sheet asks to close (`leftItsSide`).
+    private func staysOnItsSide() -> Bool {
+        if isCurrent { return true }
+        leftItsSide = true
+        return false
+    }
+
+    private func clearError() {
+        error = nil
+        errorDetails = nil
+        errorIsOffline = false
     }
 
     /// Enabled behaviors (plus any the saved day answered), grouped by category
     /// in first-seen order, rows in the platform's order; values from the day.
     private func rebuild() {
         let journal = store.cachedDay(day)
+        hasDay = journal != nil
+        isDirty = false
         editable = journal?.editable ?? Self.isEditable(day, yesterday: store.yesterday)
         let answered = Set(journal?.entries.map(\.behaviorId) ?? [])
         let shown = store.behaviors.filter { $0.enabled || answered.contains($0.id) }
@@ -128,44 +281,71 @@ final class JournalSheetModel {
     func set(_ id: UUID, count: Int) { update(id) { $0.count = max(1, count) } }
     func set(_ id: UUID, time: String) { update(id) { $0.time = time } }
 
+    /// Nothing changes on a read-only day or while a save is out (the sheet doesn't take taps then either).
     private func update(_ id: UUID, _ change: (inout Row) -> Void) {
-        guard editable else { return }
+        guard editable, !isSaving else { return }
         for g in groups.indices {
             if let r = groups[g].rows.firstIndex(where: { $0.id == id }) { change(&groups[g].rows[r]) }
         }
+        edits += 1
+        isDirty = true
         saved = false
     }
 
     /// Every row shown, in order.
     var put: JournalPut { JournalPut(entries: groups.flatMap(\.rows).map(\.entry)) }
 
-    func save() async {
-        guard editable else { return }
+    /// Sends the day's rows. Only a day that is on this iPhone (an unread one would answer "no" to everything), once at a time;
+    /// if the selected day changed while it was out, its outcome isn't shown on the new day. True when the day it was asked
+    /// for is saved and still selected: the sheet closes.
+    @discardableResult
+    func save() async -> Bool {
+        guard editable, hasDay, !isSaving else { return false }
+        // The rows are another account's (or side's) answers: never sent as this one's.
+        guard staysOnItsSide() else { return false }
+        let asked = day
+        let entries = put.entries
         isSaving = true
-        error = nil
+        clearError()
         defer { isSaving = false }
         do {
-            try await store.save(day: day, entries: put.entries)
+            try await saver(asked, entries)
+            // Answered after the account or side changed: nothing is rebuilt from the other side's journal.
+            guard staysOnItsSide(), asked == day else { return false }
             saved = true
             rebuild()
             store.analytics.track(.featureUsed(.journalSaved))
+            return true
         } catch where error.isCancellation {
-            return
+            // The answer came for an account or side that's gone (`JournalStore.save`): the sheet closes quietly too.
+            if !isCurrent { leftItsSide = true }
+            return false
         } catch {
-            self.error = Self.message(for: error, rows: groups.flatMap(\.rows))
+            guard staysOnItsSide(), asked == day else { return false }
+            self.error = Self.message(for: error)
+            errorDetails = error.diagnosticDetails
+            errorIsOffline = (error as? JournalStore.JournalError) == .offline
+            return false
         }
     }
 
-    /// A `422` names what was wrong; the platform's text mentions the behavior.
-    static func message(for error: Error, rows: [Row]) -> String {
-        guard let api = error as? APIError, api.status == 422, case .http(_, let text, _, _, _) = api else {
-            return error.localizedDescription
+    /// The platform turning the answers down (a `4xx` other than the session, a gate or too many requests) reads as the app's
+    /// sentence, never the platform's text (it names behaviors and ids); the status and request ID go to Details.
+    static func message(for error: Error) -> String {
+        if let api = error as? APIError, let status = api.status, (400..<500).contains(status), ![401, 403, 429].contains(status) {
+            return String(localized: "RYFT didn't accept that, so nothing changed.",
+                          comment: "A change the platform turned down (422): nothing was saved. Details holds the request ID.")
         }
-        if let row = rows.first(where: { text.localizedCaseInsensitiveContains($0.behavior.slug)
-                                         || text.localizedCaseInsensitiveContains($0.id.uuidString) }) {
-            return String(localized: "\(row.behavior.name) couldn't be saved: \(text)")
-        }
-        return text.isEmpty ? String(localized: "This day can't be saved.") : text
+        return error.localizedDescription
+    }
+
+    /// A failed read's status and request ID for Details ("HTTP 503 · Request ID …"), from the read pipeline's record of the
+    /// journal (`ReadScheduler.states[.journal]`); nil without a failure or a status.
+    static func readDetails(_ state: ResourceState?) -> String? {
+        guard let state, state.consecutiveFailures > 0, let error = state.lastError, let status = error.status else { return nil }
+        let head = error.code.map { "HTTP \(status) · \($0)" } ?? "HTTP \(status)"
+        guard let id = error.requestID else { return head }
+        return String(localized: "\(head) · Request ID \(id)")
     }
 
     static func title(_ category: BehaviorCategory) -> String {

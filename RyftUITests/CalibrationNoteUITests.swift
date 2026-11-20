@@ -34,7 +34,7 @@ final class CalibrationNoteUITests: XCTestCase {
     }
 
     @MainActor
-    func testTheLinkOpensGarminsCardAndDoneClosesIt() throws {
+    func testTheLinkOpensGarminsCardAndCloseClosesIt() throws {
         let app = launch("blockedHRV")
         let link = app.buttons["today.gaugeNote.link"]
         XCTAssertTrue(link.waitForExistence(timeout: 60), "the link is a button of its own")
@@ -42,8 +42,9 @@ final class CalibrationNoteUITests: XCTestCase {
         XCTAssertTrue(link.isHittable)
         link.tap()
         XCTAssertTrue(element(app, "tracker.card.garmin").waitForExistence(timeout: 30), "Garmin's card in the sheet")
-        let done = app.buttons["today.calibrationSheet.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 30), "Done")
+        // The sheet's page closes with its header's Close (Nocturne's subpage frame).
+        let done = app.buttons["subpage.close"]
+        XCTAssertTrue(done.waitForExistence(timeout: 30), "Close")
         done.tap()
         XCTAssertTrue(link.waitForExistence(timeout: 30) && link.isHittable, "back on Today")
         XCTAssertFalse(element(app, "tracker.card.garmin").exists, "the sheet is gone")

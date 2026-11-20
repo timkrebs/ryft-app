@@ -1,8 +1,10 @@
-// Readiness on the home and lock screen: what Today shows, from the snapshot the app
-// writes into the App Group container after each refresh (`Shared/ReadinessSnapshot.swift`).
-// The orbit, the same drawing as Today's (`WidgetOrbitGauge`) from the snapshot's `gauge`: the
-// scores, the baselines filling night by night, or the previous day dimmed while a night is
-// scored. The app reloads the widget when a new score lands; the timeline only turns the day over.
+// Readiness on the home and lock screen: what Today shows, from the snapshot the app writes into the App Group container
+// after each refresh (`Shared/ReadinessSnapshot.swift`). The orbit, the same drawing as Today's (`WidgetOrbitGauge`) from
+// the snapshot's `gauge`: the scores, the baselines filling night by night, or the previous day dimmed while a night is
+// scored. The app reloads the widget when a new score lands; the timeline only turns the day over. Nocturne (c-24, c-25):
+// the system face, numbers Light, ink and its ladder, a 12 pt margin on the small tile, no teal outside the orbit; what
+// each line says and in which ink is `ReadinessWidgetLook`'s (`Shared/WidgetLook.swift`). It shows only what the platform
+// scored, and a snapshot the app didn't write today says how old it is.
 import SwiftUI
 import WidgetKit
 
@@ -10,20 +12,28 @@ struct ReadinessEntry: TimelineEntry {
     let date: Date
     /// `nil`: the app hasn't written one (not opened yet, signed out, no App Group).
     let snapshot: ReadinessSnapshot?
+    /// The system's placeholder before the first timeline: tracks and redacted lines, never a sample score.
+    var isPlaceholder = false
 
     /// What it shows at `date` (yesterday's score is no score for today).
     var shown: ReadinessSnapshot? { snapshot?.asOf(date) }
     /// "Bed by 22:41" from 17:00 until then.
     var bedtime: Date? { snapshot?.bedtimeShown(at: date) }
+    /// "As of yesterday": the app last wrote the snapshot before `date`'s day.
+    var age: WidgetAge? { WidgetAge.of(snapshot, at: date) }
 }
 
 struct ReadinessProvider: TimelineProvider {
+    /// No values: the system shows it before the first timeline, so it must not look like anyone's score.
     func placeholder(in context: Context) -> ReadinessEntry {
-        ReadinessEntry(date: .now, snapshot: .preview(.score))
+        ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
     }
 
+    /// The widget gallery (`isPreview`) shows the user's own latest snapshot; the synthetic sample only when the app
+    /// hasn't written one yet, so the gallery isn't empty.
     func getSnapshot(in context: Context, completion: @escaping (ReadinessEntry) -> Void) {
-        completion(ReadinessEntry(date: .now, snapshot: context.isPreview ? .preview(.score) : ReadinessSnapshot.load()))
+        let latest = ReadinessSnapshot.load()
+        completion(ReadinessEntry(date: .now, snapshot: latest ?? (context.isPreview ? .preview(.score) : nil)))
     }
 
     /// Now, and the next midnight (the day turns over without the app); then ask again.
@@ -51,6 +61,8 @@ struct ReadinessWidget: Widget {
         .configurationDisplayName(Text("Readiness"))
         .description(Text("Today's readiness, or how far scoring your night is."))
         .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular, .accessoryInline])
+        // The small tile sets its own 12 pt (F24); the lock screen's families keep the system's margins (below).
+        .contentMarginsDisabled()
     }
 }
 
@@ -62,13 +74,34 @@ private struct WidgetBackground: View {
 struct ReadinessWidgetView: View {
     let entry: ReadinessEntry
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetContentMargins) private var margins
+
+    var body: some View {
+        if entry.isPlaceholder {
+            content.redacted(reason: .placeholder)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
+        ReadinessFamilyView(entry: entry, family: family)
+            // The margins the system would have kept (`contentMarginsDisabled` is the configuration's, for every family).
+            .padding(family == .systemSmall || family == .accessoryInline ? EdgeInsets() : margins)
+    }
+}
+
+/// One family's view of an entry, out of the widget's environment (previews, the comparison shots).
+struct ReadinessFamilyView: View {
+    let entry: ReadinessEntry
+    let family: WidgetFamily
 
     var body: some View {
         switch family {
-        case .accessoryCircular: CircularReadiness(snapshot: entry.shown)
-        case .accessoryRectangular: RectangularReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
-        case .accessoryInline: InlineReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
-        default: SmallReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
+        case .accessoryCircular: CircularReadiness(snapshot: entry.shown, age: entry.age)
+        case .accessoryRectangular: RectangularReadiness(snapshot: entry.shown, bedtime: entry.bedtime, age: entry.age)
+        case .accessoryInline: InlineReadiness(snapshot: entry.shown, bedtime: entry.bedtime, age: entry.age)
+        default: SmallReadiness(snapshot: entry.shown, bedtime: entry.bedtime, age: entry.age)
         }
     }
 }
@@ -93,8 +126,40 @@ enum Words {
         case .pending: return String(localized: "Scoring your night…")
         case .waitingForSleep: return String(localized: "Waiting for last night")
         case .calibrating:
-            return String(localized: "Baselines \(s.baselineNights ?? 0) of \(ReadinessSnapshot.baselineNightsRequired)")
+            return String(localized: "Baselines \(s.baselineNights ?? 0)\u{00A0}of\u{00A0}\(ReadinessSnapshot.baselineNightsRequired)")
         }
+    }
+
+    /// The small tile's caption for a score: "Readiness · High" (a no-break space keeps the dot with "Readiness").
+    static func bandCaption(_ readiness: Int) -> String {
+        String(localized: "Readiness\u{00A0}· \(band(readiness))",
+               comment: "Widget, under the orbit: the readiness band, e.g. Readiness · High. Keep the no-break space before the dot.")
+    }
+
+    /// "As of yesterday", "As of Monday", "As of Nov 16", "As of Dec 20, 2026": when the app last wrote what the widget
+    /// shows.
+    static func age(_ age: WidgetAge) -> String {
+        let day: String
+        switch age {
+        case .yesterday:
+            return String(localized: "As of yesterday", comment: "Widget: the app last updated it yesterday; what it shows is from then.")
+        case .weekday(let date): day = date.formatted(.dateTime.weekday(.wide))
+        case .date(let date, let withYear):
+            day = withYear ? date.formatted(.dateTime.month(.abbreviated).day().year()) : date.formatted(.dateTime.month(.abbreviated).day())
+        }
+        return String(localized: "As of \(day)",
+                      comment: "Widget: the app last updated it on that day: a weekday (Monday), a date (Nov 16) or one with its year.")
+    }
+
+    /// The rectangle's value while the baselines count: "3 of 7" (no-break spaces: it never wraps).
+    static func baselinesValue(_ counted: Int) -> String {
+        String(localized: "\(counted)\u{00A0}of\u{00A0}\(ReadinessSnapshot.baselineNightsRequired)",
+               comment: "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7. Keep the no-break spaces.")
+    }
+
+    /// The rectangle's line under "3 of 7".
+    static var baselines: String {
+        String(localized: "Baselines", comment: "Widget, lock screen rectangle: under the nights counted (3 of 7).")
     }
 
     /// The lock screen's line: on a locked device only "Readiness", whatever the state (`ReadinessSnapshot.*Slot`).
@@ -118,9 +183,9 @@ enum Words {
         let notScored = { (title: String) in String(localized: "\(title), not scored") }
         let percent = { (fraction: Double) in Int((fraction * 100).rounded()).formatted() }
         return [
-            v.recoveryFraction.map { String(localized: "Recovery \(percent($0)) percent") } ?? notScored(String(localized: "Recovery")),
-            v.sleepFraction.map { String(localized: "Sleep \(percent($0)) percent") } ?? notScored(String(localized: "Sleep")),
-            v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1)))) of 21") }
+            v.recoveryFraction.map { String(localized: "Recovery \(percent($0))\u{00A0}percent") } ?? notScored(String(localized: "Recovery")),
+            v.sleepFraction.map { String(localized: "Sleep \(percent($0))\u{00A0}percent") } ?? notScored(String(localized: "Sleep")),
+            v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1))))\u{00A0}of\u{00A0}21") }
                 ?? notScored(String(localized: "Strain")),
         ].joined(separator: ", ")
     }
@@ -131,29 +196,29 @@ enum Words {
     }
 
     /// For VoiceOver: the value and whether it's today's; with the orbit, its three scores as Today reads them
-    /// ("Readiness 71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21"), and tonight's bedtime. On a
-    /// locked device (`redacted`) only "Readiness" (`ReadinessSnapshot.speech`).
-    static func spoken(_ s: ReadinessSnapshot?, bedtime: Date? = nil, redacted: Bool = false) -> String {
+    /// ("Readiness 71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21"), how old a snapshot of an earlier
+    /// day is, and tonight's bedtime. On a locked device (`redacted`) only "Readiness" (`ReadinessSnapshot.speech`).
+    static func spoken(_ s: ReadinessSnapshot?, bedtime: Date? = nil, age: WidgetAge? = nil, redacted: Bool = false) -> String {
         let spoken: String
         switch ReadinessSnapshot.speech(s, redacted: redacted) {
         case .name: return String(localized: "Readiness")
         case .openApp: spoken = status(nil)
         case .score(let readiness, let values):
-            let r = readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
-            spoken = values.map { r + ". " + scores($0) } ?? r
+            spoken = WidgetSpeech.sentences([readiness.map { String(localized: "Readiness \($0), \(band($0))") }, values.map(scores)])
         case .night(_, let previous):
-            spoken = status(s) + (previous.map { " " + String(localized: "Last readiness \($0).") } ?? "")
+            spoken = WidgetSpeech.sentences([status(s), previous.map { String(localized: "Last readiness \($0).") }])
         case .baselines:
             spoken = status(s)
         }
-        return spoken + (bedtime.map { ". " + bedBy($0) } ?? "")
+        let asOf = ReadinessWidgetLook.line(s, age: age, redacted: redacted).age.map(Words.age)
+        return WidgetSpeech.sentences([spoken, asOf, bedtime.map(bedBy)])
     }
 }
 
-/// The lock screen hides the values until the device is unlocked (`.privacy` redaction): the orbit's tracks only,
-/// the number and words redacted, VoiceOver "Readiness".
-private extension RedactionReasons {
-    var hidesValues: Bool { contains(.privacy) }
+/// The lock screen hides the values until the device is unlocked (`.privacy` redaction: the constant "00", boxed), and
+/// the placeholder has none (the dash): the orbit's tracks only, VoiceOver "Readiness" (`WidgetConcealment`).
+extension RedactionReasons {
+    var concealment: WidgetConcealment { WidgetConcealment(self) }
 }
 
 /// Whether a family draws the orbit for `s`: a readiness, the baselines counting, a night pending or awaited (the
@@ -164,69 +229,91 @@ private func drawsOrbit(_ s: ReadinessSnapshot?) -> Bool {
     return s.kind != .score || s.readiness != nil
 }
 
-/// A line slot in words: the constant placeholder on a locked device, else the band word or the status.
-private struct SlotLine: View {
-    let slot: ReadinessSnapshot.TextSlot
+/// A line in words: the constant on a locked device, else the band word ("Readiness · High" under the small orbit),
+/// a status, tonight's bedtime or how old the snapshot is.
+private struct LineText: View {
+    let line: ReadinessWidgetLook.Line
     let snapshot: ReadinessSnapshot?
+    /// The small tile's caption: the band word with "Readiness ·" before it.
+    var caption = false
+    /// The rectangle beside "3 of 7": "Baselines".
+    var besideCount = false
 
     var body: some View {
-        switch slot {
-        case .locked: Text(Words.lockedLine)
-        case .band(let r): Text(Words.band(r))
-        case .bedtime(let bedtime): Text(Words.bedBy(bedtime))
-        case .number(let r): Text(verbatim: "\(r)")
-        case .status: Text(Words.status(snapshot))
-        case .none: EmptyView()
+        switch line {
+        case .age(let age): Text(Words.age(age))
+        case .slot(let slot):
+            switch slot {
+            case .locked: Text(Words.lockedLine)
+            case .band(let r): Text(caption ? Words.bandCaption(r) : Words.band(r))
+            case .bedtime(let bedtime): Text(Words.bedBy(bedtime))
+            case .number(let r): Text(verbatim: "\(r)")
+            case .status(.calibrating) where besideCount: Text(Words.baselines)
+            case .status: Text(Words.status(snapshot))
+            case .none: EmptyView()
+            }
         }
     }
 }
 
 // MARK: - home screen
 
-/// The orbit as large as the tile allows (it is the mark: no header): the scores with the band word under them, the
-/// baselines' segments with "Baselines 3 of 7", or the previous day dimmed with "Scoring your night…".
+/// The orbit as large as the tile allows (it is the mark: no header), 12 pt from the edges (F24), and one caption under
+/// it: "Readiness · High", tonight's bedtime, a status, or how old the snapshot is. Without a snapshot an outline and
+/// what to do, never an empty tile.
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
+    var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
 
-    private var ink: Color { Brand.ink }
-    private var locked: Bool { redaction.hidesValues }
+    private var hidden: Bool { redaction.concealment.hidesValues }
 
     var body: some View {
-        VStack(spacing: 4) {
-            GeometryReader { g in
-                let side = min(g.size.width, g.size.height)
-                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness,
-                                 previousReadiness: snapshot?.previousReadiness)
-                    .frame(width: g.size.width, height: g.size.height)
+        Group {
+            if snapshot == nil, !hidden {
+                openApp
+            } else {
+                VStack(spacing: ReadinessWidgetLook.captionGap) {
+                    GeometryReader { g in
+                        WidgetOrbitGauge(mode: snapshot?.gauge,
+                                         size: .custom(dial: ReadinessWidgetLook.dial(inSide: min(g.size.width, g.size.height))),
+                                         readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness)
+                            .frame(width: g.size.width, height: g.size.height)
+                    }
+                    caption
+                }
             }
-            caption
         }
+        .padding(ReadinessWidgetLook.smallInset)
+        .dynamicTypeSize(...ReadinessWidgetLook.smallLargestType)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
+        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: hidden)))
     }
 
-    /// Tonight's bedtime in the evening, else the band word or the status; one constant line when locked.
-    @ViewBuilder
     private var caption: some View {
-        let bedtimeSlot = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: locked)
-        if bedtimeSlot != .none {
-            SlotLine(slot: bedtimeSlot, snapshot: snapshot)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(Brand.teal)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .privacySensitive()
-        } else {
-            SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
-                .font(.caption2)
-                .foregroundStyle(ink.opacity(0.7))
-                .lineLimit(2)
+        let line = ReadinessWidgetLook.smallCaption(snapshot, bedtime: bedtime, age: age, redacted: hidden)
+        return LineText(line: line, snapshot: snapshot, caption: true)
+            .font(line.isBedtime ? .caption2.weight(.medium) : .caption2)
+            .foregroundStyle(ReadinessWidgetLook.ink(of: line).colour)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .minimumScaleFactor(0.8)
+            .privacySensitive()
+    }
+
+    /// No snapshot: a dashed outline where the orbit goes and the one thing to do.
+    private var openApp: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "circle.dashed")
+                .font(.system(size: 30, weight: .ultraLight))
+            Text(Words.status(nil))
+                .font(.caption)
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.8)
-                .privacySensitive()
         }
+        .foregroundStyle(WidgetInk.secondary.colour)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -234,20 +321,22 @@ private struct SmallReadiness: View {
 
 private struct CircularReadiness: View {
     let snapshot: ReadinessSnapshot?
+    var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
 
-    private var locked: Bool { redaction.hidesValues }
+    private var hidden: Bool { redaction.concealment.hidesValues }
 
     var body: some View {
         Group {
-            if drawsOrbit(snapshot) || locked {
-                // The orbit filling the circle; the frame's 6 pt on each side take the outer dot. The baselines' count
-                // or the previous day's number (dimmed) in the centre.
+            if drawsOrbit(snapshot) || hidden {
+                // The orbit filling the circle, 1 pt clear of its edge: the baselines' count, or the previous day's number
+                // (dimmed), in the centre.
                 GeometryReader { g in
                     let side = min(g.size.width, g.size.height)
                     ZStack {
                         AccessoryWidgetBackground()
-                        WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)),
+                        WidgetOrbitGauge(mode: snapshot?.gauge,
+                                         size: .custom(dial: ReadinessWidgetLook.circularDial(side: side)),
                                          readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
                                          prominentNumber: true)
                     }
@@ -262,73 +351,109 @@ private struct CircularReadiness: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot, redacted: locked)))
+        .accessibilityLabel(Text(Words.spoken(snapshot, age: age, redacted: hidden)))
     }
 }
 
+/// The orbit at 44 without a number, then "Readiness" (13 Medium, accentable), the value (22 Light), the band word, a
+/// status or how old the snapshot is (11), and tonight's bedtime (11). Above the default size, and wherever four lines
+/// don't fit (the SE's 68 pt slot), it folds to one line under the value, tonight's bedtime taking the status's place
+/// (`ReadinessWidgetLook.rectangularFolds`); it grows up to `rectangularLargestType`.
 private struct RectangularReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
+    var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var locked: Bool { redaction.hidesValues }
+    private var concealment: WidgetConcealment { redaction.concealment }
+    private var hidden: Bool { concealment.hidesValues }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // The number or the status is beside it: the orbit alone, the size of the app icon's 44 pt check. Locked,
-            // always the tracks, so whether today is scored doesn't show either.
-            if locked || drawsOrbit(snapshot) {
-                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: 44), readiness: snapshot?.readiness,
-                                 previousReadiness: snapshot?.previousReadiness, showsNumber: false)
+        HStack(spacing: ReadinessWidgetLook.rectangularGap) {
+            // Locked, always the tracks, so whether today is scored doesn't show either.
+            if hidden || drawsOrbit(snapshot) {
+                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: ReadinessWidgetLook.rectangularDial),
+                                 readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
+                                 showsNumber: false)
             }
-            lines
+            if ReadinessWidgetLook.rectangularFolds(typeSize) {
+                lines(folded: true)
+            } else {
+                ViewThatFits(in: .vertical) {
+                    lines(folded: false)
+                    lines(folded: true)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .dynamicTypeSize(...ReadinessWidgetLook.rectangularLargestType)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
+        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: hidden)))
     }
 
-    private var lines: some View {
-        VStack(alignment: .leading, spacing: 1) {
+    private func lines(folded: Bool) -> some View {
+        let value = ReadinessWidgetLook.rectangularValue(snapshot, concealment: concealment)
+        let bedtimeSlot = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: hidden)
+        let line = folded ? ReadinessWidgetLook.smallCaption(snapshot, bedtime: bedtime, age: age, redacted: hidden)
+            : ReadinessWidgetLook.line(snapshot, age: age, redacted: hidden)
+        let lineLimit = ReadinessWidgetLook.rectangularLineLimit(hasValue: value != nil, hasBedtime: bedtimeSlot != .none,
+                                                                 folded: folded)
+        return VStack(alignment: .leading, spacing: 0) {
             Text("Readiness")
-                .font(.headline)
+                .font(.footnote.weight(.medium))
                 .widgetAccentable()
-            let number = ReadinessSnapshot.numberSlot(snapshot, redacted: locked)
-            if number != .none {
-                Group {
-                    if case .number(let r) = number { Text(verbatim: "\(r)") } else { Text(verbatim: Words.lockedNumber) }
-                }
-                .font(.system(.title2, design: .rounded).weight(.semibold))
-                .monospacedDigit()
-                .privacySensitive()
-                SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
-                    .font(.caption)
+            if let value {
+                valueText(value)
+                    .font(.title2.weight(.light))
+                    .monospacedDigit()
                     .lineLimit(1)
-                    .privacySensitive()
-            } else {
-                SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
-                    .font(.callout)
-                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
                     .privacySensitive()
             }
-            SlotLine(slot: ReadinessSnapshot.bedtimeSlot(bedtime, redacted: locked), snapshot: snapshot)
-                .font(.caption)
-                .privacySensitive()
+            Group {
+                LineText(line: line, snapshot: snapshot, besideCount: true)
+                    .lineLimit(lineLimit)
+                if !folded {
+                    LineText(line: .slot(bedtimeSlot), snapshot: snapshot)
+                        .lineLimit(1)
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            // Shrinks before it truncates, never below the default 11 pt from xxLarge's 15 ("Bed by 10:41 PM" on the SE).
+            // The scale is a linear guess and SF's smaller sizes track looser, so it may also tighten the last points.
+            .minimumScaleFactor(0.75)
+            .allowsTightening(true)
+            .privacySensitive()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func valueText(_ value: ReadinessWidgetLook.Centre) -> some View {
+        let words: String
+        switch value {
+        case .hidden: words = Words.lockedNumber
+        case .readiness(let readiness, _): words = String(readiness)
+        case .baselines(let counted): words = Words.baselinesValue(counted)
+        case .dash: words = "–"
+        }
+        return Text(verbatim: words)
+            .foregroundStyle(ReadinessWidgetLook.ink(of: value) == .primary ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
     }
 }
 
 private struct InlineReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
+    var age: WidgetAge?
     @Environment(\.redactionReasons) private var redaction
 
     var body: some View {
         // Locked: one constant line ("Readiness") under the redaction, whatever the state.
-        Text(Words.inline(snapshot, bedtime: bedtime, redacted: redaction.hidesValues))
+        Text(Words.inline(snapshot, bedtime: bedtime, redacted: redaction.concealment.hidesValues))
             .privacySensitive()
-            .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: redaction.hidesValues)))
+            .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, age: age, redacted: redaction.concealment.hidesValues)))
     }
 }
 
@@ -357,6 +482,13 @@ extension ReadinessSnapshot {
         return s
     }
 
+    /// Waiting for the night with no readiness before it (a new account): tracks and hollow dots, the dash.
+    static var previewWaitingFirst: ReadinessSnapshot {
+        var s = previewWaitingWithoutOrbit
+        s.previousReadiness = nil
+        return s
+    }
+
     /// Three digits: the number must still fit the centre ring.
     static var previewHundred: ReadinessSnapshot {
         var s = preview(.score)
@@ -372,26 +504,54 @@ extension ReadinessSnapshot {
         s.orbit = Orbit(recovery: 62, sleepPerformance: nil, strain: 6.2)
         return s
     }
+
+    /// Today's score as the app wrote it `days` ago at 21:40 and hasn't since: the widget turns it over and says how old.
+    static func previewWritten(daysAgo days: Int) -> ReadinessSnapshot {
+        let calendar = Calendar.current
+        let evening = calendar.date(bySettingHour: 21, minute: 40, second: 0, of: .now) ?? .now
+        let then = calendar.date(byAdding: .day, value: -days, to: evening) ?? evening
+        var s = preview(.score)
+        s.day = dayString(then)
+        s.updatedAt = then
+        s.bedtime = nil
+        return s
+    }
+}
+
+extension ReadinessEntry {
+    /// 18:00 today: tonight's bedtime shows.
+    static func evening(_ s: ReadinessSnapshot?) -> ReadinessEntry {
+        ReadinessEntry(date: Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: .now) ?? .now, snapshot: s)
+    }
 }
 
 #Preview("Small", as: .systemSmall) {
     ReadinessWidget()
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
+    ReadinessEntry.evening(.preview(.score))
+    ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
+    ReadinessEntry(date: .now, snapshot: .preview(.pending))
+    ReadinessEntry(date: .now, snapshot: .previewWaitingFirst)
+    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
+    ReadinessEntry(date: .now, snapshot: .previewWritten(daysAgo: 1))
+    ReadinessEntry(date: .now, snapshot: .previewWritten(daysAgo: 4))
     ReadinessEntry(date: .now, snapshot: .previewSleepMissing)
     ReadinessEntry(date: .now, snapshot: .previewBeforeOrbit)
-    ReadinessEntry(date: .now, snapshot: .preview(.pending))
-    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
-    ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
+    ReadinessEntry(date: .now, snapshot: .previewHundred)
     ReadinessEntry(date: .now, snapshot: nil)
+    ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
 }
 
 #Preview("Lock screen", as: .accessoryRectangular) {
     ReadinessWidget()
 } timeline: {
-    ReadinessEntry(date: .now, snapshot: .preview(.score))
+    ReadinessEntry.evening(.preview(.score))
     ReadinessEntry(date: .now, snapshot: .preview(.pending))
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
+    ReadinessEntry(date: .now, snapshot: .previewWritten(daysAgo: 1))
+    ReadinessEntry(date: .now, snapshot: nil)
+    ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
 }
 
 #Preview("Circular", as: .accessoryCircular) {
@@ -399,60 +559,59 @@ extension ReadinessSnapshot {
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
-    ReadinessEntry(date: .now, snapshot: .preview(.waitingForSleep))
+    ReadinessEntry(date: .now, snapshot: .preview(.pending))
     ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
+    ReadinessEntry(date: .now, snapshot: .previewHundred)
+    ReadinessEntry(date: .now, snapshot: nil)
+    ReadinessEntry(date: .now, snapshot: nil, isPlaceholder: true)
 }
 
 #Preview("Inline", as: .accessoryInline) {
     ReadinessWidget()
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
+    ReadinessEntry.evening(.preview(.score))
+    ReadinessEntry(date: .now, snapshot: .preview(.pending))
 }
 
-/// The families side by side, outside the system's widget chrome (for screenshots).
+/// The families side by side, outside the system's widget chrome (for screenshots): the small tile in each state, the
+/// circles, the rectangles and the line.
 struct ReadinessWidgetGallery: View {
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            ForEach([ColorScheme.dark], id: \.self) { scheme in
-                VStack(spacing: 16) {
-                    let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewHundred, .previewSleepMissing,
-                                                          .previewBeforeOrbit, .preview(.pending), .previewWaitingWithoutOrbit,
-                                                          .preview(.calibrating)]
-                    ForEach(snapshots.indices, id: \.self) { i in
-                        SmallReadiness(snapshot: snapshots[i])
-                            .padding(16)
-                            .frame(width: 158, height: 158)
-                            .background(Brand.background, in: RoundedRectangle(cornerRadius: 22))
-                    }
-                    HStack(spacing: 12) {
-                        CircularReadiness(snapshot: .preview(.score))
-                            .frame(width: 72, height: 72)
-                        CircularReadiness(snapshot: .previewHundred)
-                            .frame(width: 68, height: 68)
-                    }
-                    HStack(spacing: 12) {
-                        CircularReadiness(snapshot: .preview(.calibrating))
-                            .frame(width: 68, height: 68)
-                        CircularReadiness(snapshot: .preview(.pending))
-                            .frame(width: 68, height: 68)
-                        CircularReadiness(snapshot: .previewWaitingWithoutOrbit)
-                            .frame(width: 68, height: 68)
-                    }
-                    ForEach([ReadinessSnapshot.Kind.score, .calibrating, .pending], id: \.self) { kind in
-                        RectangularReadiness(snapshot: .preview(kind))
-                            .padding(8)
-                            .frame(width: 170, height: 76)
-                            .background(Brand.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    InlineReadiness(snapshot: .preview(.score))
-                        .font(.caption)
+        VStack(spacing: 16) {
+            let entries: [ReadinessEntry] = [
+                ReadinessEntry(date: .now, snapshot: .preview(.score)), .evening(.preview(.score)),
+                ReadinessEntry(date: .now, snapshot: .preview(.calibrating)), ReadinessEntry(date: .now, snapshot: .preview(.pending)),
+                ReadinessEntry(date: .now, snapshot: .previewWaitingFirst), ReadinessEntry(date: .now, snapshot: nil),
+                ReadinessEntry(date: .now, snapshot: .previewWritten(daysAgo: 1)),
+                ReadinessEntry(date: .now, snapshot: .previewHundred),
+            ]
+            LazyVGrid(columns: [GridItem(.fixed(158)), GridItem(.fixed(158))], spacing: 16) {
+                ForEach(entries.indices, id: \.self) { i in
+                    ReadinessFamilyView(entry: entries[i], family: .systemSmall)
+                        .frame(width: 158, height: 158)
+                        .background(Brand.background, in: RoundedRectangle(cornerRadius: 22))
                 }
-                .padding(16)
-                .background(Brand.background.opacity(0.5))
-                .environment(\.colorScheme, scheme)
             }
+            HStack(spacing: 12) {
+                ForEach([ReadinessSnapshot.preview(.score), .preview(.calibrating), .preview(.pending)], id: \.kind) { s in
+                    ReadinessFamilyView(entry: ReadinessEntry(date: .now, snapshot: s), family: .accessoryCircular)
+                        .frame(width: 76, height: 76)
+                }
+            }
+            ForEach([ReadinessEntry.evening(.preview(.score)), ReadinessEntry(date: .now, snapshot: .preview(.calibrating)),
+                     ReadinessEntry(date: .now, snapshot: .preview(.pending))], id: \.snapshot?.kind) { entry in
+                ReadinessFamilyView(entry: entry, family: .accessoryRectangular)
+                    .padding(8)
+                    .frame(width: 172, height: 76)
+                    .background(Brand.mist.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }
+            ReadinessFamilyView(entry: ReadinessEntry(date: .now, snapshot: .preview(.score)), family: .accessoryInline)
+                .font(.caption)
         }
-        .padding()
+        .padding(16)
+        .background(Brand.background.opacity(0.5))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -463,12 +622,10 @@ struct ReadinessWidgetGallery: View {
 /// A locked device: every family for a score, a hundred, a night being scored, the baselines and no snapshot, with
 /// and without tonight's bedtime. Each column must look the same in every row.
 struct ReadinessWidgetLockedGallery: View {
-    var scheme: ColorScheme = .dark
-
     private static let bedtime = Calendar.current.date(bySettingHour: 22, minute: 41, second: 0, of: .now)
     private static let rows: [(ReadinessSnapshot?, Date?)] = [
         (.preview(.score), nil), (.previewHundred, bedtime), (.preview(.pending), nil),
-        (.preview(.calibrating), bedtime), (.preview(.waitingForSleep), nil), (nil, nil),
+        (.preview(.calibrating), bedtime), (.preview(.waitingForSleep), nil), (.previewWritten(daysAgo: 1), nil), (nil, nil),
     ]
 
     var body: some View {
@@ -477,7 +634,6 @@ struct ReadinessWidgetLockedGallery: View {
                 let (snapshot, bedtime) = Self.rows[i]
                 HStack(spacing: 12) {
                     SmallReadiness(snapshot: snapshot, bedtime: bedtime)
-                        .padding(12)
                         .frame(width: 120, height: 120)
                         .background(Brand.background, in: RoundedRectangle(cornerRadius: 18))
                     CircularReadiness(snapshot: snapshot)
@@ -485,7 +641,7 @@ struct ReadinessWidgetLockedGallery: View {
                     RectangularReadiness(snapshot: snapshot, bedtime: bedtime)
                         .padding(8)
                         .frame(width: 170, height: 76)
-                        .background(Brand.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Brand.mist.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                     InlineReadiness(snapshot: snapshot, bedtime: bedtime)
                         .font(.caption)
                         .frame(width: 150, alignment: .leading)
@@ -494,27 +650,12 @@ struct ReadinessWidgetLockedGallery: View {
         }
         .padding(16)
         .background(Brand.background.opacity(0.5))
-        .environment(\.colorScheme, scheme)
+        .environment(\.colorScheme, .dark)
         .redacted(reason: .privacy)
     }
 }
 
 #Preview("Families · locked (values hidden)") {
-    HStack(alignment: .top, spacing: 16) {
-        ReadinessWidgetLockedGallery(scheme: .dark)
-    }
-    .padding()
-}
-
-#Preview("Small · de") {
-    VStack(spacing: 16) {
-        ForEach([ReadinessSnapshot.Kind.score, .pending, .calibrating], id: \.self) { kind in
-            SmallReadiness(snapshot: .preview(kind))
-                .padding(16)
-                .frame(width: 158, height: 158)
-                .background(Brand.graphite, in: RoundedRectangle(cornerRadius: 22))
-        }
-    }
-    .environment(\.colorScheme, .dark)
-    .environment(\.locale, Locale(identifier: "de"))
+    ReadinessWidgetLockedGallery()
+        .padding()
 }

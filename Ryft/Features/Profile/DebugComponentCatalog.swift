@@ -53,6 +53,7 @@ struct DebugComponentCatalog: View {
                     section("Nocturne · structures") { NocturneStructuresCatalog() }
                     section("Nocturne · foundation") { NocturneFoundationCatalog() }
                     section("Nocturne · tab bar") { NocturneTabBarCatalog() }
+                    section("Nocturne · train") { NocturneTrainCatalog() }
                 }
                 .padding(Theme.Metrics.screenPadding)
             }
@@ -199,7 +200,7 @@ struct DebugComponentCatalog: View {
                           systemImage: "checkmark.circle")
             InlineMessage(message: APIError.http(503, "").localizedDescription, details: "HTTP 503 · Request ID 01ab",
                           retry: {})
-            OfflinePill()
+            JournalOfflinePill()
             UpdatedLabel(date: .now.addingTimeInterval(-300))
             UpdatedLabel(date: nil, isLoading: true)
             HealthAccessHint()

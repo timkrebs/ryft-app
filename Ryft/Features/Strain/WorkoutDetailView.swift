@@ -39,6 +39,8 @@ struct WorkoutDetailPage: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
+    /// The logged session, pushed by item (`navigationDestination(item:)` below).
+    @State private var shownSession: UUID?
 
     var body: some View {
         ScrollView {
@@ -56,7 +58,9 @@ struct WorkoutDetailPage: View {
                 WorkoutStatTiles(stats: board.stats)
                     .padding(.top, StrainLayout.tilesGap)
                 if let row = board.sessionRow, let id = board.workout.sessionId {
-                    NavigationLink(value: TrainRoute.session(id)) { ActivityListRow(content: row, accessory: .chevron) }
+                    // By item, not a value link: from My Day's full screen this page is two view pushes deep on Today's
+                    // stack, where SwiftUI ignores a value link (review S2). The row still reads as a button.
+                    Button { shownSession = id } label: { ActivityListRow(content: row, accessory: .chevron) }
                         .buttonStyle(PressableButtonStyle())
                         .accessibilityHint(Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session."))
                         .accessibilityIdentifier("workout.session")
@@ -78,6 +82,7 @@ struct WorkoutDetailPage: View {
         .background(Theme.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
+        .navigationDestination(item: $shownSession) { SessionDetailView(sessionID: $0) }
     }
 
     /// The zones tile, its outline while the detail loads, or the failure's sentence in its place (as Strain's, §P5-3.7).

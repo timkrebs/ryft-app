@@ -346,3 +346,135 @@ quality line, Behaviors' "90 % interval" and "% 1RM" in Train; Today's `SetupCar
 18, `MetricTile`, `AppState.workoutDetail`) go to the gate PR (T5.9) with an ink `AccentColor` asset as a safety net;
 the leftover `.tint(Theme.accent)` roots in Activities go with PR 6 B; three "band" words outside PR 5 (coach marks,
 "watch, band or ring") to the PR 6 strings pass.
+
+## PR 6 — onboarding, Train and settings in nocturne
+
+One PR from three branches: A (onboarding and sign-in, T6A.*), B (Train, My Day, Activities, the journal card,
+T6B.0–T6B.8) and C (settings, Profile subpages, Journal settings, Bedtime & wake, the import, widgets, C1–C5 and three
+fix rounds). Each branch took in PR 5's final state (M1, M2), then they were combined (M3) with the follow-ups the
+combine left (M3b), the colour lint (M4, T6B.11) and one strings pass (M5). Main merged in at b9cc307 (#128 App Attest)
+and 20c70e7 (#127, PR 5 squashed; its tree equals the PR 5 branch this one already had, so that merge changes nothing).
+
+**Before the combine.** A: code and security review, re-reviews, all fixed. B: one code review per ticket, each with
+its fix round. C: per-ticket reviews, a whole-PR code and security review, three fix rounds (the Demo/account split of
+the journal, Bedtime & wake and Notifications), and a ui-validator pass fixed in 6c9.
+
+**The combine (M1–M3b).**
+- PR 5 into A: only `StatusViews.swift` conflicted; A's Details sheet already did T5.8's changes.
+- PR 5 into B: 12 files, resolved by behaviour; #126's outbox at B's call sites; `presentedRoot()` at B's presenters.
+- A, B and C: About you takes A's rows and C's editor values, with C's missed-save notice under the card; the journal
+  takes B's card and sheet with C's Demo/account split; one `expectNocturneFrame`. `SettingRow`/`SettingRowLabel` go.
+- Decisions: the busy rule (a spinner, the title stays, VoiceOver "In progress") beats C §2.6's gerunds, on about ten
+  buttons and rows; `InlineMessage`'s text retry "Trying again…" stays as designed. "Habits" everywhere (F1). Train
+  history's numbers take the locale they're given (the tests failed on a simulator with a German region).
+
+**Colour lint (M4).** `scripts/check-accent-use.py` in `make lint`: no teal (`Theme.accent`, `Theme.teal`, `.teal`,
+the assets), retired colours or zone palette in Train, My Day, Activities and the journal card; coral only in
+destructive controls; Volt only in its marks, with an allowlist keyed on each mark's expression and use counts, and
+Volt aliases (`FocusedRowInk.mark`, `RulerScale.needleColor`, `RestBar.ringInk`) counted as tokens. Self-test with 191
+checks; each rule shown to fail on a planted violation.
+
+**Strings (M5, M5b).** App catalog +150 / −47, widget +9 / −4, plurals for sessions, days a week, beats, sets; no-break
+spaces before units and %; "usual range" and "level" for band, "tracker" for band, the habit limit reworded. A
+sequential `%#@sets@ of %@` crashed every plan exercise's VoiceOver line (caught by the suites); it takes its arguments
+by position. M5b synced the fix rounds' keys (+4 / −4) and gave both pending-strain lines one verb ("arrives").
+
+**Whole-B review (code-reviewer, bd795ed): 1 B, 3 S, 9 N.**
+
+| # | Finding | Decision |
+|---|---|---|
+| B1 | History, an exercise's page, a session and a plan read the platform directly: offline they showed outlines, no "Offline · as of", for up to 300 s, and didn't reload on reconnect. | Through `ReadScheduler`: offline answers at once with the cached copy or a failed state; reload on reconnect; tests with a suspending remote. |
+| S1 | Those pages and My Day's uncached day failed without Details or a request ID. | `TrainRead` carries the failure; My Day reads its diagnostic. |
+| S2 | "Logged session" on a workout did nothing from Today's stack. | `WorkoutDetailView` pushes the session by item (R2); UI test restored. |
+| S3 | A read cancelled by a push was stored as offline or failed. | No write when cancelled. |
+| N | Dead `LoadChip`; two writers of the session list (30 vs 90 days); histories kept after a finish; History's window on the wall clock; the exercise page's first load said "No data"; a detail model rebuilt per render. | Fixed. |
+| N | Three hand-drawn circle menus; sheets built two ways; the live workout's offline line twice. | T5.9. |
+
+**Combine seams review (code-reviewer, bd795ed): 0 B, 2 S, 7 N.**
+
+| # | Finding | Decision |
+|---|---|---|
+| S1 | The journal sheet guarded its side only in Save: after an account session ended in Demo it read the new side, and Save closed with nothing saved. | `JournalSheetModel.isCurrent` guards every entry and the rebuild after each await; the sheet closes when it flips; test with a held read. |
+| S2 / N1 | The accent lint missed `Theme.teal`, `Color("Teal")`, the zones, `.teal`, `.accentColor`, `UIColor(named:)`; its allowlist was too wide. | Fixed with self-test cases; the allowlist keys on each mark's expression. |
+| N | `JournalStore.time` duplicated `Fmt.time` (wrong on a DST day); the locale missed three views; the late-save branch untested; stale `FormClosing` comments; two online sources in one sheet; a launch test that passed without its tap. | Fixed. |
+
+**Security review (security-privacy-reviewer, bd795ed): 0 B, 1 S, 5 N.**
+
+| # | Finding | Decision |
+|---|---|---|
+| S-1 | Train's reads had no binding check after their await and bypassed `ReadScheduler`: after a sign-out, an account switch or the Demo switch, A's workouts and e1RMs could land in B's caches. | Treated as a blocker. Each read takes its client (source, outbox, binding) before the await and drops a late answer; through `ReadScheduler`, so `reset()` cancels them; tests across a wipe and the Demo switch. |
+| N-1 | Train's cache is shared by Demo and the account (ADR 0019). | `TrainLibrary.demoModeChanged()` clears the lists, histories, catalog and today; a demo Train store is a follow-up (`APP_STORE.md` Demo line marked open). |
+| N-2 | The journal sheet could show the other side's rows. | = seams S1. |
+| N-3 | Invite and consent sent once only because of the view. | `guard !isWorking` in `OnboardingCoordinator.perform`. |
+| N-4 | Copy request ID used `UIPasteboard.general`. | `LocalPasteboard` (local only, 10-minute expiry); a source scan finds no other use. |
+| N-5 | Demo's summary sets the account's Apple Health choice. | Accepted (the write is refused in Demo). |
+
+Closures from earlier PRs (Journal S-1, Bedtime S-2, Notifications S1) hold. No Info.plist, privacy manifest, pbxproj
+or xcconfig change; the only entitlement change is #128's App Attest environment.
+
+**ui-validator (ecca568, iPhone 17 Pro, iOS 27.2, Demo data, default, AX3 and AX5): 0 B, 8 S.**
+
+| # | Finding | Decision |
+|---|---|---|
+| S1 | `PushedHeader` had no layout for AX sizes (design §2.9). | The title stacks under Back from AX1 (V1). |
+| S2 | Start workout and the plate calculator offered `.medium` at AX3. | `.sheetDetents()` / `SheetFrameSpec.detents` (V1). |
+| S3–S5 | The Sport picker's header under the grabber; the plan name truncated; Check sync rows flush at AX3. | Fixed (V1). |
+| S6 | Summaries left a dangling "·" at AX sizes. | `PartsLine`: one part per line from AX1, VoiceOver unchanged (V1, then R3 at the remaining sites). |
+| S7 | Reduce Motion ignored in the live workout, rest timer, Start workout and the habits section. | `Theme.Motion.respecting` everywhere, with a source scan (V2; widened in R4). |
+| S8 | The list workout's rest bar took ~42 % of the AX3 screen. | Ring, time and Skip at AX sizes (~415 → ~80 pt); ±15 s in the rest timer it opens; VoiceOver keeps the adjust actions (V2). |
+| N | Banner glyph column and text links; the invite field's autofocus at AX sizes; a My Day number without its word. | Fixed (V2). |
+| N | Report a problem's floating keyboard Done covers Send; one sheet-header convention; HR ruler labels at AX3; About you's wheel below the fold at AX sizes. | T5.9. |
+
+**Fix rounds.** R1: F-Train (9 commits, 29 mutants), F-Journal (8 commits, 18 mutants), F-Lint. R2: S2 Logged session,
+V1 layout at AX sizes, V2 motion and the rest bar. R3: `PartsLine` at the exercise page, My Day's header, an
+activity's page, About you's and the body settings' source lines, Sleep need and Bedtime & wake rows, Start workout's
+options; the session's loading outline under Back (11 mutants). R4 (after the re-verification below): R4T, Train's
+sides and the read scheduler's reasons (8 commits, 39 mutants); R4O, onboarding and the motion scan (5 commits, 21
+mutants). Every new test was run against its mutant.
+
+**Re-verification (a0bd5c2).** Code: every earlier "fix" finding fixed. Security: S-1, N-2, N-3, N-4 closed. New:
+
+| # | Finding | Decision |
+|---|---|---|
+| Code S1 | A Demo read could join an account read still in flight (`ReadScheduler` joins by key; the late `refresh()` kept going after its binding ended): the account's plans would show as Demo data. | Blocker. `fetch` sends nothing and `refresh()` writes nothing once their binding ends; Train's read keys carry the owner; `isLoading` counts refreshes. Tested through the real scheduler (account read held, reset, Demo refresh). |
+| Sec S-A | Start workout kept the previous account's plan and last workout (`TrainTodayViewModel` lives for the process; on main too, wider since R1). | Blocker. `TrainTodayViewModel.forget()` on every account or side change; the options drop answers after the binding changed; a plan's days show only for the enrolment in use. The sweep did the same for Strain's, Sleep's and My Day's failures and Details. |
+| Code S2 | Onboarding's own-words list lost #128's App Attest sentence (merge collision). | Kept: the invite and consent steps show #128's sentence, Details the request ID. |
+| Sec N-A, code N2 | Train's action error and paused plan outlived the account; two actions wrote after an await unguarded. | Actions take their client first and write only for it; `deletePlan` goes through the same path (now with Details); the wipe and the Demo switch clear the message. |
+| Sec N-B, code N6 | A consent withdrawal during another onboarding request was dropped; onboarding's busy state carried to the next account. | The withdrawal waits for the step in flight, then sends; on an account change it ends unsent. It doesn't skip the guard: an Agree answered after a concurrent withdrawal would reopen the gate. Profile shows a failed withdrawal with Details. Each step's request is bound to its account and turn; a switch clears busy. |
+| Code N1, N4, N5 | The plan page fell back to outlines after a failed load; a held-back read said "Offline" online; My Day's Details from another day. | The plan page keeps its own failure. `ReadScheduler` tells offline from held back: held back online shows the cached copy as "Showing data from …", or "RYFT is busy" with the hold's Details, and Try again goes through. One hold for all Train pages stays (the platform's limits are per user and service). Each failed My Day day keeps its own Details. |
+| Code N3 | The Reduce Motion scan covered three folders and three patterns. | All of `Ryft/` (362 files), six more forms, a stricter "respecting" check, and an allowlist with counts and reasons (12 guarded calls; no real hit). |
+
+**R4 re-checks (145c91a).** Code: 0 B, 0 S, every R4 item fixed, three nits (below, T5.9). Security: S-A, N-A, N-B,
+N-C and code S1 closed. New:
+
+| # | Finding | Decision |
+|---|---|---|
+| Sec N-1 | The invite field kept A's code after a switch, so B could redeem a code A never sent (R4O made a late answer skip the clear). | R5: `switchAccount` clears it when leaving a known account; a link that arrives signed out still fills the next account's field, and a launch link stays for the launch account. |
+| Sec nit | An onboarding failure and its request ID survived the Demo switch (Profile shows it under Privacy). | R5: cleared with the other account-state forgetters. |
+| Sec N-2 | A withdrawal waiting for a step ends without a word on a sign-out or the Demo switch (seconds-long window). | T5.9: a design call (hold the Demo switch and Sign out while a withdrawal is on its way). |
+
+**Integration runs.** At 145c91a (R4 merged): strict build-for-testing with 0 warnings in our code, the whole Unit
+plan (4,669 tests, 7,170 runs with parameters: 0 failed, 4 skipped, 1 expected failure), `make lint`, `make style`,
+`sync-strings --check` and the Release build. R5 on top, with CI's signing flags: strict build 0 warnings, Unit plan
+4,673 passed (0 failed, 4 skipped, 1 expected failure), SignedOut and ProfileSubpages UI tests, Release, lint and
+style. The PR head's code is R5's tree. `AppAttestRequiredTests/fiveConcurrentRefusalsWaitForOneRenewal` (#128) failed
+once under load and passed on the rerun: it checks the server's held count before the renewal's challenge arrives
+(follow-up `test:` PR).
+
+**Main #130 (analytics) merged in at 8c3449e** after the PR opened. Eight conflicts, resolved by keeping PR 6's code and
+adding #130's calls at the same events (`journalSaved` only for the sheet's own side, `.analyticsScreen(.journal)` on the
+sheet's stack, not its placeholder). All 175 analytics lines #130 added are in the merge, same count per file. #130's
+prompt called PR 6 A's replaced `OnboardingScreen`: a private frame in `AnalyticsOptInSheet.swift` keeps its old look, and
+`ConsentPoint` moved there (the onboarding file bans teal). Strict 0 warnings, Unit 4,772 passed (0 failed; #130's 99
+tests included), 20 UI tests, Release, lint, style, `sync-strings --check`.
+
+**Left for later.** The analytics prompt in Nocturne (its frame, buttons and `ConsentPoint`; teal on its symbol vs the
+accent map) with #130's decision B (the prompt as an onboarding step). T5.9: one `CircleMenu`, one sheet assembly and header convention, the live workout's offline line,
+Report a problem's keyboard Done, HR ruler labels at AX3, the remaining ~30 plain-space unit keys, the joined lines
+R3 left (sentence keys), Train's online failure with nothing cached still saying "try again when you're online" (new
+strings), Insights' loaded range surviving a switch (outlines missing until the next load), and the R4 re-check's three
+nits: a plan page's failure also written to the library's shared message (it shows on Plans), My Day's forget without
+a generation (a failed day's Details can flash one frame on the next account's Today), and a failed re-read after
+pause or delete keeping the old list without a word. Security N-2 (above). ADR 0019: a demo Train store (exercise library, plans' details, the paused plan, workouts
+logged with the account). Offline-first: Plans, a plan and a session say nothing offline yet; the journal's answers
+wait for O6. CI: a Release build in PR checks, and the UI smoke near its 25-minute cap.

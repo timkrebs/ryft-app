@@ -16,15 +16,16 @@ struct SleepNeedBreakdownTests {
     @Test func termsAndSentenceComeFromTheAPI() {
         let b = SleepNeedBreakdown(SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 0, total: 538))
         #expect(b.terms.map(\.kind) == [.base, .strain, .debt])   // a zero credit is left out
-        #expect(b.terms.map(\.signed) == ["7h 40m", "+37m", "+41m"])
-        #expect(b.sentence.contains(Fmt.duration(minutes: 538)))
-        #expect(b.sentence.contains("37m") && b.sentence.contains("41m"))
+        // Clocks, as Nocturne's numerals and totals are (PR 6 C §4.12).
+        #expect(b.terms.map(\.signed) == ["7:40", "+0:37", "+0:41"])
+        #expect(b.sentence.contains(Fmt.clock(minutes: 538)))
+        #expect(b.sentence.contains("0:37") && b.sentence.contains("0:41"))
     }
 
     @Test func aNapIsACredit() {
         let b = SleepNeedBreakdown(SleepNeed(base: 460, strain: 0, debt: 12, napCredit: 35, total: 437))
         #expect(b.terms.map(\.kind) == [.base, .debt, .nap])
-        #expect(b.terms.last?.signed == "−35m")
+        #expect(b.terms.last?.signed == "−0:35")
         #expect(b.total == 437)
     }
 }
@@ -168,7 +169,7 @@ struct SleepBaselineTests {
         manual.sleepBaseLearnedMin = 455
         state.user = manual
         #expect(e.sleepBaseSourceText == String(localized: "Set by you · learned \(Fmt.duration(minutes: 455))"))
-        #expect(e.canUseLearnedBase && e.usesLearnedTitle == String(localized: "Use the learned value"))
+        #expect(e.canUseLearnedBase && e.usesLearnedTitle == String(localized: "Use RYFT's estimate"))
         manual.sleepBaseLearnedMin = nil
         state.user = manual
         #expect(e.usesLearnedTitle == String(localized: "Use the default"))
@@ -184,7 +185,9 @@ struct SleepBaselineTests {
 
         let save = Task { await e.setSleepBase(470) }
         #expect(await eventually { e.saving })
-        #expect(e.sleepBase == 470 && e.sleepBaseSource == .manual) // optimistic, while the PATCH is out
+        // While the PATCH is out the editor's page shows it; the saved value (and every other row) stays until it's in.
+        #expect(e.pendingSleepBase == 470 && e.sleepBase == MockData.user.sleepBaseMin && e.sleepBaseSource == .learned)
+        #expect(e.rowValue(.sleepBase, saved: e.sleepBaseText) == String(localized: "Saving…"))
         await gate.open()
         #expect(await save.value)
 
@@ -254,7 +257,8 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failNext = APIError.http(500, "", requestID: "rid-500")
         #expect(!(await e.setSleepBase(500)))
-        #expect(e.error == APIError.http(500, "").localizedDescription)
+        // In words (C3 review): a server error has its own sentence, and RYFT is asked again.
+        #expect(e.error == "RYFT had a problem saving this, so it's back as it was. Try again in a moment.")
         #expect(e.errorDetails?.contains("rid-500") == true)
         #expect(state.refreshIssue == nil)
     }
@@ -278,7 +282,7 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failNext = APIError.http(503, "")
         #expect(!(await e.setBirthYear(1990)))
-        #expect(e.birthYearError == APIError.http(503, "").localizedDescription && e.error == nil)
+        #expect(e.birthYearError == "RYFT had a problem saving this, so it's back as it was. Try again in a moment." && e.error == nil)
         #expect(await e.setBirthYear(1990))
         #expect(e.birthYearError == nil)
     }
@@ -304,8 +308,8 @@ struct SleepBaselineTests {
         let e = editor(state)
         api.failure = APIError.http(500, "", requestID: "rid-rescore")
         await e.rescore()
-        #expect(e.rescoreStatus == APIError.http(500, "").localizedDescription)
-        #expect(e.rescoreDetails?.contains("rid-rescore") == true)
+        #expect(e.rescoreStatus == "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment.")
+        #expect(e.rescoreDetails?.contains("rid-rescore") == true && e.rescoreFailed)
     }
 
     @Test func theMockPlatformKeepsEachChange() async throws {
@@ -459,37 +463,35 @@ struct BedtimeAndWakeTests {
 
     /// T5.8 S4: "In bed by 10:15 PM for 85 % of your need: …" never wraps between the number and its "%".
     @Test("A reminder for part of the need holds the percentage to its sign with a no-break space")
-    func reminderPercentKeepsItsSign() async throws {
-        let (state, clock) = makeState()
+    func reminderPercentKeepsItsSign() throws {
+        let (_, clock) = makeState()
         let cal = berlin
         clock.set(at(2026, 10, 24, 12, calendar: cal))
-        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
         var s = SleepSchedule.default
         s.reminderOn = true
         s.windDownMin = 30
         s.goal = .perform
-        await planner.scheduleReminders(schedule: s, plan: plan(wake: at(2026, 10, 25, 8, calendar: cal)), calendar: cal)
-        let notifier = try #require(state.env.notifier as? MockNotifier)
-        let body = try #require(notifier.requests.first?.content.body)
+        // The planner schedules what `reminders` builds (PR 6 C: its `scheduleReminders` is private).
+        let requests = BedtimePlanner.reminders(schedule: s, plan: plan(wake: at(2026, 10, 25, 8, calendar: cal)),
+                                                now: clock.now(), calendar: cal)
+        let body = try #require(requests.first?.content.body)
         #expect(body.contains("85\u{00A0}% of your need"), "\(body)")
     }
 
     @Test func remindersWindDownBeforeEachNightLocalTimeAcrossTheClockChange() async throws {
-        let (state, clock) = makeState()
+        let (_, clock) = makeState()
         let cal = berlin
         clock.set(at(2026, 10, 24, 12, calendar: cal)) // Saturday noon, before the DST night
-        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
         var s = SleepSchedule.default
         s.reminderOn = true
         s.windDownMin = 30
         let wake = at(2026, 10, 25, 8, calendar: cal)  // Sunday, after the clocks went back
         let p = plan(wake: wake)
-        await planner.scheduleReminders(schedule: s, plan: p, calendar: cal)
+        let requests = BedtimePlanner.reminders(schedule: s, plan: p, now: clock.now(), calendar: cal)
 
-        let notifier = try #require(state.env.notifier as? MockNotifier)
-        let ids = notifier.requests.map(\.identifier)
+        let ids = requests.map(\.identifier)
         #expect(ids.count == BedtimePlanner.nightsAhead && ids.allSatisfy { $0.hasPrefix(BedtimePlanner.reminderPrefix) })
-        let tonight = try #require(notifier.requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
+        let tonight = try #require(requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
         // Wall-clock components in the planning calendar's zone (`nextTriggerDate` would read them
         // in the device's zone).
         let fire = try #require((tonight.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
@@ -498,15 +500,14 @@ struct BedtimeAndWakeTests {
         #expect(tonight.content.categoryIdentifier == PushCategories.bedtime)
         #expect(tonight.content.body.contains(Fmt.time(p.bedtime100)))
         // Monday's (estimated from tonight's time in bed) wakes at the weekday time.
-        let monday = try #require(notifier.requests.first { $0.identifier == "bedtime.2026-10-26" })
+        let monday = try #require(requests.first { $0.identifier == "bedtime.2026-10-26" })
         let mondayFire = try #require((monday.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
         let mondayBed = at(2026, 10, 26, 6, 30, calendar: cal).addingTimeInterval(-Double(p.inBedMin) * 60 - 30 * 60)
         #expect(mondayFire.hour == cal.component(.hour, from: mondayBed) && mondayFire.minute == cal.component(.minute, from: mondayBed))
 
-        // Off: none left.
+        // Off: none.
         s.reminderOn = false
-        await planner.scheduleReminders(schedule: s, plan: p, calendar: cal)
-        #expect(notifier.requests.isEmpty)
+        #expect(BedtimePlanner.reminders(schedule: s, plan: p, now: clock.now(), calendar: cal).isEmpty)
     }
 
     @Test func aBedtimeThatMovesLessThanTenMinutesKeepsItsReminders() async throws {

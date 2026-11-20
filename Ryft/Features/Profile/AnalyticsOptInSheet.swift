@@ -7,9 +7,9 @@ struct AnalyticsOptInSheet: View {
     let answer: (Bool) -> Void
 
     var body: some View {
-        OnboardingScreen(symbol: "chart.bar",
-                         title: "Share usage analytics?",
-                         text: "This is separate from your health-data consent. It stays off unless you say yes.") {
+        AnalyticsPromptFrame(symbol: "chart.bar",
+                             title: "Share usage analytics?",
+                             text: "This is separate from your health-data consent. It stays off unless you say yes.") {
             VStack(alignment: .leading, spacing: 14) {
                 ConsentPoint(symbol: "square.grid.2x2",
                              text: "Which screens and features are used, onboarding progress, and errors shown, with their status codes.",
@@ -35,6 +35,68 @@ struct AnalyticsOptInSheet: View {
                     .accessibilityIdentifier("analytics.decline")
             }
         }
+    }
+}
+
+/// The prompt's page as it was drawn before PR 6 A restyled `OnboardingScreen` (the accent symbol, the title, the text,
+/// then the content, 20 pt apart). The prompt keeps that look until the gate PR gives it its Nocturne one.
+private struct AnalyticsPromptFrame<Content: View>: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    let text: LocalizedStringKey
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Image(systemName: symbol)
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.top, 36)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.ryft(.title))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(text)
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                content()
+            }
+            .padding(.horizontal, Theme.Metrics.screenPadding + 4)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 480, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background.ignoresSafeArea())
+    }
+}
+
+/// One point of the prompt's summary: a symbol, an optional headline, the text. The consent step's points are
+/// `OnboardingPoint` since PR 6 A; this one stays as the prompt had it until the gate PR.
+struct ConsentPoint: View {
+    let symbol: String
+    var title: LocalizedStringKey?
+    let text: LocalizedStringKey
+    /// The symbol's colour (the prompt passes `Theme.textSecondary`: the accent is for its own symbol only).
+    var symbolColor: Color = Theme.accent
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(symbolColor)
+                .frame(width: 28)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                if let title { Text(title).font(.ryft(.headline)).foregroundStyle(Theme.textPrimary) }
+                Text(text).font(.ryft(.callout)).foregroundStyle(title == nil ? Theme.textPrimary : Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

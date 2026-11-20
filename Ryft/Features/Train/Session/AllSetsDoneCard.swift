@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The end of the list once every set is checked off (ui.md §5): "All sets done", what was done, and Finish, which
-/// opens the same confirmation as the header's Finish. Content, not a modal: it goes when a set is unchecked or an
-/// exercise is added.
+/// The end of the list once every set is checked off (ui.md §5, PR 6 B §4.2 row 9, `b-08`): "All sets done", what was done, and
+/// Finish, which opens the same confirmation as the header's Finish. The header's Finish fills at the same moment: two primaries
+/// on the page then, intended. Content, not a modal: it goes when a set is unchecked or an exercise is added.
 struct AllSetsDoneCard: View {
     let exercises: Int
     let sets: Int
@@ -22,11 +22,9 @@ struct AllSetsDoneCard: View {
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
                 }
-                Button(action: onFinish) {
-                    Text("Finish workout")
-                }
-                .buttonStyle(TealButtonStyle(prominent: true))
-                .accessibilityIdentifier("session.allDone.finish")
+                // It wraps to three lines at the largest sizes and grows with them (PillButton P2-D6).
+                PillButton(Text("Finish workout"), systemImage: PillButton.Icon.confirm, action: onFinish)
+                    .accessibilityIdentifier("session.allDone.finish")
             }
         }
         .accessibilityElement(children: .contain)
@@ -35,13 +33,13 @@ struct AllSetsDoneCard: View {
 }
 
 #Preview("All sets done", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         AllSetsDoneCard(exercises: 5, sets: 17, onFinish: {})
     }
 }
 
 #Preview("All sets done · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         AllSetsDoneCard(exercises: 5, sets: 17, onFinish: {})
     }
     .dynamicTypeSize(.accessibility3)

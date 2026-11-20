@@ -121,7 +121,8 @@ jobs:
       # to start ("Existing file at -resultBundlePath").
       - name: Unit tests
         if: env.FULL != 'true'
-        timeout-minutes: 15
+        # 25: Nocturne PR 6's hosted accessibility tests took the plan to ~15 min on this runner (main ~10).
+        timeout-minutes: 25
         # TestPlans/Unit: parallel, random order, 60 s per test, coverage of Ryft.
         # No diagnostics collection: after a failure it waited 600 s on the simulator.
         run: |

@@ -2,9 +2,33 @@ import SwiftUI
 
 // MARK: - report a problem
 
-/// Profile → About → Report a problem (ui.md §5): a message, what it's about, and diagnostics that help find
-/// the cause, never a health value. Pushed from Profile, or from an error's Details (`context`), pre-filled.
-/// `sent` and `queued` replace the form; a refusal shows on it, with the message kept.
+/// Report a problem's numbers (Nocturne, PR 6 C §4.3; plain values, so tests assert numbers).
+enum ReportProblemLayout {
+    /// The message's text area: room for 4 lines at every size, so the field card is about 132 with its label at the
+    /// default size (C §2.5) and the prompt is never cut off; it grows with what's typed.
+    nonisolated static let messageLines = 4
+    /// The counter inside the card, under the text: 12 above the card's bottom edge.
+    nonisolated static let counterBottom: CGFloat = 12
+    /// "What's included": 6 between its lines, 4 more above the health sentence, 14 under the last line.
+    nonisolated static let includedSpacing: CGFloat = 6, includedSentenceGap: CGFloat = 4, includedBottom: CGFloat = 14
+    /// The context chip: a capsule, 8 above and below the text, 14 at the sides.
+    nonisolated static let chipVertical: CGFloat = 8, chipHorizontal: CGFloat = 14
+    /// Sent and queued replace the form: 56 under the header (the scaffold's 22, then 34), a 72 pt circle with a 24 pt glyph,
+    /// 22 to the headline (20 pt Light), 22 to Done.
+    nonisolated static let outcomeTop: CGFloat = 34
+    nonisolated static let outcomeCircle: CGFloat = 72, outcomeGlyph: CGFloat = 24, outcomeGap: CGFloat = 22
+    nonisolated static let headlineSize: CGFloat = 20
+}
+
+/// Profile → About → Report a problem (ui.md §5; Nocturne, PR 6 C §4.3): the message, what it's about, and diagnostics that
+/// help find the cause, never a health value. Pushed from Profile, or from an error's Details (`context`), pre-filled.
+///
+/// - The frame is `SubpageScaffold`; Send is the pinned primary (the pill's spinner while it goes, the title stays), with
+///   "Reports are limited to 10 a day." under it. At the accessibility sizes that line (and the caption that says why Send
+///   waits) ends the page instead, so the bar keeps only the pill and the page its room (C §2.9).
+/// - A refusal shows above the form as a notice, with the message kept and "Copy message".
+/// - `sent` and `queued` replace the form and the bar: a ring with a checkmark or a clock, the headline (VoiceOver goes to
+///   it), Done. Queued says it is saved on this iPhone and goes out once online: it never claims to have been sent.
 struct ReportProblemView: View {
     let model: ReportProblemModel
     var context: ReportContext?
@@ -13,30 +37,31 @@ struct ReportProblemView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @FocusState private var editing: Bool
     @AccessibilityFocusState private var outcomeFocused: Bool
-    @State private var included = false
+    @State private var includedOpen = false
     @State private var prepared = false
+    @ScaledMetric(relativeTo: .title3) private var headlineSize: CGFloat = ReportProblemLayout.headlineSize
+    /// The disclosure's chevron grows with its title, as a row's accessories do.
+    @ScaledMetric(relativeTo: .callout) private var chevronScale: CGFloat = 1
+
+    private var showsOutcome: Bool { model.result == .sent || model.result == .queued }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                switch model.result {
-                case .sent?, .queued?:
+        SubpageScaffold(Text("Report a problem")) {
+            Group {
+                if showsOutcome {
                     outcome.transition(.opacity)
-                default:
+                } else {
                     form.transition(.opacity)
                 }
             }
-            .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.vertical, 16)
             .animation(Theme.Motion.respecting(reduceMotion), value: model.result)
         }
-        .scrollDismissesKeyboard(.interactively)
-        .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text("Report a problem"))
-        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !showsOutcome { sendBar }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -47,35 +72,70 @@ struct ReportProblemView: View {
         .onAppear {
             guard !prepared else { return }
             prepared = true
-            included = showsIncluded
+            includedOpen = showsIncluded
             // No keyboard on arrival: from Details the message is written already, and the keyboard would
             // cover what's attached.
             model.prepare(context)
         }
-        .onChange(of: model.includeDiagnostics) { _, on in if !on { included = false } }
+        .onChange(of: model.includeDiagnostics) { _, on in if !on { includedOpen = false } }
         .analyticsScreen(.reportProblem)
     }
 
     // MARK: compose
 
-    @ViewBuilder private var form: some View {
-        // The request ID shows only while it's attached.
-        if let context = model.context { ReportContextChip(context: context, showsRequestID: model.includeDiagnostics) }
-        notice
-        Group {
-            ProfileSection(title: "Message") { message }
-            ProfileSection(title: "Category") { categories }
-            ProfileSection(title: "Diagnostics") { diagnostics }
+    private var form: some View {
+        VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+            // The request ID shows only while it's attached.
+            if let context = model.context { ReportContextChip(context: context, showsRequestID: model.includeDiagnostics) }
+            notice
+            Group {
+                message
+                categories
+                diagnostics
+            }
+            .disabled(model.sending)
+            if typeSize.isAccessibilitySize { barLines }
         }
-        .disabled(model.sending)
-        VStack(alignment: .leading, spacing: 8) {
-            PrimaryButton(title: model.sending ? "Sending…" : "Send") { await model.send() }
-                .disabled(!model.canSend)
-                .accessibilityIdentifier("report.send")
-            Text("Reports are limited to 10 a day.")
+    }
+
+    /// The pinned bar's caption (why Send waits) and footnote; at the accessibility sizes they end the page instead.
+    private var sendCaption: Text? {
+        model.result == .rateLimited
+            ? Text("You can send again tomorrow.",
+                   comment: "Report a problem: the pinned bar's caption while today's 10 reports are used up.")
+            : nil
+    }
+
+    private static var sendFootnote: Text { Text("Reports are limited to 10 a day.") }
+
+    /// The bar's lines at the end of the page (accessibility sizes): the caption, then the footnote, flush left.
+    private var barLines: some View {
+        VStack(alignment: .leading, spacing: PinnedBarSpec.spacing) {
+            if let sendCaption {
+                sendCaption
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Self.sendFootnote
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Send, pinned: busy while it goes (the pill keeps its size and its title), disabled without a message, over the
+    /// limit and after today's tenth report (the caption then says why; from AX1 at the page's end, with the footnote).
+    private var sendBar: some View {
+        let inBar = !typeSize.isAccessibilitySize
+        return PinnedActionBar(caption: inBar ? sendCaption : nil, footnote: inBar ? Self.sendFootnote : nil) {
+            PillButton(Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
+                editing = false
+                await model.send()
+            }
+            .disabled(!model.canSend && !model.sending)
+            .accessibilityIdentifier("report.send")
         }
     }
 
@@ -83,89 +143,80 @@ struct ReportProblemView: View {
     @ViewBuilder private var notice: some View {
         switch model.result {
         case .rateLimited?:
-            InlineMessage(message: String(localized: "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow."),
-                          systemImage: "clock", retryTitle: "Copy message", details: model.resultDetails) {
-                model.copyMessage()
-            }
-            .accessibilityIdentifier("report.rateLimited")
+            refusal(String(localized: "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow."),
+                    systemImage: "clock", caption: model.resultDetails)
+                .accessibilityIdentifier("report.rateLimited")
         case .rejected?:
-            InlineMessage(message: String(localized: "RYFT couldn't take this report. Copy your message and try again later."),
-                          systemImage: "exclamationmark.circle", retryTitle: "Copy message",
-                          details: model.resultDetails) {
-                model.copyMessage()
-            }
+            refusal(String(localized: "RYFT couldn't take this report. Copy your message and try again later."),
+                    systemImage: "exclamationmark.circle", caption: model.resultDetails)
         case .saveFailed?:
-            InlineMessage(message: String(localized: "Couldn't save your report. Copy it and try again later."),
-                          systemImage: "exclamationmark.circle", retryTitle: "Copy message") {
-                model.copyMessage()
-            }
+            refusal(String(localized: "Couldn't save your report. Copy it and try again later."), systemImage: "exclamationmark.circle")
         case .signedOut?:
-            InlineMessage(message: String(localized: "You're signed out, so this report can't be sent. Your message is kept."),
-                          systemImage: "person.crop.circle.badge.exclamationmark", retryTitle: "Copy message") {
-                model.copyMessage()
-            }
-            .accessibilityIdentifier("report.signedOut")
+            refusal(String(localized: "You're signed out, so this report can't be sent. Your message is kept."),
+                    systemImage: "person.crop.circle.badge.exclamationmark")
+                .accessibilityIdentifier("report.signedOut")
         default:
             EmptyView()
         }
     }
 
+    /// A refusal: the sentence, the status and request ID as its caption (selectable, for support), and "Copy message".
+    private func refusal(_ sentence: String, systemImage: String, caption: String? = nil) -> some View {
+        InlineMessage(message: sentence, systemImage: systemImage, caption: caption, identifier: "report.notice",
+                      action: (String(localized: "Copy message"), { model.copyMessage() }))
+            .textSelection(.enabled)
+            .accessibilityElement(children: .contain)
+    }
+
+    /// The message: a field card (its label "Message" inside, the focus bar at its edge), the counter under the text once it
+    /// nears the limit, and the privacy hint as the footer; over the limit the footer says so first, in words. The field
+    /// keeps 4 lines' room at every size, so its prompt shows whole and a tap anywhere in it edits.
     private var message: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("", text: Bindable(model).message,
-                      prompt: Text("What happened? What did you expect?").foregroundStyle(Theme.textSecondary),
-                      axis: .vertical)
-                .lineLimit(6...)
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
+        GroupedCard(footer: messageFooter) {
+            FormField(Text("Message"), isFocused: editing) {
+                TextField(text: Bindable(model).message,
+                          prompt: Text("What happened? What did you expect?").fieldPrompt(),
+                          axis: .vertical) {
+                    Text("Message")
+                }
+                // A vertical field with a range keeps its lower bound's room (`reservesSpace` takes only a fixed limit).
+                .lineLimit(ReportProblemLayout.messageLines...)
                 .focused($editing)
-                .padding(12)
-                .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
-                .background(Theme.surfaceRaised,
-                            in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-                .accessibilityLabel(Text("Message"))
+                .frame(maxWidth: .infinity, alignment: .topLeading)
                 .accessibilityIdentifier("report.message")
-            if model.showsCount {
-                Text("\(model.length) / 4000")
-                    .font(.ryft(.caption))
-                    .monospacedDigit()
-                    .foregroundStyle(model.isTooLong ? Theme.warning : Theme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            Text("Please don't type health values you'd rather keep private.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            if model.showsCount { counter }
         }
     }
 
-    /// One choice: a check in Teal on the chosen row, "selected" for VoiceOver.
+    private var messageFooter: Text {
+        model.isTooLong
+            ? Text("Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private.",
+                   comment: "Report a problem: the message card's footer while the message is over 4,000 characters.")
+            : Text("Please don't type health values you'd rather keep private.")
+    }
+
+    /// "3812 / 4000" at the card's bottom right; over the limit in `warning`, and VoiceOver adds "Over the limit".
+    private var counter: some View {
+        Text("\(model.length) / 4000")
+            .font(.ryft(.caption))
+            .monospacedDigit()
+            .foregroundStyle(model.isTooLong ? Theme.warning : Theme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .padding(.bottom, ReportProblemLayout.counterBottom)
+            .accessibilityValue(model.isTooLong ? Text("Over the limit") : Text(verbatim: ""))
+            .accessibilityIdentifier("report.count")
+    }
+
+    /// One choice: the checkmark on the chosen row, "selected" for VoiceOver.
     private var categories: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(FeedbackCategory.allCases.enumerated()), id: \.element) { index, category in
-                if index > 0 { Divider().overlay(Theme.separator) }
-                let chosen = model.category == category
-                Button {
+        GroupedCard(Text("Category")) {
+            ForEach(FeedbackCategory.allCases, id: \.self) { category in
+                GroupedRow.select(Text(Self.title(category)), isSelected: model.category == category,
+                                  identifier: "report.category.\(category.rawValue)") {
                     model.category = category
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(Self.title(category))
-                            .font(.ryft(.body))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 8)
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Theme.accent)
-                            .opacity(chosen ? 1 : 0)
-                            .accessibilityHidden(true)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(chosen ? .isSelected : [])
-                .accessibilityIdentifier("report.category.\(category.rawValue)")
             }
         }
     }
@@ -179,52 +230,63 @@ struct ReportProblemView: View {
         }
     }
 
+    /// The switch, and while it's on "What's included" inside the same card: a row that opens the list under it (the chevron
+    /// points down, then up; VoiceOver says "Collapsed" or "Expanded"). While it's off the footer says nothing else goes along.
     private var diagnostics: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: Bindable(model).includeDiagnostics) {
-                Text("Include diagnostics")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-            }
-            .tint(Theme.accent)
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("report.diagnostics")
+        GroupedCard(Text("Diagnostics"),
+                    footer: model.includeDiagnostics ? nil : Text("Nothing is attached except your message.")) {
+            GroupedRow.toggle(Text("Include diagnostics"), identifier: "report.diagnostics",
+                              isOn: Bindable(model).includeDiagnostics)
             if model.includeDiagnostics {
-                DisclosureGroup(isExpanded: $included) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(included(about: model.context != nil), id: \.self) { item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(verbatim: "•").accessibilityHidden(true)
-                                Text(item).fixedSize(horizontal: false, vertical: true)
-                            }
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                            .accessibilityElement(children: .combine)
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(Theme.Motion.respecting(reduceMotion)) { includedOpen.toggle() }
+                    } label: {
+                        HStack(spacing: GroupedListSpec.rowSpacing) {
+                            Text("What's included")
+                                .font(.ryft(.callout))
+                                .foregroundStyle(Theme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: includedOpen ? "chevron.up" : "chevron.down")
+                                .font(.system(size: GroupedListSpec.chevronSize * chevronScale, weight: .semibold))
+                                .foregroundStyle(Theme.textPrimary.opacity(GroupedListSpec.accessoryOpacity))
+                                .accessibilityHidden(true)
                         }
-                        Text("No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health.")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 4)
+                        .padding(.vertical, GroupedListSpec.textPadding)
+                        .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 8)
-                } label: {
-                    Text("What's included")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                        .frame(minHeight: 44)
+                    .buttonStyle(.plain)
+                    .accessibilityValue(includedOpen ? Text("Expanded") : Text("Collapsed"))
+                    .accessibilityIdentifier("report.included")
+                    if includedOpen { includedList }
                 }
-                // Like Sleep's "Why this need": the system disclosure keeps VoiceOver's expanded state.
-                .tint(Theme.textSecondary)
-                .accessibilityIdentifier("report.included")
-            } else {
-                Text("Nothing is attached except your message.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .groupedRowHairline()
             }
         }
+    }
+
+    private var includedList: some View {
+        VStack(alignment: .leading, spacing: ReportProblemLayout.includedSpacing) {
+            ForEach(included(about: model.context != nil), id: \.self) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "•").accessibilityHidden(true)
+                    Text(item).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityElement(children: .combine)
+            }
+            Text("No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, ReportProblemLayout.includedSentenceGap)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, ReportProblemLayout.includedBottom)
     }
 
     /// "What's included": exactly what `FeedbackPayload` sends, in its order.
@@ -259,29 +321,34 @@ struct ReportProblemView: View {
         case (true, true): "Sent in demo mode: nothing reached RYFT."
         case (false, _): "Saved. It will be sent as soon as you're back online. You can close the app."
         }
-        return VStack(spacing: 18) {
-            Image(systemName: sent ? "checkmark.circle" : "clock")
-                .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(sent ? Theme.accent : Theme.textSecondary)
+        return VStack(spacing: ReportProblemLayout.outcomeGap) {
+            Image(systemName: sent ? "checkmark" : "clock")
+                .font(.system(size: ReportProblemLayout.outcomeGlyph, weight: .light))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: ReportProblemLayout.outcomeCircle, height: ReportProblemLayout.outcomeCircle)
+                .overlay {
+                    Circle().strokeBorder(Theme.textPrimary.opacity(IconDisc.ringOpacity), lineWidth: IconDisc.ringWidth)
+                }
                 .accessibilityHidden(true)
             Text(headline)
-                .font(.ryft(.headline))
+                .font(.ryftNumber(size: headlineSize, weight: .light))
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($outcomeFocused)
                 .accessibilityIdentifier(sent ? "report.sent" : "report.queued")
-            PrimaryButton(title: "Done", style: .secondary) { dismiss() }
+            PillButton(Text("Done"), style: .secondary) { dismiss() }
                 .accessibilityIdentifier("report.done")
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 40)
+        .padding(.top, ReportProblemLayout.outcomeTop)
         .onAppear { outcomeFocused = true }
     }
 }
 
-/// "About: Today · 503 · request 01a14ffa…" above a report from Details; VoiceOver reads the whole ID.
+/// "About: Today · 503 · request 01a14ffa…" above a report from Details, as a capsule on `surface`; VoiceOver reads the whole
+/// ID.
 private struct ReportContextChip: View {
     let context: ReportContext
     /// Off with "Include diagnostics": the ID isn't sent then.
@@ -295,12 +362,9 @@ private struct ReportContextChip: View {
             .monospacedDigit()
             .foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(Theme.surfaceRaised,
-                        in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-                .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+            .padding(.horizontal, ReportProblemLayout.chipHorizontal)
+            .padding(.vertical, ReportProblemLayout.chipVertical)
+            .background(Theme.surface, in: Capsule())
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text(requestID))
             .accessibilityIdentifier("report.context")
@@ -327,49 +391,43 @@ extension ReportContext {
     }
 }
 
-/// One state of Report a problem on mock data (previews).
+// MARK: - previews (dark only)
+
+/// One state of Report a problem on mock data, pushed as Profile pushes it.
 @MainActor
-private func reportPreview(de: Bool = false, size: DynamicTypeSize = .large,
-                           context: ReportContext? = nil, showsIncluded: Bool = false,
+private func reportPreview(size: DynamicTypeSize = .large, context: ReportContext? = nil, showsIncluded: Bool = false,
                            stage: (ReportProblemModel) -> Void = { _ in }) -> some View {
     let state = AppState.preview()
     let model = ReportProblemModel(env: state.env, apiStatus: APIStatus()) { FeedbackSync() }
     stage(model)
     return NavigationStack { ReportProblemView(model: model, context: context, showsIncluded: showsIncluded) }
         .previewEnvironment(state)
-        .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+        .toggleStyle(.ryft)
         .dynamicTypeSize(size)
 }
 
-private let previewMessage = "Today said calibrating after a full week of nights, and pulling to refresh didn't change it."
+private let previewMessage = "Today shows 'Updating…' for hours and my Garmin night never arrives."
 
-#Preview("Report · empty · dark") { reportPreview() }
-#Preview("Report · empty · dark · de") { reportPreview(de: true) }
-#Preview("Report · empty · AX3") { reportPreview(size: .accessibility3) }
-#Preview("Report · filled · dark") { reportPreview { $0.stage(message: previewMessage, category: .data) } }
-#Preview("Report · from Details · dark") { reportPreview(context: .preview) }
-#Preview("Report · from Details · de") { reportPreview(de: true, context: .preview) }
-#Preview("Report · diagnostics off · dark") {
-    reportPreview { $0.stage(message: previewMessage, includeDiagnostics: false) }
-}
-#Preview("Report · disclosure open · dark") { reportPreview(showsIncluded: true) }
-#Preview("Report · disclosure open · AX3") { reportPreview(size: .accessibility3, showsIncluded: true) }
-#Preview("Report · sending · dark") { reportPreview { $0.stage(message: previewMessage, sending: true) } }
-#Preview("Report · sent · dark") { reportPreview { $0.stage(result: .sent) } }
-#Preview("Report · sent · AX3") { reportPreview(size: .accessibility3) { $0.stage(result: .sent) } }
-#Preview("Report · sent · demo · dark") { reportPreview { $0.stage(result: .sent, demo: true) } }
-#Preview("Report · sent · demo · de") { reportPreview(de: true) { $0.stage(result: .sent, demo: true) } }
-#Preview("Report · queued · dark") { reportPreview { $0.stage(result: .queued, waiting: 1) } }
-#Preview("Report · rate limited · dark") {
-    reportPreview { $0.stage(message: previewMessage, result: .rateLimited) }
-}
-#Preview("Report · signed out · dark") {
-    reportPreview { $0.stage(message: previewMessage, result: .signedOut) }
+#Preview("Report · empty") { reportPreview() }
+#Preview("Report · filled") { reportPreview { $0.stage(message: previewMessage, category: .data, includeDiagnostics: false) } }
+#Preview("Report · from Details, what's included") {
+    reportPreview(context: .preview, showsIncluded: true) {
+        $0.stage(message: previewMessage, category: .data, context: .preview)
+    }
 }
 #Preview("Report · from Details · diagnostics off") {
     reportPreview { $0.stage(message: ReportProblemModel.prefill(.preview), category: .bug, includeDiagnostics: false,
                              context: .preview) }
 }
-#Preview("Report · over limit · dark") {
+#Preview("Report · sending") { reportPreview { $0.stage(message: previewMessage, category: .data, sending: true) } }
+#Preview("Report · rate limited") { reportPreview { $0.stage(message: previewMessage, category: .data, result: .rateLimited) } }
+#Preview("Report · signed out") { reportPreview { $0.stage(message: previewMessage, result: .signedOut) } }
+#Preview("Report · over the limit") {
     reportPreview { $0.stage(message: String(repeating: "The tiles and the gauge disagree. ", count: 120)) }
 }
+#Preview("Report · sent") { reportPreview { $0.stage(result: .sent) } }
+#Preview("Report · sent · demo") { reportPreview { $0.stage(result: .sent, demo: true) } }
+#Preview("Report · queued") { reportPreview { $0.stage(result: .queued, waiting: 1) } }
+#Preview("Report · AX3") { reportPreview(size: .accessibility3) { $0.stage(message: previewMessage, category: .data) } }
+#Preview("Report · what's included · AX3") { reportPreview(size: .accessibility3, showsIncluded: true) }
+#Preview("Report · queued · AX3") { reportPreview(size: .accessibility3) { $0.stage(result: .queued, waiting: 1) } }

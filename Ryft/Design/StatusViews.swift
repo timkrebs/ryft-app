@@ -42,22 +42,28 @@ enum InlineMessageSpec {
     static let horizontalPadding: CGFloat = 16
     /// Under the text when there are no buttons; with buttons their 44 pt targets leave room under their labels, so 2.
     static let bottomPadding: CGFloat = 14, bottomPaddingUnderButtons: CGFloat = 2
-    /// The glyph: 16 pt at the default size, growing with the sentence; 12 to the text.
-    static let glyphSize: CGFloat = 16
-    static let glyphGap: CGFloat = 12
+    /// The glyph: 16 pt at the default size, growing with the sentence, centred in a 24 pt column (the widest glyph a banner
+    /// uses, `dumbbell` or `bed.double`), so the sentences of stacked banners start on one line; 12 to the text. At the
+    /// accessibility sizes it goes above the sentence, leading in its column, 6 over it, and the sentence takes the card's
+    /// width (C §2.9).
+    static let glyphSize: CGFloat = 16, glyphColumn: CGFloat = 24
+    static let glyphGap: CGFloat = 12, glyphGapAbove: CGFloat = 6
     /// The sentence → its caption, and the text → the buttons' row.
     static let captionGap: CGFloat = 4
     static let buttonsGap: CGFloat = 6
     /// Between two text buttons in a row.
     static let buttonSpacing: CGFloat = 18
+    /// "Try again" and a plain action are C §2.6 text links: underlined in ink at 35 %, the cue that tells them from the
+    /// sentence ("Details", in `textSecondary`, is told by its ink).
+    static let linkUnderlineOpacity = 0.35
 }
 
 /// Calm inline message for routine failures and notices — never a bare alert, never coral for a failure (Nocturne, PR 6
 /// A G6): an opaque `surface` card, radius 22; a 16 pt glyph and the sentence in `textPrimary`; a caption in
 /// `textSecondary` (tabular digits); text buttons under it from the card's leading edge, 18 apart, each at least 44 × 44:
-/// "Try again" 16 Medium in ink, "Details" 15 in `textSecondary`, a plain `action` 16 Medium in ink. They go in a row while
-/// they fit, one under the other otherwise and at accessibility sizes. While `retry` runs, "Trying again…" (or
-/// `retryingTitle`) in `textSecondary`, never a spinner.
+/// "Try again" and a plain `action` are C §2.6 text links (16 Medium in ink, underlined at 35 %), "Details" 15 in
+/// `textSecondary`. They go in a row while they fit, one under the other otherwise and at accessibility sizes. While `retry`
+/// runs, "Trying again…" (or `retryingTitle`) in `textSecondary`, never a spinner.
 ///
 /// Severity is the glyph and the words: `.neutral` (the default) draws the glyph in ink; `.attention` in `warning`, only
 /// where the user has something to fix; `.destructive` in `alert`, only for a destructive outcome. The sentence says it.
@@ -111,8 +117,9 @@ struct InlineMessage: View {
     /// The sentence last announced: a banner that scrolls out and back in isn't announced again.
     @State private var announced: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// 16 pt at the default size, growing with the message's callout text.
+    /// 16 pt at the default size, growing with the message's callout text; its column too.
     @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = InlineMessageSpec.glyphSize
+    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = InlineMessageSpec.glyphColumn
 
     private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil || action != nil }
     private var isBusy: Bool { retrying || isRetrying }
@@ -146,10 +153,14 @@ struct InlineMessage: View {
     }
 
     @ViewBuilder private var sentence: some View {
-        let row = HStack(alignment: .top, spacing: InlineMessageSpec.glyphGap) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: InlineMessageSpec.glyphGapAbove))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: InlineMessageSpec.glyphGap))
+        let row = layout {
             Image(systemName: systemImage)
                 .font(.system(size: iconSize, weight: .regular))
                 .foregroundStyle(severity.glyphColor)
+                .frame(width: iconColumn, alignment: typeSize.isAccessibilitySize ? .leading : .center)
                 .padding(.top, 1)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: InlineMessageSpec.captionGap) {
@@ -165,8 +176,8 @@ struct InlineMessage: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         if readsAsOne {
             row.accessibilityElement(children: .combine)
         } else {
@@ -199,7 +210,7 @@ struct InlineMessage: View {
                     if isBusy {
                         Text(retryingTitle ?? "Trying again…").foregroundStyle(Theme.textSecondary)
                     } else {
-                        Text(retryTitle).foregroundStyle(Theme.textPrimary)
+                        Text(retryTitle).foregroundStyle(Theme.textPrimary).modifier(InlineMessageLink())
                     }
                 }
                 .font(.ryft(.button))
@@ -213,6 +224,7 @@ struct InlineMessage: View {
                 Text(verbatim: action.title)
                     .font(.ryft(.button))
                     .foregroundStyle(Theme.textPrimary)
+                    .modifier(InlineMessageLink())
             }
             .modifier(TextButtonFrame(stacked: stacked))
             .accessibilityIdentifier("\(identifier).action")
@@ -237,6 +249,13 @@ struct InlineMessage: View {
         var text = AttributedString(message)
         text.accessibilitySpeechAnnouncementPriority = .low
         AccessibilityNotification.Announcement(text).post()
+    }
+}
+
+/// C §2.6's text link on a banner's ink action: underlined in ink at 35 %.
+private struct InlineMessageLink: ViewModifier {
+    func body(content: Content) -> some View {
+        content.underline(true, pattern: .solid, color: Theme.textPrimary.opacity(InlineMessageSpec.linkUnderlineOpacity))
     }
 }
 
@@ -613,11 +632,12 @@ extension RefreshIssue {
 }
 
 /// The error card's Details (ui.md §3.4): what failed, status, code, request ID, time, data age,
-/// failures in a row; "Send to RYFT" (when Report a problem is wired) and "Copy details".
+/// failures in a row; "Send to RYFT" (when Report a problem is wired) and "Copy details". Nocturne (PR 6 A §A-16): the
+/// sheet's own header (the title, "Done" as the close circle), the facts as a grouped card, the two pills pinned so they are
+/// reachable at the opening (medium) detent, the caption under them.
 struct RefreshDetailsSheet: View {
     let issue: RefreshIssue
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.reportProblemDestination) private var reportProblem
     @Environment(\.locale) private var locale
     @State private var copied = false
@@ -626,73 +646,40 @@ struct RefreshDetailsSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: Theme.Metrics.sectionSpacing) {
-                    Card {
-                        VStack(alignment: .leading, spacing: 14) {
-                            DetailRow(title: "What failed", value: issue.resourceName)
-                            DetailRow(title: "HTTP status", value: issue.statusText ?? "—",
-                                      detail: issue.statusText == nil ? String(localized: "No response") : nil)
-                            DetailRow(title: "Code", value: issue.error.code ?? "—", monospaced: true)
-                            RequestIDRow(requestID: issue.error.requestID, answered: issue.error.status != nil)
-                            DetailRow(title: "Time", value: Self.time(issue.error.at, locale: locale))
-                            DetailRow(title: "Showing data from",
-                                      value: issue.dataFrom.map { Self.time($0, locale: locale) } ?? "—")
-                            DetailRow(title: "Failed in a row", value: issue.failures.formatted())
-                        }
-                    }
+            SubpageScaffold(Text("Details"), navigation: .close(label: Text("Done")), isSheet: true) {
+                GroupedCard {
+                    GroupedRow.value(Text("What failed"), value: Text(verbatim: issue.resourceName))
+                    GroupedRow.value(Text("HTTP status"), value: Text(verbatim: issue.statusText ?? "—"),
+                                     detail: issue.statusText == nil ? Text("No response") : nil)
+                    GroupedRow.value(Text("Code"), value: Text(verbatim: issue.error.code ?? "—").monospaced())
+                    RequestIDRow(requestID: issue.error.requestID, answered: issue.error.status != nil)
+                    GroupedRow.value(Text("Time"), value: Text(verbatim: Self.time(issue.error.at, locale: locale)))
+                    GroupedRow.value(Text("Showing data from"),
+                                     value: Text(verbatim: issue.dataFrom.map { Self.time($0, locale: locale) } ?? "—"))
+                    GroupedRow.value(Text("Failed in a row"), value: Text(issue.failures.formatted()))
                 }
-                .padding(.horizontal, Theme.Metrics.screenPadding)
-                .padding(.vertical, 16)
             }
-            .scrollIndicators(.hidden)
-            // Pinned: "Send to RYFT" (and Copy details) are reachable at the opening (medium) detent.
-            .safeAreaInset(edge: .bottom) { actions }
+            .pinnedBar(footnote: reportProblem == nil ? nil : Text("Sends this and the last 20 requests. No health values.")) {
+                if reportProblem != nil {
+                    PillButton(Text("Send to RYFT")) { sends = true }
+                        .accessibilityIdentifier("refreshDetails.send")
+                }
+                PillButton(copied ? Text("Copied") : Text("Copy details"), style: .secondary) {
+                    // On this iPhone only, and not for long (`LocalPasteboard`).
+                    LocalPasteboard.copy(issue.copyText)
+                    copied = true
+                }
+                .disabled(copied)
+                .accessibilityIdentifier("refreshDetails.copy")
+            }
             // On the stack's root, which is always there: a pill is a button, so the push is the stack's destination.
             .navigationDestination(isPresented: $sends) {
                 if let reportProblem {
                     reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
                 }
             }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Text("Details"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-
-    /// "Send to RYFT" (only once Report a problem is wired; the light pill, it pushes Report a problem), "Copy details" (the
-    /// outline pill), and what's sent (§P5-1.2).
-    private var actions: some View {
-        VStack(spacing: 10) {
-            if reportProblem != nil {
-                PillButton(Text("Send to RYFT")) { sends = true }
-                    .accessibilityIdentifier("refreshDetails.send")
-            }
-            PillButton(copied ? Text("Copied") : Text("Copy details"), style: .secondary) {
-                // On this iPhone only, and not for long (`LocalPasteboard`).
-                LocalPasteboard.copy(issue.copyText)
-                copied = true
-            }
-            .accessibilityIdentifier("refreshDetails.copy")
-            if reportProblem != nil {
-                Text("Sends this and the last 20 requests. No health values.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, Theme.Metrics.screenPadding)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .background(Theme.background)
     }
 
     /// "14:07:12" today, else with the date; in the screen's locale (German shows 24-hour time).
@@ -702,109 +689,71 @@ struct RefreshDetailsSheet: View {
     }
 }
 
-/// A label and its value; at accessibility sizes the value goes under the label.
-private struct DetailRow: View {
-    let title: LocalizedStringKey
-    let value: String
-    var detail: String? = nil
-    var monospaced = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-        layout {
-            Text(title)
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-            if !typeSize.isAccessibilitySize { Spacer(minLength: 12) }
-            VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
-                Text(value)
-                    .font(monospaced ? .system(.body, design: .monospaced) : .ryft(.body))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textPrimary)
-                if let detail {
-                    Text(detail)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// The request ID exactly as received, selectable, with a copy button; support searches for it.
+/// The request ID exactly as received, with a copy button; support searches for it. A row of the Details card:
+/// "Request ID", and under it the 36 characters in 12 pt monospaced type (they don't fit beside the label) with the copy
+/// button at the end. VoiceOver reads the label and the ID as one element and offers "Copy request ID" as an action.
 private struct RequestIDRow: View {
     let requestID: String?
     /// Something answered (a status came back): a missing ID means a proxy answered first.
     let answered: Bool
     @State private var copied = false
 
-    @Environment(\.dynamicTypeSize) private var typeSize
-
     var body: some View {
         if let requestID {
-            // One row (ui.md §3.4): the label, the ID as received, the copy button at the trailing edge.
-            // At AX sizes the ID and its button go under the label.
-            let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-            layout {
+            VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                 Text("Request ID")
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize()
-                HStack(alignment: .center, spacing: 4) {
-                    Spacer(minLength: 0)
+                    .foregroundStyle(Theme.textPrimary)
+                HStack(alignment: .center, spacing: GroupedListSpec.rowSpacing) {
+                    // 12 pt: a UUID stays on one line beside the copy button at 390 pt. Copied with the button or the
+                    // VoiceOver action, not by selection.
                     Text(verbatim: requestID)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Theme.textPrimary)
-                        .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
-                        .textSelection(.enabled)
+                        .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button(action: copy) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: GroupedListSpec.glyphSize, weight: .regular))
                             .foregroundStyle(copied ? Theme.textPrimary : Theme.textSecondary)
-                            .frame(width: 44, height: 44)
+                            .frame(width: Theme.Metrics.minHitTarget, height: Theme.Metrics.minHitTarget)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(copied ? "Copied" : "Copy request ID"))
                     // The glyph lines up with the other rows' values; its 44 pt target reaches into the padding.
-                    .padding(.trailing, -13)
+                    .padding(.vertical, -RequestIDRowSpec.buttonOverhang)
+                    .padding(.trailing, -RequestIDRowSpec.buttonOverhang)
                 }
             }
+            .padding(.horizontal, GroupedListSpec.rowInset)
+            .padding(.vertical, GroupedListSpec.textPadding)
+            .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+            .groupedRowHairline()
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("Copy request ID"), copy)
             .accessibilityIdentifier("refreshDetails.requestID")
         } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Request ID")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                Text("Not available")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                if answered {
-                    Text("A proxy answered before RYFT did.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            GroupedRow.value(Text("Request ID"), value: Text("Not available"),
+                             detail: answered ? Text("A proxy answered before RYFT did.") : nil)
         }
     }
 
     private func copy() {
         guard let requestID else { return }
-        UIPasteboard.general.string = requestID
+        // On this iPhone only, and not for long, as Copy details (`LocalPasteboard`).
+        LocalPasteboard.copy(requestID)
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
         }
     }
+}
+
+private enum RequestIDRowSpec {
+    /// The copy button's 44 pt box reaches this far past its glyph into the row's padding.
+    static let buttonOverhang: CGFloat = 12
 }
 
 /// Under a day in a picker: scored (a dot), pending (a hollow dot), no data (nothing),
@@ -1363,7 +1312,7 @@ struct TrackerSetupCard: View {
         }
     }
 
-    /// A hairline across the whole card, a label (13 pt `textTertiary`, capped at AX3 like `ProfileSection`), then the
+    /// A hairline across the whole card, a label (13 pt `textTertiary`, capped at AX3 as a group label is), then the
     /// content.
     private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1715,14 +1664,21 @@ private enum PreviewIssue {
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Details sheet · with ID · dark") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
-        .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+#Preview("Details sheet · with ID") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
+                .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+                .presentedRoot()
+        }
         .preferredColorScheme(.dark)
 }
 
-#Preview("Details sheet · no ID · dark") {
-    RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable))
+#Preview("Details sheet · no ID") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            RefreshDetailsSheet(issue: PreviewIssue.make(.unreachable)).presentedRoot()
+        }
         .preferredColorScheme(.dark)
 }
 

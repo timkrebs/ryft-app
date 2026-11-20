@@ -91,7 +91,8 @@ final class DemoExitUITests: XCTestCase {
         let again = dialogButton(app, id: "profile.demo.discard", title: "Discard and turn off")
         XCTAssertTrue(again.waitForExistence(timeout: patience), "the dialog again")
         again.tap()
-        XCTAssertTrue(app.buttons["Log in"].waitForExistence(timeout: patience), "Welcome")
+        // "Have an account? Log in" is one button; its label is both parts, so it is found by its id.
+        XCTAssertTrue(app.buttons["welcome.logIn"].waitForExistence(timeout: patience), "Welcome")
         XCTAssertFalse(app.tabBar.exists, "no tabs without the demo or an account")
 
         // Demo data on again, Train's store kept: Start, and no workout to resume.

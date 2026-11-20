@@ -64,7 +64,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Future "Healthspan / RYFT Age": the same wording review before it ships. No age-equivalent claim without a published methodology (1.4.1) | user | roadmap note |
 | SpO₂ is shown from Apple Health (written by Garmin), not measured by the phone's sensors (1.4.1 example) | ok | `SampleType.spo2` |
 | No placeholder, lorem ipsum, "beta", "coming soon" or broken features in Release (2.1(a)) | ok | grep. Every Train endpoint is served (`API.md` → Train) |
-| Demo data toggle in Release: labelled "Demo data", shows a realistic sample history, never mixed with an account's data | ok | Profile → Data |
+| Demo data toggle in Release: labelled "Demo data", shows a realistic sample history, never mixed with an account's data | open (before submission) | Profile → Data. Today, Sleep, Strain, Insights, the journal and Train's lists, histories and plans switch sides (`TrainLibrary.demoModeChanged()`). Still shared, same person only: Train's exercise library, custom plans' details, the paused plan and workouts logged with the account (ADR 0019 follow-up: a demo Train store) |
 
 ## 3. Build and project hygiene
 

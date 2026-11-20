@@ -119,6 +119,9 @@ final class OnboardingCoordinator {
     /// The invite field; a `ryft://invite/<code>` link fills it in.
     var inviteCode = ""
     private(set) var isWorking = false
+    /// Profile's Withdraw consent, from the confirmation until the platform answered, a wait for a step's request
+    /// included (`withdrawConsent()`).
+    private(set) var isWithdrawing = false
     /// One sentence for the step on screen, and its status and request ID.
     private(set) var errorMessage: String?
     private(set) var errorDetails: String?
@@ -130,6 +133,10 @@ final class OnboardingCoordinator {
     /// The launch's `GET /v1/me/sync` answer, for the sync (an operator's re-sync request).
     @ObservationIgnored var statusReceived: (@MainActor (SyncStatus) -> Void)?
     private var account: String?
+    /// Bumped by every `switchAccount`: a step's request still out then is the previous account's (`Flight`).
+    private var turn = 0
+    /// Withdrawals waiting for the step's request in flight (`perform(waitsForTurn:)`).
+    @ObservationIgnored private var waiting: [CheckedContinuation<Void, Never>] = []
     private var lastCheck: Date?
     private var aboutYouDone = false
     /// The birth year is saved; "about you" shows the estimate until Continue.
@@ -231,8 +238,36 @@ final class OnboardingCoordinator {
 
     // MARK: the policy
 
-    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to.
-    var policyVersion: String? { consent.latestPolicyVersion }
+    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to. Where
+    /// the record keeps nothing (demo data, a store not readable before the first unlock), the version consent's own
+    /// read brought.
+    var policyVersion: String? { consent.latestPolicyVersion ?? readPolicyVersion }
+
+    /// The version `loadPolicyIfMissing()` read, for when the record couldn't keep it.
+    private var readPolicyVersion: String?
+
+    /// Consent's read of the policy version when none is known yet (`loadPolicyIfMissing()`).
+    enum PolicyRead: Equatable { case idle, loading, failed }
+
+    private(set) var policyRead: PolicyRead = .idle
+
+    /// Agree has a version to record: the one on screen (while it runs, the pill shows busy).
+    var canAgree: Bool { policyVersion != nil }
+
+    /// The consent step opened with no policy version: one `GET /v1/config` (joined with any read in flight), so the
+    /// version agreed to is always one the screen showed. A failure leaves Agree off and the step offers Try again.
+    func loadPolicyIfMissing() async {
+        guard policyVersion == nil, policyRead != .loading else { return }
+        policyRead = .loading
+        do {
+            remember(try await consent.fetchConfig(userInitiated: true))
+            policyRead = policyVersion == nil ? .failed : .idle
+        } catch where error.isCancellation {
+            policyRead = .idle
+        } catch {
+            policyRead = .failed
+        }
+    }
 
     /// Where the policy is published; the in-app Safari sheet opens it.
     var policyPage: LegalPage {
@@ -406,8 +441,21 @@ final class OnboardingCoordinator {
 
     /// Another account (or signed out): its steps are its own. Gates reported before
     /// the first check belong to the account the app launched with, so they stay.
+    /// A step's request still out then is the previous account's: this one's steps aren't busy with it, and its answer
+    /// touches nothing here (`perform`). One sent before the first check is the launch account's too. A withdrawal
+    /// waiting for it ends unsent: never with this account's session. The invite field is the previous account's too
+    /// (security review N-1): a code it typed or a link filled in, sent or not, is never the next account's to redeem.
+    /// From no account (the launch's first check, a sign-in) it stays: a link opened at launch is the launch account's,
+    /// and one that arrived signed out waits in `DeepLinkRouter.pending` until after this switch.
     func switchAccount(_ account: String?) {
-        if self.account != nil { apiStatus.resetGates() }
+        if self.account != nil {
+            apiStatus.resetGates()
+            turn += 1
+            isWorking = false
+            isWithdrawing = false
+            inviteCode = ""
+            resumeWaiting()
+        }
         self.account = account
         syncStatus = nil
         deferred = []
@@ -415,6 +463,8 @@ final class OnboardingCoordinator {
         clearError()
         phase = .idle
         aboutYouSaved = false
+        readPolicyVersion = nil
+        policyRead = .idle
         firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
         aboutYouDone = account.map { defaults.bool(forKey: Self.key("aboutYouDone", $0)) } ?? false
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
@@ -429,8 +479,9 @@ final class OnboardingCoordinator {
     func redeemInvite() async -> Bool {
         let code = inviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return false }
-        return await perform {
+        return await perform { sent in
             try await self.api.redeemInvite(code: code)
+            try self.answered(sent)
             self.apiStatus.resolved(.inviteRequired)
             self.inviteCode = ""
             await self.check(force: true)
@@ -443,29 +494,49 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// `POST /v1/me/consent` for the policy in force, then the first sync.
+    /// The version a config read brought, for when the record can't keep it (demo data).
+    private func remember(_ config: RemoteConfig?) {
+        if let version = config?.privacyPolicyVersion { readPolicyVersion = version }
+    }
+
+    /// The policy changed between drawing the step and agreeing: the new one is on screen now.
+    private struct PolicyChangedOnScreen: Error {}
+
+    /// `POST /v1/me/consent` for the policy version on screen (`shown`: the one the step drew; nil takes the current
+    /// one), then the first sync. Nothing without a version, or when `shown` isn't the current one any more; a stale
+    /// version is checked first, and a newer policy is shown, not agreed to.
     @discardableResult
-    func agree() async -> Bool {
-        let ok = await perform {
-            let version: String
-            if let v = self.consent.latestPolicyVersion, self.consent.isPolicyFresh(at: self.env.clock.now()) {
-                version = v
-            } else {
-                let fresh = try await self.consent.fetchConfig(userInitiated: true)
-                guard let v = fresh?.privacyPolicyVersion else { throw APIError.http(422, "no policy version") }
-                version = v
+    func agree(shown: String? = nil) async -> Bool {
+        guard let version = policyVersion, shown == nil || shown == version else { return false }
+        let ok = await perform { sent in
+            if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
+                // Nil: nothing was sent (offline, a Retry-After window).
+                guard let fresh = try await self.consent.fetchConfig(userInitiated: true) else {
+                    throw URLError(.notConnectedToInternet)
+                }
+                try self.answered(sent)
+                guard fresh.privacyPolicyVersion == version else {
+                    self.remember(fresh)
+                    throw PolicyChangedOnScreen()
+                }
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
+            try self.answered(sent)
             // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
             self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
             await self.check(force: true)
         } message: { error in
+            let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            if error is PolicyChangedOnScreen { return updated }
             guard (error as? APIError)?.status == 422 else { return nil }
-            // The text on screen was an older policy: show the new one.
-            Task { [weak self] in _ = try? await self?.consent.fetchConfig(userInitiated: true) }
-            return String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
+            // The platform refused an older policy than the one in force: read and show the new one.
+            Task { [weak self] in
+                guard let self else { return }
+                remember(try? await consent.fetchConfig(userInitiated: true))
+            }
+            return updated
         }
         if ok { await startSync() }
         return ok
@@ -475,11 +546,13 @@ final class OnboardingCoordinator {
     /// the step shows before `finishAboutYou()`.
     @discardableResult
     func saveAboutYou(birthYear: Int) async -> Bool {
-        await perform {
+        await perform { sent in
             // Stored only for the account it was asked for (a sign-out while it's out drops it).
             let change = self.state.repository.userChange()
             let patched = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            try self.answered(sent)
             await self.state.repository.store(user: patched, asOf: change).committed()
+            try self.answered(sent)
             self.aboutYouSaved = true
         } message: { error in
             (error as? APIError)?.isFieldError == true
@@ -488,12 +561,22 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// Profile → Privacy: `DELETE /v1/me/consent`. Syncing stops; nothing is deleted.
+    /// Profile → Privacy: `DELETE /v1/me/consent`. Syncing stops; nothing is deleted. Never dropped for a step's request
+    /// still out (an Agree's re-check, an invite, About you): it waits for that one's answer and then goes, so it's the
+    /// last word on the platform and on this phone, and Profile shows its failure (security review N-B). A sign-out or
+    /// another account meanwhile ends it unsent: A's withdrawal never goes out with B's session. A second one while
+    /// this one is on its way sends nothing (Profile's row is busy).
     @discardableResult
     func withdrawConsent() async -> Bool {
-        await perform {
+        guard !isWithdrawing else { return false }
+        isWithdrawing = true
+        let started = turn
+        defer { if started == turn { isWithdrawing = false } }
+        return await perform(waitsForTurn: true) { sent in
             let change = self.state.repository.userChange()
             try await self.api.revokeConsent()
+            // A's withdrawal answered after a sign-out: never recorded as B's.
+            try self.answered(sent)
             let revokedAt = self.env.clock.now()
             // Withdrawn now, whatever the re-check below manages: sync stops at once. Kept outside the store too, so a
             // save the store refuses, or a launch that never checks, can't open the gate again (`ConsentState`).
@@ -529,24 +612,88 @@ final class OnboardingCoordinator {
         errorDetails = nil
     }
 
+    /// The banner's words for a failure the step has none of its own for (PR 6 A §A-7): not reaching the platform says
+    /// so (the sentence `AuthMessage` uses); `APIError`'s own sentences stay (429, 503, …); a server's text, an answer
+    /// that didn't decode and anything unknown say only that it didn't work. The details (request ID) stay behind Details.
+    nonisolated static func fallbackMessage(for error: Error) -> String {
+        let offline = String(localized: "No connection. Check your internet and try again.")
+        let other = String(localized: "Something went wrong. Please try again.")
+        if let api = error as? APIError {
+            if case .transport = api { return offline }
+            return hasOwnWords(api) ? api.localizedDescription : other
+        }
+        return error is URLError || (error as NSError).domain == NSURLErrorDomain ? offline : other
+    }
+
+    /// `APIError`'s own, vetted sentences (`APIError.errorDescription`): the rest there is the server's text, or a bare
+    /// status. `app_attest_required` too: the invite and the consent aren't exempt from App Attest (API.md → App Attest →
+    /// Exempt), and on an iPhone that can't verify the app trying again won't help (ADR 0023).
+    private nonisolated static func hasOwnWords(_ error: APIError) -> Bool {
+        switch error {
+        case .notConfigured, .signedOut: return true
+        case .http(401, _, _, _, _), .http(429, _, _, _, _), .http(500, _, _, _, _), .http(503, _, _, _, _): return true
+        case .http(403, _, _, .inviteRequired?, _), .http(403, _, _, .consentRequired?, _), .http(403, _, _, nil, _): return true
+        case .http(403, _, _, .appAttestRequired?, _): return true
+        case .http, .transport: return false
+        }
+    }
+
     // MARK: private
 
-    private func perform(_ body: @MainActor () async throws -> Void,
+    /// The account a step's request went out for: its binding then, and the switches since. What the step does with the
+    /// answer (gates, consent, the field, its error) it does only while that's still the account here (`answered(_:)`).
+    private struct Flight: Equatable {
+        let binding: AccountBinding
+        let turn: Int
+    }
+
+    private var flight: Flight { Flight(binding: AccountBinding(env), turn: turn) }
+
+    /// `sent`'s answer came after a sign-out, another account or Demo data: it ends as a cancellation does, and touches
+    /// nothing of the account here now.
+    private func answered(_ sent: Flight) throws {
+        guard sent == flight else { throw CancellationError() }
+    }
+
+    /// One step's request at a time: a second Continue or Agree while one is out sends nothing and changes nothing (the busy
+    /// pill takes no tap either, but the coordinator doesn't count on its view). `waitsForTurn` (a withdrawal) waits for
+    /// the one out instead, unless the account changes meanwhile. The body checks its flight after each answer; a flight
+    /// that isn't this account's any more says nothing, and frees nothing `switchAccount` freed already: A's late answer
+    /// never shows on B's step, nor ends B's request (review code N6).
+    private func perform(waitsForTurn: Bool = false, _ body: @MainActor (Flight) async throws -> Void,
                          message: (Error) -> String?) async -> Bool {
+        let sent = flight
+        while waitsForTurn, isWorking, sent == flight {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        guard !isWorking, sent == flight else { return false }
         isWorking = true
         clearError()
-        defer { isWorking = false }
+        defer {
+            if sent.turn == turn {
+                isWorking = false
+                resumeWaiting()
+            }
+        }
         do {
-            try await body()
-            return true
+            try await body(sent)
+            return sent == flight
         } catch where error.isCancellation {
             return false
         } catch {
-            errorMessage = message(error) ?? error.localizedDescription
+            guard sent == flight else { return false }
+            errorMessage = message(error) ?? Self.fallbackMessage(for: error)
             errorDetails = error.diagnosticDetails
             env.analytics.track(.errorShown(for: error))
             return false
         }
+    }
+
+    /// The step's request ended, or the account went: each withdrawal waiting looks again (`perform`).
+    private func resumeWaiting() {
+        let resumed = waiting
+        waiting = []
+        resumed.forEach { $0.resume() }
     }
 
     private func key(_ name: String) -> String { Self.key(name, account ?? "signed-out") }

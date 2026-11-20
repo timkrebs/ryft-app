@@ -14,10 +14,10 @@ extension Insight {
         }
     }
 
-    /// The link under the body, for an insight with a route: Behaviors, the session (a record), or its trend.
+    /// The link under the body, for an insight with a route: Insights' Habits, the session (a record), or its trend.
     var linkTitle: String {
         switch kind {
-        case .behaviorImpact: return String(localized: "See behaviors")
+        case .behaviorImpact: return String(localized: "See habits", comment: "An insight about a habit's effect: the link to Insights' Habits section.")
         case .pr: return String(localized: "See the session")
         default: return String(localized: "Show the chart")
         }

@@ -90,7 +90,8 @@ struct LargeTextHostedTests {
 
     @Test("Start workout: an option's detail line wraps whole", arguments: [ax3, ax5])
     func startSheetDetailWraps(_ s: SizeCase) async throws {
-        let detail = try #require(TrainPreview.library.today.map { "\($0.day.name) · \(TodayPlanText.detail($0))" })
+        // As drawn at these sizes: one part per line ("Upper A", "5 exercises", "~55 min").
+        let detail = try #require(TrainPreview.library.today.map { PartsLine.text(StartOptionText.todayParts($0), stacked: true) })
         try await run(s, StartWorkoutSheet()) { w in
             try await w.settle()
             let option = try #require(w.nodes().first { $0.label.contains("From today's plan") }, "\(w.nodes().map(\.label))")
@@ -126,8 +127,9 @@ struct LargeTextHostedTests {
         try await run(s, SessionView(controller: c)) { w in
             try await w.settle()
             let finish = try #require(w.node("Finish", exactly: true), "\(w.nodes().map(\.label).prefix(8))")
-            let word = needs(Text("Finish").font(.ryft(.headline)), size: s.size)
-            #expect(finish.frame.width >= word.width + 2 * 18 - 1, "\(finish.frame), the word is \(word.width)")
+            // The compact pill (PR 6 B §4.1): its `button` type and 18 a side; uncapped here, on the buttons' own row.
+            let word = needs(Text("Finish").font(.ryft(.button)), size: s.size)
+            #expect(finish.frame.width >= word.width + 2 * PillButton.compactHorizontal - 1, "\(finish.frame), the word is \(word.width)")
             #expect(finish.frame.minX >= 0 && finish.frame.maxX <= Self.width, "\(finish.frame)")
 
             // The title and the clock are one element, whose frame is the room the title has.

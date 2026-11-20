@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Splits (ui.md §7.1): one row per kilometre (the last one partial), its pace (or speed for cycling), a bar scaled
-/// to the fastest, and the climb. The table is in the unit its splits were measured in, kilometres and metres,
-/// whatever the locale (per-mile splits are A4's). The fastest row has a glyph in a column of its own and the word
-/// "Fastest" under its pace: never colour alone. Over 20 rows the table shows the first 10 and "Show all".
+/// Splits (ui.md §7.1, Nocturne PR 6 B §10.3 item 4): one row per kilometre (the last one partial), its pace (or speed for
+/// cycling), a bar scaled to the fastest, and the climb. The table is in the unit its splits were measured in, kilometres and
+/// metres, whatever the locale (per-mile splits are A4's). The column header is `axis` in `textTertiary`; rows are at least
+/// 40 high with a hairline between them; the bars are `metricStrain` at 60 %, the fastest split's (each, on a tie as shown) in
+/// ink with the word "Fastest" under its pace: never colour alone. Over 20 rows the table shows the first 10 and "Show all".
 struct SplitsTable: View {
     let splits: [ActivitySplit]
     var paceStyle: TrackProfile.PaceStyle = .pace
@@ -13,8 +14,6 @@ struct SplitsTable: View {
     @State private var showsAll = false
     /// Wide enough for "10:05 /km" or "24.3 km/h" on one line at the size in use.
     @ScaledMetric(relativeTo: .body) private var paceWidth: CGFloat = 96
-    /// The fastest split's glyph column.
-    @ScaledMetric(relativeTo: .caption) private var glyphWidth: CGFloat = 16
 
     static let collapseOver = 20
     static let collapsedCount = 10
@@ -29,27 +28,50 @@ struct SplitsTable: View {
         return s.distanceM / s.durationSec
     }
 
-    private var fastest: Int? {
-        splits.filter { speed($0) != nil }.max { (speed($0) ?? 0) < (speed($1) ?? 0) }?.index
+    /// The splits marked "Fastest" (by `index`): every split that reads as fast as the best, compared as shown (whole seconds
+    /// per kilometre, or tenths of km/h), so a tie on screen is a tie in the table. None with one split, or when every split
+    /// reads the same.
+    nonisolated static func fastest(_ splits: [ActivitySplit], paceStyle: TrackProfile.PaceStyle) -> Set<Int> {
+        func shown(_ s: ActivitySplit) -> Double? {
+            guard s.distanceM > 0, s.durationSec > 0 else { return nil }
+            switch paceStyle {
+            case .pace:
+                // Fewer seconds is faster: negated, so the largest wins either way. Past an hour per km it isn't shown.
+                let seconds = (s.durationSec / (s.distanceM / 1_000)).rounded()
+                return seconds < 3_600 ? -seconds : nil
+            case .speed:
+                return (s.distanceM / s.durationSec * 36).rounded()
+            }
+        }
+        let read = splits.compactMap { s in shown(s).map { (index: s.index, value: $0) } }
+        guard read.count > 1, let best = read.map(\.value).max() else { return [] }
+        let tied = Set(read.filter { $0.value == best }.map(\.index))
+        return tied.count == read.count ? [] : tied
     }
+
+    private var fastest: Set<Int> { Self.fastest(splits, paceStyle: paceStyle) }
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 10) {
-                CardHeader(title: "Splits")
-                if !typeSize.isAccessibilitySize { header }
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Splits").ryftLabelStyle()
+                    .accessibilityHidden(true)
+                if !typeSize.isAccessibilitySize {
+                    header.padding(.top, ActivitiesLayout.splitsTitleGap)
+                }
                 ForEach(Array(shown.enumerated()), id: \.element.index) { offset, split in
-                    if offset > 0 { Divider().overlay(Theme.separator) }
+                    if offset > 0 || !typeSize.isAccessibilitySize {
+                        Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
+                            .accessibilityHidden(true)
+                    }
                     row(split)
                 }
                 if splits.count > Self.collapseOver, !showsAll {
                     Button { showsAll = true } label: {
                         Text("Show all \(splits.count)")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
+                    .ryftLink()
+                    .padding(.top, 4)
                     .accessibilityIdentifier("splits.showAll")
                 }
             }
@@ -66,38 +88,37 @@ struct SplitsTable: View {
                  : String(localized: "Pace", comment: "Splits table and pace chart: time per kilometre or mile."))
                 .lineLimit(1)
                 .frame(width: paceWidth, alignment: .leading)
-            Color.clear.frame(width: glyphWidth, height: 1)
             Spacer(minLength: 0)
-            Text("Elev", comment: "Splits table: the climb column (elevation).").frame(width: 52, alignment: .trailing)
+            Text("Elev", comment: "Splits table: the climb column (elevation).").frame(width: Self.climbWidth, alignment: .trailing)
         }
-        .ryftLabelStyle()
+        .font(.ryft(.axis))
+        .foregroundStyle(Theme.textTertiary)
+        .padding(.bottom, 6)
         .accessibilityHidden(true)
     }
 
     /// Wide enough for the partial last split ("0.42 km").
     private static let labelWidth: CGFloat = 64
+    private static let climbWidth: CGFloat = 52
 
     private func row(_ s: ActivitySplit) -> some View {
         let value = paceStyle == .speed
             ? ActivityFormat.speed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
             : ActivityFormat.pace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
         let climb = s.ascentM.flatMap { ActivityFormat.elevation($0, locale: locale, inMetres: true) }.map { "+\($0)" } ?? ""
-        let isFastest = s.index == fastest && splits.count > 1
+        let isFastest = fastest.contains(s.index)
         let label = Text(verbatim: ActivityFormat.splitLabel(s, locale: locale))
             .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textSecondary)
         let pace = Text(verbatim: value ?? Fmt.placeholder)
-            .font(.ryft(.body))
+            .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textPrimary)
             .lineLimit(1)
         let word = Text("Fastest")
             .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-        let glyph = Image(systemName: "hare.fill")
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(Theme.textPrimary)
         let elevation = Text(verbatim: climb)
             .font(.ryft(.caption))
             .monospacedDigit()
@@ -111,12 +132,10 @@ struct SplitsTable: View {
                         Spacer(minLength: 8)
                         elevation
                     }
-                    HStack(spacing: 6) {
-                        pace
-                        if isFastest { glyph }
-                    }
+                    pace
                     if isFastest { word }
                 }
+                .padding(.vertical, 8)
             } else {
                 HStack(spacing: 8) {
                     label
@@ -128,26 +147,26 @@ struct SplitsTable: View {
                         if isFastest { word.lineLimit(1).minimumScaleFactor(0.8) }
                     }
                     .frame(width: paceWidth, alignment: .leading)
-                    Group { if isFastest { glyph } else { Color.clear } }
-                        .frame(width: glyphWidth)
-                    bar(s)
-                    elevation.frame(width: 52, alignment: .trailing)
+                    bar(s, isFastest: isFastest)
+                    elevation.frame(width: Self.climbWidth, alignment: .trailing)
                 }
+                .padding(.vertical, 4)
             }
         }
-        .frame(minHeight: 32)
+        .frame(maxWidth: .infinity, minHeight: ActivitiesLayout.splitRowMinHeight, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: ActivityFormat.spokenSplit(s, locale: locale)))
         .accessibilityValue(Text(verbatim: spoken(s, isFastest: isFastest)))
     }
 
-    private func bar(_ s: ActivitySplit) -> some View {
+    /// The share of the fastest split's speed; the fastest bar in ink, the others `metricStrain` at 60 %.
+    private func bar(_ s: ActivitySplit, isFastest: Bool) -> some View {
         let top = splits.compactMap(speed).max() ?? 1
         let share = (speed(s) ?? 0) / top
         return GeometryReader { geo in
             Capsule()
-                .fill(Theme.accent)
-                .frame(width: max(6, geo.size.width * share), height: 6)
+                .fill(isFastest ? Theme.textPrimary : Theme.metricStrain.opacity(ActivitiesLayout.splitBarOpacity))
+                .frame(width: max(ActivitiesLayout.splitBarHeight, geo.size.width * share), height: ActivitiesLayout.splitBarHeight)
                 .frame(maxHeight: .infinity, alignment: .center)
         }
         .frame(height: 20)
@@ -165,17 +184,21 @@ struct SplitsTable: View {
     }
 }
 
+// MARK: - previews (dark only)
+
 #Preview("Splits", traits: .sizeThatFitsLayout) {
     let run = MockActivitiesSource.demo().first { $0.splits != nil }
-    SchemePair { SplitsTable(splits: run?.splits ?? []) }
+    SplitsTable(splits: run?.splits ?? [])
+        .padding(Theme.Metrics.screenPadding)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
 }
 
-#Preview("Splits · AX3 · de", traits: .sizeThatFitsLayout) {
+#Preview("Splits · AX3", traits: .sizeThatFitsLayout) {
     let run = MockActivitiesSource.demo().first { $0.splits != nil }
     SplitsTable(splits: run?.splits ?? [])
-        .padding()
+        .padding(Theme.Metrics.screenPadding)
         .background(Theme.background)
-        .environment(\.locale, Locale(identifier: "de_DE"))
         .dynamicTypeSize(.accessibility3)
         .preferredColorScheme(.dark)
 }

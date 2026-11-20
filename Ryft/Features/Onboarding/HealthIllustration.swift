@@ -1,42 +1,56 @@
 import SwiftUI
 
-/// "Connect Apple Health": a heart, and the pulse line that RYFT reads from it
-/// drawing itself in, a 2 s ease-out loop. It says what happens next (Health data
-/// flowing in) rather than decorating. Static and complete under Reduce Motion.
+/// The mark's numbers (PR 6 A §A-10, D6A-7), at its 72 pt side; a larger or smaller mark scales them.
+enum HealthIllustrationSpec {
+    static let side: CGFloat = 72
+    /// The heart: `heart`, 34 pt ultra-light, `textPrimary`.
+    static let heartSize: CGFloat = 34
+    /// The pulse line across it: 44 × 14, 1.5 pt.
+    static let pulse = CGSize(width: 44, height: 14)
+    static let pulseWidth: CGFloat = 1.5
+    /// The pulse draws in once (`Theme.Motion.slow`, 0.6 s) and then holds; never a loop.
+    static let drawIn = Theme.Motion.slow
+}
+
+/// "Connect Apple Health": a heart, and the pulse line that RYFT reads from it. Nocturne: a neutral outline (a 1 pt ink
+/// circle at 16 %, the circle button's border), no teal; the pulse draws in once when the mark appears and holds (no
+/// looping motion), and under Reduce Motion it is drawn at rest. Decoration, hidden from VoiceOver.
 struct HealthIllustration: View {
-    var size: CGFloat = 96
+    var size: CGFloat = HealthIllustrationSpec.side
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The launch's mark still covers the screen (ADR 0017): the line draws once it has handed over, where it can be seen.
+    @Environment(\.launchCoversRoot) private var launchCovers
+    @State private var drawn = false
+
+    private var scale: CGFloat { size / HealthIllustrationSpec.side }
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(Theme.accent.opacity(0.10))
-            HeartShape()
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 2.5, lineJoin: .round))
-                .frame(width: size * 0.56, height: size * 0.5)
-                .offset(y: -size * 0.04)
-            if reduceMotion {
-                PulseShape(progress: 1)
-                    .stroke(Theme.textPrimary, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    .frame(width: size * 0.7, height: size * 0.22)
-            } else {
-                TimelineView(.animation) { context in
-                    PulseShape(progress: Self.progress(at: context.date))
-                        .stroke(Theme.textPrimary, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        .frame(width: size * 0.7, height: size * 0.22)
-                }
-            }
+                .strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
+            Image(systemName: "heart")
+                .font(.system(size: HealthIllustrationSpec.heartSize * scale, weight: .ultraLight))
+                .foregroundStyle(Theme.textPrimary)
+            PulseShape(progress: Self.progress(drawn: drawn, reduceMotion: reduceMotion))
+                .stroke(Theme.textPrimary, style: StrokeStyle(lineWidth: HealthIllustrationSpec.pulseWidth,
+                                                              lineCap: .round, lineJoin: .round))
+                .frame(width: HealthIllustrationSpec.pulse.width * scale, height: HealthIllustrationSpec.pulse.height * scale)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+        .onAppear(perform: drawIn)
+        .onChange(of: launchCovers) { drawIn() }
     }
 
-    /// 0 → 1 over 1.6 s with ease-out, then 0.4 s held drawn: one 2 s loop.
-    static func progress(at date: Date) -> Double {
-        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2)
-        let x = min(t / 1.6, 1)
-        return 1 - pow(1 - x, 3)
+    private func drawIn() {
+        guard !drawn, !launchCovers else { return }
+        withAnimation(Theme.Motion.respecting(reduceMotion, HealthIllustrationSpec.drawIn)) { drawn = true }
+    }
+
+    /// How much of the pulse is drawn: all of it once it has drawn in, and from the start under Reduce Motion.
+    static func progress(drawn: Bool, reduceMotion: Bool) -> Double {
+        drawn || reduceMotion ? 1 : 0
     }
 }
 
@@ -64,30 +78,12 @@ private struct PulseShape: Shape {
     }
 }
 
-private struct HeartShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width, h = rect.height
-        var p = Path()
-        p.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-        p.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + h * 0.32),
-                   control1: CGPoint(x: rect.minX + w * 0.30, y: rect.maxY - h * 0.22),
-                   control2: CGPoint(x: rect.minX, y: rect.minY + h * 0.62))
-        p.addArc(center: CGPoint(x: rect.minX + w * 0.25, y: rect.minY + h * 0.30), radius: w * 0.25,
-                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-        p.addArc(center: CGPoint(x: rect.minX + w * 0.75, y: rect.minY + h * 0.30), radius: w * 0.25,
-                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-        p.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
-                   control1: CGPoint(x: rect.maxX, y: rect.minY + h * 0.62),
-                   control2: CGPoint(x: rect.maxX - w * 0.30, y: rect.maxY - h * 0.22))
-        return p
-    }
-}
-
+// Dark only (NOCTURNE_STYLE §1).
 #Preview("Health illustration", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         HStack(spacing: 24) {
             HealthIllustration()
-            HealthIllustration(size: 64)
+            HealthIllustration(size: 56)
         }
     }
 }

@@ -200,6 +200,67 @@ struct NocturneStructuresHostedTests {
         }
     }
 
+    @Test("At AX3 a value under its title starts every line at the title's edge (Sync details' State read centred, 6c9 N7)")
+    func stackedValueLines() async throws {
+        // No descenders, so the lines' ink doesn't touch; long enough to wrap at AX3.
+        let value = "Not started at all and then halted"
+        let card = GroupedCard(Text(verbatim: "Engine")) {
+            GroupedRow.value(Text(verbatim: "State"), value: Text(verbatim: value))
+        }
+        try await host(card, typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
+            try await w.wait("the row") { w.node("State", exactly: true) != nil }
+            try await w.settle()
+            let row = try node(w, "State")
+            #expect(row.value == value)
+            let starts = try Self.lineStarts(in: row.frame, of: w)
+            #expect(starts.count >= 3, "the title and at least two lines of the value: \(starts)")
+            let title = try #require(starts.first)
+            #expect(starts.allSatisfy { abs($0 - title) < 6 }, "every line from the title's edge: \(starts)")
+        }
+    }
+
+    /// Where each line of text inside `frame` (window points) starts: the leftmost lit x of each band of pixel rows that
+    /// hold anything much brighter than the card.
+    private static func lineStarts(in frame: CGRect, of w: HostedWindow) throws -> [CGFloat] {
+        let scale: CGFloat = 2
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(bounds: w.window.bounds, format: format).image { _ in
+            w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
+        }
+        let cg = try #require(image.cgImage)
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drew = bytes.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        try #require(drew)
+        let xs = max(0, Int(frame.minX * scale))..<min(width, Int(frame.maxX * scale))
+        let ys = max(0, Int(frame.minY * scale))..<min(height, Int(frame.maxY * scale))
+        var starts: [CGFloat] = []
+        var band: Int?
+        for y in ys {
+            let lit = xs.first { x in
+                let i = (y * width + x) * 4
+                return max(bytes[i], bytes[i + 1], bytes[i + 2]) > 110
+            }
+            if let lit {
+                band = min(band ?? lit, lit)
+            } else if let start = band {
+                starts.append(CGFloat(start) / scale)
+                band = nil
+            }
+        }
+        if let start = band { starts.append(CGFloat(start) / scale) }
+        return starts
+    }
+
     // MARK: the neutral tile
 
     @Test("The neutral tile is one element (label; value, unit, note), 80 high; at AX3 it grows and keeps its width")

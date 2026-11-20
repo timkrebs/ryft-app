@@ -300,19 +300,15 @@ struct SleepNightCards: View {
 
     var body: some View {
         VStack(spacing: SleepLayout.cardGap) {
-            if let need = sleep.need {
-                Button { showsNeed = true } label: {
-                    Card { SleepNeedBar(need: need) }
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityHint(Text("Shows how your sleep need adds up, and your baseline to change"))
-                .accessibilityIdentifier("sleep.need")
+            if let need = sleep.needBreakdown(score: score) {
+                SleepNeedCard(need: need) { showsNeed = true }
             }
             stages
             details
         }
         .sheet(isPresented: $showsNeed) {
-            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings).presentedRoot()
+            SleepNeedSheet(need: sleep.needBreakdown(score: score), total: summary.need, needMinutes: score?.sleepNeedMin,
+                           night: screens.sleep.subtitle, editor: screens.bodySettings).presentedRoot()
         }
     }
 
@@ -395,7 +391,7 @@ struct SleepNightCards: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Sleep quality"))
             .accessibilityValue(Text(summary.quality))
-            Text("Quality is 60 % performance, 20 % efficiency and 20 % restorative sleep.")
+            Text("Quality is 60\u{00A0}% performance, 20\u{00A0}% efficiency and 20\u{00A0}% restorative sleep.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
