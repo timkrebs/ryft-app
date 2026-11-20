@@ -52,7 +52,7 @@ struct NocturneFoundationCatalog: View {
             caption("subpage header · back · back and a trailing circle · a sheet's root · a long title")
             SubpageHeader(Text(verbatim: "Display"))
             SubpageHeader(Text(verbatim: "Journal")) {
-                CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a behavior")) {}
+                CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
             }
             SubpageHeader(Text(verbatim: "What do you wear?"), navigation: .close())
             SubpageHeader(Text(verbatim: "Import · Match exercises"), navigation: .backAndClose())

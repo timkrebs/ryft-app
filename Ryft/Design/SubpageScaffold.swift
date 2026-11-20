@@ -518,7 +518,7 @@ private struct SubpagePreviewList: View {
 
 #Preview("SubpageScaffold · sheet root, a trailing button") {
     SubpageScaffold(Text(verbatim: "Journal"), navigation: .close(), isSheet: true) {
-        CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a behavior")) {}
+        CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
     } content: {
         SubpagePreviewList()
     }

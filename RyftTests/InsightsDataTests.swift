@@ -66,7 +66,7 @@ struct InsightsDataTests {
     }
 
     @Test("Spec 28: the link's words per kind", arguments: [
-        ("behavior-impact", "See behaviors"), ("pr", "See the session"), ("hrv-best-30d", "Show the chart"),
+        ("behavior-impact", "See habits"), ("pr", "See the session"), ("hrv-best-30d", "Show the chart"),
         ("readiness-up", "Show the chart"), ("a-new-rule", "Show the chart"),
     ])
     func linkTitles(_ id: String, _ title: String) {
