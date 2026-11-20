@@ -80,6 +80,7 @@ struct StartWorkoutSheet: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(TrainCoordinator.self) private var coordinator
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsDays = false
     @State private var loadingOptions = true
 
@@ -137,7 +138,7 @@ struct StartWorkoutSheet: View {
             option(title: String(localized: "A day from \(plan.name)"),
                    detail: plan.days.map(\.name).joined(separator: " · "),
                    systemImage: "list.bullet", chevron: showsDays ? "chevron.up" : "chevron.down") {
-                withAnimation(Theme.Motion.quick) { showsDays.toggle() }
+                withAnimation(Theme.Motion.respecting(reduceMotion)) { showsDays.toggle() }
             }
             if showsDays {
                 ForEach(model.planDays) { day in

@@ -81,7 +81,10 @@ struct MyDayNocturneTests {
         #expect(ActivityStateMark.State.uploading(lastStrain: nil).number == nil)
         #expect(ActivityStateMark.State.failed(lastStrain: 7.2).number == .strain(7.2))
         #expect(ActivityStateMark.State.noHeartRate.number == nil)
-        #expect(ActivityStateMark.State.scored(10.6).shownWord == nil, "scored is the number alone")
+        // PR 6 ui-validator: Walking's bare "3.1" didn't say what it was; the pending row says "Strain pending".
+        #expect(ActivityStateMark.State.scored(10.6).shownWord == "Strain", "scored: the number over what it is")
+        #expect(ActivityStateMark.State.strainPending.shownWord == "Strain pending")
+        #expect(ActivityStateMark.State.none.shownWord == nil)
         #expect(ActivityStateMark.State.uploading(lastStrain: nil).shownWord == ActivityStateMark.State.uploading(lastStrain: nil).word)
     }
 
@@ -109,6 +112,23 @@ struct MyDayNocturneTests {
         })
         #expect(under.maxY > stacked.size.height * 0.6, "ink in the lower part of the taller row: \(under), \(stacked.size)")
         #expect(stacked.size.height > regular.size.height)
+    }
+
+    @Test("A scored row draws \"Strain\" under its number: the trailing ink runs lower than the number alone's")
+    func scoredRowSaysStrain() throws {
+        let surface = Tokens.resolve(Theme.surface)
+        func trailingInk(_ content: ActivityListRow.Content) throws -> CGRect {
+            let shot = try #require(ControlRender(ActivityListRow(content: content).frame(width: 350).background(Theme.background)
+                .environment(\.locale, Self.english), scale: 2))
+            return try #require(shot.bounds(xs: 240...346, ys: 0...Double(shot.size.height)) {
+                Tokens.luminance($0) > Tokens.luminance(surface) + 0.08
+            })
+        }
+        let scored = try trailingInk(.init(systemImage: "figure.walk", title: "Walking", meta: "12:15–12:50", value: nil,
+                                           spoken: "Walking, Strain 3.1", mark: .scored(3.1)))
+        let bare = try trailingInk(.init(systemImage: "figure.walk", title: "Walking", meta: "12:15–12:50", value: "3.1",
+                                         spoken: "Walking, Strain 3.1"))
+        #expect(scored.height > bare.height + 8, "the number and \"Strain\" under it: \(scored) vs the number alone \(bare)")
     }
 
     @Test("StrainPill is the bare numeral in ink, never teal, and \"–\" in textTertiary without a strain")
@@ -273,9 +293,15 @@ struct MyDayNocturneTests {
                                    page(content)) { w in
             try await w.settle()
             let scroll = try #require(w.pageScrollView())
-            let bottom = scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom
-            scroll.setContentOffset(CGPoint(x: 0, y: max(0, bottom)), animated: false)
-            try await w.settle()
+            // The rows are a LazyVStack: the height of those below the fold is an estimate until they're drawn, so scroll
+            // to the end until the content's height holds.
+            var height: CGFloat = -1
+            for _ in 0..<5 where scroll.contentSize.height != height {
+                height = scroll.contentSize.height
+                let bottom = height - scroll.bounds.height + scroll.adjustedContentInset.bottom
+                scroll.setContentOffset(CGPoint(x: 0, y: max(0, bottom)), animated: false)
+                try await w.settle()
+            }
             let nodes = w.nodes()
             let add = try #require(nodes.first { $0.identifier == "myday.view.addActivity" })
             let rows = nodes.filter { $0.identifier?.hasPrefix("myday.view.row.") == true }

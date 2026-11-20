@@ -381,6 +381,7 @@ private struct SessionExerciseCard: View {
     let open: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pressed = false
     @ScaledMetric(relativeTo: .callout) private var positionSize = SessionDetailLayout.positionSize
     @ScaledMetric(relativeTo: .callout) private var positionWidth = SessionDetailLayout.positionWidth
@@ -405,7 +406,7 @@ private struct SessionExerciseCard: View {
         }
         .scaleEffect(pressed ? PressFeedback.scale : 1)
         .opacity(pressed ? PressFeedback.opacity : 1)
-        .animation(PressFeedback.animation, value: pressed)
+        .animation(Theme.Motion.respecting(reduceMotion, PressFeedback.animation), value: pressed)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sessionDetail.exercise.\(block.exerciseID.uuidString)")
     }
@@ -475,10 +476,11 @@ private struct SessionExerciseCard: View {
     }
 }
 
-/// `PressableButtonStyle`'s feedback (History's rows), for a card that is not itself a button.
+/// `PressableButtonStyle`'s feedback (History's rows), for a card that is not itself a button: none animated under Reduce
+/// Motion, as there.
 private enum PressFeedback {
     static let scale = 0.97, opacity = 0.85
-    static let animation = Animation.easeOut(duration: 0.15)
+    static let animation = PressableButtonStyle.pressAnimation
 }
 
 /// Draws the label as it is and reports whether it is pressed.

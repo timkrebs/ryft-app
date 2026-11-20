@@ -79,11 +79,16 @@ struct StatRow: View {
 
 /// Subtle press feedback for tappable cards and tiles.
 struct PressableButtonStyle: ButtonStyle {
+    /// The press: 150 ms ease-out, none under Reduce Motion (the scale and the dimming then just happen).
+    static let pressAnimation = Animation.easeOut(duration: 0.15)
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(Theme.Motion.respecting(reduceMotion, Self.pressAnimation), value: configuration.isPressed)
     }
 }
 

@@ -14,15 +14,16 @@ struct ListSheetsBehaviourTests {
 
     struct Fit: Sendable, CustomTestStringConvertible {
         let width: CGFloat
-        let ax2: Bool
+        let xxxl: Bool
 
-        var typeSize: DynamicTypeSize { ax2 ? .accessibility2 : .xxLarge }
-        var category: UIContentSizeCategory { ax2 ? .accessibilityLarge : .extraExtraLarge }
-        var testDescription: String { "\(Int(width)) pt, \(ax2 ? "AX2" : "XXL")" }
+        var typeSize: DynamicTypeSize { xxxl ? .xxxLarge : .xxLarge }
+        var category: UIContentSizeCategory { xxxl ? .extraExtraExtraLarge : .extraExtraLarge }
+        var testDescription: String { "\(Int(width)) pt, \(xxxl ? "XXXL" : "XXL")" }
     }
 
+    /// Up to XXXL: the accessibility sizes draw the pill (ring, time, Skip; `ListSheetsNocturneTests.theRestBarAtAXSizes`).
     @Test("The running rest bar's buttons stay inside the card: one line while they fit, else one per line",
-          arguments: [Fit(width: 390, ax2: true), Fit(width: 320, ax2: false)])
+          arguments: [Fit(width: 390, xxxl: true), Fit(width: 320, xxxl: false)])
     func theRestBarFits(_ fit: Fit) async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }

@@ -123,6 +123,7 @@ extension Muscle {
 /// them until the gate (T5.9) deletes it.
 struct TealButtonStyle: ButtonStyle {
     var prominent = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -132,7 +133,7 @@ struct TealButtonStyle: ButtonStyle {
             .background(prominent ? Theme.accent : Theme.accent.opacity(0.14), in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(Theme.Motion.respecting(reduceMotion, PressableButtonStyle.pressAnimation), value: configuration.isPressed)
     }
 }
 
@@ -250,7 +251,8 @@ private struct PulsingDot: View {
     private func pulse() {
         dimmed = false
         guard !reduceMotion else { return }
-        withAnimation(.easeInOut(duration: WorkoutBannerSpec.pulseDuration).repeatForever(autoreverses: true)) { dimmed = true }
+        let pulse = Animation.easeInOut(duration: WorkoutBannerSpec.pulseDuration).repeatForever(autoreverses: true)
+        withAnimation(Theme.Motion.respecting(reduceMotion, pulse)) { dimmed = true }
     }
 }
 

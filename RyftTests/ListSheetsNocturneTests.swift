@@ -234,17 +234,50 @@ struct ListSheetsNocturneTests {
         }
     }
 
-    @Test("At AX3 the rest bar's three buttons go one per line")
-    func theRestBarAtAX3() async throws {
+    struct AXSize: Sendable, CustomTestStringConvertible {
+        let typeSize: DynamicTypeSize
+        let category: UIContentSizeCategory
+        let name: String
+        var testDescription: String { name }
+    }
+
+    /// PR 6 ui-validator S8 (lead decision): at AX3 the three buttons went one per line and the bar took 42 % of the screen.
+    @Test("At the accessibility sizes the rest bar is the ring, the time and Skip on one line; a tap opens the rest sheet's ±15 s",
+          arguments: [AXSize(typeSize: .accessibility3, category: .accessibilityExtraLarge, name: "AX3"),
+                      AXSize(typeSize: .accessibility5, category: .accessibilityExtraExtraExtraLarge, name: "AX5")])
+    func theRestBarAtAXSizes(_ size: AXSize) async throws {
         let c = SessionSheetsPreview.listDraft()
         defer { c.stop() }
-        try await HostedWindow.run(width: 390, height: 1400, typeSize: .accessibility3, category: .accessibilityExtraLarge,
+        // An iPhone 17 Pro's window.
+        let height: CGFloat = 874
+        try await HostedWindow.run(width: 402, height: height, typeSize: size.typeSize, category: size.category,
                                    SessionView(controller: c)) { w in
             try await w.settle()
-            let frames = try ["Fifteen seconds less", "Fifteen seconds more", "Skip rest"].map {
-                try #require(w.node($0, exactly: true)).frame
+            #expect(w.node("Fifteen seconds less", exactly: true) == nil, "no −15 s in the bar")
+            #expect(w.node("Fifteen seconds more", exactly: true) == nil, "no +15 s in the bar")
+            let timer = try #require(w.node("Rest timer"))
+            let skip = try #require(w.node("Skip rest", exactly: true))
+            #expect(skip.frame.height >= Theme.Metrics.minHitTarget - 0.5, "\(skip.frame)")
+            // One line: Skip beside the time, and the bar a small part of the screen (it was 42 %).
+            #expect(skip.frame.minY < timer.frame.maxY && skip.frame.maxY > timer.frame.minY, "\(timer.frame) \(skip.frame)")
+            #expect(skip.frame.minX > timer.frame.maxX, "Skip after the time")
+            let bar = timer.frame.union(skip.frame)
+            #expect(bar.height < height * 0.15, "\(bar) of \(height)")
+            // VoiceOver keeps the adjust actions, and one more opens the sheet.
+            #expect(timer.isAdjustable)
+            for name in ["Fifteen seconds less", "Fifteen seconds more", "Skip rest", "Show rest timer"] {
+                #expect(timer.actionNames.contains(name), "\(name) in \(timer.actionNames)")
             }
-            #expect(frames[0].maxY <= frames[1].minY + 0.5 && frames[1].maxY <= frames[2].minY + 0.5, "\(frames)")
+
+            #expect(timer.perform(action: "Show rest timer"))
+            try await w.wait("the rest sheet") { w.presentedNodes()?.contains { $0.identifier == "restSheet.more" } == true }
+            try await w.settle()
+            let sheet = try #require(w.presentedNodes())
+            #expect(sheet.contains { $0.identifier == "restSheet.less" }, "the sheet's −15 s")
+            let more = try #require(sheet.first { $0.identifier == "restSheet.more" })
+            let before = c.rest.remaining(at: .now)
+            #expect(more.activate())
+            #expect(c.rest.remaining(at: .now) > before + 10, "the sheet's +15 s moves the running rest")
         }
     }
 

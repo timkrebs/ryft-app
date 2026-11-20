@@ -42,23 +42,28 @@ enum InlineMessageSpec {
     static let horizontalPadding: CGFloat = 16
     /// Under the text when there are no buttons; with buttons their 44 pt targets leave room under their labels, so 2.
     static let bottomPadding: CGFloat = 14, bottomPaddingUnderButtons: CGFloat = 2
-    /// The glyph: 16 pt at the default size, growing with the sentence; 12 to the text. At the accessibility sizes it goes
-    /// above the sentence, 6 over it, and the sentence takes the card's width (C §2.9).
-    static let glyphSize: CGFloat = 16
+    /// The glyph: 16 pt at the default size, growing with the sentence, centred in a 24 pt column (the widest glyph a banner
+    /// uses, `dumbbell` or `bed.double`), so the sentences of stacked banners start on one line; 12 to the text. At the
+    /// accessibility sizes it goes above the sentence, leading in its column, 6 over it, and the sentence takes the card's
+    /// width (C §2.9).
+    static let glyphSize: CGFloat = 16, glyphColumn: CGFloat = 24
     static let glyphGap: CGFloat = 12, glyphGapAbove: CGFloat = 6
     /// The sentence → its caption, and the text → the buttons' row.
     static let captionGap: CGFloat = 4
     static let buttonsGap: CGFloat = 6
     /// Between two text buttons in a row.
     static let buttonSpacing: CGFloat = 18
+    /// "Try again" and a plain action are C §2.6 text links: underlined in ink at 35 %, the cue that tells them from the
+    /// sentence ("Details", in `textSecondary`, is told by its ink).
+    static let linkUnderlineOpacity = 0.35
 }
 
 /// Calm inline message for routine failures and notices — never a bare alert, never coral for a failure (Nocturne, PR 6
 /// A G6): an opaque `surface` card, radius 22; a 16 pt glyph and the sentence in `textPrimary`; a caption in
 /// `textSecondary` (tabular digits); text buttons under it from the card's leading edge, 18 apart, each at least 44 × 44:
-/// "Try again" 16 Medium in ink, "Details" 15 in `textSecondary`, a plain `action` 16 Medium in ink. They go in a row while
-/// they fit, one under the other otherwise and at accessibility sizes. While `retry` runs, "Trying again…" (or
-/// `retryingTitle`) in `textSecondary`, never a spinner.
+/// "Try again" and a plain `action` are C §2.6 text links (16 Medium in ink, underlined at 35 %), "Details" 15 in
+/// `textSecondary`. They go in a row while they fit, one under the other otherwise and at accessibility sizes. While `retry`
+/// runs, "Trying again…" (or `retryingTitle`) in `textSecondary`, never a spinner.
 ///
 /// Severity is the glyph and the words: `.neutral` (the default) draws the glyph in ink; `.attention` in `warning`, only
 /// where the user has something to fix; `.destructive` in `alert`, only for a destructive outcome. The sentence says it.
@@ -112,8 +117,9 @@ struct InlineMessage: View {
     /// The sentence last announced: a banner that scrolls out and back in isn't announced again.
     @State private var announced: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// 16 pt at the default size, growing with the message's callout text.
+    /// 16 pt at the default size, growing with the message's callout text; its column too.
     @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = InlineMessageSpec.glyphSize
+    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = InlineMessageSpec.glyphColumn
 
     private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil || action != nil }
     private var isBusy: Bool { retrying || isRetrying }
@@ -154,6 +160,7 @@ struct InlineMessage: View {
             Image(systemName: systemImage)
                 .font(.system(size: iconSize, weight: .regular))
                 .foregroundStyle(severity.glyphColor)
+                .frame(width: iconColumn, alignment: typeSize.isAccessibilitySize ? .leading : .center)
                 .padding(.top, 1)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: InlineMessageSpec.captionGap) {
@@ -203,7 +210,7 @@ struct InlineMessage: View {
                     if isBusy {
                         Text(retryingTitle ?? "Trying again…").foregroundStyle(Theme.textSecondary)
                     } else {
-                        Text(retryTitle).foregroundStyle(Theme.textPrimary)
+                        Text(retryTitle).foregroundStyle(Theme.textPrimary).modifier(InlineMessageLink())
                     }
                 }
                 .font(.ryft(.button))
@@ -217,6 +224,7 @@ struct InlineMessage: View {
                 Text(verbatim: action.title)
                     .font(.ryft(.button))
                     .foregroundStyle(Theme.textPrimary)
+                    .modifier(InlineMessageLink())
             }
             .modifier(TextButtonFrame(stacked: stacked))
             .accessibilityIdentifier("\(identifier).action")
@@ -241,6 +249,13 @@ struct InlineMessage: View {
         var text = AttributedString(message)
         text.accessibilitySpeechAnnouncementPriority = .low
         AccessibilityNotification.Announcement(text).post()
+    }
+}
+
+/// C §2.6's text link on a banner's ink action: underlined in ink at 35 %.
+private struct InlineMessageLink: ViewModifier {
+    func body(content: Content) -> some View {
+        content.underline(true, pattern: .solid, color: Theme.textPrimary.opacity(InlineMessageSpec.linkUnderlineOpacity))
     }
 }
 

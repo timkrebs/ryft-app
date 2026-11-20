@@ -63,6 +63,7 @@ struct ImpactIntervalBar: View {
 /// unlocked effects first, then the ones still locked, in the platform's order (never re-sorted here).
 struct BehaviorsSection: View {
     let impacts: BehaviorImpacts
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded: Set<UUID> = []
 
     var body: some View {
@@ -112,7 +113,7 @@ struct BehaviorsSection: View {
         let isOpen = expanded.contains(impact.id)
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                withAnimation(Theme.Motion.quick) {
+                withAnimation(Theme.Motion.respecting(reduceMotion)) {
                     if isOpen { expanded.remove(impact.id) } else { expanded.insert(impact.id) }
                 }
             } label: {

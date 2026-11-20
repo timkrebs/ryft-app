@@ -230,6 +230,26 @@ struct SignedOutOnboardingTests {
         }
     }
 
+    // MARK: the invite step's keyboard
+
+    /// PR 6 ui-validator (`x-a08`): at AX3 the empty field took the keyboard at once, and Continue (in the page, no pinned bar
+    /// to ride it) went under it.
+    @Test("Invite code: the empty field takes the keyboard at the default size, and waits for a tap at AX3", arguments: [false, true])
+    func inviteFocus(ax3: Bool) async throws {
+        let state = AppState.preview()
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        try await run(ax3 ? Self.ax3 : Self.standard, InviteCodeView(model: model).previewEnvironment(state)) { w in
+            if ax3 {
+                try await w.wait("the field") { !textFields(w).isEmpty }
+                try await w.settle()
+                #expect(!textFields(w).contains { $0.isFirstResponder }, "no keyboard at AX3")
+                #expect(w.nodes().contains { $0.identifier == "invite.continue" }, "Continue is there")
+            } else {
+                try await w.wait("the field takes the keyboard") { textFields(w).first?.isFirstResponder == true }
+            }
+        }
+    }
+
     // MARK: test 11: wear
 
     @Test("What do you wear?: a selected tile has the selected trait and a border the others don't (not colour alone)")
