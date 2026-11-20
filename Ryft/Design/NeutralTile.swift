@@ -1,8 +1,6 @@
 // The neutral tile (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2; design.md §P5-3.1 row 8, §P5-4 row 4; PR 6 B §1.3
 // S5): a number on `surface` with its label and unit, for the values that are not a metric of the rings (steps, energy, a
-// workout's duration and heart rate). No icon and no tint: the colours belong to the legend. Strain no longer uses
-// `MetricTile`, but Train still does (`TrainHistoryView`, the session's summary in `SessionView`) and the debug catalog shows
-// it: it goes when Train's restyle (PR 6) moves those to this tile.
+// workout's duration and heart rate). No icon and no tint: the colours belong to the legend.
 import SwiftUI
 
 /// 80 high (it grows with its text), radius 22, `surface`, padding 14 / 16 / 12: the label (13, `textSecondary`) top-left, the
