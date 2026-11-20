@@ -420,10 +420,11 @@ struct SleepScheduleView: View {
         }
     }
 
-    /// A day's wake time as a time chip (the system's compact picker over it); from AX1 under its title.
+    /// A day's wake time as a time chip (the system's compact picker over it); from AX1 under its title. Its title is a row's
+    /// (`textPrimary`), as the switch above it.
     private func timeRow(_ title: Text, index: Int,
                          set: @escaping (inout SleepSchedule, String) -> Void) -> some View {
-        ValueChipRow(title) {
+        ValueChipRow(title, role: .row) {
             ValueChip(title, date: Binding(get: { SleepSchedule.date(draft.wake[index], on: .now) },
                                            set: { date in editor.edit { set(&$0, SleepPlannerViewModel.hhmm(date)) } }),
                       displayedComponents: .hourAndMinute)
