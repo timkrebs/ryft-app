@@ -81,6 +81,16 @@ Store "What's New".
   strain on a ruler. At the end of the launch animation the mark flies into Today's header.
 - Sleep in the new look: time asleep in large numerals against your need, the night as a hypnogram, and the stages
   below. While last night is being scored, Sleep shows Apple Health's night marked "not scored yet".
+- Strain, Insights and Profile in the new look, with a new tab bar. Tap the open tab again to go back to its start.
+- Strain: the day's strain in large numerals with its change against the last 7 days, your heart-rate zones and the
+  day's activities.
+- Insights: your trends over 7, 30 or 90 days, with your usual range shaded once there are 7 days of data. Offline,
+  Insights says so and shows when each card is from.
+- Sleep's Week, Month and Bedtime in the new look. "vs 7 d" now means the same on Today, Sleep, Strain and Insights:
+  the day against the 7 days ending on it.
+- Profile: grouped lists, and every link says where it opens. With Demo data on while signed in, Profile still shows
+  your own account.
+- Switches and buttons in sheets now match the new look.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.

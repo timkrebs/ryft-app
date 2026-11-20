@@ -150,7 +150,11 @@ struct InsightsDataTests {
                 == String(localized: "Shaded: your usual range"))
         #expect(Self.make(.hrv, series: Self.series(.hrv, [60]), monthly: month).note == String(localized: "SDNN"))
         let sleep = Self.make(.sleepMin, series: Self.series(.sleepMin, [468], avg: 451), monthly: month)
-        #expect(sleep.note == String(localized: "Avg \("7:31 h")"))
+        #expect(sleep.note == String(localized: "Avg \("7:31\u{00A0}h")"))
+        // T5.8 S4: a no-break space before the unit, so "Avg 82" never ends a line without its "%".
+        let recovery = Self.make(.recovery, series: Self.series(.recovery, [80], avg: 82), monthly: month)
+        #expect(recovery.note == String(localized: "Avg \("82\u{00A0}%")"))
+        #expect(recovery.note?.contains("82 %") == false)
         #expect(Self.make(.steps, series: Self.series(.steps, [9_412], avg: 8_000)).note
                 == String(localized: "Avg \(MetricSpec.steps.number(8_000))"))
         #expect(Self.make(.steps, series: Self.series(.steps, [9_412])).note == nil, "no average, no note")
@@ -197,6 +201,9 @@ struct InsightsDataTests {
         #expect(TrendCardContent.valueParts(.hrv, 66) == ("66", "ms"))
         #expect(TrendCardContent.valueParts(.readiness, 78) == ("78", nil))
         #expect(TrendCardContent.valueParts(.recovery, 82) == ("82", "%"))
+        #expect(TrendCardContent.valueText(.recovery, 82) == "82\u{00A0}%")
+        #expect(TrendCardContent.valueText(.hrv, 66) == "66\u{00A0}ms")
+        #expect(TrendCardContent.valueText(.readiness, 78) == "78")
     }
 
     @Test("A duration's change reads as on Sleep (\"▲ +17m · +4 %\"), not as a clock: one rule app-wide")

@@ -187,13 +187,39 @@ struct PresentedRootTests {
         return RefreshIssue(reason: .busy, resource: .today, dataFrom: at.addingTimeInterval(-120), failures: 3, error: error)
     }
 
-    @Test("The error card's Details sheet and the Report a problem it pushes: the Nocturne switch, the ink tint")
+    /// T5.8 S2: the Details sheet's buttons are pills (§P5-1.2): "Send to RYFT" the light primary pill (an ink fill left of its
+    /// title, the dark icon circle at its end), "Copy details" the outline pill (the sheet's ground inside); no teal anywhere.
+    private static func expectPills(_ w: HostedWindow, _ sheet: UIView) async throws {
+        try await w.settle()
+        let nodes = w.nodes(in: sheet)
+        let send = try #require(nodes.first { $0.label == "Send to RYFT" }, "Send to RYFT").frame
+        let copy = try #require(nodes.first { $0.label == "Copy details" }, "Copy details").frame
+        // Frames are the window's; the sheet may be drawn scaled (about 0.96 here), so heights are the sheet's points.
+        let frame = sheet.convert(sheet.bounds, to: w.window)
+        let scale = frame.width / sheet.bounds.width
+        #expect(send.height / scale >= PillButton.minHeight - 0.5 && copy.height / scale >= PillButton.minHeight - 0.5,
+                "\(send) / \(copy), the sheet at \(scale)")
+        let shot = try WindowPixels(w, scale: 2)
+        let ink = NocturneTokenTests.resolve(Theme.textPrimary), ground = NocturneTokenTests.resolve(Theme.background)
+        let teal = NocturneTokenTests.resolve(Theme.recovery)
+        let fill = shot.at(send.minX + 10, send.midY)
+        #expect(fill.near(ink, 3), "Send's fill \(NocturneTokenTests.describe(fill))")
+        // The circle's centre: the 40 pt circle 6 in from the pill's end.
+        let circle = shot.at(send.maxX - (PillButton.primaryTrailing + PillButton.iconCircle / 2 - 8) * scale, send.midY - 8 * scale)
+        #expect(circle.near(ground, 3), "Send's icon circle \(NocturneTokenTests.describe(circle))")
+        let inside = shot.at(copy.minX + 10, copy.midY)
+        #expect(inside.near(ground, 3), "Copy details inside its outline \(NocturneTokenTests.describe(inside))")
+        #expect(shot.count(in: frame) { $0.near(teal, 12) } == 0, "teal in the Details sheet")
+    }
+
+    @Test("The error card's Details sheet and the Report a problem it pushes: the Nocturne switch, the ink tint, the pills")
     func refreshDetailsAndReport() async throws {
         try await HostedWindow.run(width: 390, height: 844, Self.appRoot(ReportHost())) { w in
             try await w.wait("the error card") { w.node("Details", exactly: true) != nil }
             try #require(w.node("Details", exactly: true)).activate()
             let sheet = try await Self.presented(w, "the Details sheet") { $0.contains { $0.label == "Send to RYFT" } }
             try await Self.expectNocturne(w, sheet, "Details")
+            try await Self.expectPills(w, sheet)
             try #require(w.nodes(in: sheet).first { $0.label == "Send to RYFT" }).activate()
             try await w.wait("Report a problem, pushed") {
                 w.nodes(in: sheet).contains { $0.label == "Reports are limited to 10 a day." }

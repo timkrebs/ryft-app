@@ -186,7 +186,7 @@ struct SleepBedtimeBoard: Equatable {
         var spoken = Fmt.spokenDuration(minutes: minutes, locale: locale)
         var notes: [SleepTile.Note] = []
         if let efficiency {
-            notes.append(SleepTile.Note(text: "\(efficiency) %", ink: .tertiary))
+            notes.append(SleepTile.Note(text: "\(efficiency)\u{00A0}%", ink: .tertiary))
             spoken += ", " + String(localized: "at \(efficiency)\u{00A0}percent efficiency",
                                     comment: "VoiceOver on Sleep → Bedtime's Time in bed tile, after the time: the assumed efficiency (\"at 90 percent …\").")
         }

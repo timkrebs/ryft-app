@@ -263,3 +263,86 @@ Sleep's waiting state, the outdated-app state and an earlier day aren't reachabl
 Known differences between Today and Sleep, accepted:
 - `stale` today without a night: Today says "No readiness yet today…" and Sleep says "Last night hasn't reached RYFT yet."
 - A scored row with no readiness and no sleep: Today says "No readiness yet today…" and Sleep says "No sleep recorded for this night."
+
+## PR 5 — strain, insights, profile and the tab bar in nocturne
+
+Tickets: T5.0-A/B (controls, structures), T5.1 (tab bar), T6.0 (PR 6's shared parts, landed here), T5.2 Strain, T5.3
+Insights, T5.4 Profile, T5.5 Sleep's modes, T5.6 strings and copy, T5.7 the whole-PR fix round. Main merged in at
+29d3c53 (#107, #109, #123, #124) and 9fc09c5 (#126).
+
+**Per-ticket code reviews (code-reviewer).** No blocker in T5.2, T5.3 or T5.4; one in T5.5. Decisions:
+
+| # | Finding | Decision |
+|---|---|---|
+| T5.2-S1 | A cancelled day load cleared the next load's spinner; a late error landed on the other day. | Generation counter; test A → B → A. |
+| T5.2-S2/S3 | "No strain" and "didn't record zones" read as final on a day still being scored, and on a failed workout detail. | The day's scoring state; a couldn't-load state with Try again. |
+| T5.2-S4 | The day shown was never named. | The header names it when it isn't today, and VoiceOver hears it on a deep link. |
+| T5.3-S1, T5.5-S1 | "vs 7 d" differed per range and from Today. | One rule everywhere: `MetricDelta.vsSevenDayMean` (T5.7 brought Strain onto it too). |
+| T5.3-S2 | The band (min–max incl. the latest value) always filled the box. | Mean ± 1 SD of the prior 30 days, from 7 values; copy "Shaded: your usual range". |
+| T5.3-S3 | A never-loaded series read "No data". | "Not loaded", read with a generation token. |
+| T5.5-B1 | Sleep → Bedtime's numeral followed the picker's last wake, not the schedule's next wake like Today, the reminder and the widget. | Seeded from the schedule; test against `BedtimePlanner.bedtime`. |
+| T5.5-S2–S6 | An older night called "Last night"; a mode-switch race; 24 h times in English US; silent stale ranges; `localizedDescription` on failure. | Named night, generation token, `Fmt.time` with en_US/en_GB tests, "As of <day>", `SleepLoadFailure`. |
+| T5.4-B | Profile said "updated now" after a failed upload. | Freshness from the last successful sync. |
+| T5.4-S | Duplicate accessibility identifiers through `GroupedRow`. | Additive `identifier:`. |
+
+**T5.4 security review.** No blockers. Demo data while signed in showed the demo identity and offered "Change password"
+to an Apple account: identity and account rows now come from the session when signed in (the demo identity only when
+signed out). Consent rows in Demo hide Withdraw and Review (they would hit the demo API) and say why.
+
+**Strings (T5.6) and copy round.** +97 / −27 keys with plurals for nights, days, beats and minutes; then a copy round:
+no-break spaces before units and %, "usual range" instead of "band" (another wearable's word), link hints by address
+("Opens in the browser" / "Opens outside the app" / "Opens the page in RYFT"), one no-strain wording, "Sleep need",
+"Opens sign in". `scripts/sync-strings.py` now writes a `defaultValue`'s English as the `en` value (a key with only `{}`
+compiled to the dotted key).
+
+**Whole-PR review (code-reviewer, 4512338),** including T5.0-A/B, T5.1 and T6.0, which had no review of their own: no
+blockers, five should-fix, all fixed in T5.7 (6d4ef39…a815d1b):
+
+| # | Finding | Decision |
+|---|---|---|
+| S1 | On iOS 27.2 the window root's `.toggleStyle(.ryft)` doesn't reach sheet or cover content (the root's `.tint` does): stock switches in Report a problem, the import cover and others. Previews and hosted tests set the style themselves, so none showed it. | `presentedRoot()` (`Design/PresentedRoot.swift`) at all 59 presenters; `PresentedRootTests` probes the behaviour, checks real presenters for no `UISwitch` and ink tints, and a source lint fails any presentation without it. |
+| S2 | The main merge lost #109's ingest URL field (label and placeholder). | Restored; `TabBarUITests` finds it by identifier. |
+| S3 | Strain's "vs 7 d" used the 7 days before with at least 3; the others the 7-day window ending on the day with at least 1. | Strain on `MetricDelta.vsSevenDayMean`; duplicate delta helpers folded; test that Strain and Insights agree. |
+| S4 | Insights said nothing offline (the refresh issue is nil offline). | Strain's offline line and "As of" on the cards; Demo counts as online. |
+| S5 | Bedtime showed "Planning…" for ever in Demo offline. | Fixed in PR 6 C (Demo counts as online). |
+| N | Dead API, stale comments, three keys without a no-break space, two comments for one key, `SegmentedMenu` without a name for VoiceOver, unbounded test waits. | Fixed; the menu reads "Range, Week". |
+
+**Integration runs** (`strict build-for-testing` + warning grep, Unit plan, `make lint`, `make style`,
+`sync-strings --check`, and a Release build, which PR CI doesn't do): 29d3c53 failed two `NocturneStringsTests` (the
+PR 4 contract pinned "Display", which T5.4 drops: moved to removed); from 9f94e6c on all green. Last run at a815d1b:
+0 warnings, 3,892 of 3,895 passed (2 skipped, 1 expected failure), lint, style, strings check and Release 0.
+
+**ui-validator (a815d1b, iPhone 17 Pro, iOS 27.2, Demo data, default and AX3; states the demo can't reach rendered
+from the previews' builders).** No blockers. Verified: the tab bar (74 × 44 items, "Tab n of 5", the Selected trait,
+labels capped at xxLarge, reselect pops and scrolls to the top, the keyboard covers the bar), Strain's states (failed,
+pending, no zones, ten days ago, offline day), Insights' ranges and offline cards, Profile with Nocturne switches only
+(`presentedRoot()` reaches Details → Report a problem), Sleep's modes and the AX menu ("Range, Week"), Reduce Motion
+through `Theme.Motion.respecting`, synthetic data only.
+
+| # | Finding | Decision |
+|---|---|---|
+| S1 | Sleep Week and Month at AX3: the delta row widened the column to 394 pt (4 pt margins). | T5.8: the row wraps at AX sizes; hosted test of the 20 pt margins. |
+| S2 | Details sheet: "Send to RYFT" a teal capsule, "Copy details" the old button. | T5.8: `PillButton` primary and secondary. |
+| S3 | Bedtime's wake chip is the system compact picker, 87 × 36. | Accepted, as D6C-17 (Apple's control; the row is 44). |
+| S4 | A breaking space before % in Insights' "Avg 68 %" and Bedtime's "Time in bed". | T5.8: no-break spaces. |
+| S5 | Insights → Behaviors breaks words at AX3. | PR 6 (§P5-5.1 row 5 leaves Behaviors to PR 6; both merge on one day). |
+| N | AX3 caption gap on Strain, dangling "·" in activity rows, glyph-row text x in Profile, an em dash in "moderate 10–14". | T5.8. |
+| N | Teal on PR 6's screens reached from PR 5 (Add activity, the planner, Journal, Notifications); the Insight glow tile teal for any info insight (spec F4, a known exception to L27); a −2 % sleep drop in alert red; AX3 ruler labels; the switch's nested accessibility element. | PR 6, and the gate PR's design check. |
+| N | Demo data disagrees across screens (sleep consistency 54 / 72 / 86; identical zones on other days; "Demo data · up to date" beside "Last sync Never"). | One mock-data pass before the beta screenshots. |
+
+**T5.8 (dc27a2f…707e418).** The validator's "AX3" shots were taken at AX5 (its "vs 7 d" measures 103 × 47.7, AX5's
+size; AX3 gives 79 × 36.3), so the fixes start at AX1 and are tested at AX3 and AX5. S1's cause was the night list (a
+night with a nap needs 330 pt at AX5), not only the delta: the nap moves under the total, and the head stacks into three
+centred lines (`DeltaLabel(stacked:)`); the picker is back at x 20, width 362. S2: both Details buttons are
+`PillButton`s, and the sync line's actions and the request ID's "Copied" are ink; a pixel test finds no teal in the
+sheet. S4: `TrendCardContent.valueText` joins every unit with a no-break space; Bedtime's tile and the wind-down reminder
+too. DeltaLabel's gap scales with the text (4 pt default, 9.7 at AX3). Activity rows put the meta one part per line from
+AX1. Profile's import rows share one glyph column. "moderate 10–14" was already an en dash (U+2013; Satoshi draws it
+0.93 em wide), now pinned by a test, and stays. Every new test failed against its mutant. Whole Unit plan 3,903 passed.
+Left for the PR 6 strings pass: a plain space before % in the planner (`SleepPlannerView` :102, :121), Sleep Day's
+quality line, Behaviors' "90 % interval" and "% 1RM" in Train; Today's `SetupCard` teal goes to the gate PR.
+
+**Left for later:** the shared-component retirements and token clean-up (card radius 22 vs `Theme.Metrics.cardRadius`
+18, `MetricTile`, `AppState.workoutDetail`) go to the gate PR (T5.9) with an ink `AccentColor` asset as a safety net;
+the leftover `.tint(Theme.accent)` roots in Activities go with PR 6 B; three "band" words outside PR 5 (coach marks,
+"watch, band or ring") to the PR 6 strings pass.
