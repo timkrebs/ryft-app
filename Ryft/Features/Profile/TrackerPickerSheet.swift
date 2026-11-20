@@ -15,7 +15,7 @@ struct TrackerPickerSheet: View {
     var body: some View {
         SubpageScaffold(Text("What do you wear?"), navigation: .close(), isSheet: true) {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
-                Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.")
+                Text("Pick your watch, tracker or ring. RYFT then shows how to get its data into Apple Health.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

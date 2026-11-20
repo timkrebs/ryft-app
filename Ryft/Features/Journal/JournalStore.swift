@@ -28,7 +28,7 @@ final class JournalStore {
         case idTaken
         var errorDescription: String? {
             switch self {
-            case .offline: return String(localized: "You're offline. Save again when you're back online.")
+            case .offline: return String(localized: "You're offline, so this wasn't saved. Try again when you're back online.")
             case .idTaken:
                 return String(localized: "That habit couldn't be saved. Try again.",
                               comment: "Add a habit: the platform took the habit's id twice (409), so it wasn't created.")

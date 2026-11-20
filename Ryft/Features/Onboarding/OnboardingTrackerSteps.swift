@@ -15,7 +15,7 @@ struct TrackerPickerView: View {
 
     var body: some View {
         OnboardingScreen(title: Text("What do you wear?"),
-                         lead: Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health."),
+                         lead: Text("Pick your watch, tracker or ring. RYFT then shows how to get its data into Apple Health."),
                          showsLockup: model.isFirstRun) {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
             Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")

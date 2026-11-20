@@ -439,7 +439,7 @@ struct AddBehaviorSheet: View {
     }
 
     static var fullCaption: Text {
-        Text("You have \(maxOwn) habits of your own, the most RYFT keeps. Delete one to add another.",
+        Text("You've reached the limit of \(maxOwn) habits of your own. Delete one to add another.",
              comment: "Add a habit: the bar's caption while Add is disabled because the user has 50 habits of their own.")
     }
 
