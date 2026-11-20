@@ -354,7 +354,7 @@ final class JournalStore {
             switch b.kind {
             case .yesNo: return b.name
             case .count: return e.valueNum.map { "\(b.name) · \($0)" } ?? b.name
-            case .time: return e.valueTime.map { "\(b.name) \(Self.time($0, now: now, locale: locale))" } ?? b.name
+            case .time: return e.valueTime.map { "\(b.name) \(Self.time($0, locale: locale))" } ?? b.name
             }
         }
         return yes.isEmpty
@@ -363,11 +363,12 @@ final class JournalStore {
             : yes.formatted(.list(type: .and, width: .narrow).locale(locale))
     }
 
-    /// A habit's "HH:MM" (the platform's 24-hour wall time) as the locale writes a time: "4:30 PM", "16:30".
-    static func time(_ hhmm: String, now: Date, locale: Locale) -> String {
+    /// A habit's "HH:MM" (the platform's 24-hour wall time) as the locale writes a time: "4:30 PM", "16:30". A wall time
+    /// without a day (`Fmt.time(hour:minute:locale:)`), so the night the clocks go forward doesn't move "02:30"; anything
+    /// else as it came.
+    static func time(_ hhmm: String, locale: Locale) -> String {
         let parts = hhmm.split(separator: ":").compactMap { Int($0) }
-        guard parts.count == 2, let date = Calendar.current.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: now)
-        else { return hhmm }
-        return Fmt.time(date, locale: locale)
+        guard parts.count == 2, (0..<24).contains(parts[0]), (0..<60).contains(parts[1]) else { return hhmm }
+        return Fmt.time(hour: parts[0], minute: parts[1], locale: locale)
     }
 }

@@ -47,8 +47,23 @@ struct JournalStoreTests {
         let none = JournalDay(day: store.yesterday, answered: true, answeredAt: .now, editable: true,
                               entries: [JournalEntry(behaviorId: MockJournal.alcohol, valueBool: false)])
         #expect(store.summary(of: none) == "None of your habits")
-        #expect(JournalStore.time("07:05", now: .now, locale: Locale(identifier: "en_US")) == "7:05\u{202F}AM")
-        #expect(JournalStore.time("7:5pm", now: .now, locale: Locale(identifier: "en_US")) == "7:5pm", "not HH:MM: as it came")
+        #expect(JournalStore.time("07:05", locale: Locale(identifier: "en_US")) == "7:05\u{202F}AM")
+        #expect(JournalStore.time("7:5pm", locale: Locale(identifier: "en_US")) == "7:5pm", "not HH:MM: as it came")
+        #expect(JournalStore.time("25:00", locale: Locale(identifier: "en_US")) == "25:00", "not a time of day: as it came")
+    }
+
+    @Test("The night the clocks go forward, a habit's 02:30 still reads 2:30 AM: the platform's wall time is never moved")
+    func aTimeOnTheClockChangeDay() throws {
+        // Noon on 29 March 2026: Europe/Berlin's clocks went from 02:00 to 03:00 that night, so 02:30 didn't happen on that
+        // date. Set on it (as Today's card once did), the time became 3:00 or 3:30 wherever the iPhone keeps Berlin's time,
+        // as this Mac's simulators do.
+        var berlin = Calendar(identifier: .gregorian)
+        berlin.timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+        let noon = try #require(berlin.date(from: DateComponents(year: 2026, month: 3, day: 29, hour: 12)))
+        let store = MockJournalStates.store(clock: TestClock(now: noon))
+        let day = JournalDay(day: "2026-03-28", answered: true, answeredAt: noon, editable: true,
+                             entries: [JournalEntry(behaviorId: MockJournal.lastCaffeine, valueBool: true, valueTime: "02:30")])
+        #expect(store.summary(of: day, locale: Locale(identifier: "en_US")) == "Last caffeine 2:30\u{202F}AM")
     }
 
     @Test func writesNeedTheNetwork() async {
