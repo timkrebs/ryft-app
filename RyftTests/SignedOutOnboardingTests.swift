@@ -368,8 +368,8 @@ struct SignedOutOnboardingTests {
 
     // MARK: the onboarding steps' fallback text
 
-    @Test("A step offline says so; RYFT's own sentences stay (429, 503); a server's text and anything unknown say only that it didn't work (§A-7)")
-    func fallbackMessages() {
+    @Test("A step offline says so; RYFT's own sentences stay (429, 503, App Attest); a server's text and anything unknown say only that it didn't work (§A-7)")
+    func fallbackMessages() async {
         let offline = OnboardingCoordinator.fallbackMessage(for: APIError.transport(URLError(.notConnectedToInternet)))
         #expect(offline == String(localized: "No connection. Check your internet and try again."))
         #expect(OnboardingCoordinator.fallbackMessage(for: URLError(.timedOut)) == offline)
@@ -385,6 +385,20 @@ struct SignedOutOnboardingTests {
         #expect(OnboardingCoordinator.fallbackMessage(for: APIError.http(418, "")) == other, "not a bare status either")
         let undecodable = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unexpected field"))
         #expect(OnboardingCoordinator.fallbackMessage(for: undecodable) == other)
+
+        // #128's sentence for an iPhone that can't verify the app: the invite and the consent aren't exempt from App
+        // Attest, so their steps say it, and Details still carries the request ID.
+        let unverified = String(localized: "RYFT couldn't verify this app on this iPhone. Try again later.")
+        let refused = APIError.http(403, "app attest required", requestID: "01JDAA7Q2K", code: .appAttestRequired)
+        #expect(OnboardingCoordinator.fallbackMessage(for: refused) == unverified)
+        let api = MockPlatformAPI()
+        api.betaAccess = false
+        let model = OnboardingCoordinator(state: AppState(env: .test(api: api)), apiStatus: APIStatus()) {}
+        model.inviteCode = "RYFT-7K3M-QX9P"
+        api.failNext = refused
+        #expect(await !model.redeemInvite())
+        #expect(model.errorMessage == unverified)
+        #expect(model.errorDetails == "HTTP 403 · app_attest_required · Request ID 01JDAA7Q2K")
     }
 
     // MARK: consent records the version it showed (SEC-1)

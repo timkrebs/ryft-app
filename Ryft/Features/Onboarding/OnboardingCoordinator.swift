@@ -590,12 +590,14 @@ final class OnboardingCoordinator {
     }
 
     /// `APIError`'s own, vetted sentences (`APIError.errorDescription`): the rest there is the server's text, or a bare
-    /// status.
+    /// status. `app_attest_required` too: the invite and the consent aren't exempt from App Attest (API.md → App Attest →
+    /// Exempt), and on an iPhone that can't verify the app trying again won't help (ADR 0023).
     private nonisolated static func hasOwnWords(_ error: APIError) -> Bool {
         switch error {
         case .notConfigured, .signedOut: return true
         case .http(401, _, _, _, _), .http(429, _, _, _, _), .http(500, _, _, _, _), .http(503, _, _, _, _): return true
         case .http(403, _, _, .inviteRequired?, _), .http(403, _, _, .consentRequired?, _), .http(403, _, _, nil, _): return true
+        case .http(403, _, _, .appAttestRequired?, _): return true
         case .http, .transport: return false
         }
     }
