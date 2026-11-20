@@ -93,7 +93,7 @@ struct JournalNocturneTests {
             try await w.wait("the failed read") { w.nodes().contains { $0.identifier == "journal.failed.retry" } }
             #expect(api.count("journal") == 0, "the opening read waited")
             try #require(w.nodes().first { $0.identifier == "journal.failed.retry" }).activate()
-            try await w.wait("yesterday's rows") { w.nodes().contains { $0.identifier == "journal.habit.alcohol" } }
+            try await w.wait("yesterday's rows") { w.nodes().contains { $0.identifier == "journal.answer.alcohol" } }
             #expect(api.count("journal") == 1, "Try again went")
         }
     }
@@ -318,7 +318,7 @@ struct JournalNocturneTests {
             #expect(!nodes.contains { $0.identifier == "journal.offlinePill" }, "the line says it; no second notice")
             #expect(nodes.first { $0.identifier == "journal.save" }?.isEnabled == false)
             state.env.connectivityMonitor.update(true)
-            try await w.wait("yesterday's rows") { w.nodes().contains { $0.identifier == "journal.habit.alcohol" } }
+            try await w.wait("yesterday's rows") { w.nodes().contains { $0.identifier == "journal.answer.alcohol" } }
             try await w.settle()
             nodes = w.nodes()
             #expect(!nodes.contains { $0.identifier == "journal.offline.retry" })
@@ -354,7 +354,7 @@ struct JournalNocturneTests {
         }
     }
 
-    @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet")
+    @Test("The live sheet's Choose habits pushes Profile → Journal's page inside the sheet, with its own ids")
     func noHabitsLink() async throws {
         let state = AppState.preview()
         let store = JournalStore(env: state.env)
@@ -373,6 +373,9 @@ struct JournalNocturneTests {
             w.nodes().first { $0.identifier == "journal.chooseHabits" }?.activate()
             // Profile → Journal lists every habit, chosen or not.
             try await w.wait("Profile → Journal's page") { w.nodes().contains { $0.label.hasPrefix("Alcohol") } }
+            // The page's switches are its own ids, not the sheet's answers'.
+            let ids = w.nodes().compactMap(\.identifier)
+            #expect(ids.contains("journal.habit.alcohol") && !ids.contains { $0.hasPrefix("journal.answer.") }, "\(ids)")
         }
     }
 
@@ -383,7 +386,7 @@ struct JournalNocturneTests {
             let loading = try #require(w.nodes().first { $0.identifier == "journal.loading" })
             #expect(loading.label == "Loading…")
             #expect(loading.frame.height >= 3 * GroupedListSpec.rowMinHeight, "\(loading.frame)")
-            #expect(!w.nodes().contains { $0.identifier?.hasPrefix("journal.habit.") == true }, "no switches while it loads")
+            #expect(!w.nodes().contains { $0.identifier?.hasPrefix("journal.answer.") == true }, "no switches while it loads")
         }
         let taps = Taps()
         let actions = JournalSheetActions(retry: { taps.retries += 1 })
@@ -410,8 +413,8 @@ struct JournalNocturneTests {
             let nodes = w.nodes()
             let notice = try #require(nodes.first { $0.identifier == "journal.readOnly" })
             #expect(notice.label == "This day can't be changed any more.")
-            let sauna = try #require(nodes.first { $0.identifier == "journal.habit.sauna" })
-            let alcohol = try #require(nodes.first { $0.identifier == "journal.habit.alcohol" })
+            let sauna = try #require(nodes.first { $0.identifier == "journal.answer.sauna" })
+            let alcohol = try #require(nodes.first { $0.identifier == "journal.answer.alcohol" })
             #expect(sauna.isEnabled && sauna.value != alcohol.value, "on stays on, off stays off: \(sauna.value ?? "") \(alcohol.value ?? "")")
             sauna.activate()
             try await Task.sleep(for: .milliseconds(150))
@@ -448,12 +451,12 @@ struct JournalNocturneTests {
             try await w.settle()
             let nodes = w.nodes()
             let title = try #require(nodes.firstIndex { $0.label == "Yesterday" && $0.traits.contains(.header) })
-            let alcoholIndex = try #require(nodes.firstIndex { $0.identifier == "journal.habit.alcohol" })
+            let alcoholIndex = try #require(nodes.firstIndex { $0.identifier == "journal.answer.alcohol" })
             #expect(title < alcoholIndex, "the title before the rows")
             let alcohol = nodes[alcoholIndex]
             #expect(alcohol.label == "Alcohol" && alcohol.value == on, "\(alcohol.label) \(alcohol.value ?? "nil")")
             #expect(alcohol.traits.contains(.toggleButton) || alcohol.traits.contains(.button))
-            let screens = try #require(nodes.first { $0.identifier == "journal.habit.screens_in_bed" })
+            let screens = try #require(nodes.first { $0.identifier == "journal.answer.screens_in_bed" })
             #expect(screens.value == off)
             let drinks = try #require(nodes.first { $0.identifier == "journal.count.drinks" })
             #expect(drinks.label == "Drinks" && drinks.value == "2" && drinks.isAdjustable, "\(drinks.label) \(drinks.value ?? "")")
@@ -484,7 +487,7 @@ struct JournalNocturneTests {
             }
             let save = try #require(nodes.first { $0.identifier == "journal.save" })
             #expect(save.frame.width > save.frame.height, "one line: \(save.frame)")
-            let alcohol = try #require(nodes.first { $0.identifier == "journal.habit.alcohol" })
+            let alcohol = try #require(nodes.first { $0.identifier == "journal.answer.alcohol" })
             #expect(alcohol.frame.height > GroupedListSpec.rowMinHeight, "\(alcohol.frame)")
             let chip = try #require(nodes.first { $0.identifier == "journal.day.\(Self.yesterday)" })
             #expect(chip.frame.height > JournalLayout.chipHeight, "the chip grows with its words: \(chip.frame)")

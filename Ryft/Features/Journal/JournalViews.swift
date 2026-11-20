@@ -432,7 +432,9 @@ private struct JournalHabitRow: View {
     let isSaving: Bool
     let actions: JournalSheetActions
 
-    /// A built-in by its fixed slug; the user's own by its id (as Profile → Journal names them).
+    /// A built-in by its fixed slug; the user's own by its id (as Profile → Journal names them). The switch is
+    /// `journal.answer.<key>`: Profile → Journal's own switch for the habit, `journal.habit.<key>`, can be pushed in this
+    /// sheet's stack (Choose habits), and the two mean different things (the day's answer, the habit asked about).
     private var key: String { row.behavior.isCustom ? row.id.uuidString.lowercased() : row.behavior.slug }
 
     var body: some View {
@@ -440,7 +442,7 @@ private struct JournalHabitRow: View {
             GroupedRow.toggle(Text(verbatim: row.behavior.name), isOn: Binding(get: { row.on }, set: { on in
                 if editable { actions.setOn(row.id, on) }
             }))
-            .accessibilityIdentifier("journal.habit.\(key)")
+            .accessibilityIdentifier("journal.answer.\(key)")
             if row.on {
                 subRow
                     .environment(\.isInGroupedCard, false)
