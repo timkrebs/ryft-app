@@ -336,7 +336,9 @@ struct TrainHistoryTests {
             }
             #expect(zip(rows, rows.dropFirst()).allSatisfy { $1.frame.minY - $0.frame.maxY >= TrainHistoryLayout.rowSpacing - 0.5 })
             let weeks = nodes.filter { $0.label.hasPrefix("Week of") }
-            #expect(!weeks.isEmpty && weeks.allSatisfy { $0.traits.contains(.header) && ($0.value ?? "").contains("sessions") })
+            // "1 session" or "3 sessions" (the catalog's plural).
+            #expect(!weeks.isEmpty && weeks.allSatisfy { $0.traits.contains(.header) && ($0.value ?? "").contains("session") },
+                    "\(weeks.map { $0.value ?? "nil" })")
             #expect(!ids(w).contains("history.loading") && !ids(w).contains("history.empty"))
         }
     }
