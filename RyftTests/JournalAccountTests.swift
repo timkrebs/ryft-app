@@ -235,6 +235,29 @@ struct JournalDemoSideTests {
         #expect(live.count("putJournal") == puts.0 && demo.count("putJournal") == puts.1, "nothing sent, to either side")
     }
 
+    @Test("5: the journal sheet's save answered after demo data came on: nothing is kept, nothing is said, and the sheet closes quietly",
+          .timeLimit(.minutes(1)))
+    func theSheetsLateSaveClosesQuietly() async throws {
+        let h = onTheAccount()
+        let live = try #require(h.env.liveAPI as? MockPlatformAPI)
+        let store = JournalStore(state: h.state)
+        await store.load()
+        let sheet = JournalSheetModel(store: store)
+        await sheet.load()
+        let row = try #require(sheet.groups.first?.rows.first)
+        sheet.set(row.id, on: !row.on)
+        let hold = RequestHold()
+        live.beforeJournalAnswer = { name in if name == "putJournal" { await hold.wait() } }
+        let saving = Task { await sheet.save() }
+        #expect(await eventually { hold.waiting == 1 })
+
+        switchDemo(h, on: true)
+        hold.release()
+        #expect(await saving.value == false)
+        #expect(sheet.leftItsSide && sheet.error == nil && !sheet.saved, "closes without a word")
+        #expect(live.count("putJournal") == 1, "the one save, sent while the sheet was the account's")
+    }
+
     @Test("5: the journal sheet open while the account's journal is forgotten (a wipe): Save sends nothing")
     func theSheetStaysWithItsJournal() async throws {
         let h = onTheAccount()
