@@ -35,7 +35,7 @@ struct DevicesAndSyncView: View {
         .navigationDestination(isPresented: Binding(get: { check != nil }, set: { if !$0 { check = nil } })) {
             if let check { TrackerCheckView(model: check) }
         }
-        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
+        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model).presentedRoot() }
         .analyticsScreen(.devicesAndSync)
     }
 
@@ -264,7 +264,7 @@ private func devicesPreview(_ picked: [String], de: Bool = false, size: DynamicT
                        lastSeen: now.addingTimeInterval(-1_200)),
             UserSource(name: "Oura", bundleId: "com.ouraring.oura", kinds: [.hr, .sleep, .resp, .workout],
                        lastSeen: now.addingTimeInterval(-26_000)),
-            UserSource(name: "Tim's iPhone", bundleId: "com.apple.health.3F0A", kinds: [.steps],
+            UserSource(name: "Alex's iPhone", bundleId: "com.apple.health.3F0A", kinds: [.steps],
                        lastSeen: now.addingTimeInterval(-600)),
             UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep],
                        lastSeen: now.addingTimeInterval(-90_000)),

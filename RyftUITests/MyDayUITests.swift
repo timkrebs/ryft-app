@@ -63,7 +63,7 @@ final class MyDayUITests: XCTestCase {
         XCTAssertTrue(row.label.hasPrefix("Sleep"), row.label)
         row.tap()
 
-        let sleepTab = app.tabBars.buttons["Sleep"]
+        let sleepTab = app.tab("Sleep")
         let selected = expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: sleepTab)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: wait), .completed, "the Sleep tab is selected")
     }
@@ -104,7 +104,10 @@ final class MyDayUITests: XCTestCase {
         XCTAssertTrue(walk.label.hasPrefix("Walk"), walk.label)
         walk.tap()
 
-        XCTAssertTrue(app.navigationBars["Walk"].waitForExistence(timeout: wait), "the workout's detail")
+        // The workout's own header, titled with the sport (Nocturne hides the navigation bar on it, design.md §P5-4).
+        let header = app.descendants(matching: .any)["workout.header"]
+        XCTAssertTrue(header.waitForExistence(timeout: wait), "the workout's detail")
+        XCTAssertEqual(header.label, "Walk")
     }
 
     // MARK: VoiceOver

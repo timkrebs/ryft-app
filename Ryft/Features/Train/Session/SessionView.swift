@@ -166,16 +166,18 @@ struct SessionView: View {
                     withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }
                 }
             }
+            .presentedRoot()
         }
         .sheet(item: Bindable(coordinator).summary, onDismiss: { coordinator.summaryDone() }) {
-            SessionSummarySheet(summary: $0)
+            SessionSummarySheet(summary: $0).presentedRoot()
         }
         .sheet(isPresented: $showsReorder) {
-            ReorderSheet(controller: controller)
+            ReorderSheet(controller: controller).presentedRoot()
         }
         .sheet(item: $plates) { request in
             PlateCalculatorSheet(target: request.kg,
                                  onUse: request.fromKeypad ? { controller.setWeight($0) } : nil)
+                .presentedRoot()
         }
         .sheet(item: $historyFor) { ref in
             NavigationStack {
@@ -184,6 +186,7 @@ struct SessionView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Close") { historyFor = nil } }
                     }
             }
+            .presentedRoot()
         }
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }

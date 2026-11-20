@@ -175,14 +175,18 @@ struct MetricDelta: Equatable {
         return value == 0
     }
 
-    /// The newest point against the mean of the seven days before it.
+    /// "vs 7 d"'s window: the newest value's day and the 6 before it (Today's 7-day series).
+    static let windowDays = 7
+
+    /// "vs 7 d", the one rule for Today, Sleep, Strain and Insights (T5.3): the newest value against the mean of the others
+    /// in the `windowDays` that end on its day, with one of them at least. Points may come in any order, with gaps and
+    /// `nil` values; a longer series (30 D, 90 D) gives the same change as its last 7 days.
     static func vsSevenDayMean(_ points: [TrendPoint]) -> MetricDelta? {
-        let valued = points.compactMap { p in p.value.map { (date: p.date, value: $0) } }
-        guard let last = valued.last else { return nil }
-        let from = DayFormat.shift(last.date, days: -7)
-        let prior = valued.filter { $0.date >= from && $0.date < last.date }.map(\.value)
-        guard !prior.isEmpty else { return nil }
-        return MetricDelta(current: last.value, reference: prior.reduce(0, +) / Double(prior.count))
+        let valued = points.compactMap { p in p.value.map { (day: p.day, value: $0) } }.sorted { $0.day < $1.day }
+        guard let last = valued.last, let lastDate = DayFormat.date(from: last.day) else { return nil }
+        let from = DayFormat.string(from: DayFormat.shift(lastDate, days: -(windowDays - 1)))
+        let prior = valued.filter { $0.day >= from && $0.day < last.day }.map(\.value)
+        return against(last.value, prior: prior)
     }
 
     /// `current` against the mean of `prior`; nil when either is missing.

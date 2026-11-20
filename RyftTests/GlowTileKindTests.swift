@@ -91,7 +91,7 @@ import UIKit
         #expect(shape.stops.map(\.location) == c.stops)
         #expect(shape.stops.map(\.opacity) == [0.97, 0.92, 0.55, 0.10])
         #expect(shape.radius == c.radius && shape.minHeight == c.minHeight)
-        #expect(Kind.allCases.count == 4)
+        #expect(Kind.allCases.count == 6)
     }
 
     @Test("Spec 7: the 2-up keeps its own ellipse up to 200 × 160 and takes the panel's past it, with its own radius and height",

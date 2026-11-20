@@ -57,7 +57,7 @@ final class TodayViewModel {
     var hasDataSource: Bool { state.hasDataSource }
     /// The first word of the account's name (`User.name`, `full_name`); nil when the sign-in gave none (R-N2).
     var firstName: String? { ReadinessCopy.firstName(state.user?.name) }
-    /// "Good evening, Tim", or "Good evening" without a name.
+    /// "Good evening, Alex", or "Good evening" without a name.
     var greeting: String { ReadinessCopy.greeting(at: env.clock.now(), name: firstName) }
     /// Says what the gauge shows, about the same day (ui.md §1.5).
     var sentence: String { content.sentence }
@@ -1523,7 +1523,7 @@ enum TodayScenario: String, CaseIterable {
                 SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile",
                                 newest: Calendar.current.date(bySettingHour: 23, minute: 24, second: 0, of: yesterday) ?? yesterday),
                 // The iPhone's sleep schedule writes in-bed time: not the night.
-                SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: morning.addingTimeInterval(-2 * 3_600),
+                SourceFreshness(source: "Alex's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: morning.addingTimeInterval(-2 * 3_600),
                                 deviceModel: "iPhone"),
             ]
         case .scoringSlow:

@@ -14,25 +14,15 @@ struct AnalyticsOptInRow: View {
     }
 }
 
-/// The switch itself, like Demo data's: off stops sending at once and resets the random ID.
+/// The switch itself, a grouped toggle row like Demo data's: off stops sending at once and resets the random ID.
 struct AnalyticsOptInToggle: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        Toggle(isOn: $isOn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Share usage analytics")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                Text("Screens used and errors shown. No health data. Turning it off stops sending now and resets your random ID.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .tint(Theme.accent)
-        .accessibilityIdentifier("profile.analytics")
-        .accessibilityHint(Text("Uses a random ID, never your account. Turning it off resets it."))
+        GroupedRow.toggle(Text("Share usage analytics"),
+                          detail: Text("Screens used and errors shown. No health data. Turning it off stops sending now and resets your random ID."),
+                          identifier: ProfileRow.analytics.identifier, isOn: $isOn)
+            .accessibilityHint(Text("Uses a random ID, never your account. Turning it off resets it."))
     }
 }
 
@@ -53,14 +43,15 @@ struct AnalyticsOptInRowCapture: View {
 }
 #endif
 
-/// Profile's Privacy card around the row, for the previews.
+/// Profile's Privacy group around the row (Nocturne: consent, Withdraw, then this row), for the previews.
 private struct PrivacyCardPreview<Row: View>: View {
     @ViewBuilder var row: () -> Row
 
     var body: some View {
-        ProfileSection(title: "Privacy") {
+        GroupedCard(ProfileGroup.privacy.title) {
+            GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: "Agreed"))
+            GroupedRow.destructive(Text("Withdraw consent")) {}
             row()
-            Text("Privacy Policy").font(.ryft(.callout)).foregroundStyle(Theme.accent).frame(minHeight: 44)
         }
     }
 }

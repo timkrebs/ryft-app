@@ -2,54 +2,6 @@ import SwiftUI
 
 // MARK: - report a problem
 
-/// Profile → About's first row: "Report a problem", and what's still waiting to send.
-struct ReportProblemRow: View {
-    let waiting: Int
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.bubble")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityHidden(true)
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 2) {
-                    title
-                    status
-                }
-                Spacer(minLength: 8)
-            } else {
-                title
-                Spacer(minLength: 8)
-                status
-            }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityHidden(true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
-
-    private var title: some View {
-        Text("Report a problem")
-            .font(.ryft(.callout))
-            .foregroundStyle(Theme.textPrimary)
-    }
-
-    @ViewBuilder private var status: some View {
-        if waiting > 0 {
-            Text("\(waiting) waiting to send")
-                .font(.ryft(.callout))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textSecondary)
-        }
-    }
-}
-
 /// Profile → About → Report a problem (ui.md §5): a message, what it's about, and diagnostics that help find
 /// the cause, never a health value. Pushed from Profile, or from an error's Details (`context`), pre-filled.
 /// `sent` and `queued` replace the form; a refusal shows on it, with the message kept.
@@ -420,16 +372,4 @@ private let previewMessage = "Today said calibrating after a full week of nights
 }
 #Preview("Report · over limit · dark") {
     reportPreview { $0.stage(message: String(repeating: "The tiles and the gauge disagree. ", count: 120)) }
-}
-
-#Preview("Report row · dark") {
-    VStack(spacing: 12) {
-        Card { ReportProblemRow(waiting: 0) }
-        Card { ReportProblemRow(waiting: 1) }
-        Card { ReportProblemRow(waiting: 2) }
-    }
-    .padding()
-    .frame(maxHeight: .infinity)
-    .background(Theme.background)
-    .preferredColorScheme(.dark)
 }

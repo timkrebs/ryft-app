@@ -86,7 +86,7 @@ private struct PlansScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .refreshable { await model.refresh() }
         .task { await model.loadIfNeeded() }
-        .sheet(item: $editing) { PlanBuilderView(plan: $0) }
+        .sheet(item: $editing) { PlanBuilderView(plan: $0).presentedRoot() }
     }
 
     /// `train.import` off: today's button. On: a menu, Start from scratch or Import from file (ui.md §3.1).
@@ -237,7 +237,7 @@ private struct PlanDetailScreen: View {
         .toolbar(.visible, for: .navigationBar)
         .task(id: model.planID) { await model.load() }
         .sheet(item: $editing, onDismiss: { Task { await model.load() } }) {
-            PlanBuilderView(plan: $0)
+            PlanBuilderView(plan: $0).presentedRoot()
         }
         .confirmationDialog("Switch to \(plan?.name ?? "")?", isPresented: $confirmSwitch, titleVisibility: .visible) {
             Button("Switch plan") { Task { await model.enroll() } }

@@ -1,13 +1,14 @@
 # Status — 2026-11-20
 
-## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130, draft)
+## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
 - **#129, "networking: X-RYFT-App-Build, and the App Attest mode from the config"** (D247; `docs/work/2026-11-20-app-attest-mode/`):
   - What it does: every request now carries `X-RYFT-App-Build`, and the attestor follows `GET /v1/config` → `app_attest` (`off`: no probe; `warn`/`on`: attest; absent: today's probe).
   - Status: CI green, ready to merge.
   - Verification: simulator and unit tests only. Production answers `501` until the token key is set, so nothing changes on a device yet.
-- **#130 (draft), "analytics: PostHog, opt-in, dark behind analytics.enabled (A1)"** (D231; `docs/work/2026-11-20-analytics/`):
-  - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle, the events, and 99 tests.
+- **#130, "analytics: the opt-in gate and events, dark (A1 phase 1)"** (D231; `docs/work/2026-11-20-analytics/`):
+  - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle (a Nocturne row after #127), the events, and 99 tests.
+  - Decision B: in phase 2 the opt-in becomes an onboarding step before `health`; the post-onboarding sheet can go then.
   - Nobody sees it until phase 2: the no-op sink can't send.
   - Phase 2 (a follow-up session) needs the package added in Xcode first. Then it writes `PostHogSink`, `PrivacyInfo.xcprivacy`, the ADR for the second dependency, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and a `LicensesView` entry.
   - Right after phase 2 merges, the platform refreshes `web/config/app-packages.json` (`npm run licenses -- --sync`) with `posthog-ios` 3.98.2. The privacy text has to name PostHog EU as a processor.
@@ -51,6 +52,15 @@ matched move; #117) and the AX3 fix for Welcome and the live workout (#115) are 
 nightly with P1 (below, #116), as the user asked. PR 5 (Strain, Insights, Profile, the dot tab bar) and PR 6 (every
 remaining screen, `docs/work/2026-11-16-nocturne/audit.md`) follow. Simulator-verified only: the icon on a device Home
 Screen and the widget in system-light mode are not checked yet.
+
+2026-11-20: PR 5 (`feat/nocturne-tabs`: Strain, Insights, Profile, Sleep's Week/Month/Bedtime, the tab bar, and PR 6's
+shared parts) is reviewed and integrated (`docs/work/2026-11-16-nocturne/review.md`, PR 5). It opens now and merges
+on the same day as PR 6 (onboarding, Train, settings; three branches combined into one PR), then the gate PR (T5.9).
+New for every screen: sheets and covers end with `.presentedRoot()`, because on iOS 27.2 the window's toggle style
+doesn't reach presented content; `PresentedRootTests` fails a presentation without it. Simulator-verified only (iPhone
+17 Pro, iOS 27.2, default and AX3). On a device still to check: the tab bar's Large Content Viewer, VoiceOver speech
+and rotor order on Strain, Insights and Sleep, Insights in airplane mode, and Profile's Log out, Set new password and
+Delete account with a real session.
 
 2026-11-17: read-model writes off the main actor (P1, ADR 0018, `docs/work/2026-11-17-persistence-off-main/`): two
 review rounds and an iOS 17.0 run (which found and fixed a SwiftData rollback crash). Simulator-verified on iOS 17.0,

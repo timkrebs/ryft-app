@@ -261,6 +261,6 @@ import UIKit
         #expect(week.map(\.sleepConsistency) == [78, 64, nil, 52, 71, 80, 86])
         #expect(week[5].sleepDebtMin == 72 && week[6].sleepDebtMin == 30)
         #expect(MockData.detail(for: Calendar.current.date(byAdding: .day, value: -4, to: .now) ?? .now).sleep?.need == nil)
-        #expect(MockData.user.name == "Tim")
+        #expect(MockData.user.name == "Alex Doe" && MockData.user.email == "alex@example.com")
     }
 }
