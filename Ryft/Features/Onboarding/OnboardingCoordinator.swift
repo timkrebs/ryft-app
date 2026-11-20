@@ -442,13 +442,17 @@ final class OnboardingCoordinator {
     /// the first check belong to the account the app launched with, so they stay.
     /// A step's request still out then is the previous account's: this one's steps aren't busy with it, and its answer
     /// touches nothing here (`perform`). One sent before the first check is the launch account's too. A withdrawal
-    /// waiting for it ends unsent: never with this account's session.
+    /// waiting for it ends unsent: never with this account's session. The invite field is the previous account's too
+    /// (security review N-1): a code it typed or a link filled in, sent or not, is never the next account's to redeem.
+    /// From no account (the launch's first check, a sign-in) it stays: a link opened at launch is the launch account's,
+    /// and one that arrived signed out waits in `DeepLinkRouter.pending` until after this switch.
     func switchAccount(_ account: String?) {
         if self.account != nil {
             apiStatus.resetGates()
             turn += 1
             isWorking = false
             isWithdrawing = false
+            inviteCode = ""
             resumeWaiting()
         }
         self.account = account

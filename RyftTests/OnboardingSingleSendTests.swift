@@ -107,6 +107,7 @@ struct OnboardingSingleSendTests {
         #expect(auth.accountID == Self.b.uuidString)
         model.switchAccount(auth.accountID)
         #expect(!model.isWorking, "B's step isn't busy with A's request")
+        #expect(model.inviteCode.isEmpty, "A's code isn't B's to redeem (security review N-1)")
 
         model.inviteCode = "RYFT-7K3M-QX9P"
         let second = Task { await model.redeemInvite() }
