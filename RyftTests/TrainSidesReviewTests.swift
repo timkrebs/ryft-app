@@ -516,6 +516,70 @@ struct TrainHeldBackTests {
     }
 }
 
+/// Code review N5: a failed day's Details are its own read's. The pipeline's record is one per resource: another day's
+/// failure, or its success, since then doesn't answer for this one. Synthetic data only.
+@MainActor
+@Suite("R4T N5: My Day's Details are the day's own", .serialized)
+struct MyDayDetailsTests {
+    private func refused(_ id: String) -> APIError { APIError.http(400, "bad request", requestID: id) }
+
+    @Test func aFailedDayKeepsItsOwnRequestID() async {
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: TestClock(now: .now), flags: [.todayMyDay: true])
+        defer { withExtendedLifetime(env) {} }
+        let vm = MyDayViewModel(state: AppState(env: env), store: TrainStore(inMemory: true))
+        let monday = DayFormat.shift(vm.today, days: -2), tuesday = DayFormat.shift(vm.today, days: -1)
+        api.failure = refused("rid-monday")
+        await vm.load(monday)
+        api.failure = refused("rid-tuesday")
+        await vm.load(tuesday)
+        #expect(vm.content(for: tuesday).failedDetails == "HTTP 400 · Request ID rid-tuesday")
+        #expect(vm.content(for: monday).phase == .failed)
+        #expect(vm.content(for: monday).failedDetails == "HTTP 400 · Request ID rid-monday", "not Tuesday's")
+        // Tuesday loads now: Monday's failure is still its own, not nothing.
+        api.failure = nil
+        await vm.load(tuesday, force: true)
+        #expect(vm.content(for: tuesday).phase != .failed)
+        #expect(vm.content(for: monday).failedDetails == "HTTP 400 · Request ID rid-monday")
+    }
+
+    /// Held back by a `Retry-After`: the failure that set the hold, as the record had it when the day was asked (before
+    /// the activities' own failure, which isn't the day's).
+    @Test func aHeldBackDayKeepsTheHoldsRequestID() async {
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, clock: TestClock(now: .now), flags: [.todayMyDay: true])
+        defer { withExtendedLifetime(env) {} }
+        let vm = MyDayViewModel(state: AppState(env: env), store: TrainStore(inMemory: true))
+        let monday = DayFormat.shift(vm.today, days: -2)
+        let hold = ResourceError(kind: .transient, status: 503, code: nil, requestID: "rid-hold-503", transport: nil,
+                                 attempts: 3, at: env.clock.now())
+        env.reads.seed([.day: ResourceState(lastError: hold, consecutiveFailures: 1,
+                                            retryNotBefore: env.clock.now().addingTimeInterval(300))])
+        // The day's activities aren't held back; their read fails (an answered one would show the day as read).
+        api.failure = refused("rid-activities")
+        await vm.load(monday)
+        #expect(api.count("day") == 0, "held back: nothing sent")
+        #expect(vm.content(for: monday).phase == .failed)
+        #expect(vm.content(for: monday).failedDetails == "HTTP 503 · Request ID rid-hold-503")
+        env.reads.seed([:])
+        #expect(vm.content(for: monday).failedDetails == "HTTP 503 · Request ID rid-hold-503", "the day's, as it was asked")
+    }
+
+    /// The sweep: the side that ended takes My Day's failed days and their request IDs with it.
+    @Test func theSwitchForgetsMyDaysFailedDays() async {
+        let api = MockPlatformAPI()
+        api.failure = refused("rid-alex-400")
+        let state = AppState(env: .test(api: api, clock: TestClock(now: .now), flags: [.todayMyDay: true]))
+        let screens = sidesScreens(state, TrainSides([SideSwitch.alex: SideTrainSource(.demo)]))
+        let myDay = screens.myDay
+        await myDay.load(myDay.today)
+        #expect(myDay.card.phase == .failed && myDay.card.failedDetails == "HTTP 400 · Request ID rid-alex-400")
+        state.reset()
+        #expect(myDay.card.phase == .loading && myDay.card.failedDetails == nil, "the next side's day isn't loaded yet")
+        withExtendedLifetime(screens) {}
+    }
+}
+
 @MainActor
 final class SentCount {
     var n = 0

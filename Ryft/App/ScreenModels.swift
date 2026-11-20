@@ -90,6 +90,8 @@ final class ScreenModels {
         // Strain's failed day and a deep link's Train page are the side's too.
         state.forgetsAccountState { [weak strain] in strain?.forget() }
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
+        // My Day's failed days and their request IDs are the side's.
+        state.forgetsAccountState { [weak myDay] in myDay?.forget() }
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
