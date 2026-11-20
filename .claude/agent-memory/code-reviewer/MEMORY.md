@@ -47,3 +47,4 @@
 - [Area integration reviews](review-checks-area-integration.md) — #Preview builds w/o DEBUG (probed), sibling merge-tree, per-page failure rules drift, shared-editor hosts
 - [Shared write waits + account-bound stores](review-checks-shared-write-waits.md) — demo shares env.persistence, not-latest exits skip marks, abandoned writes reorder, log-checked green claims
 - [Presented-root styles + shared rules](review-checks-presented-styles.md) — root tint/toggleStyle miss sheets (iOS 27.2), no app AccentColor, one "vs 7 d" rule, demo-aware online
+- [Demo/account split rounds](review-checks-side-split-rounds.md) — read-backs after unsent refreshes, 3 forgetter wirings, .test previews lose coach-done, isLive rows vanish

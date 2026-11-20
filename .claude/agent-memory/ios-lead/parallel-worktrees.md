@@ -10,6 +10,9 @@ I don't use `isolation: worktree`, and I don't use local `main`, because local `
 on a busy day. Afterwards:
 - Copy in the git-ignored files the build needs: `Config/Debug.xcconfig`, `Config/Release.xcconfig` and
   `Ryft/Resources/Fonts/*.otf`.
+  Name the two files; **never glob `Config/*.xcconfig`**. `Config/Production.xcconfig` matches the ignore rule but is
+  tracked (force-added) and differs per branch. On 2026-11-19 a glob copied an older branch's copy over it, and
+  `PlatformConfigTests.productionConfigNamesBothHosts` failed on a clean branch.
 - Give each agent its own simulator. Since 2026-11-16 the named iOS 27.0 devices (e.g. iPhone 18 Pro `D23B7086`,
   iPhone 17 `A79A36CA`) don't boot ("runtime not available"). So create a private one per agent with
   `xcrun simctl create <name> com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-27-2`,

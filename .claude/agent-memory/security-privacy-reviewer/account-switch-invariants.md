@@ -15,8 +15,16 @@
   25 s deadline or offline -> NoAnswer and request.cancel(); no logging, no body in errors.
 - Sign-out wipe: TrainStore.wipe batchDeletes ALL CachedDocument (journal.* included) on every wipe; failed wipe is
   retried via WipeLedger / lastUserKey (AuthService.apply runs it in AuthService init, before ScreenModels).
-- OPEN (pre-existing, confirmed 6c8): JournalStore uses env.persistence (the account's on-disk store) in Demo too,
-  same keys journal.behaviors / journal.day.* / journal.impact. Demo switch is not a wipe. Account answers flash in
-  Demo (loadDay copies disk before asking the mock; built-in ids are the platform's); demo's answers/impacts/custom
-  habit persist into the account's cache and can be shown or Saved as the account's. Contradicts APP_STORE.md:67 and
-  ARCHITECTURE.md:273 ("never mixed"). Repository uses its own in-memory demo store; Journal should too.
+- CLOSED (re-check @ a819ff5, 2026-11-19): Journal docs + plan caches. `AppEnvironment.accountDocuments` = nil in Demo;
+  JournalStore keeps demo's catalog/days/effects in memory, `restore()` re-reads the account's on its next load();
+  BedtimePlanner (`sleep.tonight`) and SleepPlannerViewModel (`sleep.plan`) keep `demoCached` in memory. Flip + reset() is
+  one main-actor step (setDemoMode/endDemo), reset() cancels all ReadScheduler flights first (ReadKey has no side, so
+  cancelAll is what keeps sides apart), then forgetters. BedtimePlanner forgets via RyftApp onChange(demoMode) Task (async,
+  untested wiring); SleepPlannerViewModel via forgetter in ScreenModels.
+- OPEN S (pre-existing since #23, 24b137d): Bedtime & wake schedule `sleep.schedule.<accountID>` and planned nights
+  `sleep.planned.<accountID>` (UserDefaults) use auth.accountID in Demo too: Demo edits the account's schedule (alarm off
+  persists -> no real wake alarm), demo-planned bedtimes frozen into the account's records, account's planned bedtimes shown
+  on demo nights. Drives local bedtime.* reminders, AlarmKit/wake.* alarms. No platform write yet (API_REQUESTS sleep
+  schedule #1 would make it one). Fix: demo schedule/records in memory + Demo schedules no OS reminders/alarms.
+- Hardening ideas noted: journal sheet has no side binding (unreachable today); journal.*/sleep.* docs carry no account tag
+  (double-failed wipe -> restore() shows A's catalog to B, same as Repository).

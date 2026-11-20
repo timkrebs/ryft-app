@@ -19,7 +19,10 @@ instead of less content.
 - Lock screen slots: circle 76 / 72 / 68 (SE), rectangle 172×76 / 160×72 / 153×68. Live Activity on the lock screen:
   160 pt max. Measure real heights with `UIHostingController.sizeThatFits` in a scratch harness, not only font models.
 - Dynamic Type: drop content first (fold the rectangle's bedtime into the status line, drop the activity's session
-  title, one Next line with `.truncationMode(.middle)`), then cap where even that no longer fits.
+  title, one Next line), then cap where even that no longer fits. Rest card since 6c9 S3 (`WorkoutActivityLook`):
+  `condenses` (no title) only from AX1; `nextLineLimit` 2 at `.large`, 1 above; Next truncates at the **tail**; when the
+  title isn't drawn `spokenTitle` keeps it in the label, unless `WidgetConcealment.hidesValues`. xLarge with the title
+  and two Next lines is > 160 pt, so the steps are: one line from xLarge, no title from AX1.
 - Rendering widget views in RyftTests needs a temporary copy (scratchpad `w/harness/gen.py`); copied type names can
   clash with app types (the app has `RestBar`), so widget types get distinct names.
 - "As of" ageing: one Gregorian calendar in the device zone for day and age (`WidgetAge.calendar`), nil for days <= 0.

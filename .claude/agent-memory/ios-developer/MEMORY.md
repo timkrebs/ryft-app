@@ -4,3 +4,9 @@
 - [Widget look and limits](project_widget_look_and_limits.md) — Shared/WidgetLook.swift tests, placeholder redaction, accessory slot sizes, the 160 pt Live Activity limit
 - [Import step 6 and the mock uploader](project_import_step6_and_mock_uploader.md) — weak env in preview uploaders, harness for tap tests, no way back, counts of what was written, VoiceOver per phase
 - [Settings write shared wait](project_settings_write_shared_wait.md) — SettingsWrite (one attempt, 25 s, offline); account binding; demo data in memory only (accountDocuments); mutation-proving tests; Release previews
+- [Demo side and system effects](project_demo_side_and_system_effects.md) — one shelf per side; Demo schedules nothing on iOS but a sign-out still tears down; forgetters in ScreenModels; nothing-sent vs answered
+- [Presented root and shot baselines](project_presented_root_and_shot_baselines.md) — presentedRoot() on every presenter (style does not cross a sheet on 27.2); hosted probes, SubpageScaffold frame probe, RootView signed out (demo off); git-archive baselines need the ignored fonts
+- [AX layouts and mutation runs](project_ax_layouts_and_mutation_runs.md) — header/notice/value stack from AX1 in the shared components; pixel line-start probe; scripted mutate → build → test → restore
+- [Validator AX size and column width](project_validator_ax_size_and_column_width.md) — validator "AX3" shots were AX5; what widens a column; scaled sheets; WindowPixels
+- [PR 5 into PR 6 merge](project_pr5_into_pr6_merge.md) — misplaced presentedRoot after auto-merge; #126 outbox at every TrainLibrary (`TrainLibrary.testing`); test-type clashes; strings --check; gate script
+- [PR 6 combine: Journal and seams](project_pr6_combine_journal.md) — B look + C side binding, demo/account test breaks, one expectNocturneFrame, journal.answer ids, userInitiated retry, busy-rule leftovers
