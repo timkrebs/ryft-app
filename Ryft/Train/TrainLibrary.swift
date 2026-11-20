@@ -443,7 +443,7 @@ final class TrainLibrary {
             let saved = try await src.savePlan(p)
             guard outbox.binding == binding else { return false }
             store.cache(plans: [saved])
-            await reloadCatalog()
+            await reloadCatalog(from: client())
             return true
         } catch where error.isCancellation || outbox.binding != binding {
             return false
@@ -454,27 +454,17 @@ final class TrainLibrary {
         }
     }
 
+    /// `true` when it's gone (the screen closes). A sign-out, another account or the Demo data switch before the answer
+    /// writes nothing: neither the store, nor the message (security review N-A).
     @discardableResult
     func deletePlan(_ p: Plan) async -> Bool {
-        do {
-            try await remote.deletePlan(id: p.id)
-            store.removePlan(id: p.id)
-            await reloadCatalog()
-            return true
-        } catch where error.isCancellation {
-            return false
-        } catch {
-            self.error = error.localizedDescription
-            return false
-        }
+        await perform({ try await $0.deletePlan(id: p.id) }, then: { store.removePlan(id: p.id) })
     }
 
     /// Enrol (switching replaces the active plan; the screen confirms first).
     @discardableResult
     func enroll(in p: Plan) async -> Bool {
-        let ok = await perform { _ = try await $0.enroll(planID: p.id) }
-        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
-        return ok
+        await perform({ _ = try await $0.enroll(planID: p.id) }, then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
     }
 
     /// The plan paused last. `GET /v1/plans` only reports the active enrolment,
@@ -493,22 +483,28 @@ final class TrainLibrary {
     func setPaused(_ paused: Bool) async -> Bool {
         if paused {
             guard let planID = activeEnrollment?.planId else { return false }
-            let ok = await perform { try await $0.pauseEnrollment() }
-            if ok { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) }
-            return ok
+            return await perform({ try await $0.pauseEnrollment() },
+                                 then: { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) })
         }
         guard let planID = pausedPlanID else { return false }
-        let ok = await perform { _ = try await $0.enroll(planID: planID) }
-        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
-        return ok
+        return await perform({ _ = try await $0.enroll(planID: planID) },
+                             then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
     }
 
-    private func perform(_ action: (TrainDataSource) async throws -> Void) async -> Bool {
+    /// An action of the binding in use when it starts (security review N-A): its client is read first, and only while that
+    /// binding still holds is anything written (`then` when it worked, before the plans are read again; the message and its
+    /// Details when it failed). An answer or a failure after a sign-out, another account, a wipe or the Demo data switch is
+    /// dropped and the action says `false`: on the next side's pages there's no paused plan, no message and no request ID
+    /// of the side that ended.
+    private func perform(_ action: (TrainDataSource) async throws -> Void, then written: () -> Void = {}) async -> Bool {
+        let client = client()
         do {
-            try await action(remote)
-            await reloadCatalog()
+            try await action(client.source)
+            guard client.isCurrent else { return false }
+            written()
+            await reloadCatalog(from: client)
             return true
-        } catch where error.isCancellation {
+        } catch where error.isCancellation || !client.isCurrent {
             return false
         } catch {
             self.error = error.localizedDescription
@@ -517,9 +513,8 @@ final class TrainLibrary {
         }
     }
 
-    /// After an action: the plans and today's plan day again, written only for the binding that asked.
-    private func reloadCatalog() async {
-        let client = client()
+    /// After an action: the plans and today's plan day again from `client`, written only while its binding holds.
+    private func reloadCatalog(from client: Client) async {
         guard let c = try? await client.source.plans(), client.isCurrent else { return }
         catalog = c
         store.saveDocument(c, key: Self.catalogKey)
@@ -536,6 +531,9 @@ final class TrainLibrary {
         exercises = []
         catalog = nil
         today = nil
+        // The account's last failure and its request ID aren't the next one's (security review N-A).
+        error = nil
+        errorDetails = nil
         UserDefaults.standard.removeObject(forKey: Self.pausedKey)
         histories = [:]
         currentMark = nil
@@ -553,6 +551,9 @@ final class TrainLibrary {
         currentMark = nil
         catalog = nil
         today = nil
+        // Nor are the side's failure and its request ID (security review N-A).
+        error = nil
+        errorDetails = nil
         for key in [Self.catalogKey, Self.todayKey, Self.sessionsKey] + store.documentKeys(prefix: Self.historyPrefix) {
             store.removeDocument(key: key)
         }

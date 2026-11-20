@@ -217,3 +217,88 @@ struct TrainStartOptionsSidesTests {
     }
 }
 
+/// Security review N-A, code review N2: Train's actions (pause, resume, enrol, delete) and their messages are the binding's
+/// that started them: a late answer after a sign-out or the Demo data switch writes nothing, and the side's message and
+/// request ID go with it.
+@MainActor
+@Suite("R4T N-A: Train's actions and messages stay on their side", .serialized)
+struct TrainActionSidesTests {
+    private let refused = APIError.http(400, "bad request", requestID: "rid-alex-400")
+
+    /// Alex pauses; the answer comes after Alex signed out and Sam signed in: Sam's Plans shows no paused plan, and Resume
+    /// has nothing of Alex's to enrol him in.
+    @Test func aLatePauseAfterAWipeWritesNothing() async {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.demo, holding: [.pause])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.sam: SideTrainSource(.empty)])
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.upperLower.id)
+        let pause = Task { await rig.library.setPaused(true) }
+        #expect(await eventually { alex.count(.pause) == 1 })
+        _ = rig.store.wipe()
+        rig.library.wipe()
+        rig.switchTo(SideSwitch.sam)
+        alex.release()
+        #expect(await pause.value == false)
+        #expect(rig.library.pausedPlanID == nil && !rig.library.isPaused, "no paused plan of Alex's on Sam's Plans")
+        #expect(UserDefaults.standard.string(forKey: "train.pausedPlanID") == nil)
+        #expect(rig.library.catalog == nil, "nor Alex's plans read again")
+    }
+
+    /// Alex's enrolment fails after the Demo data switch: its message and request ID don't appear on the demo's Plans.
+    @Test func aLateFailureAfterTheSwitchIsNotShown() async {
+        let alex = SideTrainSource(.demo, holding: [.enroll])
+        alex.fail(.enroll, with: refused)
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
+        let enroll = Task { await rig.library.enroll(in: MockTrain.fullBody) }
+        #expect(await eventually { alex.count(.enroll) == 1 })
+        rig.switchTo(SideSwitch.demo)
+        rig.library.demoModeChanged()
+        alex.release()
+        #expect(await enroll.value == false)
+        #expect(rig.library.error == nil && rig.library.errorDetails == nil, "\(rig.library.errorDetails ?? "nil")")
+    }
+
+    /// The same failure before the switch is shown, with its request ID; the switch and the wipe each take it away.
+    @Test func theSwitchAndTheWipeTakeTheMessageAway() async {
+        let alex = SideTrainSource(.demo)
+        alex.fail(.enroll, with: refused)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        #expect(await rig.library.enroll(in: MockTrain.fullBody) == false)
+        #expect(rig.library.error != nil && rig.library.errorDetails == "HTTP 400 · Request ID rid-alex-400")
+        rig.library.demoModeChanged()
+        #expect(rig.library.error == nil && rig.library.errorDetails == nil, "the Demo data switch")
+        _ = await rig.library.enroll(in: MockTrain.fullBody)
+        #expect(rig.library.errorDetails != nil)
+        rig.library.wipe()
+        #expect(rig.library.error == nil && rig.library.errorDetails == nil, "the wipe")
+    }
+
+    /// A failed delete keeps its request ID for Details (hard rule 6), as every other action does.
+    @Test func aFailedDeleteCarriesItsRequestID() async throws {
+        let alex = SideTrainSource(.demo)
+        alex.fail(.delete, with: refused)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        let mine = try #require(MockTrain.plans.first { !$0.isBuiltin })
+        rig.store.cache(plans: [mine])
+        #expect(await rig.library.deletePlan(mine) == false)
+        #expect(rig.library.errorDetails == "HTTP 400 · Request ID rid-alex-400")
+        #expect(rig.store.plan(id: mine.id) != nil, "nothing deleted here")
+    }
+
+    /// A delete answered after the Demo data switch leaves the plan as it is in the store the two sides share.
+    @Test func aLateDeleteAfterTheSwitchWritesNothing() async throws {
+        let alex = SideTrainSource(.demo, holding: [.delete])
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
+        let mine = try #require(MockTrain.plans.first { !$0.isBuiltin })
+        rig.store.cache(plans: [mine])
+        let delete = Task { await rig.library.deletePlan(mine) }
+        #expect(await eventually { alex.count(.delete) == 1 })
+        rig.switchTo(SideSwitch.demo)
+        alex.release()
+        #expect(await delete.value == false)
+        #expect(rig.store.plan(id: mine.id) != nil)
+        #expect(alex.count(.plans) == 0, "the plans aren't read again for Alex")
+    }
+}
