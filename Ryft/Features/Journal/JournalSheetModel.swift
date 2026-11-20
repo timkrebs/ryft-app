@@ -122,6 +122,8 @@ final class JournalSheetModel {
 
     /// Whether Save can go (the Offline pill when not): demo data answers on the phone, so it's never offline there.
     var isOnline: Bool { store.isOnline }
+    /// Answers given offline wait on this iPhone (`JournalStore.keepsOfflineAnswers`): the Offline pill's words.
+    var keepsOfflineAnswers: Bool { store.keepsOfflineAnswers }
 
     var readOnlyReason: String? {
         editable ? nil : String(localized: "This day can't be changed any more.",

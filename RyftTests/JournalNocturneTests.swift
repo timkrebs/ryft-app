@@ -254,6 +254,21 @@ struct JournalNocturneTests {
         }
     }
 
+    @Test("The pill's words are the store's outbox state: no outbox yet, so Save works once back online; kept answers say so")
+    func offlinePillFollowsTheOutbox() async throws {
+        let offline = MockJournalStates.content(.offline)
+        #expect(!offline.keepsOfflineAnswers, "the store keeps no answers offline yet (writes need the network)")
+        #expect(JournalOfflinePill.message(keepsAnswers: false) == "Offline. You can save once you're back online.")
+        #expect(JournalOfflinePill.message(keepsAnswers: true) == "Offline. Your answers are saved on this phone.")
+        var kept = offline
+        kept.keepsOfflineAnswers = true
+        try await HostedWindow.run(width: Self.width, height: 844, sheet(kept)) { w in
+            try await w.settle()
+            let pill = try #require(w.nodes().first { $0.identifier == "journal.offlinePill" })
+            #expect(pill.label == "Offline. Your answers are saved on this phone.")
+        }
+    }
+
     @Test("Offline with the day not on this iPhone: a line with Try again, no outlines; back online it loads by itself")
     func uncachedOfflineLive() async throws {
         // The account's journal (PR 6 C): demo data answers on the phone and is never offline.

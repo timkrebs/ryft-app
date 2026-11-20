@@ -133,6 +133,9 @@ final class JournalStore {
     func owns(_ owner: Owner) -> Bool { owner == self.owner }
 
     var isLive: Bool { availability == .live }
+    /// Whether answers given offline wait on this iPhone and go once it's back online (a durable outbox, O6). Not yet: a
+    /// write needs the network and fails offline (`JournalError.offline`). The journal sheet's Offline pill says which holds.
+    var keepsOfflineAnswers: Bool { false }
     /// Whether a write can go and a day is asked for: demo data answers on the phone, with no network to lose (as
     /// Notifications, the editors and the planners). The journal sheet's Offline pill says it.
     var isOnline: Bool { env.isDemo || env.connectivity.isOnline }

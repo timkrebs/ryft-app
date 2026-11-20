@@ -136,6 +136,8 @@ struct JournalSheetContent {
     var isOnline: Bool
     /// A failed read's status and request ID (`JournalSheetModel.readDetails`).
     var failedDetails: String?
+    /// Answers given offline wait on this iPhone (`JournalStore.keepsOfflineAnswers`): what the Offline pill says.
+    var keepsOfflineAnswers = false
 
     /// Save is offered for a day whose rows are shown and can change, until it is saved: not while it saves (busy), not for a
     /// read-only day, not without a habit, not while the day isn't on this phone (an empty form would answer "no" to all).
@@ -166,7 +168,8 @@ extension JournalSheetContent {
         self.init(title: model.title, days: model.stripDays, selected: model.day, phase: phase,
                   groups: model.groups, editable: model.editable, readOnlyReason: model.readOnlyReason, isSaving: model.isSaving,
                   saved: model.saved, error: model.error, errorDetails: model.errorDetails, isOnline: isOnline,
-                  failedDetails: phase == .failed ? JournalSheetModel.readDetails(readState) : nil)
+                  failedDetails: phase == .failed ? JournalSheetModel.readDetails(readState) : nil,
+                  keepsOfflineAnswers: model.keepsOfflineAnswers)
     }
 }
 
@@ -341,7 +344,7 @@ struct JournalSheetBody: View {
     @ViewBuilder private var notices: some View {
         let showsRows = content.phase == .ready || content.phase == .noHabits
         if content.showsOfflinePill {
-            JournalOfflinePill()
+            JournalOfflinePill(keepsAnswers: content.keepsOfflineAnswers)
                 .accessibilityIdentifier("journal.offlinePill")
         }
         if let error = content.error {
@@ -531,21 +534,33 @@ struct JournalDateStrip: View {
     }
 }
 
-/// "Offline. You can save once you're back online." over the Journal's groups: one line in a 1 pt outline (ink 12 %), `wifi.slash`
-/// 12 (scaling with the words), `caption` in `textSecondary`. Saving needs the network (`JournalStore`), so it says that, never
-/// that the answers are saved on this phone or sent later. At accessibility sizes the words wrap and the capsule becomes a
-/// rounded rectangle (a capsule's ends would cut into the lines). One element for VoiceOver.
+/// The Offline line over the Journal's groups: one line in a 1 pt outline (ink 12 %), `wifi.slash` 12 (scaling with the words),
+/// `caption` in `textSecondary`. Its words are the store's outbox state (`keepsAnswers`, `JournalStore.keepsOfflineAnswers`):
+/// while saving needs the network, "Offline. You can save once you're back online.", never that the answers are saved on this
+/// phone or sent later; once answers given offline wait on the phone, that they do. At accessibility sizes the words wrap and
+/// the capsule becomes a rounded rectangle (a capsule's ends would cut into the lines). One element for VoiceOver.
 struct JournalOfflinePill: View {
+    /// Answers given offline wait on this iPhone and go once it's back online.
+    var keepsAnswers = false
+
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .caption) private var glyphSize: CGFloat = JournalLayout.pillGlyphSize
+
+    /// The pill's words for the store's outbox state.
+    static func message(keepsAnswers: Bool) -> String {
+        keepsAnswers
+            ? String(localized: "Offline. Your answers are saved on this phone.",
+                     comment: "Journal sheet: the iPhone is offline; the day's answers wait on it and are sent once it's back online.")
+            : String(localized: "Offline. You can save once you're back online.",
+                     comment: "Journal sheet: the iPhone is offline; saving the day's answers needs the network.")
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: JournalLayout.pillSpacing) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: glyphSize))
                 .accessibilityHidden(true)
-            Text("Offline. You can save once you're back online.",
-                 comment: "Journal sheet: the iPhone is offline; saving the day's answers needs the network.")
+            Text(verbatim: Self.message(keepsAnswers: keepsAnswers))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.ryft(.caption))
