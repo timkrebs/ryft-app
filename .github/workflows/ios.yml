@@ -105,12 +105,16 @@ jobs:
       - name: Build for testing
         # RYFT_STRICT_WARNINGS turns on SWIFT_TREAT_WARNINGS_AS_ERRORS for our targets
         # only (Config/Production.xcconfig); the grep catches non-Swift warnings too.
+        # Signed ad hoc ("Sign to Run Locally": no team, no profile), not unsigned: an unsigned test host has no
+        # entitlements, and the simulator's Keychain then answers errSecMissingEntitlement (-34018) to every write,
+        # which failed the real-Keychain test of the App Attest key (#128).
         run: |
           set -o pipefail
           mkdir -p build
           xcodebuild build-for-testing -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            CODE_SIGNING_ALLOWED=NO RYFT_STRICT_WARNINGS=YES | tee build/build.log
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
+            RYFT_STRICT_WARNINGS=YES | tee build/build.log
           ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets|Shared)/.*: warning:" build/build.log
       # Each test step first removes its own result bundle. The self-hosted runner keeps its workspace, and a
       # bundle from a timed-out step (main, 2026-10-29) was there when the next run reached it, so xcodebuild refused

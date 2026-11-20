@@ -199,26 +199,50 @@ enum HeroNumerals: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Generic-password items of this app, by account name. Never `kSecAttrSynchronizable`: no item leaves the device
+/// through iCloud Keychain (and the queries match only items that don't sync).
 enum Keychain {
-    static func get(_ key: String) -> String? {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                kSecAttrAccount as String: key,
-                                kSecReturnData as String: true,
-                                kSecMatchLimit as String: kSecMatchLimitOne]
-        var out: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+    /// A Keychain status other than "no such item": before the first unlock, `errSecInteractionNotAllowed`.
+    struct Failure: Error, Equatable {
+        let status: OSStatus
     }
 
-    static func set(_ value: String?, for key: String) {
-        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                   kSecAttrAccount as String: key]
-        SecItemDelete(base as CFDictionary)
-        guard let value, let data = value.data(using: .utf8) else { return }
-        var add = base
+    static func get(_ key: String) -> String? {
+        (try? read(key)) ?? nil
+    }
+
+    /// The item's text; nil only when there is no such item. Throws for anything else (a locked device's Keychain is
+    /// not "no item").
+    static func read(_ key: String) throws -> String? {
+        var q = query(key)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: AnyObject?
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw Failure(status: status) }
+        return (out as? Data).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// Replaces the item (nil: deletes it). `accessible` defaults to "after the first unlock", readable during
+    /// background sync. The status is the add's (or the delete's, for nil).
+    @discardableResult
+    static func set(_ value: String?, for key: String,
+                    accessible: CFString = kSecAttrAccessibleAfterFirstUnlock) -> OSStatus {
+        let deleted = SecItemDelete(query(key) as CFDictionary)
+        guard let value, let data = value.data(using: .utf8) else { return deleted }
+        return SecItemAdd(attributes(for: key, data: data, accessible: accessible) as CFDictionary, nil)
+    }
+
+    /// What `set` adds (tests read the attributes here).
+    static func attributes(for key: String, data: Data, accessible: CFString) -> [String: Any] {
+        var add = query(key)
         add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock // readable during background sync
-        SecItemAdd(add as CFDictionary, nil)
+        add[kSecAttrAccessible as String] = accessible
+        return add
+    }
+
+    private static func query(_ key: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrAccount as String: key]
     }
 }

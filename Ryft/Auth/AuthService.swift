@@ -979,6 +979,8 @@ final class AuthService {
             HealthKitManager.shared.resetAnchors()
             SyncEngineState.wipe(defaults: .standard)
             Settings.shared.clearPerUserState()
+            // The App Attest key is the account's: its Keychain item now, then its token and any renewal (ADR 0023).
+            AppAttestor.live.wipe()
         }, store: wipeStoreStep, after: {
             RestActivityController.shared.end()
             // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
