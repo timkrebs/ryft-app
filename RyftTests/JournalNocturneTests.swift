@@ -170,7 +170,7 @@ struct JournalNocturneTests {
             let date = try #require(DayFormat.date(from: Self.yesterday))
             #expect(selected.label == date.formatted(Date.FormatStyle(locale: Self.english).weekday(.wide).month(.wide).day()))
             #expect(selected.frame.width >= JournalLayout.chipWidth - 0.5 && selected.frame.height >= JournalLayout.chipHeight - 0.5)
-            let pixels = try #require(WindowPixels(w))
+            let pixels = try WindowPixels(w, scale: 2)
             let ink = Tokens.resolve(Theme.textPrimary), surface = Tokens.resolve(Theme.surface)
             let fill = pixels.at(selected.frame.minX + 4, selected.frame.midY)
             #expect(fill.near(ink, 3), "the selected chip's fill: \(Tokens.describe(fill))")
@@ -522,64 +522,5 @@ final class JournalTestGate {
         let waiting = waiters
         waiters = []
         waiting.forEach { $0.resume() }
-    }
-}
-
-/// A hosted window's pixels, drawn once, read many times (sRGB, window points).
-@MainActor
-private struct WindowPixels {
-    let image: ControlRenderBytes
-
-    init?(_ w: HostedWindow) {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        format.opaque = true
-        let ui = UIGraphicsImageRenderer(bounds: w.window.bounds, format: format).image { _ in
-            w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
-        }
-        guard let bytes = ControlRenderBytes(ui, scale: 2) else { return nil }
-        image = bytes
-    }
-
-    func at(_ x: CGFloat, _ y: CGFloat) -> NocturneTokenTests.RGBA { image.at(Double(x), Double(y)) }
-
-    /// How many pixels in `rect` match.
-    func count(in rect: CGRect, where match: (NocturneTokenTests.RGBA) -> Bool) -> Int {
-        var n = 0
-        var y = rect.minY
-        while y < rect.maxY {
-            var x = rect.minX
-            while x < rect.maxX {
-                if match(at(x, y)) { n += 1 }
-                x += 0.5
-            }
-            y += 0.5
-        }
-        return n
-    }
-}
-
-/// An image's bytes in sRGB, as `ControlRender` reads its own.
-private struct ControlRenderBytes {
-    let width: Int, height: Int, scale: CGFloat
-    let bytes: [UInt8]
-
-    init?(_ image: UIImage, scale: CGFloat) {
-        guard let cg = image.cgImage, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        let (w, h) = (cg.width, cg.height)
-        var bytes = [UInt8](repeating: 0, count: w * h * 4)
-        guard let ctx = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        (width, height, self.scale, self.bytes) = (w, h, scale, bytes)
-    }
-
-    func at(_ x: Double, _ y: Double) -> NocturneTokenTests.RGBA {
-        let ix = min(max(Int((x * Double(scale)).rounded(.down)), 0), width - 1)
-        let iy = min(max(Int((y * Double(scale)).rounded(.down)), 0), height - 1)
-        let i = (iy * width + ix) * 4
-        let a = Double(bytes[i + 3]) / 255
-        guard a > 0 else { return .init(r: 0, g: 0, b: 0, a: 0) }
-        return .init(r: Double(bytes[i]) / 255 / a, g: Double(bytes[i + 1]) / 255 / a, b: Double(bytes[i + 2]) / 255 / a, a: a)
     }
 }
