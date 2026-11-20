@@ -34,3 +34,5 @@
 - [CI runner shares the Mac](project_ci_runner_shares_the_mac.md) — swap/disk exhaustion → exit 70; UI smoke near its 15-min cap (load = timeout); pgrep -f self-match
 - [SwiftData deleted rows, iOS 18/26](project_swiftdata_deleted_row_ios18.md) — 18.0, 18.6, 26.0 trap on a deleted row's relationships even if pre-read; release holders
 - [SwiftData NaN is NULL](project_swiftdata_nan_null.md) — a saved Double.nan reads back nil; use .infinity for an EncodingError test
+- [Locale tests, device region](project_locale_tests_device_region.md) — sims are en_US@rg=DE; a de_DE-only locale test passes without the locale; test en_US and de_DE
+- [SwiftUI push shapes](project_swiftui_push_shapes.md) — a value link under two isPresented/item pushes does nothing; push it by item

@@ -12,3 +12,5 @@
 - Live Activities: rest timer session title + "Next:" line are privacySensitive; whether iOS redacts Live Activity
   content on a locked device is a device check (never verified). Snooze activity shows no personal data.
 - Bedtime reminder body includes the sleep need; category BEDTIME has hiddenPreviewsBodyPlaceholder (PushRegistrar).
+- ddf1ce2 (PR 6 C, after the C reviews; checked 2026-11-20 @ bd795ed): rest card speaks the session title only when
+  condensed (AX sizes) AND !WidgetConcealment.hidesValues; NextLine still privacySensitive. Consistent; device check open.

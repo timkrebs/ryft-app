@@ -44,7 +44,9 @@
 - [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
 - [Flow restyles with live results](review-checks-flow-restyles.md) — dropped hidesBackButton vs other branch keepers, "imported" incl. server-kept, muted live notices, catalog gaps, untapped pill tests
 - [Side-effect passes](review-checks-side-effect-passes.md) — memo not reset after undo, sibling stale surfaces, off-main mock races (no approachable), OS probes
-- [Area integration reviews](review-checks-area-integration.md) — #Preview builds w/o DEBUG (probed), sibling merge-tree, per-page failure rules drift, shared-editor hosts
+- [Area integration reviews](review-checks-area-integration.md) — #Preview w/o DEBUG, sibling merge-tree, offline/failure fixes on one page only, try? cancel = offline, carried items
 - [Shared write waits + account-bound stores](review-checks-shared-write-waits.md) — demo shares env.persistence, not-latest exits skip marks, abandoned writes reorder, log-checked green claims
 - [Presented-root styles + shared rules](review-checks-presented-styles.md) — root tint/toggleStyle miss sheets (iOS 27.2), no app AccentColor, one "vs 7 d" rule, demo-aware online
 - [Demo/account split rounds](review-checks-side-split-rounds.md) — read-backs after unsent refreshes, 3 forgetter wirings, .test previews lose coach-done, isLive rows vanish
+- [Combine guards + token lints](review-checks-combine-guards-and-lints.md) — side guard at Save only after a merge, Demo keeps sheets up, lint snippet probes, duplicate formatters
+- [Fix-round re-verification](review-checks-fix-round-reverify.md) — caller-vs-flight binding, read chains past a reset, merged vetted sentences, scan scope, shared error fields

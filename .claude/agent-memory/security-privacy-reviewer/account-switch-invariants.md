@@ -28,3 +28,17 @@
   schedule #1 would make it one). Fix: demo schedule/records in memory + Demo schedules no OS reminders/alarms.
 - Hardening ideas noted: journal sheet has no side binding (unreachable today); journal.*/sleep.* docs carry no account tag
   (double-failed wipe -> restore() shows A's catalog to B, same as Repository).
+- PR 6 combined (bd795ed, 2026-11-20): S-1, S-2, Notifications S1 all HOLD (NotificationSettingsViewModel unchanged since
+  ec97715). Journal sheet: `opened = store.owner` at init, `store.owns(opened)` before every save (JournalSheetModel.swift:288),
+  CancellationError after answer -> leftItsSide. Display after a switch still rebuilds from the new side (N, unreachable).
+- TrainLibrary reads that BYPASS ReadScheduler (so reset()/cancelAll doesn't stop them): sessions/sessionsRead,
+  history/historyRead, loadPlan (+ its quiet Task). None checks a binding after the await; answers go into TrainStore
+  documents and the in-memory `histories` (served as fresh, process-wide). Safe only while the caller is a structured
+  `.task` (cancelled on disappear). InlineMessage's Try again is an UNSTRUCTURED Task (StatusViews.swift ~196), so any
+  Try again over these reads can land A's data after sign-out/Demo switch. Fix pattern exists: TrainLibrary.savePlan's
+  `outbox.binding` before/after. Profile is a tab, so tab switch cancels `.task`s.
+- TrainLibrary memory (`histories`, exercises, catalog, today) is NOT reset on the Demo switch (only sign-out wipe and
+  demo-discard with sessions call invalidateHistories) -> ADR 0019 follow-up territory.
+- Busy rule (360b9f1) only swapped titles. Auth views guard `!isBusy` at function start + AuthService.run sets busy before
+  its first await (model-level once). OnboardingCoordinator.perform has NO re-entrancy guard: invite/consent once-only rests
+  on PillButton's render-time `busy` (PillButton.run guards a captured value; async actions run in an untracked Task).

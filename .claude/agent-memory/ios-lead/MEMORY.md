@@ -9,7 +9,7 @@
 - [Headless: no background](headless-no-background.md) — ending the turn kills background agents; run them foreground, never "wait"
 - [Headless permission preflight](headless-permission-preflight.md) — probe git write + xcodebuild first; if refused, plan read-only, never edit on main
 - [Nightly = TestFlight](nightly-testflight.md) — every main merge ships next morning; user wants whole feature sets, ask before mid-series merges
-- [Stacked branch after squash](stacked-branch-after-squash.md) — prefer `rebase --onto origin/main <base>`; merging main can resurrect code
+- [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; rebase --onto, or -s ours when tree == parent head
 - [Resumed agent reports](resumed-agent-reports.md) — a SendMessage-resumed agent may finish silently; verify from git, rerun tests/lint myself
 - [claude.ai sources](claude-ai-sources.md) — canvases readable via list_files/read_file; project knowledge files aren't, ask for a paste
 - [Lint is two targets](lint-is-two-targets.md) — CI Lint = `make lint` + `make style` (swiftlint); run both before push

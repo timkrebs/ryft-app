@@ -10,3 +10,8 @@
 - [Validator AX size and column width](project_validator_ax_size_and_column_width.md) — validator "AX3" shots were AX5; what widens a column; scaled sheets; WindowPixels
 - [PR 5 into PR 6 merge](project_pr5_into_pr6_merge.md) — misplaced presentedRoot after auto-merge; #126 outbox at every TrainLibrary (`TrainLibrary.testing`); test-type clashes; strings --check; gate script
 - [PR 6 combine: Journal and seams](project_pr6_combine_journal.md) — B look + C side binding, demo/account test breaks, one expectNocturneFrame, journal.answer ids, userInitiated retry, busy-rule leftovers
+- [Busy rule and locale threading](project_busy_rule_and_locale_threading.md) — busy pills vs rows in tests, what was left, `Fmt` locale params (kgNumber overload), de-region proof, launch-test margin
+- [PR 6 F-Journal fix round](project_pr6_fj_sheet_side_and_launch_tap.md) — sheet isCurrent guards + dismissal, late-answer seams, DST wall time, single-send coordinator, control-launch proof for the launch tap
+- [PR 6 R2 V2: motion, AX rest bar, banners](project_pr6_r2_v2_motion_restbar_banners.md) — Reduce Motion source scan; AX rest bar pill opens the rest sheet; banner glyph column + text-link probe; #require Comment pitfall
+- [PartsLine and AX headers](project_parts_line_and_ax_headers.md) — R2 V1: PartsLine for "a · b" lines, PushedHeader AX stack, sheetDetents(), wrapping plan name; detents/text-view/pixel test tricks, grouped mutants
+- [PR 6 R3: parts sites](project_pr6_r3_parts_sites.md) — PushedHeader subtitle+parts and loading placeholder, BodySettingContent.sourceParts, StartOptionText; sweep leftovers; grouped mutants

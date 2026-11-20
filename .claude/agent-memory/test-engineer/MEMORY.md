@@ -1,0 +1,1 @@
+- [lint-allowlist-by-mark](lint-allowlist-by-mark.md): ALLOW entries on the mark's expression + use count

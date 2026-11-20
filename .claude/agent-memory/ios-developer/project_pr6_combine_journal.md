@@ -29,8 +29,13 @@ scratchpad/wt-pr6. Only two textual conflicts per merge; the rest were semantic.
   made private; read the body from `BedtimePlanner.reminders(schedule:plan:now:calendar:)`.
 - About you (onboarding) shows `editor.errorMissed` in the card's footer (`aboutYou.bodySettingsError`); hosted test
   pattern: `C3Platform.api()` + `Gate`, save the birth year first, then set `platform.onPatch` to hold and throw.
-- Busy rule left elsewhere (title swaps to a gerund while busy): invite Continue "Checking…", SetNewPassword "Saving…",
+- (Done in M3b, see [[project-busy-rule-and-locale-threading]].) Busy rule left elsewhere (title swaps to a gerund while busy): invite Continue "Checking…", SetNewPassword "Saving…",
   ForgotPassword "Sending…", TrackerCheck "Checking…", ReportProblem "Sending…" (C's spec §2.6 says gerund; lead rule says
   keep the title).
 - Train meta lines use `MyDayText.join`; an `ActivityListRow` meta stacks from AX1 by itself; a plain Text needs
   `ActivityListRow.metaLines(_, stacked:)` (Today's done card does).
+- A fresh `simctl create` simulator on this Mac inherits the host region: `AppleLocale` = `en_US@rg=dezzzz`. B's
+  `TrainHistoryTests` (T6B.5) then fail on "7.500 kg" / "93,3" (formatters on `.autoupdatingCurrent`, not the passed
+  locale; fixed in M3b). Before a Unit run anyway: `xcrun simctl spawn <udid> defaults write -g AppleLocale -string en_US`, reboot the sim.
+- `LaunchSequenceUITests.testATapSkipsIt` is timing-flaky in a long UI run (5 s wait vs a 5.2 s sequence after a slow
+  idle); it passes alone. M3b: waits sequence + margin, relaunches up to 3 times.
