@@ -12,6 +12,8 @@ The widget's colours stay the app's:
 - `WidgetBackground` is the app's `Background`.
 - Each hex literal in the widget's `enum Brand` (`RyftWidgets/RyftWidgets.swift`) is the app colorset of its name
   (`graphite` is `Graphite.colorset`); a `Brand` colour without one fails.
+- `Brand.signal` (Volt) exists and is `Theme.signal`'s colour: `Theme.signal` names the `Signal` asset, which `Brand.signal`
+  is compared with.
 
 Types that predate `Shared/` still exist twice and must stay identical (each moves into `Shared/` when next touched):
 - `RestTimerAttributes`: the whole struct (ActivityKit matches it by name and Codable shape).
@@ -242,6 +244,13 @@ def check_widget_colours():
         if app != widget:
             problems.append(f"{WIDGET_BRAND}: Brand.{name} is #{r}{g}{b}, the app's {asset} is "
                             + (f"#{app[0]:02X}{app[1]:02X}{app[2]:02X}" if app else "not an sRGB colour"))
+    # Volt (D6B-11): Brand.signal is Theme.signal. The loop above compares Brand's hex with the colorset of its name, so
+    # both must point at `Signal`: Brand has a `signal`, and Theme.signal names the `Signal` asset.
+    if "signal" not in {name for name, *_ in hexes.findall(brand)}:
+        problems.append(f"{WIDGET_BRAND}: Brand.signal (Volt, Theme.signal's colour) is missing")
+    theme = os.path.join("Ryft", "Design", "Theme.swift")
+    if os.path.exists(theme) and not re.search(r'static\s+let\s+signal\s*=\s*Color\("Signal"\)', without_comments(read(theme))):
+        problems.append(f"{theme}: Theme.signal is not Color(\"Signal\"); Brand.signal is compared with the Signal colorset")
     # Any other colour literal in Brand escapes the check: name it after an app colorset in the form above.
     if len(re.findall(r"Color\(", brand)) != found:
         problems.append(f"{WIDGET_BRAND}: a Brand colour not written as Color(red: 0xRR / 255, green: ..., blue: ...)")
