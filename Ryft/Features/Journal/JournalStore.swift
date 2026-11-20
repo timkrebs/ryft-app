@@ -338,17 +338,29 @@ final class JournalStore {
 
     // MARK: Today's card
 
-    /// "Alcohol · 2, Sauna, Last caffeine 16:30" for an answered day; nil otherwise.
-    func summary(of day: JournalDay) -> String? {
+    /// "Alcohol · 2, Sauna, Last caffeine 4:30 PM" for an answered day (a time as the locale writes it, `Fmt.time`); nil
+    /// otherwise.
+    func summary(of day: JournalDay, locale: Locale = .autoupdatingCurrent) -> String? {
         guard day.answered else { return nil }
         let yes = day.entries.filter(\.valueBool).compactMap { e -> String? in
             guard let b = behavior(e.behaviorId) else { return nil }
             switch b.kind {
             case .yesNo: return b.name
             case .count: return e.valueNum.map { "\(b.name) · \($0)" } ?? b.name
-            case .time: return e.valueTime.map { "\(b.name) \($0)" } ?? b.name
+            case .time: return e.valueTime.map { "\(b.name) \(Self.time($0, now: now, locale: locale))" } ?? b.name
             }
         }
-        return yes.isEmpty ? String(localized: "None of your behaviors") : yes.formatted(.list(type: .and, width: .narrow))
+        return yes.isEmpty
+            ? String(localized: "None of your habits",
+                     comment: "Today's Journal card: yesterday is answered, and none of the habits happened.")
+            : yes.formatted(.list(type: .and, width: .narrow).locale(locale))
+    }
+
+    /// A habit's "HH:MM" (the platform's 24-hour wall time) as the locale writes a time: "4:30 PM", "16:30".
+    static func time(_ hhmm: String, now: Date, locale: Locale) -> String {
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, let date = Calendar.current.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: now)
+        else { return hhmm }
+        return Fmt.time(date, locale: locale)
     }
 }

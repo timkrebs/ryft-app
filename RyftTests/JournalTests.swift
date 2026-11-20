@@ -32,9 +32,23 @@ struct JournalStoreTests {
         let (store, _) = makeStore()
         await store.load()
         let day = try #require(await store.loadDay(store.yesterday))
-        let summary = try #require(store.summary(of: day))
-        #expect(summary.contains("Drinks · 2") && summary.contains("16:30"))
+        let summary = try #require(store.summary(of: day, locale: Locale(identifier: "en_US")))
+        #expect(summary.contains("Drinks · 2") && summary.contains("Last caffeine 4:30\u{202F}PM"), "\(summary)")
+        #expect(!summary.contains("16:30"), "the locale's time, not the platform's 24-hour one: \(summary)")
         #expect(!summary.contains("Screens in bed"))   // a "no" isn't listed
+        // A 24-hour locale writes it as it is.
+        #expect(store.summary(of: day, locale: Locale(identifier: "en_GB"))?.contains("Last caffeine 16:30") == true)
+    }
+
+    @Test("F1: an answered day with nothing that happened says habits, never behaviors")
+    func anAnsweredDayWithNoYesSaysHabits() async throws {
+        let (store, _) = makeStore()
+        await store.load()
+        let none = JournalDay(day: store.yesterday, answered: true, answeredAt: .now, editable: true,
+                              entries: [JournalEntry(behaviorId: MockJournal.alcohol, valueBool: false)])
+        #expect(store.summary(of: none) == "None of your habits")
+        #expect(JournalStore.time("07:05", now: .now, locale: Locale(identifier: "en_US")) == "7:05\u{202F}AM")
+        #expect(JournalStore.time("7:5pm", now: .now, locale: Locale(identifier: "en_US")) == "7:5pm", "not HH:MM: as it came")
     }
 
     @Test func writesNeedTheNetwork() async {
