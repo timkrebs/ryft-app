@@ -441,8 +441,7 @@ struct AboutYouView: View {
                          showsLockup: model.isFirstRun) {
             if isSaved {
                 let editor = model.bodySettings
-                GroupedCard(Text("Estimated from your birth year"),
-                            footer: Text("RYFT adjusts this from your nights unless you set it.")) {
+                GroupedCard(GroupTitle(Text("Estimated from your birth year"))) {
                     GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.rowValue(.maxHR, saved: editor.maxHRText)),
                                     detail: editor.rowDetail(.maxHR).map { Text(verbatim: $0) }) { editing = .maxHR }
                         .accessibilityIdentifier("aboutYou.maxHR")
@@ -450,6 +449,15 @@ struct AboutYouView: View {
                                     value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
                                     detail: editor.rowDetail(.sleepBase).map { Text(verbatim: $0) }) { editing = .sleepBase }
                         .accessibilityIdentifier("aboutYou.sleepBase")
+                } footer: {
+                    VStack(alignment: .leading, spacing: GroupedListSpec.footerGap) {
+                        // A save whose answer came after its editor sheet went: said here, where the user is (as Profile).
+                        if editor.errorMissed, let error = editor.error {
+                            InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
+                                .accessibilityIdentifier("aboutYou.bodySettingsError")
+                        }
+                        GroupFooter(Text("RYFT adjusts this from your nights unless you set it."))
+                    }
                 }
             } else {
                 GroupedCard(Text("Birth year")) {
@@ -473,7 +481,7 @@ struct AboutYouView: View {
                 PillButton(Text("Continue")) { model.finishAboutYou() }
                     .accessibilityIdentifier("aboutYou.continue")
             } else {
-                PillButton(model.isWorking ? Text("Saving…") : Text("Continue"), busy: model.isWorking) {
+                PillButton(Text("Continue"), busy: model.isWorking) {
                     guard let year else { return }
                     await model.saveAboutYou(birthYear: year)
                 }
