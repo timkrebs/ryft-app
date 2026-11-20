@@ -254,26 +254,6 @@ private struct PulsingDot: View {
     }
 }
 
-/// Muscular load beside a session ("Load 84.6", D6B-8): ink text after a dumbbell glyph at 62 %, no tint and no capsule; "–" in
-/// `textSecondary` without a load. One element: "Muscular load 84.6".
-struct LoadChip: View {
-    let load: Double?
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "dumbbell.fill")
-                .imageScale(.small)
-                .foregroundStyle(Theme.textSecondary)
-            Text(Fmt.load(load))
-                .monospacedDigit()
-                .foregroundStyle(load == nil ? Theme.textSecondary : Theme.textPrimary)
-        }
-        .font(.ryft(.caption))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Muscular load \(Fmt.load(load))"))
-    }
-}
-
 /// The record row's numbers (PR 6 B §5.1 row 4, §7.3).
 enum PRBadgeSpec {
     /// 52 high at least, 12 between the trophy disc, the text and the value; the detail 2 under the title.
@@ -393,18 +373,13 @@ struct TrainSectionTitle: View {
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-/// The banner (six sets in), the load beside a session with and without a value, the records as the summary and the
-/// exercise page list them, and the will-sync note.
+/// The banner (six sets in), the records as the summary and the exercise page list them, and the will-sync note.
 private struct TrainComponentsPreview: View {
     var body: some View {
         ScrollView {
             DarkPreview {
                 VStack(alignment: .leading, spacing: 16) {
                     WorkoutInProgressBanner(session: MockTrain.liveSession(in: TrainPreview.store, checked: 6)) {}
-                    HStack(spacing: 16) {
-                        LoadChip(load: 84.6)
-                        LoadChip(load: nil)
-                    }
                     Card {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(MockTrain.completed.prs, id: \.self) { pr in

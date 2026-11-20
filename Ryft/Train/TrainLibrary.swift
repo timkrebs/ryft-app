@@ -24,7 +24,10 @@ final class TrainLibrary {
     private let outbox: @MainActor () -> TrainSyncService
     /// How long a plan save waits for the custom exercises it names (`savePlan`).
     private let exerciseWait: Duration
-    private var histories: [UUID: ExerciseHistory] = [:]
+    /// The histories read this run, by exercise: a memo (`checkHistories` says whose they are), not state a view observes.
+    @ObservationIgnored private var histories: [UUID: ExerciseHistory] = [:]
+    /// Whose `histories` are (`checkHistories`).
+    @ObservationIgnored private var currentMark: HistoriesMark?
 
     /// The longest custom exercise name the platform takes (API.md: `name` 1–80 characters; it counts Unicode scalars
     /// of the trimmed name).
@@ -73,36 +76,92 @@ final class TrainLibrary {
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
-        let src = remote
+        let client = client()
         var failure: Error?
-        do {
-            if let list = try await read("exercises", { try await src.exercises() }) {
-                store.cache(exercises: list)
-                exercises = store.exercises()
+        var cancelled = false
+        func note<T>(_ outcome: Fetched<T>, _ write: (T) -> Void) {
+            switch outcome {
+            case .answer(let value): write(value)
+            case .failed(let error): failure = failure ?? error
+            case .cancelled: cancelled = true
+            case .declined: break
             }
-        } catch { failure = failure ?? error }
-        do {
-            if let c = try await read("plans", { try await src.plans() }) {
-                catalog = c
-                store.saveDocument(c, key: Self.catalogKey)
-            }
-        } catch { failure = failure ?? error }
-        do {
-            if let fresh = try await read("plans/today", { try await src.planToday() }) { setToday(fresh) }
-        } catch { failure = failure ?? error }
-        if let failure, !failure.isCancellation {
+        }
+        note(await fetch("exercises", from: client) { try await $0.exercises() }) { list in
+            store.cache(exercises: list)
+            exercises = store.exercises()
+        }
+        note(await fetch("plans", from: client) { try await $0.plans() }) { c in
+            catalog = c
+            store.saveDocument(c, key: Self.catalogKey)
+        }
+        note(await fetch("plans/today", from: client) { try await $0.planToday() }) { setToday($0) }
+        if let failure {
             self.error = failure.localizedDescription
             self.errorDetails = failure.diagnosticDetails
-        } else if failure == nil {
+        } else if !cancelled {
             error = nil
             errorDetails = nil
         }
     }
 
-    /// Through the read pipeline when there is one (nil: offline or held back, nothing sent).
-    private func read<T: Sendable>(_ id: String, _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
-        guard let reads else { return try await fetch() }
-        return try await reads.run(ReadKey(.train, id: id), fetch)
+    /// How one read ended (`fetch`).
+    private enum Fetched<T> {
+        /// The platform answered, for the binding that asked.
+        case answer(T)
+        /// Nothing was sent (offline, signed out, or a `Retry-After` still holds automatic reads back), or the answer came
+        /// for a binding that's over: the copy on this phone is all there is, and nothing of the answer is written.
+        case declined
+        case failed(Error)
+        /// The caller went away (a screen that disappeared, a push) or a reset stopped the read: nothing changes.
+        case cancelled
+
+        var error: Error? {
+            if case .failed(let error) = self { return error }
+            return nil
+        }
+    }
+
+    /// The client in use and its binding, read in one step (`savePlan`'s pattern): an answer is written only while the
+    /// binding is still the one that asked.
+    @MainActor
+    private struct Client {
+        let source: TrainDataSource
+        let outbox: TrainSyncService
+        let binding: TrainSyncService.Binding
+
+        /// No sign-out, other account, wipe or Demo data switch since the read began.
+        var isCurrent: Bool { outbox.binding == binding }
+    }
+
+    private func client() -> Client {
+        let outbox = outbox()
+        return Client(source: remote, outbox: outbox, binding: outbox.binding)
+    }
+
+    /// One read through the read pipeline when there is one (`ScreenModels` sets the app's): offline, signed out or held
+    /// back nothing is sent and it ends at once (`.declined`), and a try uses the fail-fast session, never one that waits
+    /// minutes for a network. Without one (tests) it goes straight to the source. An answer or a failure that arrives after
+    /// a sign-out, another account, a wipe or the Demo data switch is `.declined`: the caller writes none of it into the
+    /// store or memory, which are the next binding's now (security review S-1). A cancelled caller (or a reset of the
+    /// pipeline) is `.cancelled`, however the request ended.
+    private func fetch<T: Sendable>(_ id: String, from client: Client, userInitiated: Bool = false,
+                                    _ request: @escaping @MainActor (TrainDataSource) async throws -> T) async -> Fetched<T> {
+        let source = client.source
+        do {
+            let value: T?
+            if let reads {
+                value = try await reads.run(ReadKey(.train, id: id), userInitiated: userInitiated) { try await request(source) }
+            } else {
+                value = try await request(source)
+            }
+            guard client.isCurrent, let value else { return .declined }
+            return .answer(value)
+        } catch where error.isCancellation || Task.isCancelled {
+            return .cancelled
+        } catch {
+            return client.isCurrent ? .failed(error) : .declined
+        }
     }
 
     private func setToday(_ fresh: PlanToday?) {
@@ -110,8 +169,11 @@ final class TrainLibrary {
         if let fresh { store.saveDocument(fresh, key: Self.todayKey) } else { store.removeDocument(key: Self.todayKey) }
     }
 
-    private func loadToday(from src: TrainDataSource) async throws {
-        setToday(try await src.planToday())
+    /// Today's plan day from `client`, written only while its binding is still the one in use.
+    private func loadToday(from client: Client) async throws {
+        let fresh = try await client.source.planToday()
+        guard client.isCurrent else { return }
+        setToday(fresh)
     }
 
     /// The cached plan day was fetched on another day (it has no date of its own).
@@ -123,8 +185,8 @@ final class TrainLibrary {
     /// Today's plan day again, given at most `limit`: a quick start shouldn't wait on a slow network.
     /// `false` when it couldn't be fetched in time.
     func refreshToday(limit: Duration = .seconds(3)) async -> Bool {
-        let src = remote
-        let fetch = Task { @MainActor in try await self.loadToday(from: src) }
+        let client = client()
+        let fetch = Task { @MainActor in try await self.loadToday(from: client) }
         let deadline = Task {
             try? await Task.sleep(for: limit)
             fetch.cancel()
@@ -133,60 +195,97 @@ final class TrainLibrary {
         return (try? await fetch.value) != nil
     }
 
-    /// Plan detail (days → exercises), cached afterwards.
-    func loadPlan(id: UUID) async -> Plan? {
+    /// Plan detail (days → exercises), cached afterwards. A cached one shows at once and is read again quietly, through the
+    /// pipeline and for this binding only. One that isn't cached is read: `.offline` when nothing could be sent (or the
+    /// answer came for a binding that's over), `.failed` with `error` and `errorDetails` set, `.cancelled` when the caller
+    /// went away.
+    func loadPlan(id: UUID, userInitiated: Bool = false) async -> PlanRead {
+        let client = client()
         if let p = store.plan(id: id), !p.days.isEmpty {
             // Cached: show it, refresh quietly.
-            Task { if let fresh = try? await remote.plan(id: id) { store.cache(plans: [fresh]) } }
-            return p
+            Task {
+                if case .answer(let fresh) = await fetch("plan/\(id.uuidString)", from: client, { try await $0.plan(id: id) }) {
+                    store.cache(plans: [fresh])
+                }
+            }
+            return .plan(p)
         }
-        do {
-            let p = try await remote.plan(id: id)
+        switch await fetch("plan/\(id.uuidString)", from: client, userInitiated: userInitiated, { try await $0.plan(id: id) }) {
+        case .answer(let p):
             store.cache(plans: [p])
-            return p
-        } catch where error.isCancellation {
-            return nil
-        } catch {
+            return .plan(p)
+        case .declined:
+            return .offline
+        case .cancelled:
+            return .cancelled
+        case .failed(let error):
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
+            return .failed
+        }
+    }
+
+    /// How `loadPlan` ended.
+    enum PlanRead: Equatable {
+        case plan(Plan)
+        /// Not cached, and nothing was sent (offline, or held back): nothing to show until it's read.
+        case offline
+        /// Not cached, and the read failed: `error` says why.
+        case failed
+        /// The caller went away: nothing changes.
+        case cancelled
+
+        var plan: Plan? {
+            if case .plan(let p) = self { return p }
             return nil
         }
     }
 
+    /// The exercise's history: the one read this run, else the platform's, else the copy on this phone.
     func history(for exerciseID: UUID) async -> ExerciseHistory? {
-        if let h = histories[exerciseID] { return h }
-        do {
-            let h = try await remote.exerciseHistory(id: exerciseID)
-            histories[exerciseID] = h
-            store.saveDocument(h, key: Self.historyKey(exerciseID))
-            return h
-        } catch {
-            return store.document(ExerciseHistory.self, key: Self.historyKey(exerciseID))
-        }
+        (await historyRead(for: exerciseID))?.value ?? cachedHistory(for: exerciseID)
     }
 
     /// Already-loaded history, for instant paint.
     func cachedHistory(for exerciseID: UUID) -> ExerciseHistory? {
-        histories[exerciseID] ?? store.document(ExerciseHistory.self, key: Self.historyKey(exerciseID))
+        checkHistories()
+        return histories[exerciseID] ?? store.document(ExerciseHistory.self, key: Self.historyKey(exerciseID))
     }
 
     /// History shows new numbers after a session.
     func invalidateHistories() { histories = [:] }
 
+    /// Whose the histories in memory are and which completion they're from before (`checkHistories`).
+    private struct HistoriesMark: Equatable {
+        let binding: TrainSyncService.Binding
+        let completed: UUID?
+    }
+
+    private func historiesMark() -> HistoriesMark {
+        let outbox = outbox()
+        return HistoriesMark(binding: outbox.binding, completed: outbox.lastCompletion?.id)
+    }
+
+    /// The histories in memory count as fresh (`historyRead`) only for the binding that read them and only until the
+    /// platform answers a session's completion: after a sign-out, another account or the Demo data switch they're another
+    /// binding's (security review N-1), and after a completion their e1RM and records are from before that workout (B
+    /// review N3). Either way they go, and the next read asks the platform.
+    private func checkHistories() {
+        let mark = historiesMark()
+        guard mark != currentMark else { return }
+        currentMark = mark
+        histories = [:]
+    }
+
     // MARK: sessions
 
-    /// Finished sessions of the last `days`, newest first: the server's list
+    /// History's window: the last 90 days, the one window the session list is read and cached for (its "last 90 days").
+    nonisolated static let sessionsWindowDays = 90
+
+    /// Finished sessions of the last 90 days, newest first: the server's list
     /// plus anything logged here that hasn't reached it yet (the local copy wins).
-    func sessions(days: Int = 90) async -> [SessionSummary] {
-        let from = DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -(days - 1))
-        let remoteList: [SessionSummary]
-        if let fresh = try? await remote.sessions(from: from, to: .now) {
-            remoteList = fresh
-            store.saveDocument(fresh, key: Self.sessionsKey)
-        } else {
-            remoteList = store.document([SessionSummary].self, key: Self.sessionsKey) ?? []
-        }
-        return Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList)
+    func sessions() async -> [SessionSummary] {
+        (await sessionsRead())?.value ?? cachedSessions(now: .now)
     }
 
     /// Sessions already known for instant paint.
@@ -230,16 +329,29 @@ final class TrainLibrary {
             .sorted { $0.startedAt > $1.startedAt }
     }
 
-    /// A whole session (the list may carry summaries without exercises).
+    /// A whole session (the list may carry summaries without exercises): the one logged here, else the platform's.
     func session(id: UUID) async -> TrainSession? {
-        if let local = store.session(id: id) { return local.wire }
-        return try? await remote.session(id: id)
+        (await sessionRead(id: id))?.value
+    }
+
+    /// `session(id:)`, saying whether the platform answered and why not (the session detail's failure and its Details).
+    /// Nil when the caller was cancelled.
+    func sessionRead(id: UUID, userInitiated: Bool = false) async -> TrainRead<TrainSession?>? {
+        if let local = store.session(id: id) { return TrainRead(value: local.wire, fresh: true, fetchedAt: nil) }
+        let fetched = await fetch("session/\(id.uuidString)", from: client(), userInitiated: userInitiated) {
+            try await $0.session(id: id)
+        }
+        switch fetched {
+        case .cancelled: return nil
+        case .answer(let s): return TrainRead(value: s, fresh: true, fetchedAt: nil)
+        case .declined, .failed: return TrainRead(value: nil, fresh: false, fetchedAt: nil, failure: fetched.error?.diagnosticDetails)
+        }
     }
 
     /// The most recent finished session, for "Repeat last session".
     func lastSession() async -> TrainSession? {
         var latest = cachedSessions().first
-        if latest == nil { latest = await sessions(days: 30).first }
+        if latest == nil { latest = await sessions().first }
         guard let latest else { return nil }
         return await session(id: latest.id)
     }
@@ -382,18 +494,19 @@ final class TrainLibrary {
         }
     }
 
+    /// After an action: the plans and today's plan day again, written only for the binding that asked.
     private func reloadCatalog() async {
-        let src = remote
-        guard let c = try? await src.plans() else { return }
+        let client = client()
+        guard let c = try? await client.source.plans(), client.isCurrent else { return }
         catalog = c
         store.saveDocument(c, key: Self.catalogKey)
-        try? await loadToday(from: src)
+        try? await loadToday(from: client)
     }
 
     /// After a session completes, the plan advances.
     func sessionCompleted() async {
         invalidateHistories()
-        try? await loadToday(from: remote)
+        try? await loadToday(from: client())
     }
 
     func wipe() {
@@ -402,6 +515,24 @@ final class TrainLibrary {
         today = nil
         UserDefaults.standard.removeObject(forKey: Self.pausedKey)
         histories = [:]
+        currentMark = nil
+    }
+
+    /// The Demo data switch (RyftApp, security review N-1). Train's cache is one store for both sides (ADR 0019: a demo
+    /// store of its own is the follow-up), so what was read for the side that ended goes rather than show as the new side's
+    /// own: today's plan day and the plans overview (the active plan), in memory and stored, and the stored session list
+    /// and exercise histories (the histories in memory go by themselves, `checkHistories`). Each is read again for this
+    /// side: the overview and the plan day by the caller's `refresh()`, the rest when its screen opens. Left for the
+    /// follow-up: the exercise library, the plans' details, the paused plan's id (only this phone knows it, API_REQUESTS
+    /// Train #2) and the workouts themselves (ending the demo discards its own, ADR 0019).
+    func demoModeChanged() {
+        histories = [:]
+        currentMark = nil
+        catalog = nil
+        today = nil
+        for key in [Self.catalogKey, Self.todayKey, Self.sessionsKey] + store.documentKeys(prefix: Self.historyPrefix) {
+            store.removeDocument(key: key)
+        }
     }
 
     private static let sessionsKey = "train.sessions"
@@ -431,57 +562,78 @@ extension TrainLibrary {
 // MARK: - reads that say whether they reached the platform
 
 /// One read of Train's history: what to show, and whether the platform answered (`fresh`) or the copy on this phone is all
-/// there is. A failed read with nothing cached is an error, not "no workouts" (the API sends empty arrays for none).
+/// there is. A failed read with nothing cached is an error, not "no workouts" (the API sends empty arrays for none). A read
+/// whose caller was cancelled has none (the readers return nil): nothing on screen changes for it.
 struct TrainRead<Value> {
     let value: Value
     /// The platform answered this time.
     let fresh: Bool
     /// When the copy shown was fetched; nil when nothing was ever saved (only sessions logged on this phone).
     let fetchedAt: Date?
+    /// The failure's status and request ID for Details ("HTTP 503 · Request ID …", `diagnosticDetails`); nil when the read
+    /// didn't fail, wasn't sent (offline, or held back) or failed without an answer.
+    var failure: String?
 }
 
 extension TrainLibrary {
-    /// The first day of the last `days`, as `sessions(days:)` asks for it.
-    nonisolated static func sessionsWindowStart(days: Int, now: Date) -> Date {
-        DayFormat.shift(Calendar.current.startOfDay(for: now), days: -(days - 1))
+    /// The first day of History's window (`sessionsWindowDays`), as `sessionsRead` asks for it.
+    nonisolated static func sessionsWindowStart(now: Date) -> Date {
+        DayFormat.shift(Calendar.current.startOfDay(for: now), days: -(sessionsWindowDays - 1))
     }
 
-    /// `sessions(days:)`, saying whether the platform answered (History's offline and failed states).
-    func sessionsRead(days: Int = 90, now: Date = .now) async -> TrainRead<[SessionSummary]> {
-        let from = Self.sessionsWindowStart(days: days, now: now)
-        let remoteList: [SessionSummary]
-        let fresh: Bool
-        if let list = try? await remote.sessions(from: from, to: now) {
-            remoteList = list
-            fresh = true
-            store.saveDocument(list, key: Self.sessionsKey)
-        } else {
-            remoteList = (store.document([SessionSummary].self, key: Self.sessionsKey) ?? []).filter { $0.startedAt >= from }
-            fresh = false
+    /// `sessions()`, saying whether the platform answered (History's offline and failed states). The one writer of the
+    /// cached list, always for History's 90 days. Nil when the caller was cancelled.
+    func sessionsRead(now: Date = .now, userInitiated: Bool = false) async -> TrainRead<[SessionSummary]>? {
+        let from = Self.sessionsWindowStart(now: now)
+        let fetched = await fetch("sessions/\(DayFormat.string(from: from))", from: client(), userInitiated: userInitiated) {
+            try await $0.sessions(from: from, to: now)
         }
+        let remoteList: [SessionSummary]
+        switch fetched {
+        case .cancelled:
+            return nil
+        case .answer(let list):
+            remoteList = list
+            store.saveDocument(list, key: Self.sessionsKey)
+        case .declined, .failed:
+            remoteList = (store.document([SessionSummary].self, key: Self.sessionsKey) ?? []).filter { $0.startedAt >= from }
+        }
+        var fresh = false
+        if case .answer = fetched { fresh = true }
         return TrainRead(value: Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList),
-                         fresh: fresh, fetchedAt: store.documentFetchedAt(key: Self.sessionsKey))
+                         fresh: fresh, fetchedAt: store.documentFetchedAt(key: Self.sessionsKey),
+                         failure: fetched.error?.diagnosticDetails)
     }
 
-    /// `cachedSessions()` within the last `days`, so History's first paint shows what the read will (nothing that vanishes).
-    func cachedSessions(days: Int, now: Date = .now) -> [SessionSummary] {
-        let from = Self.sessionsWindowStart(days: days, now: now)
+    /// `cachedSessions()` within History's window, so its first paint shows what the read will (nothing that vanishes).
+    func cachedSessions(now: Date) -> [SessionSummary] {
+        let from = Self.sessionsWindowStart(now: now)
         return cachedSessions().filter { $0.startedAt >= from }
     }
 
     /// `history(for:)`, saying whether the platform answered (the exercise page's offline and failed states). A history
-    /// read earlier in this run counts as fresh.
-    func historyRead(for exerciseID: UUID) async -> TrainRead<ExerciseHistory?> {
+    /// read earlier in this run for the binding in use, and since the platform's last completion, counts as fresh
+    /// (`checkHistories`). Nil when the caller was cancelled.
+    func historyRead(for exerciseID: UUID, userInitiated: Bool = false) async -> TrainRead<ExerciseHistory?>? {
         let key = Self.historyKey(exerciseID)
+        checkHistories()
         if let h = histories[exerciseID] { return TrainRead(value: h, fresh: true, fetchedAt: store.documentFetchedAt(key: key)) }
-        do {
-            let h = try await remote.exerciseHistory(id: exerciseID)
-            histories[exerciseID] = h
+        let asked = historiesMark()
+        let fetched = await fetch("history/\(exerciseID.uuidString)", from: client(), userInitiated: userInitiated) {
+            try await $0.exerciseHistory(id: exerciseID)
+        }
+        switch fetched {
+        case .cancelled:
+            return nil
+        case .answer(let h):
             store.saveDocument(h, key: key)
+            // Kept in memory only if no completion was answered meanwhile: it may be from before that workout.
+            checkHistories()
+            if currentMark == asked { histories[exerciseID] = h }
             return TrainRead(value: h, fresh: true, fetchedAt: store.documentFetchedAt(key: key))
-        } catch {
+        case .declined, .failed:
             return TrainRead(value: store.document(ExerciseHistory.self, key: key), fresh: false,
-                             fetchedAt: store.documentFetchedAt(key: key))
+                             fetchedAt: store.documentFetchedAt(key: key), failure: fetched.error?.diagnosticDetails)
         }
     }
 }

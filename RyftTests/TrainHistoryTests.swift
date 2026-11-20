@@ -123,7 +123,7 @@ struct TrainHistoryTests {
         let fetched = Date.now.addingTimeInterval(-3_600)
         rig.store.saveDocument([recent, old], key: "train.sessions", at: fetched)
         #expect(rig.library.cachedSessions().map(\.id) == [recent.id, old.id], "the cache keeps both")
-        #expect(rig.library.cachedSessions(days: 90).map(\.id) == [recent.id], "the first paint: nothing the read would drop")
+        #expect(rig.library.cachedSessions(now: .now).map(\.id) == [recent.id], "the first paint: nothing the read would drop")
         let vm = TrainHistoryViewModel(library: rig.library)
         await vm.load()
         #expect(vm.sessions.map(\.id) == [recent.id])

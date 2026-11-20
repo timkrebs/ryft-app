@@ -9,11 +9,9 @@ import Observation
 @MainActor
 @Observable
 final class TrainHistoryViewModel {
-    /// History shows the last 90 days: the window the platform's list is read for.
-    nonisolated static let windowDays = 90
-
     private let library: TrainLibrary
-    private let now: () -> Date
+    /// The app's clock (`env.clock`): the window ends on its day.
+    private let clock: AppClock
 
     private(set) var sessions: [SessionSummary] = []
     private(set) var loaded = false
@@ -21,6 +19,8 @@ final class TrainHistoryViewModel {
     private(set) var fresh = false
     /// When the list on screen was fetched: the offline line's time.
     private(set) var fetchedAt: Date?
+    /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
+    private(set) var failureDetails: String?
 
     /// What the page shows. `empty` only after the platform answered with no session (now, or in the copy on this phone);
     /// a failed read with nothing cached is `failed`, never "No workouts logged yet".
@@ -65,9 +65,9 @@ final class TrainHistoryViewModel {
         }
     }
 
-    init(library: TrainLibrary, now: @escaping () -> Date = { .now }) {
+    init(library: TrainLibrary, clock: AppClock = SystemClock()) {
         self.library = library
-        self.now = now
+        self.clock = clock
     }
 
     /// A list already read (previews, tests): `fresh` false is the copy on this phone after a failed read.
@@ -101,6 +101,9 @@ final class TrainHistoryViewModel {
     /// The copy on this phone after a failed read: the quiet "Offline · as of 14:05" line.
     var isOffline: Bool { loaded && !fresh && (!sessions.isEmpty || fetchedAt != nil) }
 
+    /// Now, by the app's clock: the window ends on its day, and the offline line's time is against it.
+    var now: Date { clock.now() }
+
     /// The header's subtitle, "25 workouts · last 90 days"; nil while there are none.
     var subtitle: String? {
         guard !sessions.isEmpty else { return nil }
@@ -109,20 +112,25 @@ final class TrainHistoryViewModel {
         return StrainRows.join([String(localized: "\(sessions.count) workouts"), window])
     }
 
-    /// The 90 days cached at once (nothing the read would drop), then the platform's.
+    /// The 90 days cached at once (nothing the read would drop), then the platform's. Offline (or held back) nothing is
+    /// sent and it ends at once: the copy, or the failure with nothing cached, never outlines that wait.
     func load() async {
-        if sessions.isEmpty { sessions = library.cachedSessions(days: Self.windowDays, now: now()) }
-        await read()
+        if sessions.isEmpty { sessions = library.cachedSessions(now: clock.now()) }
+        await read(userInitiated: false)
     }
 
-    /// Pull to refresh, and the failure's Try again.
-    func refresh() async { await read() }
+    /// Pull to refresh, and the failure's Try again: also while a `Retry-After` holds automatic reads back.
+    func refresh() async { await read(userInitiated: true) }
 
-    private func read() async {
-        let read = await library.sessionsRead(days: Self.windowDays, now: now())
+    /// A read whose caller went away (a disappearing page, a reconnect that starts another) changes nothing on screen.
+    private func read(userInitiated: Bool) async {
+        guard let read = await library.sessionsRead(now: clock.now(), userInitiated: userInitiated), !Task.isCancelled else {
+            return
+        }
         sessions = read.value
         fresh = read.fresh
         fetchedAt = read.fetchedAt
+        failureDetails = read.failure
         loaded = true
     }
 }
@@ -142,6 +150,8 @@ final class ExerciseDetailViewModel {
     private(set) var fresh = false
     /// When the history on screen was fetched: the offline line's time.
     private(set) var fetchedAt: Date?
+    /// The last read's failure, status and request ID (Details under the failure); nil when it didn't fail.
+    private(set) var failureDetails: String?
 
     /// What leads the page (PR 6 B §7.3, review S6): the estimate (hero and chart); for a bodyweight exercise without
     /// added weight the unlit hero and why; for a timed or distance exercise, which has no 1RM, the recent sets.
@@ -274,13 +284,18 @@ final class ExerciseDetailViewModel {
         }
     }
 
-    /// The cached copy at once, then the platform's; a failed read keeps the copy and says so.
-    func load() async {
+    /// The cached copy at once, then the platform's; a failed read keeps the copy and says so. Offline (or held back)
+    /// nothing is sent and it ends at once. `userInitiated`: the failure's Try again, also while a `Retry-After` holds.
+    /// A read whose caller went away changes nothing on screen.
+    func load(userInitiated: Bool = false) async {
         if history == nil { history = library.cachedHistory(for: exerciseID) }
-        let read = await library.historyRead(for: exerciseID)
+        guard let read = await library.historyRead(for: exerciseID, userInitiated: userInitiated), !Task.isCancelled else {
+            return
+        }
         history = read.value ?? history
         fresh = read.fresh
         fetchedAt = read.fetchedAt
+        failureDetails = read.failure
         loaded = true
     }
 }
@@ -366,6 +381,8 @@ final class PlanDetailViewModel {
     private(set) var working = false
     /// The last load came back without the plan (not cached, and the platform failed).
     private(set) var loadFailed = false
+    /// The last load came back without the plan because nothing was sent (not cached, and offline or held back).
+    private(set) var loadDeclined = false
 
     init(planID: UUID, library: TrainLibrary) {
         self.planID = planID
@@ -394,12 +411,17 @@ final class PlanDetailViewModel {
 
     /// The failure to show instead of the outlines: the plan couldn't be loaded and nothing is cached.
     var failure: String? { plan == nil && loadFailed ? library.error : nil }
+    /// Not cached and nothing could be sent (offline, or held back): a calm line instead of outlines that would never fill.
+    var isOffline: Bool { plan == nil && loadDeclined }
 
-    func load() async {
-        loadFailed = false
-        let loaded = await library.loadPlan(id: planID)
-        if loaded != nil || plan == nil { plan = loaded }
-        loadFailed = plan == nil && !Task.isCancelled
+    /// The cached plan at once (read again quietly), else the platform's. `userInitiated`: Try again, also while a
+    /// `Retry-After` holds automatic reads back. A load whose caller went away changes nothing on screen.
+    func load(userInitiated: Bool = false) async {
+        let read = await library.loadPlan(id: planID, userInitiated: userInitiated)
+        guard read != .cancelled, !Task.isCancelled else { return }
+        if let loaded = read.plan { plan = loaded }
+        loadFailed = plan == nil && read == .failed
+        loadDeclined = plan == nil && read == .offline
         if !weeks.contains(week) { week = weeks.first ?? 1 }
     }
 
@@ -594,7 +616,7 @@ final class TrainTodayViewModel {
 
     func loadStartOptions() async {
         lastSession = await library.lastSession()
-        if let id = library.activeEnrollment?.planId { activePlan = await library.loadPlan(id: id) }
+        if let id = library.activeEnrollment?.planId, let plan = await library.loadPlan(id: id).plan { activePlan = plan }
     }
 }
 

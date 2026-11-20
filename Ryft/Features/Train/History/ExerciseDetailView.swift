@@ -101,7 +101,8 @@ struct ExerciseDetailView: View {
     }
 }
 
-/// Wiring; the first model handed in is kept for the screen's lifetime.
+/// Wiring; the first model handed in is kept for the screen's lifetime. It reads again when the iPhone goes online (and
+/// offline, which ends at once on the copy).
 private struct ExerciseDetailScreen: View {
     @State var model: ExerciseDetailViewModel
     let onClose: (() -> Void)?
@@ -109,7 +110,7 @@ private struct ExerciseDetailScreen: View {
 
     var body: some View {
         ExerciseDetailPage(model: model, numeralStyle: env.settings.heroNumerals.style, onClose: onClose)
-            .task { await model.load() }
+            .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
 
@@ -131,7 +132,8 @@ struct ExerciseDetailPage: View {
                 header
                 if model.failed {
                     // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
-                    InlineMessage(message: Self.failureText, retry: { await model.load() }, identifier: "exerciseDetail.failure")
+                    InlineMessage(message: Self.failureText, details: model.failureDetails,
+                                  retry: { await model.load(userInitiated: true) }, identifier: "exerciseDetail.failure")
                         .padding(.top, ExerciseDetailLayout.heroGap)
                 } else {
                     content
@@ -148,6 +150,13 @@ struct ExerciseDetailPage: View {
         .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
     }
 
+    /// VoiceOver, once, over the outlines while the history loads the first time: the chart's, or the recent sets' when they
+    /// lead (a timed or distance exercise).
+    static var loadingLabel: Text {
+        Text("Loading the exercise's history",
+             comment: "VoiceOver: the exercise page's outlines while its history loads the first time.")
+    }
+
     /// A failed read with nothing cached (the session detail's words).
     static var failureText: String {
         String(localized: "This exercise's history couldn't be loaded. Try again when you're online.",
@@ -158,7 +167,7 @@ struct ExerciseDetailPage: View {
     /// distance exercise has no 1RM and leads with its recent sets.
     @ViewBuilder private var content: some View {
         if model.isOffline {
-            TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline")
+            TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "exerciseDetail.offline", now: model.now)
                 .padding(.top, ExerciseDetailLayout.offlineGap)
         }
         switch model.lead {
@@ -231,6 +240,8 @@ struct ExerciseDetailPage: View {
         .accessibilityLabel(Text("Estimated 1RM"))
         .accessibilityValue(Text(verbatim: heroSpoken(latest)))
         .accessibilityIdentifier("exerciseDetail.numeral")
+        // While the history loads the first time the outlines say so; the unlit numeral isn't "No data" yet.
+        .accessibilityHidden(model.isLoading)
     }
 
     private func heroLine(_ text: String) -> some View {
@@ -267,8 +278,7 @@ struct ExerciseDetailPage: View {
                 .frame(maxWidth: .infinity, minHeight: ExerciseDetailLayout.placeholderChartHeight)
                 .background { PlaceholderOutline(chartShape) }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Loading the exercise's history",
-                                         comment: "VoiceOver: the exercise page's outlines while its history loads the first time."))
+                .accessibilityLabel(Self.loadingLabel)
                 .accessibilityIdentifier("exerciseDetail.loading")
         } else {
             VStack(alignment: .leading, spacing: 0) {
@@ -337,7 +347,13 @@ struct ExerciseDetailPage: View {
 
     @ViewBuilder private var recentSets: some View {
         let rows = model.recentRows(locale: locale)
-        if model.isLoading {
+        if model.isLoading, model.lead == .sets {
+            // A timed or distance exercise has no chart: its sets' outline is the one that says it loads.
+            PlaceholderRow(height: ExerciseDetailLayout.placeholderSetsHeight)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Self.loadingLabel)
+                .accessibilityIdentifier("exerciseDetail.loading")
+        } else if model.isLoading {
             PlaceholderRow(height: ExerciseDetailLayout.placeholderSetsHeight)
                 .accessibilityHidden(true)
         } else if rows.isEmpty {

@@ -62,7 +62,7 @@ struct SessionSummaryContent: Equatable {
 
         let strain = session?.strain
         strainState = strain != nil ? .scored : .pending
-        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: Self.missingCaption(strainState))
+        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: Self.missingCaption(strainState), locale: locale)
         tiles = Self.tiles(session, locale: locale)
         showsWillSync = !answered && pendingCompletion
     }
@@ -95,7 +95,7 @@ struct SessionSummaryContent: Equatable {
             duration,
             WorkoutStat(id: "volume", label: String(localized: "Volume"), value: volume.value, unit: volume.unit,
                         spoken: volume.spoken),
-            WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(session?.muscularTrimp)),
+            WorkoutStat(id: "load", label: String(localized: "Muscular load"), value: Fmt.load(session?.muscularTrimp, locale: locale)),
             WorkoutStat(id: "sets", label: String(localized: "Sets"), value: session == nil ? Fmt.placeholder : "\(completed)"),
         ]
     }

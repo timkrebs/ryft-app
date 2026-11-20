@@ -113,7 +113,7 @@ struct SessionDetailContent: Equatable {
         let strain: Double? = if let session { session.strain } else { summary?.strain }
         let load: Double? = if let session { session.muscularTrimp } else { summary?.muscularTrimp }
         let known = session != nil || summary != nil
-        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: known ? Self.noStrainCaption : nil)
+        hero = StrainHero(strain: strain, namesStrain: true, missingCaption: known ? Self.noStrainCaption : nil, locale: locale)
 
         let volumeKg = session.map { $0.volumeKg ?? Volume.of($0.exercises.flatMap(\.sets)) } ?? summary?.volumeKg
         let volume = SessionSummaryContent.volumeParts(volumeKg, locale: locale)
@@ -195,13 +195,24 @@ final class SessionDetailViewModel {
 
     private(set) var session: TrainSession?
     private(set) var loaded = false
-    /// The list's summary of it (cached), for the first paint: read once.
-    let summary: SessionSummary?
+    /// The failed read's status and request ID (Details under the failure); nil when it didn't fail.
+    private(set) var failureDetails: String?
+    /// The list's summary of it, read once, at the first paint (`summary`).
+    @ObservationIgnored private var summaryRead: SessionSummary??
 
+    /// Reads nothing: SwiftUI builds a model for every render of `SessionDetailView` and keeps only the first, so the
+    /// cached list is read when the kept one first draws (review N8).
     init(sessionID: UUID, library: TrainLibrary) {
         self.sessionID = sessionID
         self.library = library
-        summary = library.cachedSessions().first { $0.id == sessionID }
+    }
+
+    /// The list's summary of it (cached), for the first paint.
+    var summary: SessionSummary? {
+        if let summaryRead { return summaryRead }
+        let found = library.cachedSessions().first { $0.id == sessionID }
+        summaryRead = .some(found)
+        return found
     }
 
     func content(locale: Locale = .autoupdatingCurrent) -> SessionDetailContent {
@@ -210,11 +221,17 @@ final class SessionDetailViewModel {
         }
     }
 
-    /// Reads the whole session. Again on every appearance (back from the exercise page): a failed read then keeps the one
-    /// on screen; only a page without one shows its outlines while it reads.
-    func load() async {
+    /// Reads the whole session. Again on every appearance (back from the exercise page) and when the iPhone goes online: a
+    /// failed read then keeps the one on screen; only a page without one shows its outlines while it reads. Offline (or
+    /// held back) nothing is sent and it ends at once. `userInitiated`: Try again, also while a `Retry-After` holds. A
+    /// read whose caller went away changes nothing on screen.
+    func load(userInitiated: Bool = false) async {
         if session == nil { loaded = false }
-        session = await library.session(id: sessionID) ?? session
+        guard let read = await library.sessionRead(id: sessionID, userInitiated: userInitiated), !Task.isCancelled else {
+            return
+        }
+        session = read.value ?? session
+        failureDetails = session == nil ? read.failure : nil
         loaded = true
     }
 }
@@ -238,8 +255,9 @@ private struct SessionDetailScreen: View {
 
     var body: some View {
         SessionDetailPage(content: model.content(locale: locale), key: model.sessionID.uuidString,
-                          numeralStyle: env.settings.heroNumerals.style, retry: { await model.load() })
-            .task { await model.load() }
+                          numeralStyle: env.settings.heroNumerals.style, failureDetails: model.failureDetails,
+                          retry: { await model.load(userInitiated: true) })
+            .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
 
@@ -251,6 +269,8 @@ struct SessionDetailPage: View {
     /// The session: a new one cross-fades the numeral.
     var key = ""
     var numeralStyle: DotNumeral.Style = .dots
+    /// The failed read's status and request ID, behind the failure's Details.
+    var failureDetails: String?
     /// The failure's Try again: the session's read.
     var retry: () async -> Void = {}
 
@@ -284,7 +304,7 @@ struct SessionDetailPage: View {
                         placeholders
                     case .failed:
                         InlineMessage(message: String(localized: "This workout couldn't be loaded. Try again when you're online."),
-                                      retry: retry, identifier: "sessionDetail.failure")
+                                      details: failureDetails, retry: retry, identifier: "sessionDetail.failure")
                     }
                 }
                 .padding(.top, SessionDetailLayout.spacing)
