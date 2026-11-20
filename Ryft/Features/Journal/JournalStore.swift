@@ -160,9 +160,11 @@ final class JournalStore {
 
     /// A journal read through the read pipeline (`ReadKey(.journal)`): coalesced, retried and
     /// recorded with the other reads. `nil` inside means "not deployed" (a `404`, which isn't a
-    /// failure); `nil` outside means nothing was sent (offline).
-    private func read<T: Sendable>(_ id: String, _ fetch: @escaping @MainActor () async throws -> T) async throws -> T?? {
-        try await env.reads.run(ReadKey(.journal, id: id)) { () async throws -> T? in
+    /// failure); `nil` outside means nothing was sent (offline, or held back after a failure). One the user asked for
+    /// (`userInitiated`: Try again) goes even while the journal's reads are held back (`Retry-After`).
+    private func read<T: Sendable>(_ id: String, userInitiated: Bool = false,
+                                   _ fetch: @escaping @MainActor () async throws -> T) async throws -> T?? {
+        try await env.reads.run(ReadKey(.journal, id: id), userInitiated: userInitiated) { () async throws -> T? in
             do {
                 return try await fetch()
             } catch where error.isEndpointMissing {
@@ -171,14 +173,14 @@ final class JournalStore {
         }
     }
 
-    /// The catalog (and with it, whether the journal is live).
-    func load() async {
+    /// The catalog (and with it, whether the journal is live). `userInitiated`: the user asked (Try again).
+    func load(userInitiated: Bool = false) async {
         guard env.isDemo || env.auth.isSignedIn else { return }
         restore()
         let api = env.api, owner = self.owner
         let asked = completedWrites
         do {
-            switch try await read("behaviors", { try await api.behaviors() }) {
+            switch try await read("behaviors", userInitiated: userInitiated, { try await api.behaviors() }) {
             case .some(.some(let list)):
                 #if DEBUG
                 await beforeApplying?("behaviors")
@@ -200,15 +202,15 @@ final class JournalStore {
         }
     }
 
-    /// One day: the cache first, then the platform's.
+    /// One day: the cache first, then the platform's. `userInitiated`: the user asked (Try again).
     @discardableResult
-    func loadDay(_ day: String) async -> JournalDay? {
+    func loadDay(_ day: String, userInitiated: Bool = false) async -> JournalDay? {
         if days[day] == nil, let cached = env.accountDocuments?.document(JournalDay.self, key: Self.dayKey(day)) {
             days[day] = cached
         }
         guard isLive, isOnline else { return days[day] }
         let api = env.api, owner = self.owner
-        let answer = try? await read("day.\(day)", { try await api.journal(day: day) })
+        let answer = try? await read("day.\(day)", userInitiated: userInitiated, { try await api.journal(day: day) })
         guard owns(owner) else { return nil }
         switch answer {
         case .some(.some(let fresh)): store(fresh, as: owner)

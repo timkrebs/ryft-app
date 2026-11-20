@@ -185,8 +185,18 @@ final class JournalSheetModel {
     }
 
     func load() async {
-        if store.behaviors.isEmpty { await store.load() }
-        await loadDay()
+        await load(userInitiated: false)
+    }
+
+    /// Try again (offline, or a read that failed): the user asked, so the read goes even while the read pipeline holds the
+    /// journal's reads back after a failure (`ReadScheduler.run(userInitiated:)`), as every Try again does.
+    func retry() async {
+        await load(userInitiated: true)
+    }
+
+    private func load(userInitiated: Bool) async {
+        if store.behaviors.isEmpty { await store.load(userInitiated: userInitiated) }
+        await loadDay(userInitiated: userInitiated)
     }
 
     /// Back from Profile → Journal: the habits chosen there at once, then the day from the platform.
@@ -202,12 +212,12 @@ final class JournalSheetModel {
 
     /// The selected day from the platform (the cache first). A newer `select` while it's on its way owns the state after it,
     /// and an answer given while it was on its way stays: the rows aren't rebuilt over it.
-    private func loadDay() async {
+    private func loadDay(userInitiated: Bool = false) async {
         let asked = day
         let editsBefore = edits
         isLoading = true
         loadFailed = false
-        let found = await store.loadDay(asked)
+        let found = await store.loadDay(asked, userInitiated: userInitiated)
         guard asked == day else { return }
         isLoading = false
         loadFailed = found == nil

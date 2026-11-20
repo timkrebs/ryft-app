@@ -182,7 +182,7 @@ struct JournalSheetActions {
     var save: () async -> Void = {}
     /// The close circle: nil closes the sheet at once (`SheetHeader`'s dismiss).
     var close: (() -> Void)?
-    /// Reads the day again (offline, failed).
+    /// Reads the day again (offline, failed), as the user asked (`JournalSheetModel.retry`).
     var retry: () async -> Void = {}
     /// Profile → Journal's page (no habits chosen).
     var chooseHabits: () -> Void = {}
@@ -248,7 +248,7 @@ struct JournalSheet: View {
                                    setTime: { model.set($0, time: $1) },
                                    save: { await save() },
                                    close: { close() },
-                                   retry: { await model.load() },
+                                   retry: { await model.retry() },
                                    chooseHabits: { choosesHabits = true })
     }
 

@@ -66,6 +66,38 @@ struct JournalNocturneTests {
         #expect(model.phase(isOnline: true) == .ready)
     }
 
+    @Test("Try again is the user's read: it goes while the journal's reads are held back; the sheet's own reads wait")
+    func tryAgainIsUserInitiated() async {
+        let api = MockPlatformAPI()
+        let (store, env) = journalStore(api)
+        let model = JournalSheetModel(store: store, day: MockJournalStates.day(3))
+        // A failure asked the pipeline to hold the journal's reads back for five minutes (`Retry-After`).
+        env.reads.seed([.journal: ResourceState(consecutiveFailures: 1, retryNotBefore: Self.now.addingTimeInterval(300))])
+        await model.load()
+        #expect(api.count("journal") == 0, "the opening read waits")
+        #expect(model.phase(isOnline: true) == .failed)
+        await model.retry()
+        #expect(api.count("journal") == 1, "Try again goes")
+        #expect(model.phase(isOnline: true) == .ready)
+    }
+
+    @Test("The live sheet's Try again is that read: held back, the day fails; the tap reads it and its rows come")
+    func tryAgainInTheSheet() async throws {
+        let api = MockPlatformAPI()
+        let (store, env) = journalStore(api)
+        env.reads.seed([.journal: ResourceState(consecutiveFailures: 1, retryNotBefore: Self.now.addingTimeInterval(300))])
+        let view = JournalSheet(model: JournalSheetModel(store: store))
+            .environment(\.appEnvironment, env)
+            .environment(\.locale, Self.english)
+        try await HostedWindow.run(width: Self.width, height: 844, view) { w in
+            try await w.wait("the failed read") { w.nodes().contains { $0.identifier == "journal.failed.retry" } }
+            #expect(api.count("journal") == 0, "the opening read waited")
+            try #require(w.nodes().first { $0.identifier == "journal.failed.retry" }).activate()
+            try await w.wait("yesterday's rows") { w.nodes().contains { $0.identifier == "journal.habit.alcohol" } }
+            #expect(api.count("journal") == 1, "Try again went")
+        }
+    }
+
     @Test("A cached day is its rows offline too; without a habit chosen it is the no-habits state")
     func cachedAndNoHabits() async {
         let (store, _) = journalStore(online: false, cached: [MockJournal.journal(day: Self.yesterday, today: Self.now)])
