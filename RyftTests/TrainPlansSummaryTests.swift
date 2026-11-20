@@ -19,7 +19,7 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func theBannerSaysWhatIsRunning() {
-        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23 min · 6 sets done")
+        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23\u{00A0}min · 6 sets done")
         #expect(WorkoutInProgressBanner.spoken(title: "Upper A", minutes: 23, sets: 6) == "Upper A, 23 minutes, 6 sets done")
         let start = Date(timeIntervalSince1970: 1_000_000)
         #expect(WorkoutInProgressBanner.minutes(since: start, now: start.addingTimeInterval(23 * 60 + 59)) == 23)

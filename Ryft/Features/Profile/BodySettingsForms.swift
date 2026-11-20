@@ -133,9 +133,9 @@ extension BodySetting {
     var rulerLabels: [String] {
         switch self {
         case .sleepBase:
-            return [String(localized: "4 h", comment: "Baseline sleep need editor: the ruler's start, four hours."),
-                    String(localized: "8 h", comment: "Baseline sleep need editor: the ruler's middle, eight hours."),
-                    String(localized: "12 h", comment: "Baseline sleep need editor: the ruler's end, twelve hours.")]
+            return [String(localized: "4\u{00A0}h", comment: "Baseline sleep need editor: the ruler's start, four hours."),
+                    String(localized: "8\u{00A0}h", comment: "Baseline sleep need editor: the ruler's middle, eight hours."),
+                    String(localized: "12\u{00A0}h", comment: "Baseline sleep need editor: the ruler's end, twelve hours.")]
         case .maxHR:
             let r = BodySettingsEditor.maxHRRange
             return [String(localized: "\(r.lowerBound) bpm"), "\((r.lowerBound + r.upperBound) / 2)",

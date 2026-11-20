@@ -41,7 +41,7 @@ extension PlanGoal {
 extension TargetKind {
     var title: String {
         switch self {
-        case .pct1rm: return String(localized: "% 1RM")
+        case .pct1rm: return String(localized: "%\u{00A0}1RM")
         case .rpe: return String(localized: "RPE")
         case .kg: return String(localized: "kg")
         case .bodyweight: return String(localized: "Bodyweight")
@@ -221,7 +221,7 @@ struct WorkoutInProgressBanner: View {
 
     /// "Upper A · 23 min · 6 sets done".
     static func meta(title: String, minutes: Int, sets: Int) -> String {
-        String(localized: "\(title) · \(minutes) min · \(sets) sets done",
+        String(localized: "\(title) · \(minutes)\u{00A0}min · \(sets) sets done",
                comment: "The resume banner's meta line: the session's title, the minutes since it started, the sets checked off.")
     }
 

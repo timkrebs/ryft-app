@@ -212,7 +212,7 @@ private struct PlanBuilderScreen: View {
 
     private var progressionHelp: String {
         switch plan.progressionType {
-        case .linear: return String(localized: "+2.5 kg after every set is done; the same weight after a miss; 10 % lighter after three misses.")
+        case .linear: return String(localized: "+2.5 kg after every set is done; the same weight after a miss; 10\u{00A0}% lighter after three misses.")
         case .percent: return String(localized: "Weights follow % of your estimated 1RM, rounded to 2.5 kg.")
         case .none: return String(localized: "Targets stay as you set them.")
         }

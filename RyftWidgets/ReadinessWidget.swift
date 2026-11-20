@@ -126,7 +126,7 @@ enum Words {
         case .pending: return String(localized: "Scoring your night…")
         case .waitingForSleep: return String(localized: "Waiting for last night")
         case .calibrating:
-            return String(localized: "Baselines \(s.baselineNights ?? 0) of \(ReadinessSnapshot.baselineNightsRequired)")
+            return String(localized: "Baselines \(s.baselineNights ?? 0)\u{00A0}of\u{00A0}\(ReadinessSnapshot.baselineNightsRequired)")
         }
     }
 
@@ -183,9 +183,9 @@ enum Words {
         let notScored = { (title: String) in String(localized: "\(title), not scored") }
         let percent = { (fraction: Double) in Int((fraction * 100).rounded()).formatted() }
         return [
-            v.recoveryFraction.map { String(localized: "Recovery \(percent($0)) percent") } ?? notScored(String(localized: "Recovery")),
-            v.sleepFraction.map { String(localized: "Sleep \(percent($0)) percent") } ?? notScored(String(localized: "Sleep")),
-            v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1)))) of 21") }
+            v.recoveryFraction.map { String(localized: "Recovery \(percent($0))\u{00A0}percent") } ?? notScored(String(localized: "Recovery")),
+            v.sleepFraction.map { String(localized: "Sleep \(percent($0))\u{00A0}percent") } ?? notScored(String(localized: "Sleep")),
+            v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1))))\u{00A0}of\u{00A0}21") }
                 ?? notScored(String(localized: "Strain")),
         ].joined(separator: ", ")
     }

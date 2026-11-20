@@ -391,7 +391,7 @@ struct SleepNightCards: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Sleep quality"))
             .accessibilityValue(Text(summary.quality))
-            Text("Quality is 60 % performance, 20 % efficiency and 20 % restorative sleep.")
+            Text("Quality is 60\u{00A0}% performance, 20\u{00A0}% efficiency and 20\u{00A0}% restorative sleep.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -8,7 +8,7 @@ extension PlanExercise {
         switch targetKind {
         case .kg: return "\(base) @ \(Fmt.kg(v))"
         case .rpe: return "\(base) @ RPE \(Fmt.kgNumber(v))"
-        case .pct1rm: return "\(base) @ \(Fmt.kgNumber(v)) % 1RM"
+        case .pct1rm: return "\(base) @ \(Fmt.kgNumber(v))\u{00A0}%\u{00A0}1RM"
         case .bodyweight: return "\(base) · BW + \(Fmt.kg(v))"
         }
     }

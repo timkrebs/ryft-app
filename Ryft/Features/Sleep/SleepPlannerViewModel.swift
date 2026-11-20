@@ -1104,7 +1104,7 @@ struct TonightBoard: Equatable {
         let wake = Fmt.time(plan.wake, locale: locale)
         let need = Fmt.clock(minutes: plan.needMin)
         // swiftlint:disable:next line_length
-        line = String(localized: "for \(schedule.goal.rawValue) % · wake \(wake) · need \(need)", comment: "Today's Tonight tile, under the bedtime: the share of tonight's need it gives, the wake time and the need as hours:minutes (\"for 100 % · wake 6:30 AM · need 8:18\").")
+        line = String(localized: "for \(schedule.goal.rawValue)\u{00A0}% · wake \(wake) · need \(need)", comment: "Today's Tonight tile, under the bedtime: the share of tonight's need it gives, the wake time and the need as hours:minutes (\"for 100 % · wake 6:30 AM · need 8:18\").")
         goals = SleepSchedule.Goal.allCases.map { option in
             let time = Fmt.time(option.bedtime(in: plan), locale: locale)
             var spoken = [option.title, String(localized: "\(option.rawValue) percent"), time]
@@ -1112,7 +1112,7 @@ struct TonightBoard: Equatable {
                 spoken.append(String(localized: "your goal",
                                      comment: "VoiceOver on Sleep → Bedtime's go-to-bed tile, after the goal that is yours (the filled marker)."))
             }
-            return Goal(goal: option, title: String(localized: "\(option.title) · \(option.rawValue) %"), time: time,
+            return Goal(goal: option, title: String(localized: "\(option.title) · \(option.rawValue)\u{00A0}%"), time: time,
                         isGoal: option == schedule.goal, spoken: spoken.joined(separator: ", "))
         }
         let asOfText = asOf.map { String(localized: "As of \(Fmt.time($0, locale: locale))") }

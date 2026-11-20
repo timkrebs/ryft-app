@@ -163,7 +163,7 @@ struct BehaviorsSection: View {
                         .font(.ryft(.caption).monospacedDigit())
                         .foregroundStyle(color(effect, spec: spec))
                 } else {
-                    Text("90 % interval")
+                    Text("90\u{00A0}% interval")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
                 }
