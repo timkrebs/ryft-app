@@ -983,7 +983,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%#@sets@ of %@"
+            "value" : "%1$#@sets@ of %2$@"
           },
           "substitutions" : {
             "sets" : {
