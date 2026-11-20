@@ -529,12 +529,12 @@ private enum AddPreview {
 }
 
 #Preview("Add activity") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add()).presentedRoot() }
         .previewEnvironment(AddPreview.state)
 }
 
 #Preview("Add activity · filled") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add(AddPreview.filled)) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddActivitySheet(model: AddPreview.add(AddPreview.filled)).presentedRoot() }
         .previewEnvironment(AddPreview.state)
 }
 
@@ -571,6 +571,7 @@ private enum AddPreview {
             AddPreview.filled($0)
             $0.distanceText = "60"
         })
+        .presentedRoot()
     }
     .previewEnvironment(AddPreview.state)
 }
@@ -582,6 +583,7 @@ private enum AddPreview {
             AddPreview.filled($0)
             $0.previewSaving()
         })
+        .presentedRoot()
     }
     .previewEnvironment(AddPreview.state)
 }
@@ -590,6 +592,7 @@ private enum AddPreview {
 #Preview("Add activity · couldn't save") {
     Color.clear.sheet(isPresented: .constant(true)) {
         AddActivitySheet(model: AddPreview.add(AddPreview.filled), saveFailed: true)
+            .presentedRoot()
     }
     .previewEnvironment(AddPreview.state)
 }

@@ -134,7 +134,7 @@ struct EditTargetsSheet: View {
 #Preview("Edit targets") {
     let c = SessionSheetsPreview.listDraft()
     return Color.clear
-        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]) }
+        .sheet(isPresented: .constant(true)) { EditTargetsSheet(controller: c, exercise: c.exercises[0]).presentedRoot() }
         .previewEnvironment()
 }
 

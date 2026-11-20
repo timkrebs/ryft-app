@@ -137,6 +137,7 @@ extension SheetFrame where Trailing == EmptyView, Pinned == EmptyView {
                                       systemImage: "plus") {}
                 }
             }
+            .presentedRoot()
         }
         .previewEnvironment()
 }
@@ -151,6 +152,7 @@ extension SheetFrame where Trailing == EmptyView, Pinned == EmptyView {
             }
             .closeHidden()
             .presentationDetents([.medium])
+            .presentedRoot()
         }
         .previewEnvironment()
 }

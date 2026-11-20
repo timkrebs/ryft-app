@@ -226,12 +226,14 @@ private enum SleepPreview {
 }
 
 #Preview("Add sleep") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)) }
+    Color.clear.sheet(isPresented: .constant(true)) {
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)).presentedRoot()
+    }
         .previewEnvironment(SleepPreview.state)
 }
 
 #Preview("Edit sleep") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: SleepPreview.edited) }
+    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: SleepPreview.edited).presentedRoot() }
         .previewEnvironment(SleepPreview.state)
 }
 
@@ -247,6 +249,7 @@ private enum SleepPreview {
 #Preview("Add sleep · couldn't save") {
     Color.clear.sheet(isPresented: .constant(true)) {
         AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now), saveFailed: true)
+            .presentedRoot()
     }
     .previewEnvironment(SleepPreview.state)
 }
@@ -260,7 +263,9 @@ private enum SleepPreview {
 }
 
 #Preview("Add sleep · AX3") {
-    Color.clear.sheet(isPresented: .constant(true)) { AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)) }
+    Color.clear.sheet(isPresented: .constant(true)) {
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now)).presentedRoot()
+    }
         .previewEnvironment(SleepPreview.state)
         .environment(\.dynamicTypeSize, .accessibility3)
 }

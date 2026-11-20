@@ -55,7 +55,7 @@ struct ExerciseNotesSheet: View {
     let c = SessionSheetsPreview.listDraft()
     c.exercises[0].notes = "Pause on the chest, elbows in"
     return Color.clear
-        .sheet(isPresented: .constant(true)) { ExerciseNotesSheet(controller: c, exercise: c.exercises[0]) }
+        .sheet(isPresented: .constant(true)) { ExerciseNotesSheet(controller: c, exercise: c.exercises[0]).presentedRoot() }
         .previewEnvironment()
 }
 

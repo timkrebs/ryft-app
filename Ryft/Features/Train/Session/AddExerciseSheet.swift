@@ -441,7 +441,7 @@ extension AddExerciseSheet {
 /// `b-24`.
 #Preview("Add exercise") {
     Color.clear
-        .sheet(isPresented: .constant(true)) { AddExerciseSheet { _ in } }
+        .sheet(isPresented: .constant(true)) { AddExerciseSheet { _ in }.presentedRoot() }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }

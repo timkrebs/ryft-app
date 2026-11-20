@@ -69,7 +69,7 @@ struct ReorderSheet: View {
 #Preview("Reorder") {
     let c = SessionSheetsPreview.listDraft()
     return Color.clear
-        .sheet(isPresented: .constant(true)) { ReorderSheet(controller: c) }
+        .sheet(isPresented: .constant(true)) { ReorderSheet(controller: c).presentedRoot() }
         .previewEnvironment()
 }
 
