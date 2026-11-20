@@ -195,6 +195,7 @@ struct ProfileView: View {
                             identifier: id) {
                 editing = .maxHR
             }
+            .detailParts(editor.rowDetailParts(.maxHR))
         case .sleepBase:
             GroupedRow.push(Text("Baseline sleep need"),
                             value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
@@ -202,6 +203,7 @@ struct ProfileView: View {
                             identifier: id) {
                 editing = .sleepBase
             }
+            .detailParts(editor.rowDetailParts(.sleepBase))
         case .rescore:
             GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
                               identifier: id) {

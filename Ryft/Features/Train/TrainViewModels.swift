@@ -45,8 +45,13 @@ final class TrainHistoryViewModel {
 
         /// "2 sessions · 12.2 t · load 126" (PR 6 B §7.1): the week's load summed, without decimals.
         func summary(locale: Locale = .autoupdatingCurrent) -> String {
-            StrainRows.join([Self.sessionCount(sessions.count), Fmt.volume(volume, locale: locale),
-                             String(localized: "load \(Self.loadText(load, locale: locale))")])
+            StrainRows.join(summaryParts(locale: locale))
+        }
+
+        /// The summary's parts, as drawn one per line from AX1 (`PartsLine`).
+        func summaryParts(locale: Locale = .autoupdatingCurrent) -> [String] {
+            [Self.sessionCount(sessions.count), Fmt.volume(volume, locale: locale),
+             String(localized: "load \(Self.loadText(load, locale: locale))")]
         }
 
         /// "2 sessions, 12,200 kilograms, muscular load 126" (VoiceOver).
@@ -105,11 +110,14 @@ final class TrainHistoryViewModel {
     var now: Date { clock.now() }
 
     /// The header's subtitle, "25 workouts · last 90 days"; nil while there are none.
-    var subtitle: String? {
+    var subtitle: String? { subtitleParts.map(StrainRows.join) }
+
+    /// The subtitle's parts, as drawn one per line from AX1 (`PartsLine`); nil while there are none.
+    var subtitleParts: [String]? {
         guard !sessions.isEmpty else { return nil }
         let window = String(localized: "last 90 days",
                             comment: "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\").")
-        return StrainRows.join([String(localized: "\(sessions.count) workouts"), window])
+        return [String(localized: "\(sessions.count) workouts"), window]
     }
 
     /// The 90 days cached at once (nothing the read would drop), then the platform's. Offline (or held back) nothing is

@@ -13,6 +13,8 @@ enum PushedHeaderSpec {
 /// `ScreenHeader`'s three slots: `CircleButton("chevron.left")` labelled "Back" · the title (`callout`, `textPrimary`) with the
 /// subtitle 2 under it (`caption`, `textTertiary`, tabular digits) · the caller's `CircleButton` (a menu, "Add") or, without one,
 /// an empty 40 pt slot, so the title stays centred. 40 high; it grows only when the title or the subtitle wraps (large text).
+/// A subtitle of facts ("Fri, Nov 13 · 55 min · 17 sets") comes as `subtitleParts`: one line joined, one part per line from
+/// AX1 (`PartsLine`), so no "·" dangles at a line's end.
 /// From AX1 (C §2.9, as `SubpageHeader` stacks): Back and the trailing circle on the first 40 pt line, 12 under it the title
 /// and then the subtitle, from the leading inset across the whole width, wrapping; never squeezed between the circles.
 ///
@@ -24,6 +26,7 @@ enum PushedHeaderSpec {
 struct PushedHeader<Trailing: View>: View {
     private let title: Text
     private let subtitle: Text?
+    private let subtitleParts: [String]?
     private let spokenSubtitle: Text?
     private let identifierPrefix: String
     private let onBack: (() -> Void)?
@@ -32,10 +35,12 @@ struct PushedHeader<Trailing: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(_ title: Text, subtitle: Text? = nil, spokenSubtitle: Text? = nil, identifierPrefix: String = "header",
-         onBack: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
+    /// `subtitleParts`: the subtitle as parts (`PartsLine`), in place of `subtitle`; nil or empty: `subtitle`.
+    init(_ title: Text, subtitle: Text? = nil, subtitleParts: [String]? = nil, spokenSubtitle: Text? = nil,
+         identifierPrefix: String = "header", onBack: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.subtitle = subtitle
+        self.subtitleParts = subtitleParts?.isEmpty == false ? subtitleParts : nil
         self.spokenSubtitle = spokenSubtitle
         self.identifierPrefix = identifierPrefix
         self.onBack = onBack
@@ -87,7 +92,12 @@ struct PushedHeader<Trailing: View>: View {
             title
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
-            if let subtitle {
+            if let subtitleParts {
+                PartsLine(subtitleParts)
+                    .font(.ryft(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+            } else if let subtitle {
                 subtitle
                     .font(.ryft(.caption))
                     .monospacedDigit()
@@ -98,7 +108,8 @@ struct PushedHeader<Trailing: View>: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue(spokenSubtitle ?? subtitle ?? Text(verbatim: ""))
+        .accessibilityValue(spokenSubtitle ?? subtitleParts.map { Text(verbatim: MyDayText.join($0)) } ?? subtitle
+            ?? Text(verbatim: ""))
         .accessibilityAddTraits(.isHeader)
         .accessibilityIdentifier("\(identifierPrefix).header")
     }
@@ -106,10 +117,10 @@ struct PushedHeader<Trailing: View>: View {
 
 extension PushedHeader where Trailing == PushedHeaderEmptySlot {
     /// A page with nothing at the trailing edge (History, the exercise page): the slot stays, empty.
-    init(_ title: Text, subtitle: Text? = nil, spokenSubtitle: Text? = nil, identifierPrefix: String = "header",
-         onBack: (() -> Void)? = nil) {
-        self.init(title, subtitle: subtitle, spokenSubtitle: spokenSubtitle, identifierPrefix: identifierPrefix,
-                  onBack: onBack) { PushedHeaderEmptySlot() }
+    init(_ title: Text, subtitle: Text? = nil, subtitleParts: [String]? = nil, spokenSubtitle: Text? = nil,
+         identifierPrefix: String = "header", onBack: (() -> Void)? = nil) {
+        self.init(title, subtitle: subtitle, subtitleParts: subtitleParts, spokenSubtitle: spokenSubtitle,
+                  identifierPrefix: identifierPrefix, onBack: onBack) { PushedHeaderEmptySlot() }
     }
 }
 
@@ -129,13 +140,13 @@ private struct PushedHeaderPreviewList: View {
     var body: some View {
         VStack(spacing: 24) {
             PushedHeader(Text(verbatim: "Plans"))
-            PushedHeader(Text(verbatim: "History"), subtitle: Text(verbatim: "8 workouts"))
-            PushedHeader(Text(verbatim: "Upper A"), subtitle: Text(verbatim: "Fri, Nov 13 · 55 min · 17 sets"))
+            PushedHeader(Text(verbatim: "History"), subtitleParts: ["25 workouts", "last 90 days"])
+            PushedHeader(Text(verbatim: "Upper A"), subtitleParts: ["Fri, Nov 13", "55 min", "17 sets"])
             PushedHeader(Text(verbatim: "My Day"), subtitle: Text(verbatim: "Today · Wed, Nov 18")) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add")) {}
             }
             PushedHeader(Text(verbatim: "Upper/Lower 4× (copy) for the winter block"),
-                         subtitle: Text(verbatim: "Hypertrophy · 4 days/week · repeating")) {
+                         subtitleParts: ["Hypertrophy", "4 days/week", "repeating"]) {
                 CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) {}
             }
         }

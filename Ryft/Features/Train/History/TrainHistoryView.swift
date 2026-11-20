@@ -129,7 +129,7 @@ struct TrainHistoryPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                PushedHeader(Text("History"), subtitle: model.subtitle.map { Text(verbatim: $0) }, identifierPrefix: "history")
+                PushedHeader(Text("History"), subtitleParts: model.subtitleParts, identifierPrefix: "history")
                 VStack(alignment: .leading, spacing: TrainHistoryLayout.weekSpacing) {
                     if model.isOffline {
                         TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline", now: model.now)
@@ -156,7 +156,7 @@ struct TrainHistoryPage: View {
 
     private func week(_ week: TrainHistoryViewModel.Week) -> some View {
         VStack(alignment: .leading, spacing: TrainHistoryLayout.weekTitleGap) {
-            HistoryWeekHeader(title: week.title(locale: locale), summary: week.summary(locale: locale),
+            HistoryWeekHeader(title: week.title(locale: locale), summary: week.summaryParts(locale: locale),
                               spokenSummary: week.spokenSummary(locale: locale))
             VStack(spacing: TrainHistoryLayout.rowSpacing) {
                 ForEach(week.sessions) { s in
@@ -209,10 +209,11 @@ struct TrainHistoryPage: View {
 }
 
 /// "Week of Nov 8" (`label`) and "2 sessions · 12.2 t · load 126" (`caption`) at the right, both `textTertiary`; the totals go
-/// under the title from AX1. One header element: the title, with the totals as its value.
+/// under the title from AX1, one per line (`PartsLine`). One header element: the title, with the totals as its value.
 private struct HistoryWeekHeader: View {
     let title: String
-    let summary: String
+    /// The totals' parts.
+    let summary: [String]
     let spokenSummary: String
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -226,11 +227,10 @@ private struct HistoryWeekHeader: View {
                 .font(.ryft(.label))
                 .fixedSize(horizontal: false, vertical: true)
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-            Text(verbatim: summary)
+            PartsLine(summary)
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(Theme.textTertiary)
         .frame(maxWidth: .infinity, alignment: .leading)
