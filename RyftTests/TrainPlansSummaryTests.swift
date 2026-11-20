@@ -228,7 +228,11 @@ struct TrainPlansSummaryTests {
         let model = PlanDetailViewModel(planID: MockTrain.fullBody.id, library: library)
         #expect(model.failure == nil, "loading: the outlines")
         await model.load()
-        #expect(model.plan == nil && model.failure != nil && model.failure == library.error)
+        let offline = URLError(.notConnectedToInternet)
+        #expect(model.plan == nil && model.failure == offline.localizedDescription, "\(model.failure ?? "nil")")
+        #expect(model.failureDetails == offline.diagnosticDetails)
+        // The page's own failure (F1 item 1): not the Plans page's message.
+        #expect(library.error == nil && library.errorDetails == nil)
     }
 
     @Test func anExercisesNotesAreRead() throws {

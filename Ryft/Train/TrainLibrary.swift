@@ -14,6 +14,8 @@ final class TrainLibrary {
     /// A refresh is running. Counted: one that ends for a binding that's over doesn't end the next binding's.
     var isLoading: Bool { refreshes > 0 }
     private var refreshes = 0
+    /// The Plans page's message and the actions' (save, enrol, pause, delete, a custom exercise): a refresh's first failure
+    /// or the last action's, with its status and request ID. Never a page's own read (`loadPlan`).
     var error: String?
     var errorDetails: String?
 
@@ -279,8 +281,13 @@ final class TrainLibrary {
 
     /// Plan detail (days → exercises), cached afterwards. A cached one shows at once and is read again quietly, through the
     /// pipeline and for this binding only. One that isn't cached is read: `.offline` when nothing could be sent (or the
-    /// answer came for a binding that's over), `.failed` with `error` and `errorDetails` set, `.cancelled` when the caller
-    /// went away.
+    /// answer came for a binding that's over), `.failed` with its sentence and Details, `.cancelled` when the caller went
+    /// away.
+    ///
+    /// A failure is the caller's alone (R4 re-check): the plan page keeps it (`PlanDetailViewModel.loadFailure`), and Start
+    /// workout's options go without the plan's days. Neither is written to `error` and `errorDetails`, the Plans page's and
+    /// the actions' message: plan X's failure would show on Plans, whose Try again reads the plans and not X, and in plan
+    /// Y's actions block.
     func loadPlan(id: UUID, userInitiated: Bool = false) async -> PlanRead {
         let client = client()
         if let p = store.plan(id: id), !p.days.isEmpty {
@@ -304,8 +311,6 @@ final class TrainLibrary {
         case .cancelled:
             return .cancelled
         case .failed(let error):
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
             return .failed(message: error.localizedDescription, details: error.diagnosticDetails)
         }
     }
@@ -319,7 +324,7 @@ final class TrainLibrary {
         /// Not cached, and nothing was sent (offline): nothing to show until it's read. Held back online is `failed`.
         case offline
         /// Not cached, and the read failed: why, and its status and request ID for Details. The plan page keeps them
-        /// (code review N1): `error`, which a later refresh clears, is the Plans page's.
+        /// (code review N1); `error`, the Plans page's, never gets them.
         case failed(message: String, details: String?)
         /// The caller went away: nothing changes.
         case cancelled
