@@ -1,4 +1,16 @@
-# Status — 2026-11-14
+# Status — 2026-11-20
+
+## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130, draft)
+
+- **#129, "networking: X-RYFT-App-Build, and the App Attest mode from the config"** (D247; `docs/work/2026-11-20-app-attest-mode/`):
+  - What it does: every request now carries `X-RYFT-App-Build`, and the attestor follows `GET /v1/config` → `app_attest` (`off`: no probe; `warn`/`on`: attest; absent: today's probe).
+  - Status: CI green, ready to merge.
+  - Verification: simulator and unit tests only. Production answers `501` until the token key is set, so nothing changes on a device yet.
+- **#130 (draft), "analytics: PostHog, opt-in, dark behind analytics.enabled (A1)"** (D231; `docs/work/2026-11-20-analytics/`):
+  - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle, the events, and 99 tests.
+  - Nobody sees it until phase 2: the no-op sink can't send.
+  - Phase 2 (a follow-up session) needs the package added in Xcode first. Then it writes `PostHogSink`, `PrivacyInfo.xcprivacy`, the ADR for the second dependency, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and a `LicensesView` entry.
+  - Right after phase 2 merges, the platform refreshes `web/config/app-packages.json` (`npm run licenses -- --sync`) with `posthog-ios` 3.98.2. The privacy text has to name PostHog EU as a processor.
 
 ## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
 
