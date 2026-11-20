@@ -57,4 +57,18 @@ struct AboutYouEditorTests {
             #expect(card.value == saved, "back to the saved value: \(card.value ?? "")")
         }
     }
+
+    @Test("The missed-failure preview shows what it says: the saved rows, and the no-answer notice under the card")
+    func missedFailurePreview() async throws {
+        try await HostedWindow.run(width: 390, height: 1_400, AboutYouMissedSavePreview().previewEnvironment()) { w in
+            let row = { (id: String) in w.nodes().first { $0.identifier == id } }
+            try await w.wait("the notice", timeout: Self.wait) { row("aboutYou.bodySettingsError") != nil }
+            try await w.settle()
+            let notice = try #require(row("aboutYou.bodySettingsError"))
+            let card = try #require(row("aboutYou.sleepBase"))
+            #expect(notice.label.contains(Self.noAnswer), "\(notice.label)")
+            #expect(notice.frame.minY >= card.frame.maxY, "under the card: \(notice.frame) / \(card.frame)")
+            #expect(card.value != "Saving…", "nothing is on its way: \(card.value ?? "")")
+        }
+    }
 }

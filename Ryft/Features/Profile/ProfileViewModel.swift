@@ -1324,6 +1324,17 @@ final class BodySettingsEditor {
     }
 }
 
+#if DEBUG
+extension BodySettingsEditor {
+    /// Previews: a change of `setting` that never heard back once its editor sheet had gone (`errorMissed`), as a save that
+    /// timed out says it; About you and Profile show it under their card.
+    func seedMissedFailureForPreview(_ setting: BodySetting) {
+        fail(.value(setting, setting.range.lowerBound), message: SettingsWriteFailure.noAnswer.saveMessage, details: nil)
+        errorMissed = true
+    }
+}
+#endif
+
 // MARK: - check sync
 
 /// One signal's result in Check sync (design.md §4.4): what HealthKit showed, not words (`TrackerCheckText`).

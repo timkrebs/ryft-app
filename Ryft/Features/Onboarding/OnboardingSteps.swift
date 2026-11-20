@@ -548,3 +548,23 @@ struct OnboardingStepPreview: View {
     OnboardingStepPreview(step: .aboutYou, saved: true).previewEnvironment()
         .dynamicTypeSize(.accessibility3)
 }
+
+#if DEBUG
+/// About you once the birth year is saved, after a change of the baseline that never heard back once its editor sheet had
+/// gone: the notice under the card (`aboutYou.bodySettingsError`), where the user is. DEBUG only: the editor's seed is.
+struct AboutYouMissedSavePreview: View {
+    @State private var model = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
+
+    var body: some View {
+        OnboardingStepView(step: .aboutYou, model: model)
+            .task {
+                await model.saveAboutYou(birthYear: 1990)
+                model.bodySettings.seedMissedFailureForPreview(.sleepBase)
+            }
+    }
+}
+
+#Preview("About you · a change that didn't answer") {
+    AboutYouMissedSavePreview().previewEnvironment()
+}
+#endif
