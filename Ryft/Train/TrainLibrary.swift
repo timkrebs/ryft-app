@@ -529,15 +529,26 @@ final class TrainLibrary {
 
     /// `true` when it's gone (the screen closes). A sign-out, another account or the Demo data switch before the answer
     /// writes nothing: neither the store, nor the message (security review N-A).
+    ///
+    /// `DELETE /v1/plans/{id}` removes the plan and any enrolment in it: its summary goes from the plans overview, and so
+    /// does the enrolment, active or the paused one only this phone remembers (`pausedPlanID`), so Plans offers no Resume
+    /// of a plan that's gone.
     @discardableResult
     func deletePlan(_ p: Plan) async -> Bool {
-        await perform({ try await $0.deletePlan(id: p.id) }, then: { store.removePlan(id: p.id) })
+        await perform({ try await $0.deletePlan(id: p.id) }, then: { _ in
+            store.removePlan(id: p.id)
+            if activeEnrollment?.planId == p.id { enrollmentEnded() }
+            if UserDefaults.standard.string(forKey: Self.pausedKey) == p.id.uuidString {
+                UserDefaults.standard.removeObject(forKey: Self.pausedKey)
+            }
+            patchCatalog { $0.mine.removeAll { $0.id == p.id } }
+        })
     }
 
     /// Enrol (switching replaces the active plan; the screen confirms first).
     @discardableResult
     func enroll(in p: Plan) async -> Bool {
-        await perform({ _ = try await $0.enroll(planID: p.id) }, then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
+        await perform({ try await $0.enroll(planID: p.id) }, then: enrolled)
     }
 
     /// The plan paused last. `GET /v1/plans` only reports the active enrolment,
@@ -556,25 +567,33 @@ final class TrainLibrary {
     func setPaused(_ paused: Bool) async -> Bool {
         if paused {
             guard let planID = activeEnrollment?.planId else { return false }
-            return await perform({ try await $0.pauseEnrollment() },
-                                 then: { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) })
+            return await perform({ try await $0.pauseEnrollment() }, then: { _ in
+                UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey)
+                enrollmentEnded()
+            })
         }
         guard let planID = pausedPlanID else { return false }
-        return await perform({ _ = try await $0.enroll(planID: planID) },
-                             then: { UserDefaults.standard.removeObject(forKey: Self.pausedKey) })
+        return await perform({ try await $0.enroll(planID: planID) }, then: enrolled)
     }
 
     /// An action of the binding in use when it starts (security review N-A): its client is read first, and only while that
-    /// binding still holds is anything written (`then` when it worked, before the plans are read again; the message and its
-    /// Details when it failed). An answer or a failure after a sign-out, another account, a wipe or the Demo data switch is
-    /// dropped and the action says `false`: on the next side's pages there's no paused plan, no message and no request ID
-    /// of the side that ended.
-    private func perform(_ action: (TrainDataSource) async throws -> Void, then written: () -> Void = {}) async -> Bool {
+    /// binding still holds is anything written (`then` with the platform's answer when it worked, before the plans are read
+    /// again; the message and its Details when it failed). An answer or a failure after a sign-out, another account, a wipe
+    /// or the Demo data switch is dropped and the action says `false`: on the next side's pages there's no paused plan, no
+    /// message and no request ID of the side that ended.
+    ///
+    /// `then` also puts in the plans overview what the action changed, as `GET /v1/plans` now reports it (`patchCatalog`):
+    /// if the read after it fails, the old overview would undo the action on screen (R4 re-check: the stale active enrolment
+    /// offered Pause again, a deleted plan stayed in the list). The read still follows for what this phone can't tell (the
+    /// week and day after a switch, today's plan day), and a failure of it says nothing: the action itself worked, and the
+    /// next refresh (app active, pull to refresh) reads the plans again.
+    private func perform<Answer>(_ action: (TrainDataSource) async throws -> Answer,
+                                 then written: (Answer) -> Void) async -> Bool {
         let client = client()
         do {
-            try await action(client.source)
+            let answer = try await action(client.source)
             guard client.isCurrent else { return false }
-            written()
+            written(answer)
             await reloadCatalog(from: client)
             return true
         } catch where error.isCancellation || !client.isCurrent {
@@ -584,6 +603,29 @@ final class TrainLibrary {
             self.errorDetails = error.diagnosticDetails
             return false
         }
+    }
+
+    /// The plans overview with `change`, in memory and stored: what an action changed, before the read after it.
+    private func patchCatalog(_ change: (inout PlansOverview) -> Void) {
+        guard var overview = catalog else { return }
+        change(&overview)
+        catalog = overview
+        store.saveDocument(overview, key: Self.catalogKey)
+    }
+
+    /// Paused, or its plan deleted: `GET /v1/plans` reports only an active enrolment (none now), and `GET /v1/plans/today`
+    /// answers `204` without one.
+    private func enrollmentEnded() {
+        patchCatalog { $0.active = nil }
+        setToday(nil)
+    }
+
+    /// Enrolled, switched or resumed: the platform's answer is the active enrolment (a resumed one where it stopped). A plan
+    /// day of another enrolment goes; this one's comes with the read after it.
+    private func enrolled(_ enrollment: Enrollment) {
+        UserDefaults.standard.removeObject(forKey: Self.pausedKey)
+        patchCatalog { $0.active = enrollment }
+        if let today, today.enrollment.id != enrollment.id { setToday(nil) }
     }
 
     /// After an action: the plans and today's plan day again from `client`, written only while its binding holds.

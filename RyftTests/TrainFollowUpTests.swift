@@ -58,3 +58,126 @@ struct PlanFailureStaysOnItsPageTests {
         #expect(plans.error == nil && plans.errorDetails == nil, "Plans: \(plans.errorDetails ?? "nil")")
     }
 }
+
+/// F1 item 3: after a pause, a resume, a switch or a delete the plans are read again, and that read can fail. The overview
+/// then still holds what the action changed (`TrainLibrary.patchCatalog`): the page never undoes the action on screen, and
+/// nothing is patched for a side that ended meanwhile. Synthetic data only (Alex Doe).
+@MainActor
+@Suite("F1 item 3: an action's result survives a failed re-read", .serialized)
+struct TrainActionPatchTests {
+    private let refused = APIError.http(400, "bad request", requestID: "rid-alex-400")
+
+    /// The overview as stored, which the next launch shows.
+    private func stored(_ rig: TrainSides) -> PlansOverview? { rig.store.document(PlansOverview.self, key: "train.plans") }
+
+    /// Pause, and the plans can't be read after it: paused on Plans and on the page (Resume, no week), no plan day.
+    @Test func aPauseWithTheReadAfterItFailingShowsPaused() async {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment?.status == .active && rig.library.today != nil)
+        alex.fail(.plans, with: refused)
+        let page = PlanDetailViewModel(planID: MockTrain.upperLower.id, library: rig.library)
+        let plans = PlansViewModel(library: rig.library)
+        #expect(await rig.library.setPaused(true))
+        #expect(alex.count(.plans) == 2, "the plans were read again, and that failed")
+        #expect(rig.library.pausedPlanID == MockTrain.upperLower.id)
+        #expect(page.isCurrent && page.isPaused && page.activeWeek == nil, "the page offers Resume")
+        #expect(plans.tile?.state == .paused && plans.tile?.planID == MockTrain.upperLower.id)
+        #expect(rig.library.activeEnrollment == nil && stored(rig)?.active == nil, "as GET /v1/plans reports it, stored too")
+        #expect(rig.library.today == nil, "no plan day of a paused plan")
+    }
+
+    /// Resume with the read failing: active again, where it stopped (the platform's answer), not paused.
+    @Test func aResumeWithTheReadAfterItFailingShowsItActive() async {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        #expect(await rig.library.setPaused(true) && rig.library.isPaused)
+        alex.fail(.plans, with: refused)
+        let page = PlanDetailViewModel(planID: MockTrain.upperLower.id, library: rig.library)
+        #expect(await rig.library.setPaused(false))
+        #expect(!rig.library.isPaused && !page.isPaused, "the page offers Pause")
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.upperLower.id)
+        #expect(rig.library.activeEnrollment?.status == .active && page.activeWeek == MockTrain.enrollment.currentWeek)
+        #expect(stored(rig)?.active?.id == MockTrain.enrollment.id)
+    }
+
+    /// Switching plans with the read failing: the new plan is the active one, and the old plan's day isn't offered.
+    @Test func aSwitchWithTheReadAfterItFailingShowsTheNewPlan() async {
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        #expect(rig.library.today?.enrollment.planId == MockTrain.upperLower.id)
+        alex.fail(.plans, with: refused)
+        #expect(await rig.library.enroll(in: MockTrain.fullBody))
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.fullBody.id && rig.library.activePlanName == "Full Body 3×")
+        #expect(stored(rig)?.active?.planId == MockTrain.fullBody.id)
+        #expect(rig.library.today == nil, "Upper/Lower's day isn't today's plan day any more")
+    }
+
+    /// Deleting one of the user's plans with the read failing: it's gone from the list (and the stored copy), and the
+    /// active plan stays.
+    @Test func aDeleteWithTheReadAfterItFailingDropsThePlan() async {
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        let mine = MockTrain.homeDumbbells
+        let plans = PlansViewModel(library: rig.library)
+        #expect(plans.mine.contains { $0.id == mine.id })
+        alex.fail(.plans, with: refused)
+        #expect(await rig.library.deletePlan(mine))
+        #expect(!plans.mine.contains { $0.id == mine.id } && !plans.mineRows.contains { $0.id == mine.id })
+        #expect(stored(rig)?.mine.contains { $0.id == mine.id } == false)
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.upperLower.id && rig.library.today != nil)
+    }
+
+    /// Deleting the plan the user is on, with the read failing: its enrolment goes with it (`DELETE` removes it), active or
+    /// paused, so Plans has no tile and nothing to resume.
+    @Test(arguments: [false, true])
+    func deletingTheCurrentPlanEndsItsEnrolment(paused: Bool) async throws {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.demo)
+        let mine = MockTrain.homeDumbbells
+        try await alex.enrollNow(mine.id)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment?.planId == mine.id && rig.library.today != nil)
+        if paused { #expect(await rig.library.setPaused(true) && rig.library.pausedPlanID == mine.id) }
+        alex.fail(.plans, with: refused)
+        let plans = PlansViewModel(library: rig.library)
+        #expect(await rig.library.deletePlan(mine))
+        #expect(rig.library.activeEnrollment == nil && rig.library.pausedPlanID == nil && plans.tile == nil)
+        #expect(rig.library.today == nil && stored(rig)?.active == nil)
+        #expect(UserDefaults.standard.string(forKey: "train.pausedPlanID") == nil)
+    }
+
+    /// Alex's pause is answered after the Demo data switch, with the demo enrolled in the same plan: the demo's overview and
+    /// plan day aren't patched, and the demo's plan isn't paused.
+    @Test func aBindingChangeBeforeThePatchWritesNothing() async throws {
+        let previous = TrainShotFixtures.setPausedPlan(nil)
+        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
+        let alex = SideTrainSource(.demo, holding: [.pause])
+        let demo = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: demo])
+        await rig.library.refresh()
+        let pause = Task { await rig.library.setPaused(true) }
+        #expect(await eventually { alex.count(.pause) == 1 }, "Alex's pause is on its way")
+        rig.switchTo(SideSwitch.demo)
+        rig.library.demoModeChanged()
+        await rig.library.refresh()
+        let demos = try #require(rig.library.catalog)
+        let demosDay = try #require(rig.library.today)
+        #expect(demos.active?.status == .active && demos.active?.planId == MockTrain.upperLower.id)
+        alex.release()
+        #expect(await pause.value == false)
+        #expect(rig.library.catalog == demos && stored(rig) == demos, "the demo's overview as the demo read it")
+        #expect(rig.library.today == demosDay && !rig.library.isPaused)
+        #expect(alex.count(.plans) == 1, "nor were Alex's plans read again")
+    }
+}
