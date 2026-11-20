@@ -203,6 +203,7 @@ final class OnboardingCoordinator {
         guard !firstRunDone, let account = env.auth.accountID else { return }
         firstRunDone = true
         defaults.set(true, forKey: Self.key("firstRunDone", account))
+        env.analytics.track(.onboardingStep(.done))
     }
 
     /// The first run waits for the platform's answer before showing anything (no flash of tabs).
@@ -683,6 +684,7 @@ final class OnboardingCoordinator {
             guard sent == flight else { return false }
             errorMessage = message(error) ?? Self.fallbackMessage(for: error)
             errorDetails = error.diagnosticDetails
+            env.analytics.track(.errorShown(for: error))
             return false
         }
     }

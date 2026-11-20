@@ -107,6 +107,7 @@ struct TrainHistoryView: View {
 
     var body: some View {
         TrainHistoryScreen(model: TrainHistoryViewModel(library: library, clock: env.clock))
+            .analyticsScreen(.trainHistory)
     }
 }
 

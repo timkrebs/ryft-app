@@ -122,6 +122,8 @@ final class ScreenModels {
                 return config
             }
         }
+        // Analytics' gate reads the newest config, pending or shown: a kill switch acts now, not on the next screen.
+        env.flags.onNewest = { [weak env] in env?.analytics.reevaluate() }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
                                    devices: devices, train: train)
         state.onForgetAccountState = { [profile] in profile.forgetExport() }

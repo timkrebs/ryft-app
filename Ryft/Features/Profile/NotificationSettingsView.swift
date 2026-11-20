@@ -9,6 +9,7 @@ struct NotificationSettingsView: View {
 
     var body: some View {
         NotificationSettingsScreen(model: NotificationSettingsViewModel(state: state, push: screens.push))
+            .analyticsScreen(.notificationSettings)
     }
 }
 

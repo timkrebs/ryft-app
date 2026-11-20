@@ -39,6 +39,7 @@ struct DevicesAndSyncView: View {
         .onAppear { model.reloadCheck() }
         .navigationDestination(item: $route) { destination($0) }
         .sheet(isPresented: $editing) { TrackerPickerSheet(model: model).presentedRoot() }
+        .analyticsScreen(.devicesAndSync)
     }
 
     @ViewBuilder private func destination(_ route: DevicesRoute) -> some View {

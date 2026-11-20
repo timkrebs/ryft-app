@@ -47,6 +47,7 @@ struct MyDayView: View {
             }
             // Today: the app's pull, the activities beside it; a past day: its reads, the spinner capped.
             .refreshable { await model.refresh(model.date) { await screens.pullToRefresh() } }
+            .analyticsScreen(.myDay)
     }
 
     /// The day, today's refresh, and the iPhone back online (offline nothing was read).

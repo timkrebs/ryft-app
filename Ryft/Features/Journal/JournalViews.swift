@@ -208,6 +208,7 @@ struct JournalSheet: View {
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(isPresented: $choosesHabits) { JournalSettingsView(store: model.store) }
         }
+        .analyticsScreen(.journal)
         .toggleStyle(.ryft)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)

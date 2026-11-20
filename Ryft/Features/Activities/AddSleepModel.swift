@@ -169,6 +169,7 @@ final class AddSleepModel: Identifiable {
         if let old = editedDay, old != day { env.uploader.sleepDeleted(day: old) }
         env.uploader.sleepSaved(day: day)
         didSave = true
+        if editedDay == nil { env.analytics.track(.featureUsed(.sleepAdded)) }
         return true
     }
 

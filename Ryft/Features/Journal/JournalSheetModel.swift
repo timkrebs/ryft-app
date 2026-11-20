@@ -314,6 +314,7 @@ final class JournalSheetModel {
             guard staysOnItsSide(), asked == day else { return false }
             saved = true
             rebuild()
+            store.analytics.track(.featureUsed(.journalSaved))
             return true
         } catch where error.isCancellation {
             // The answer came for an account or side that's gone (`JournalStore.save`): the sheet closes quietly too.

@@ -68,6 +68,7 @@ struct PlanBuilderView: View {
 
     var body: some View {
         PlanBuilderScreen(model: PlanBuilderViewModel(plan: plan, library: library))
+            .analyticsScreen(.planBuilder)
     }
 }
 

@@ -446,6 +446,7 @@ final class ProfileViewModel {
                                                        pendingImport: pendingImport)
             guard owner.isCurrent(in: env) else { return }
             exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
+            env.analytics.track(.featureUsed(.dataExported))
         } catch where error.isCancellation {
             return
         } catch {
@@ -695,6 +696,7 @@ final class SyncDetailsModel {
 
     /// Forget the anchors, upload 90 days again, rescore them, reload.
     func fullResync() async {
+        env.analytics.track(.featureUsed(.fullResync))
         await sync.fullResync()
         let now = env.clock.now()
         try? await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
@@ -2519,6 +2521,7 @@ final class ReportProblemModel {
 
     /// Sent or queued: the next report starts fresh.
     private func finish(_ outcome: Result) {
+        env.analytics.track(.featureUsed(.problemReported))
         result = outcome
         message = ""
         category = .other

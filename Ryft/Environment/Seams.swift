@@ -141,6 +141,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// The live session one exercise at a time (Focused). Off or absent, every session is List, whatever Profile says.
     /// The layout holds while the session is on screen; reopening picks up the flag, which suits a rollback (plan.md, L5).
     case focusedSession = "train.focused_session"
+    /// Opt-in usage analytics (PostHog EU): the prompt, the Profile row and any sending. The remote `false` is the
+    /// kill switch, read at once (`newest`), not on the next screen (analytics design.md, decisions 3–4).
+    case analyticsEnabled = "analytics.enabled"
 
     var id: String { rawValue }
 
@@ -150,6 +153,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
+        case .analyticsEnabled: return false
         }
     }
 }
@@ -161,20 +165,38 @@ enum FlagSource: String, Sendable {
 
 @MainActor
 protocol FeatureFlagProvider: AnyObject {
+    /// What the screens show: a newer answer waits for the next screen (`FlagStore.applyPending()`).
     func isOn(_ flag: FeatureFlag) -> Bool
     func source(of flag: FeatureFlag) -> FlagSource
+    /// The newest answer, pending or shown: for what isn't UI and must act at once (analytics' kill switch).
+    func newest(_ flag: FeatureFlag) -> Bool
+    /// The newest answer's `analytics`, pending or shown.
+    var newestAnalytics: AnalyticsConfig? { get }
+    /// Called whenever `newest` or `newestAnalytics` may have changed: an answer applied (shown or pending), an
+    /// account or demo switch, a reset, an override.
+    var onNewest: (@MainActor () -> Void)? { get set }
 }
 
 /// Compiled defaults plus local overrides: previews, tests, and the fallback before §8's remote flags.
 final class StaticFlags: FeatureFlagProvider {
-    var overrides: [FeatureFlag: Bool]
+    var overrides: [FeatureFlag: Bool] {
+        didSet { onNewest?() }
+    }
+    /// `GET /v1/config` → `analytics` as the test or preview wants it; nil (none) by default.
+    var analytics: AnalyticsConfig? {
+        didSet { onNewest?() }
+    }
+    var onNewest: (@MainActor () -> Void)?
 
-    init(_ overrides: [FeatureFlag: Bool] = [:]) {
+    init(_ overrides: [FeatureFlag: Bool] = [:], analytics: AnalyticsConfig? = nil) {
         self.overrides = overrides
+        self.analytics = analytics
     }
 
     func isOn(_ flag: FeatureFlag) -> Bool { overrides[flag] ?? flag.compiledDefault }
     func source(of flag: FeatureFlag) -> FlagSource { overrides[flag] == nil ? .compiled : .override }
+    func newest(_ flag: FeatureFlag) -> Bool { isOn(flag) }
+    var newestAnalytics: AnalyticsConfig? { analytics }
 }
 
 // MARK: - web content (ryftlab.de)

@@ -615,6 +615,7 @@ final class BedtimePlanner {
         generation += 1
         schedule = new
         save(new)
+        if new != nil { env.analytics.track(.featureUsed(.sleepScheduleSaved)) }
         scheduledBedtime = nil   // the goal or the wind-down may have moved it
         changed = true
         if new?.alarmOn == true { alarmProblem = nil }

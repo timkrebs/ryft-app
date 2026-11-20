@@ -49,6 +49,8 @@ final class TrainCoordinator {
     @ObservationIgnored var sessionLayout: @MainActor () -> SessionLayout = {
         SessionLayout.effective(flagOn: AppEnvironment.live.flags.isOn(.focusedSession), stored: Settings.shared.sessionLayout)
     }
+    /// Usage analytics' door (`Analytics.track`); RyftApp connects the live graph's, tests and previews send nothing.
+    @ObservationIgnored var analytics: @MainActor (AnalyticsEvent) -> Void = { _ in }
 
     /// `liveActivity`: tests' recorder; nil means the system's, or none without `liveActivities`.
     init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true,
@@ -137,6 +139,7 @@ final class TrainCoordinator {
     private func start(_ s: LocalSession) {
         active = s
         open(s)
+        analytics(.featureUsed(.trainSessionStarted))
     }
 
     func startFromToday() {

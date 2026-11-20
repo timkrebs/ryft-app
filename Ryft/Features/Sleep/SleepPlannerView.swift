@@ -395,6 +395,7 @@ struct SleepScheduleView: View {
         .onChange(of: planner.schedule != nil) { _, isSetUp in
             if isSetUp { setsUp = false }
         }
+        .analyticsScreen(.sleepSchedule)
     }
 
     // MARK: wake
