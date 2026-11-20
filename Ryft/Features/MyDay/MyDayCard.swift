@@ -74,7 +74,7 @@ struct MyDayCard: View {
         MyDayCardBody(content: content, actions: actions(content))
             .navigationDestination(isPresented: $showsDay) { MyDayView(model: model) }
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
-            .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
+            .navigationDestination(item: $session) { SessionDetailView(sessionID: $0) }
             .navigationDestination(item: $activity) { ActivityDetailView(route: $0) }
             .sheet(item: $adding) { AddActivitySheet(model: $0).presentedRoot() }
             .sheet(item: $sleeping) { AddSleepSheet(model: $0).presentedRoot() }

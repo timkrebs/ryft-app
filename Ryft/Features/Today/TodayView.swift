@@ -91,6 +91,9 @@ struct TodayView: View {
                     JournalSheet(model: JournalSheetModel(store: screens.journal)).presentedRoot()
                 }
                 .navigationDestination(item: $bedtimeOpening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
+                // Train's pages, once for the whole stack: a workout's "Logged session" (My Day, its full screen, an
+                // activity), and the session detail's own links. Registered nowhere else on this stack (one per type).
+                .trainDestinations()
                 // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
                     SyncDetailsSheet(model: screens.profile.syncDetails).presentedRoot()
