@@ -199,34 +199,6 @@ private final class Switch {
     init(_ on: Bool) { self.on = on }
 }
 
-/// A Train platform that runs `run` after each `PUT` it answered: what another suite's `AppState.reset()` does to the
-/// shared demo platform, at the one moment that matters (a replay's `PUT` is done, its completion not yet sent).
-private struct AfterPut: TrainDataSource, @unchecked Sendable {
-    let base: TrainDataSource
-    let run: @Sendable () -> Void
-
-    func exercises() async throws -> [Exercise] { try await base.exercises() }
-    func createExercise(_ e: Exercise) async throws -> Exercise { try await base.createExercise(e) }
-    func exerciseHistory(id: UUID) async throws -> ExerciseHistory { try await base.exerciseHistory(id: id) }
-    func plans() async throws -> PlansOverview { try await base.plans() }
-    func plan(id: UUID) async throws -> Plan { try await base.plan(id: id) }
-    func savePlan(_ p: Plan) async throws -> Plan { try await base.savePlan(p) }
-    func deletePlan(id: UUID) async throws { try await base.deletePlan(id: id) }
-    func enroll(planID: UUID) async throws -> Enrollment { try await base.enroll(planID: planID) }
-    func pauseEnrollment() async throws { try await base.pauseEnrollment() }
-    func planToday() async throws -> PlanToday? { try await base.planToday() }
-    func sessions(from: Date, to: Date) async throws -> [SessionSummary] { try await base.sessions(from: from, to: to) }
-    func session(id: UUID) async throws -> TrainSession { try await base.session(id: id) }
-    func putSession(_ s: TrainSession) async throws -> SessionPutResult {
-        defer { run() }
-        return try await base.putSession(s)
-    }
-    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
-        try await base.completeSession(id: id, body)
-    }
-    func deleteSession(id: UUID) async throws { try await base.deleteSession(id: id) }
-}
-
 // MARK: - T1: the rule
 
 @Suite("Consent gates: the rule (T1)")
@@ -1231,10 +1203,9 @@ struct ConsentTrainTests {
     /// Train's platform for these tests: its own in-memory one, never `MockTrainSource.shared`. `MockPlatformAPI()`
     /// shares that with every suite in the process, and `AppState.reset()` (the Demo data switch, a sign-out) empties
     /// it: one that ran between a `PUT` and its completion made the completion `404`, and the op stayed queued.
-    /// `afterPut`: runs once the platform has answered a `PUT`, before the next call.
-    private static func platform(afterPut: (@Sendable () -> Void)? = nil) -> MockPlatformAPI {
-        let own = MockTrainSource()
-        return MockPlatformAPI(train: afterPut.map { AfterPut(base: own, run: $0) } ?? own)
+    /// (No test here resets `.shared` itself: that would be the same race for every other suite.)
+    private static func platform() -> MockPlatformAPI {
+        MockPlatformAPI(train: MockTrainSource())
     }
 
     private func outbox(_ api: MockPlatformAPI) -> (TrainSyncService, TrainStore) {
@@ -1254,16 +1225,6 @@ struct ConsentTrainTests {
         #expect(sync.pendingCount == 2 && sync.heldAt == .gate(.consentRequired))
         consent.on = true
         await sync.flush()
-        #expect(api.calls.filter { $0.hasSuffix("Session") } == ["putSession", "completeSession"])
-        #expect(sync.pendingCount == 0 && sync.heldAt == nil)
-    }
-
-    /// Any suite's `AppState.reset()` empties the shared demo platform; an outbox on its own platform is unaffected.
-    @Test func aResetOfTheSharedDemoPlatformBetweenAPutAndItsCompletionDoesntTouchTheOutbox() async {
-        let api = Self.platform(afterPut: { MockTrainSource.shared.reset() })
-        let (sync, store) = outbox(api)
-        sync.gate = { _ in nil }
-        await sync.finish(SessionFactory.empty(in: store))
         #expect(api.calls.filter { $0.hasSuffix("Session") } == ["putSession", "completeSession"])
         #expect(sync.pendingCount == 0 && sync.heldAt == nil)
     }
