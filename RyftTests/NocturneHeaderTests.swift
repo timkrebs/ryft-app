@@ -182,6 +182,27 @@ struct NocturneHeaderTests {
         await screen.finish()
     }
 
+    /// Review N5: a stack's root (`SubpageScaffold`'s `.none`: no close circle, no circles) hands `SheetHeader` its trailing
+    /// circles as an `if` with nothing in it, an Optional that is nil. From AX1 the header still draws no empty row: the
+    /// title is first, the sheet's 26 under its top.
+    @Test("A root with no circles at AX3: the title alone, no empty row above it")
+    func rootWithoutCirclesAtAX3() async throws {
+        let page = SubpageScaffold(Text(verbatim: "Developer"), navigation: .none, isSheet: true) {
+            Text(verbatim: "Body").accessibilityIdentifier("test.body")
+        }
+        try await run(true, height: 600, page) { w in
+            try await w.wait("the page") { w.nodes().contains { $0.identifier == "test.body" } }
+            try await w.settle()
+            let title = try node(w, "Developer")
+            let scroll = try #require(w.pageScrollView(), "the page's scroll view")
+            // The page scrolls under the window's top safe area: its content starts below it.
+            let top = scroll.convert(scroll.bounds, to: w.window).minY + scroll.adjustedContentInset.top
+            #expect(abs(title.frame.minY - top - SubpageSpec.sheetTopInset) < 1,
+                    "the title first, no row above it: \(title.frame), the page's top \(top)")
+            #expect(!w.nodes().contains { $0.identifier == "sheet.close" }, "no close circle")
+        }
+    }
+
     /// B's form sheets (Add activity): Cancel leading and Save trailing on one row; the title centred between them below AX1,
     /// and from AX1 12 under the row from the inset, across the width, read after the buttons (D4 rule 2, the part 1
     /// validation's m-x3/m-y3: a title squeezed between the circles at AX3).

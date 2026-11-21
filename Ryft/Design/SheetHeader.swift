@@ -79,7 +79,7 @@ struct SheetHeader<Trailing: View>: View {
     private var stacked: some View {
         VStack(alignment: .leading, spacing: SheetHeaderSpec.accessibilityStackedGap) {
             // A header with neither a close circle nor a trailing view (a stack's root) has no row to draw.
-            if !(closeIsHidden && Trailing.self == EmptyView.self) {
+            if !closeIsHidden || hasTrailing {
                 HStack(spacing: 0) {
                     closeSlot
                     Spacer(minLength: SheetHeaderSpec.minGap)
@@ -106,6 +106,15 @@ struct SheetHeader<Trailing: View>: View {
             .disabled(closeIsDisabled)
             .accessibilityIdentifier(closeID)
         }
+    }
+
+    /// Whether the trailing slot holds a view: not `EmptyView`, and not an `if` the caller's builder left empty (an Optional
+    /// that is nil: `SubpageScaffold` hands its trailing circles in that way, none on a root without them). A cast (`as?`)
+    /// would look through the Optional, so `Mirror` says whether it holds anything.
+    private var hasTrailing: Bool {
+        if Trailing.self == EmptyView.self { return false }
+        let mirror = Mirror(reflecting: trailing)
+        return !(mirror.displayStyle == .optional && mirror.children.isEmpty)
     }
 
     private var trailingSlot: some View {
