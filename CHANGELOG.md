@@ -158,6 +158,8 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- Importing from another training app: the list of warnings reads "The rest imports normally, and 2 notes." (it said
+  "normally. and 2 notes").
 - "Logged session" on a workout opens that session again, also from Today and My Day.
 - The journal sheet closes when its account signs out or you switch Demo data while it's open, instead of dropping
   your answers when you save.
