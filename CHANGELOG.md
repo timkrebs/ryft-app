@@ -113,8 +113,8 @@ Store "What's New".
 - With Reduce Motion on, Train and the journal change without animation.
 - One header on every page: a sheet has Close on the left and its title centred; a page you open from Profile, Train or
   My Day has Back on the left and its title centred.
-- No teal outside recovery: Today's setup, import and sync-hint cards, the notification question and the analytics
-  question are in the new look, and an insight takes its metric's colour.
+- No teal outside recovery: Today's setup, import and sync-hint cards and the notification question are in the new
+  look, and an insight takes its metric's colour.
 - Report a problem: Done sits beside Send above the keyboard. At larger text sizes rulers keep their ends, About you
   offers your birth year as a menu, and the journal's days stay readable.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
