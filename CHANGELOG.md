@@ -117,6 +117,9 @@ Store "What's New".
   look, and an insight takes its metric's colour.
 - Report a problem: Done sits beside Send above the keyboard. At larger text sizes rulers keep their ends, About you
   offers your birth year as a menu, and the journal's days stay readable.
+- At the largest text sizes a sheet's title sits on its own line under Close (and Save), as a page's does under Back.
+  Text scrolled under a sheet's header stops at a thin rule below it, and the first import's steps wrap instead of
+  being cut off.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
