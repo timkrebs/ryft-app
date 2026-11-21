@@ -159,6 +159,85 @@ struct NocturneGateSweepHostedTests {
         }
     }
 
+    /// Pixels in `rect` of the window (or of `render`, drawn at the window's scale) within 6 steps of `ink` laid over `ground`:
+    /// the cores of the glyphs drawn in `ink`.
+    private func inkPixels(_ px: WindowPixels, in rect: CGRect, ink: Color, on ground: Color) -> Int {
+        let target = Tokens.over(Tokens.resolve(ink), Tokens.resolve(ground))
+        return px.count(in: rect) { $0.near(target, 6) }
+    }
+
+    /// The same in `render`, with the size (points) of the box around them.
+    private func inkDrawn(_ render: ControlRender, ink: Color, on ground: Color) -> (pixels: Int, size: CGSize) {
+        let target = Tokens.over(Tokens.resolve(ink), Tokens.resolve(ground))
+        var (n, minX, minY, maxX, maxY) = (0, Int.max, Int.max, Int.min, Int.min)
+        for iy in 0..<render.height {
+            for ix in 0..<render.width where render.px(ix, iy).near(target, 6) {
+                n += 1
+                minX = min(minX, ix); maxX = max(maxX, ix); minY = min(minY, iy); maxY = max(maxY, iy)
+            }
+        }
+        guard n > 0 else { return (0, .zero) }
+        return (n, CGSize(width: CGFloat(maxX - minX + 1) / render.scale, height: CGFloat(maxY - minY + 1) / render.scale))
+    }
+
+    /// The import card's steps in `w`, `current` the inverse chip: every name drawn whole (as many of its glyphs' pixels as
+    /// the name drawn alone at AX3 by `ControlRender`), inside the card's column, and the current one on one line at its full
+    /// size (its ink's box the same as alone: not cut, shrunk or broken across lines; on the inverse chip its ink is its own).
+    private func expectStepsWhole(_ w: HostedWindow, current: ImportProgress.Step) throws {
+        let steps = try node(w, prefix: "Step ")
+        #expect(steps.label.hasSuffix(current.title), "\(steps.label)")
+        let leading = Theme.Metrics.screenPadding + CardSpec.padding
+        #expect(steps.frame.minX >= leading - 0.5 && steps.frame.maxX <= Self.width - leading + 0.5,
+                "inside the card's column: \(steps.frame)")
+        let px = try WindowPixels(w)
+        let area = steps.frame.insetBy(dx: -1, dy: -1)
+        for step in ImportProgress.Step.allCases {
+            let isCurrent = step == current
+            let colour = isCurrent ? Theme.background : step < current ? Theme.textSecondary : Theme.textTertiary
+            let ground = isCurrent ? Theme.textPrimary : Theme.surface
+            let alone = Text(step.title).font(.ryft(.caption)).foregroundStyle(colour).fixedSize()
+                .padding(8).background(ground).environment(\.dynamicTypeSize, .accessibility3)
+            let render = try #require(ControlRender(alone, scale: px.scale))
+            let whole = inkDrawn(render, ink: colour, on: ground)
+            let drawn = inkPixels(px, in: area, ink: colour, on: ground)
+            #expect(whole.pixels > 100, "\(step.title): the reference drew \(whole.pixels) pixels")
+            #expect(Double(drawn) >= 0.9 * Double(whole.pixels), "\(step.title): \(drawn) of its \(whole.pixels) pixels, cut or shrunk")
+            guard isCurrent else { continue }
+            #expect(whole.size.width < steps.frame.width - 16, "\(step.title) fits the column at AX3: \(whole.size)")
+            let target = Tokens.over(Tokens.resolve(colour), Tokens.resolve(ground))
+            let box = try #require(px.box(in: area) { $0.near(target, 6) }, "\(step.title) drawn")
+            #expect(abs(box.width - whole.size.width) < 1.5 && abs(box.height - whole.size.height) < 1.5,
+                    "\(step.title) on one line, whole: \(box.size), alone \(whole.size)")
+        }
+    }
+
+    @Test("Today importing at AX3 (the part 1 validation's shot): every step's name whole, the steps wrapping inside the card")
+    func importStepsWholeAtAX3() async throws {
+        let today = TodayView().previewEnvironment(.preview(scenario: .importing)).environment(\.locale, Self.english)
+        try await run(Self.ax3, height: 2_600, today) { w in
+            try await w.wait("the steps") { w.node("Step ") != nil }
+            try await w.settle()
+            try expectStepsWhole(w, current: .uploading)
+        }
+    }
+
+    @Test("The import card at AX3 in each phase: the current step's name on one line, whole; the others whole",
+          arguments: ImportProgress.Step.allCases)
+    func importCardStepsAtAX3(_ step: ImportProgress.Step) async throws {
+        var progress = TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now)))
+        progress.step = step
+        let card = ImportCard(progress: progress)
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Theme.background)
+            .environment(\.locale, Self.english)
+        try await run(Self.ax3, height: 1_400, card) { w in
+            try await w.wait("the steps") { w.node("Step ") != nil }
+            try await w.settle()
+            try expectStepsWhole(w, current: step)
+        }
+    }
+
     // MARK: the push card
 
     @Test("The push card draws no teal; Allow is the primary pill across the card, Not now the quiet action under it",
