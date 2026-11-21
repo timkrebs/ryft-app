@@ -14,7 +14,7 @@ struct ImportChooseView: View {
             }
         } bottom: {
             if let reason = blockReason { ImportBarCaption(text: reason) }
-            ImportPrimaryButton(title: String(localized: "Continue"), isEnabled: model.selectionBlock == nil) {
+            ImportStepButton(title: String(localized: "Continue"), isEnabled: model.selectionBlock == nil) {
                 model.continueFromChoose()
             }
         }
