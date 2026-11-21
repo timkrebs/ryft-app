@@ -353,6 +353,41 @@ struct NocturneGateSweepHostedTests {
         }
     }
 
+    /// The prompt's text size, changed while it is up.
+    @MainActor @Observable final class TypeSizeBox {
+        var size: DynamicTypeSize = .large
+    }
+
+    private struct ResizablePrompt: View {
+        let box: TypeSizeBox
+        var body: some View { AnalyticsOptInSheet { _ in }.dynamicTypeSize(box.size) }
+    }
+
+    @Test("D2 (part 1 review nit 5): across AX1 the prompt keeps its page, the same scroll view still scrolled; the answers leave the bar")
+    func promptKeepsItsPageAcrossAX1() async throws {
+        let box = TypeSizeBox()
+        // Short enough that the page scrolls at the default size.
+        try await run(Self.standard, height: 560, ResizablePrompt(box: box)) { w in
+            try await w.wait("the answers") { w.nodes().contains { $0.identifier == "analytics.decline" } }
+            try await w.settle()
+            let scroll = try #require(w.pageScrollView(), "the page's scroll view")
+            #expect(scroll.adjustedContentInset.bottom >= PillButton.minHeight * 2, "pinned: \(scroll.adjustedContentInset)")
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            #expect(end > 60, "the page scrolls: \(end)")
+            let by = min(80, end)
+            scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentOffset.y + by), animated: false)
+            try await w.settle()
+            let scrolled = scroll.contentOffset.y
+
+            box.size = .accessibility3
+            try await w.settle()
+            let now = try #require(w.pageScrollView(), "the page's scroll view at AX3")
+            #expect(now.adjustedContentInset.bottom < Self.bottomInset + PillButton.minHeight / 2, "no bar at AX3: \(now.adjustedContentInset)")
+            #expect(now === scroll, "the same page: its scroll view was rebuilt")
+            #expect(abs(now.contentOffset.y - scrolled) < 1, "still scrolled \(scrolled), now \(now.contentOffset.y)")
+        }
+    }
+
     // MARK: the insight tile (D1)
 
     private func tile(_ metric: String?) -> some View {

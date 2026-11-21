@@ -12,12 +12,13 @@ struct AnalyticsOptInSheet: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        if typeSize.isAccessibilitySize {
-            page(answersInline: true)
-        } else {
-            page(answersInline: false)
-                .pinnedBar { answers }
-        }
+        let inline = typeSize.isAccessibilitySize
+        // One page whatever the size, the answers placed by a conditional: a text-size change across AX1 moves them and
+        // keeps the page (and its scroll position). Two branches would be two views, and the page would start again.
+        page(answersInline: inline)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !inline { PinnedActionBar { answers } }
+            }
     }
 
     private func page(answersInline: Bool) -> some View {
