@@ -149,10 +149,10 @@ struct SleepRangeBoard: Equatable {
     /// "Average · last 7 nights" with the whole range, "Average · 4 nights" with fewer.
     static func caption(nights: Int, kind: SleepRangeKind) -> String {
         if nights >= kind.days {
-            return String(localized: "Average · last \(kind.days) nights",
+            return String(localized: "Average · last \(kind.days)\u{00A0}nights",
                           comment: "Sleep → Week or Month, under the numeral: the time asleep is the average of the whole range (\"Average · last 7 nights\").")
         }
-        return String(localized: "Average · \(nights) nights",
+        return String(localized: "Average · \(nights)\u{00A0}nights",
                       comment: "Sleep → Week/Month under the numeral: fewer nights than days (\"Average · 4 nights\"). Plural: \"Average · 1 night\".")
     }
 
@@ -194,7 +194,7 @@ struct SleepRangeBoard: Equatable {
 
     private static func strip(_ summary: SleepRangeSummary, kind: SleepRangeKind, locale: Locale) -> Strip? {
         guard !summary.bedtimes.isEmpty else { return nil }
-        let count = String(localized: "\(summary.bedtimes.count) nights")
+        let count = String(localized: "\(summary.bedtimes.count)\u{00A0}nights")
         let means = BedtimeLayout(summary.bedtimes).spoken(locale: locale)
         return Strip(bedtimes: summary.bedtimes,
                      rowHeight: kind == .week ? SleepModesLayout.weekRowHeight : SleepModesLayout.monthRowHeight,
@@ -216,7 +216,7 @@ struct SleepRangeBoard: Equatable {
     /// "91" + "%" (the range's mean quality); "–" without one.
     static func quality(_ value: Int?, locale: Locale = .autoupdatingCurrent) -> SleepTile {
         SleepTile(kind: .quality, value: value.map(String.init) ?? Fmt.placeholder, unit: value.map { _ in "%" }, notes: [],
-                  marks: [], spokenValue: value.map { String(localized: "\($0) percent") } ?? String(localized: "No data"))
+                  marks: [], spokenValue: value.map { String(localized: "\($0)\u{00A0}percent") } ?? String(localized: "No data"))
     }
 
     /// "72" (the platform's mean consistency, 0–100, without a unit as drawn) and the last seven nights as Day's dots: full
@@ -231,7 +231,7 @@ struct SleepRangeBoard: Equatable {
             let regular = week.filter { $0.map { $0 >= SleepTile.regularThreshold } ?? false }.count
             let irregular = week.filter { $0.map { $0 < SleepTile.regularThreshold } ?? false }.count
             let unknown = week.filter { $0 == nil }.count
-            var parts = [String(localized: "\(regular) of the last 7 nights were regular",
+            var parts = [String(localized: "\(regular) of the last 7\u{00A0}nights were regular",
                                 comment: "VoiceOver, Sleep's Consistency tile: nights of the seven that were regular (60+). Plural: one \"was regular\".")]
             if irregular > 0 {
                 parts.append(String(localized: "\(irregular) were not",
@@ -457,7 +457,7 @@ struct SleepRangeDelta: View {
     }
 
     private func change(stacked: Bool) -> some View {
-        DeltaLabel(spec: .sleepMin, delta: delta, reference: String(localized: "vs 7 d"), stacked: stacked)
+        DeltaLabel(spec: .sleepMin, delta: delta, reference: String(localized: "vs 7\u{00A0}d"), stacked: stacked)
     }
 }
 

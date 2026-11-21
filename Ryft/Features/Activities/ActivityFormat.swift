@@ -79,8 +79,8 @@ enum ActivityFormat {
         guard seconds.isFinite, seconds < 3_600 else { return nil }
         let time = Duration.seconds(Int(seconds)).formatted(.units(allowed: [.minutes, .seconds], width: .wide).locale(locale))
         return miles
-            ? String(localized: "\(time) per mile", comment: "VoiceOver: a pace, e.g. “9 minutes, 10 seconds per mile”.")
-            : String(localized: "\(time) per kilometre", comment: "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”.")
+            ? String(localized: "\(time)\u{00A0}per mile", comment: "VoiceOver: a pace, e.g. “9 minutes, 10 seconds per mile”.")
+            : String(localized: "\(time)\u{00A0}per kilometre", comment: "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”.")
     }
 
     /// "24.3 kilometres per hour"; nil without a distance.

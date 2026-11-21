@@ -207,13 +207,13 @@ final class AddActivityModel: Identifiable {
         switch issue {
         case .endInFuture: return String(localized: "End can't be in the future.")
         case .endBeforeStart: return String(localized: "End must be after start.")
-        case .longerThanADay: return String(localized: "An activity can be at most 24 hours.")
+        case .longerThanADay: return String(localized: "An activity can be at most 24\u{00A0}hours.")
         case .startTooEarly:
-            return String(localized: "An activity can start at most 14 days ago.",
+            return String(localized: "An activity can start at most 14\u{00A0}days ago.",
                           comment: "Add activity: the start is further back than the app allows.")
         case .distanceInvalid:
             return String(localized: "Enter a distance above 0.", comment: "Add activity: the distance can't be read or is out of range.")
-        case .notesTooLong: return String(localized: "Notes can be 500 characters.")
+        case .notesTooLong: return String(localized: "Notes can be 500\u{00A0}characters.")
         }
     }
 

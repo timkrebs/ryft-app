@@ -72,7 +72,7 @@ struct EditTargetsSheet: View {
         case .done(1):
             return String(localized: "1 set is done and stays.", comment: "Edit targets, under the sets stepper.")
         case .done(let n):
-            return String(localized: "\(n) sets are done and stay.",
+            return String(localized: "\(n)\u{00A0}sets are done and stay.",
                           comment: "Edit targets, under the sets stepper. 1: number of done sets.")
         case .values where targets.sets <= minSets:
             return String(localized: "Sets with values can't be removed here. Delete them in the list.",

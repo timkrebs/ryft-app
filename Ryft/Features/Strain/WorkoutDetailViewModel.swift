@@ -138,7 +138,7 @@ struct WorkoutBoard: Equatable {
     var plot: HeartRatePlot? { detail.flatMap { HeartRatePlot(points: $0.hr, average: workout.avgHr) } }
 
     /// "avg 148 bpm" at the card's head.
-    var averageText: String? { workout.avgHr.map { String(localized: "avg \(Int($0.rounded())) bpm") } }
+    var averageText: String? { workout.avgHr.map { String(localized: "avg \(Int($0.rounded()))\u{00A0}bpm") } }
 
     /// "Recorded by Garmin Connect".
     var sourceText: String {
@@ -222,7 +222,7 @@ struct HeartRatePlot: Equatable {
     /// "Average 148 beats per minute, peak 159"; "Peak 159 bpm" without an average.
     var spokenValue: String {
         let peak = Int(peak.bpm.rounded())
-        guard let average else { return String(localized: "Peak \(peak) bpm") }
+        guard let average else { return String(localized: "Peak \(peak)\u{00A0}bpm") }
         let format = String(localized: "Average %1$lld beats per minute, peak %2$lld",
                             comment: "VoiceOver value of a workout's heart-rate chart: the mean and the highest heart rate.")
         return String(format: format, Int(average.rounded()), peak)

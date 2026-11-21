@@ -277,7 +277,7 @@ struct TodayView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if let delta = day.readinessDelta {
-                DeltaLabel(spec: .readiness, delta: delta, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+                DeltaLabel(spec: .readiness, delta: delta, reference: String(localized: "vs 7\u{00A0}d"), font: .ryft(.label),
                            referenceColor: DeltaLabel.color(delta, spec: .readiness))
             }
         }
@@ -674,7 +674,7 @@ struct ImportCard: View {
                 }
                 steps
                 VStack(spacing: 8) {
-                    row("Sleep", value: String(localized: "\(progress.nights) nights"))
+                    row("Sleep", value: String(localized: "\(progress.nights)\u{00A0}nights"))
                     row("Heart rate", value: String(localized: "\(progress.heartRateReadings.formatted()) readings"))
                     row("Workouts", value: progress.workouts.formatted())
                 }
@@ -785,7 +785,7 @@ struct ImportRow: View {
                 Text("Importing your history")
                     .foregroundStyle(Theme.textSecondary)
                 Spacer()
-                Text("\(progress.coveredDays) of \(ImportProgress.windowDays) days")
+                Text("\(progress.coveredDays) of \(ImportProgress.windowDays)\u{00A0}days")
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
             }

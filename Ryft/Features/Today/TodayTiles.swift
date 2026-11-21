@@ -51,10 +51,10 @@ struct TodaySleepWeek: Equatable, Sendable {
     var summary: String {
         let enough = enoughCount, unknown = unknownCount
         guard unknown > 0 else {
-            return String(localized: "Slept enough on \(enough) of the last 7 nights; the last is the night shown",
+            return String(localized: "Slept enough on \(enough) of the last 7\u{00A0}nights; the last is the night shown",
                           comment: "VoiceOver on the 7 dots of Today's Sleep tile: nights asleep 90 % of the need or more; the last is the night shown.")
         }
-        return String(localized: "Slept enough on \(enough) of the last 7 nights; the last is the night shown; \(unknown) nights have no data",
+        return String(localized: "Slept enough on \(enough) of the last 7\u{00A0}nights; the last is the night shown; \(unknown)\u{00A0}nights have no data",
                       comment: "VoiceOver on the 7-night dots of Today's Sleep tile, when some nights lack the numbers to tell (no sleep or no need).")
     }
 }
@@ -143,7 +143,7 @@ struct TodayTilesContent: Equatable {
         guard !Sparkline.isPending(hrvWeek), let last = hrvWeek.last.flatMap({ $0 }), last.isFinite,
               let low = present.min(), let high = present.max() else { return nil }
         let (today, lowest, highest) = (Int(last.rounded()), Int(low.rounded()), Int(high.rounded()))
-        return String(localized: "HRV \(today) milliseconds, lowest \(lowest) and highest \(highest) over the last 7 days",
+        return String(localized: "HRV \(today)\u{00A0}milliseconds, lowest \(lowest) and highest \(highest) over the last 7\u{00A0}days",
                       comment: "VoiceOver on Today's Recovery tile: the HRV sparkline, the shown day's value and the week's range.")
     }
 
@@ -151,11 +151,11 @@ struct TodayTilesContent: Equatable {
     var recoverySpoken: String {
         let main: String
         if let recovery {
-            let percent = String(localized: "\(recovery) percent")
+            let percent = String(localized: "\(recovery)\u{00A0}percent")
             if isEarlierDay, let caption = recoveryCaption {
                 main = String(localized: "\(percent), \(caption), not today's score")
             } else if let caption = recoveryCaption {
-                main = String(localized: "\(recovery) percent, \(caption)",
+                main = String(localized: "\(recovery)\u{00A0}percent, \(caption)",
                               // swiftlint:disable:next line_length
                               comment: "VoiceOver, two places. Training import: the progress value. Today's Recovery tile: the score, then its band or the day (\"82 percent, High\", \"75 percent, Yesterday, not today's score\").")
             } else {

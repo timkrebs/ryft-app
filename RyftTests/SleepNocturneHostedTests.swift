@@ -48,7 +48,7 @@ import UIKit
             let numeral = try frame(w, "sleep.numeral")
             #expect(abs(numeral.width - 125) < 0.5 && abs(numeral.height - 47) < 0.5, "numeral \(numeral.size)")
             #expect(abs(numeral.midX - Self.width / 2) < 0.5)
-            let caption = try #require(w.node("94 percent of your need")?.frame)
+            let caption = try #require(w.node("94\u{00A0}percent of your need")?.frame)
             #expect(abs(caption.minY - numeral.maxY - SleepLayout.captionGap) < 1, "numeral→caption \(caption.minY - numeral.maxY)")
             let ruler = try frame(w, "sleep.ruler")
             #expect(abs(ruler.minY - caption.maxY - SleepLayout.rulerGap) < 1, "caption→ruler \(ruler.minY - caption.maxY)")

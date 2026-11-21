@@ -72,8 +72,8 @@ enum BodyweightText {
 
     static func seen(_ plus: PlusLoadSummary) -> String {
         plus.isUniform
-            ? String(localized: "Seen on \(plus.setCount) sets.", comment: "Training import, step 4: how many sets have the +N load.")
-            : String(localized: "Seen on \(plus.setCount) sets with different values.",
+            ? String(localized: "Seen on \(plus.setCount)\u{00A0}sets.", comment: "Training import, step 4: how many sets have the +N load.")
+            : String(localized: "Seen on \(plus.setCount)\u{00A0}sets with different values.",
                      comment: "Training import, step 4: the +N load differs between sets.")
     }
 

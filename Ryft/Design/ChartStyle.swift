@@ -148,9 +148,9 @@ enum ChartWindow: Equatable {
     /// "30 d" in the chart header.
     var title: String {
         switch self {
-        case .week: return String(localized: "7 d")
-        case .month: return String(localized: "30 d")
-        case .quarter: return String(localized: "90 d")
+        case .week: return String(localized: "7\u{00A0}d")
+        case .month: return String(localized: "30\u{00A0}d")
+        case .quarter: return String(localized: "90\u{00A0}d")
         }
     }
 
@@ -255,7 +255,7 @@ struct ChartHeader: View {
     let spec: MetricSpec
     let value: Double?
     var delta: MetricDelta? = nil
-    var deltaReference: String? = String(localized: "vs 7 d")
+    var deltaReference: String? = String(localized: "vs 7\u{00A0}d")
     var window: String? = nil
     /// Replaces the value, e.g. "avg 142 bpm".
     var valueOverride: String? = nil

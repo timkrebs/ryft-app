@@ -380,7 +380,7 @@ struct OrbitGauge: View {
         return MetricSpec.scoreBand(Double(readiness)).label
     }
 
-    private static var deltaReference: String { String(localized: "vs 7 d") }
+    private static var deltaReference: String { String(localized: "vs 7\u{00A0}d") }
 
     // MARK: VoiceOver
 
@@ -411,13 +411,13 @@ struct OrbitGauge: View {
         let counted = c.counted, required = c.required
         switch c.signal {
         case .restingHR:
-            return String(localized: "\(counted) of \(required) nights with resting heart rate.")
+            return String(localized: "\(counted) of \(required)\u{00A0}nights with resting heart rate.")
         case .hrv:
-            return String(localized: "\(counted) of \(required) nights with HRV.")
+            return String(localized: "\(counted) of \(required)\u{00A0}nights with HRV.")
         case .heartRateNights:
-            return String(localized: "\(counted) of \(required) nights with heart-rate data. Readiness appears once the baselines are complete.")
+            return String(localized: "\(counted) of \(required)\u{00A0}nights with heart-rate data. Readiness appears once the baselines are complete.")
         case .anyNight:
-            return String(localized: "\(counted) of \(required) nights. Readiness appears once the baselines are complete.")
+            return String(localized: "\(counted) of \(required)\u{00A0}nights. Readiness appears once the baselines are complete.")
         }
     }
 
@@ -435,9 +435,9 @@ struct OrbitGauge: View {
         if v.isEmpty { return String(localized: "No data") }
         let noData = { (title: String) in String(localized: "\(title), not scored") }
         var scores: [String] = []
-        scores.append(v.recoveryFraction.map { String(localized: "Recovery \(Self.percent($0)) percent") }
+        scores.append(v.recoveryFraction.map { String(localized: "Recovery \(Self.percent($0))\u{00A0}percent") }
                       ?? noData(String(localized: "Recovery")))
-        scores.append(v.sleepFraction.map { String(localized: "Sleep \(Self.percent($0)) percent") }
+        scores.append(v.sleepFraction.map { String(localized: "Sleep \(Self.percent($0))\u{00A0}percent") }
                       ?? noData(String(localized: "Sleep")))
         scores.append(v.strain.map { spokenStrain($0, band: v.strainBand) } ?? noData(String(localized: "Strain")))
         let readiness: String

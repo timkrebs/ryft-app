@@ -126,9 +126,9 @@ extension ImportWarning.Kind {
             LocalizedStringResource("This time occurred twice in your time zone, so RYFT used the first",
                                     comment: "Import note, after \"Line N\": a workout on the autumn clock change.")
         case .durationAssumed:
-            LocalizedStringResource("No duration: 60 min assumed", comment: "Import note, after \"Line N\".")
+            LocalizedStringResource("No duration: 60\u{00A0}min assumed", comment: "Import note, after \"Line N\".")
         case .overPlatformLimit:
-            LocalizedStringResource("Some items were left out: RYFT limits a workout to 50 exercises and 50 sets per exercise",
+            LocalizedStringResource("Some items were left out: RYFT limits a workout to 50 exercises and 50\u{00A0}sets per exercise",
                                     comment: "Import note, after \"Line N\".")
         case .assistedLoad:
             LocalizedStringResource("Assisted weight isn't imported, reps are",

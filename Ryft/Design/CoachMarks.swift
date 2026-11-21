@@ -16,11 +16,11 @@ enum CoachMarkTarget: Int, CaseIterable, Hashable, Sendable {
     var body: String {
         switch self {
         case .gauges:
-            return String(localized: "Recovery and last night's sleep, against your own baseline. The ticks mark the usual ranges; the line underneath compares with the 7 days before.")
+            return String(localized: "Recovery and last night's sleep, against your own baseline. The ticks mark the usual ranges; the line underneath compares with the 7\u{00A0}days before.")
         case .physiology:
             return String(localized: "Tap a tile for the details. The word under recovery is its level, so the colour is never the only cue.")
         case .trends:
-            return String(localized: "The last 7 days. Tap for every metric over 7, 30 or 90 days.")
+            return String(localized: "The last 7\u{00A0}days. Tap for every metric over 7, 30 or 90\u{00A0}days.")
         }
     }
 }

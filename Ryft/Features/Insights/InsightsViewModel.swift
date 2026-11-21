@@ -53,9 +53,9 @@ final class InsightsViewModel {
     /// The range for VoiceOver and the menu: "7 days".
     static func rangeTitle(_ r: TrendRange) -> String {
         switch r {
-        case .week: return String(localized: "7 days")
-        case .month: return String(localized: "30 days")
-        case .quarter: return String(localized: "90 days")
+        case .week: return String(localized: "7\u{00A0}days")
+        case .month: return String(localized: "30\u{00A0}days")
+        case .quarter: return String(localized: "90\u{00A0}days")
         }
     }
 

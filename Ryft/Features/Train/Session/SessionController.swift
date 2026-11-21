@@ -233,7 +233,7 @@ final class SessionController: Identifiable {
     static func target(reps: Int?, kg: Double?) -> String? {
         switch (reps, kg) {
         case let (r?, w?): return "\(r) × \(Fmt.kg(w))"
-        case let (r?, nil): return String(localized: "\(r) reps")
+        case let (r?, nil): return String(localized: "\(r)\u{00A0}reps")
         case let (nil, w?): return Fmt.kg(w)
         case (nil, nil): return nil
         }

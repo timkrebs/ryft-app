@@ -125,7 +125,7 @@ struct StrainZones: Equatable {
             let label = Self.label(zone)
             let spoken: String
             if let m {
-                let format = String(localized: "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld minutes",
+                let format = String(localized: "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld\u{00A0}minutes",
                                     comment: "VoiceOver on one heart-rate zone row: its number, name, heart-rate-reserve range and minutes.")
                 spoken = String(format: format, zone, Self.spokenName(zone), Self.spokenRange(zone), Int(m.rounded()))
             } else {
@@ -142,7 +142,7 @@ struct StrainZones: Equatable {
     /// The head row's value: "82 min · TRIMP 112", "48 min", "–".
     var head: String {
         guard let total = totalMinutes else { return Fmt.placeholder }
-        let minutes = String(localized: "\(total) min")
+        let minutes = String(localized: "\(total)\u{00A0}min")
         // TRIMP is the training-impulse unit's name; it reads the same in every language.
         return trimp.map { "\(minutes) · TRIMP \($0)" } ?? minutes
     }
@@ -377,7 +377,7 @@ enum StrainRows {
             meta.append(Fmt.distance(meters: m))
             spoken.append(StrainFormat.spokenDistance(m, locale: locale))
         } else if let hr = w.avgHr {
-            meta.append(String(localized: "\(Int(hr.rounded())) bpm"))
+            meta.append(String(localized: "\(Int(hr.rounded()))\u{00A0}bpm"))
             spoken.append(String(localized: "average heart rate \(Int(hr.rounded()))\u{00A0}bpm",
                                  comment: "VoiceOver in an activity row: the workout's average heart rate."))
         }

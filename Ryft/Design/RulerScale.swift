@@ -402,9 +402,9 @@ private struct RulerNeedle: Shape {
                        accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("84, high, on a scale from 0 to 100"))
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
-                       tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
+                       tickCount: RulerScale.Ticks.sleep, labels: ["0\u{00A0}h", "need 8:18", "10\u{00A0}h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
             RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
@@ -443,7 +443,7 @@ private func rulersAtSize(_ size: DynamicTypeSize) -> some View {
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
             RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: StrainHero.rulerLabels,
                        accessibilityLabel: Text("Strain scale"),

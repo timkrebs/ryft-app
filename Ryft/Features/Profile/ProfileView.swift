@@ -207,7 +207,7 @@ struct ProfileView: View {
             }
             .detailParts(editor.rowDetailParts(.sleepBase))
         case .rescore:
-            GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
+            GroupedRow.action(Text("Rescore the last 90\u{00A0}days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
                               identifier: id) {
                 Task { await editor.rescore() }
             }

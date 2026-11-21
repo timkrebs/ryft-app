@@ -34,16 +34,16 @@ struct NocturneStringsTests {
         "No readiness yet, on a scale from 0 to 100",
         "of 21", "of 21 · light", "of 21 · moderate", "of 21 · high", "of 21 · all out", "Strain · %@", "Strain scale",
         "%1$@, %2$@, on a scale from 0 to 21. The moderate range is 10 to 14.",
-        "HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days",
-        "Slept enough on %lld of the last 7 nights; the last is the night shown",
-        "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data",
+        "HRV %lld\u{00A0}milliseconds, lowest %lld and highest %lld over the last 7\u{00A0}days",
+        "Slept enough on %lld of the last 7\u{00A0}nights; the last is the night shown",
+        "Slept enough on %lld of the last 7\u{00A0}nights; the last is the night shown; %lld\u{00A0}nights have no data",
         // Sleep
-        "Last night · %@", "Yesterday · %@", "Asleep · %lld\u{00A0}%% of your need", "%lld percent of your need", "Asleep",
-        "Sleep duration scale", "0 h", "need %@", "10 h", "%@, on a scale from 0 to 10 hours. Your need is %@.", "h",
+        "Last night · %@", "Yesterday · %@", "Asleep · %lld\u{00A0}%% of your need", "%lld\u{00A0}percent of your need", "Asleep",
+        "Sleep duration scale", "0\u{00A0}h", "need %@", "10\u{00A0}h", "%@, on a scale from 0 to 10\u{00A0}hours. Your need is %@.", "h",
         "Deep + REM", "No newer night to show", "No older night to show", "Loading this night",
         "The timeline isn't available for this night.", "Hypnogram, %@ to %@",
         // The neutral tiles' sentences, from their parts.
-        "%lld of the last 7 nights were regular", "%lld percent of the target", "%@ of deep and REM sleep",
+        "%lld of the last 7\u{00A0}nights were regular", "%lld\u{00A0}percent of the target", "%@ of deep and REM sleep",
         "down %@ from the night before", "up %@ from the night before",
         // Profile → Hero numbers (PR 5's list has no "Display" heading, T5.4)
         "Hero numbers", "Dots", "Thin", "Large numbers on Today, Sleep and Strain.",
@@ -60,7 +60,7 @@ struct NocturneStringsTests {
     /// Kept on purpose (§P4-9, last paragraph).
     static let kept: [String] = [
         "Overall readiness", "Quality", "Efficiency", "Restorative", "Consistency", "Sleep debt", "None", "Previous night",
-        "Next night", "vs 7 d", "Last night",
+        "Next night", "vs 7\u{00A0}d", "Last night",
     ]
 
     @Test("§P4-9: every key is in the catalog", arguments: keys)

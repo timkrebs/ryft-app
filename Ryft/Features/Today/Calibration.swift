@@ -160,24 +160,24 @@ struct CalibrationProgress: Equatable, Sendable {
             switch signals {
             case [.restingHR]:
                 // swiftlint:disable:next line_length
-                return String(localized: "Learning your resting heart rate baseline: \(nights) of \(required) nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep.",
+                return String(localized: "Learning your resting heart rate baseline: \(nights) of \(required)\u{00A0}nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep.",
                               comment: "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7).")
             case [.hrv]:
                 // swiftlint:disable:next line_length
-                return String(localized: "Learning your HRV baseline: \(nights) of \(required) nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep.",
+                return String(localized: "Learning your HRV baseline: \(nights) of \(required)\u{00A0}nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep.",
                               comment: "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).")
             default: break
             }
         }
         switch signals {
         case [.hrv]:
-            return String(localized: "Learning your HRV baseline: \(nights) of \(required) nights.",
+            return String(localized: "Learning your HRV baseline: \(nights) of \(required)\u{00A0}nights.",
                           comment: "Note under Today's gauge while the HRV baseline fills. Arguments: nights so far, nights needed (7).")
         case [.restingHR]:
-            return String(localized: "Learning your resting heart rate baseline: \(nights) of \(required) nights.",
+            return String(localized: "Learning your resting heart rate baseline: \(nights) of \(required)\u{00A0}nights.",
                           comment: "Note under Today's gauge while the resting heart rate baseline fills. Arguments: nights so far, nights needed (7).")
         default:
-            return String(localized: "Learning your baselines: \(nights) of \(required) nights.",
+            return String(localized: "Learning your baselines: \(nights) of \(required)\u{00A0}nights.",
                           comment: "Note under Today's gauge while the baselines fill. Arguments: nights so far, nights needed (7).")
         }
     }

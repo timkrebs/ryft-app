@@ -70,7 +70,7 @@ final class ImportUITests: XCTestCase {
         // Step 2: the counts first.
         let summary = app.otherElements["import.summary"]
         XCTAssertTrue(summary.waitForExistence(timeout: wait), "step 2's summary")
-        XCTAssertTrue(summary.label.contains("1 plan, 2 days, 6 exercises"), summary.label)
+        XCTAssertTrue(summary.label.contains("1 plan, 2\u{00A0}days, 6 exercises"), summary.label)
         XCTAssertTrue(summary.label.contains("4 workouts"), summary.label)
         tapContinue(app, "step 2")
 

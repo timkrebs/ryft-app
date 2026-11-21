@@ -211,14 +211,14 @@ struct TodayBaselineCounterTests {
 
     @Test func theFillingNoteSaysWhichAndWhy() {
         #expect(CalibrationProgress(nights: 3, signals: [.restingHR], absent: Self.noHRV).text
-            == "Learning your resting heart rate baseline: 3 of 7 nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep.")
+            == "Learning your resting heart rate baseline: 3 of 7\u{00A0}nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep.")
         #expect(CalibrationProgress(nights: 2, signals: [.hrv], absent: CalibrationBlocker(signals: [.restingHR], source: .unknown, link: nil)).text
-            == "Learning your HRV baseline: 2 of 7 nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep.")
+            == "Learning your HRV baseline: 2 of 7\u{00A0}nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep.")
         // Without an absent signal, the S2 lines as before.
-        #expect(CalibrationProgress(nights: 3, signals: [.restingHR]).text == "Learning your resting heart rate baseline: 3 of 7 nights.")
+        #expect(CalibrationProgress(nights: 3, signals: [.restingHR]).text == "Learning your resting heart rate baseline: 3 of 7\u{00A0}nights.")
         // The count is clamped like the gauge's.
         #expect(CalibrationProgress(nights: 9, signals: [.restingHR], absent: Self.noHRV).text.hasPrefix(
-            "Learning your resting heart rate baseline: 7 of 7 nights."))
+            "Learning your resting heart rate baseline: 7 of 7\u{00A0}nights."))
     }
 
     @Test func theFillingNoteLinksWhereItsBlockerDoes() {

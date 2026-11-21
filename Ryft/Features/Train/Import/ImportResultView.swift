@@ -208,7 +208,7 @@ struct ImportResultView: View {
                           details: job.lastFailure?.details,
                           retry: { await model.deps.uploader.tryAgain() },
                           caption: (seconds.map { $0 > 0
-                              ? String(localized: "Trying again in \($0) seconds", comment: "Training import I5: a Retry-After countdown.")
+                              ? String(localized: "Trying again in \($0)\u{00A0}seconds", comment: "Training import I5: a Retry-After countdown.")
                               : String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
                                        comment: "Training import I5.") }
                               ?? String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
@@ -460,7 +460,7 @@ enum ImportResultText {
         if failed > 0 {
             sentence += " · " + String(localized: "\(failed) workouts not imported", comment: "Training import I4.")
         } else if job.skipped.skippedSets > 0 {
-            sentence += " · " + String(localized: "\(job.skipped.skippedSets) sets skipped (no weight or reps)",
+            sentence += " · " + String(localized: "\(job.skipped.skippedSets)\u{00A0}sets skipped (no weight or reps)",
                                        comment: "Training import I3: sets that weren't imported.")
         }
         return sentence
@@ -468,12 +468,12 @@ enum ImportResultText {
 
     /// "Upper/Lower · 6 weeks".
     static func plan(_ plan: ImportPlanSummary) -> String {
-        ([plan.name] + [plan.weeks.map { String(localized: "\($0) weeks") }].compactMap { $0 }).joined(separator: " · ")
+        ([plan.name] + [plan.weeks.map { String(localized: "\($0)\u{00A0}weeks") }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
     static var keptLimits: String {
-        String(localized: "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it.",
+        String(localized: "Kept on this iPhone for up to 30\u{00A0}days. Signing out or deleting your account removes it.",
                comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
     }
 
@@ -481,7 +481,7 @@ enum ImportResultText {
     static func progressValue(_ job: ImportJobStatus) -> String {
         let percent = Int((job.progress * 100).rounded())
         let workouts = String(localized: "\(job.sessions.done) of \(job.sessions.total) workouts", comment: "Training import I2: progress.")
-        return String(localized: "\(percent) percent, \(workouts)", comment: "Training import, VoiceOver: the progress value.")
+        return String(localized: "\(percent)\u{00A0}percent, \(workouts)", comment: "Training import, VoiceOver: the progress value.")
     }
 
     /// A refused item's reason in plain words.

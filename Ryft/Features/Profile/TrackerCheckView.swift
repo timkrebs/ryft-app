@@ -52,7 +52,7 @@ struct TrackerCheckView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: CheckSyncSpec.blockSpacing) {
-            Text("Looks at the last 48 hours in Apple Health. The check uploads nothing.")
+            Text("Looks at the last 48\u{00A0}hours in Apple Health. The check uploads nothing.")
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

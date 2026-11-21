@@ -855,7 +855,7 @@ struct ProfileSubpagesHostedTests {
         }
     }
 
-    @Test("N1, N6: rate limited, the bar says why Send is off; over 4,000 characters, the footer says it's too long")
+    @Test("N1, N6: rate limited, the bar says why Send is off; over 4,000\u{00A0}characters, the footer says it's too long")
     func reportCaptions() async throws {
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data, result: .rateLimited) }) { w in
             try await w.wait("the notice") { w.node("Copy message", exactly: true) != nil }
@@ -867,7 +867,7 @@ struct ProfileSubpagesHostedTests {
         try await host(SubpageShotScreen.report { $0.stage(message: String(repeating: "x", count: 4_001)) }) { w in
             try await w.wait("the form") { has(w, id: "report.count") }
             try await w.settle()
-            #expect(w.node("Too long: a report takes up to 4,000 characters.") != nil)
+            #expect(w.node("Too long: a report takes up to 4,000\u{00A0}characters.") != nil)
         }
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message) }) { w in
             try await w.wait("the form") { has(w, id: "report.send") }

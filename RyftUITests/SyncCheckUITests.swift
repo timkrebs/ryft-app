@@ -62,7 +62,7 @@ final class SyncCheckUITests: XCTestCase {
         let app = launch("garminSleepOff")
         XCTAssertTrue(value(of: row(app, "sleep"), "== 'Should arrive, nothing yet. Fix available'"))
         XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check finished")
-        XCTAssertTrue(app.staticTexts["RYFT can read sleep, but none came from Garmin Connect in the last 2 days."].exists)
+        XCTAssertTrue(app.staticTexts["RYFT can read sleep, but none came from Garmin Connect in the last 2\u{00A0}days."].exists)
         XCTAssertTrue(app.staticTexts["4 of 5 expected signals are arriving. 1 needs a fix."].waitForExistence(timeout: 5),
                       "the summary")
         XCTAssertFalse(app.descendants(matching: .any)["check.mayNotRead"].exists, "RYFT sees sleep elsewhere")

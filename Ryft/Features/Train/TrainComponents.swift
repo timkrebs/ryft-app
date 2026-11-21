@@ -52,7 +52,7 @@ extension TargetKind {
 extension ProgressionType {
     var title: String {
         switch self {
-        case .linear: return String(localized: "Linear +2.5 kg")
+        case .linear: return String(localized: "Linear +2.5\u{00A0}kg")
         case .percent: return String(localized: "Percent-based")
         case .none: return String(localized: "None")
         }
@@ -85,7 +85,7 @@ extension PRKind {
 
     func format(_ value: Double) -> String {
         switch self {
-        case .maxReps: return String(localized: "\(Int(value)) reps")
+        case .maxReps: return String(localized: "\(Int(value))\u{00A0}reps")
         case .maxVolume: return Fmt.volume(value)
         case .e1rm, .maxWeight: return Fmt.kg(value)
         }
@@ -210,7 +210,7 @@ struct WorkoutInProgressBanner: View {
 
     /// "Upper A, 23 minutes, 6 sets done": the meta line for VoiceOver.
     static func spoken(title: String, minutes: Int, sets: Int) -> String {
-        String(localized: "\(title), \(Fmt.spokenDuration(minutes: minutes)), \(sets) sets done",
+        String(localized: "\(title), \(Fmt.spokenDuration(minutes: minutes)), \(sets)\u{00A0}sets done",
                comment: "VoiceOver value of the resume banner: the session's title, how long it has run (\"23 minutes\"), the sets checked off.")
     }
 }

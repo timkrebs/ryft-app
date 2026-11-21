@@ -188,7 +188,7 @@ struct StartWorkoutSheet: View {
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Text("\(day.exercises.count) · ~\(SessionEstimate.minutes(for: day.exercises)) min")
+                Text("\(day.exercises.count) · ~\(SessionEstimate.minutes(for: day.exercises))\u{00A0}min")
                     .font(.ryft(.caption))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)

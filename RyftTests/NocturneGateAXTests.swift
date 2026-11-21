@@ -13,7 +13,7 @@ struct NocturneGateAXTests {
     func accessibilityLabelSets() {
         let today = ["0", "low", "moderate", "high", "100"]
         #expect(RulerScale.accessibilityLabelSets(today) == [today, ["0", "100"], ["0"]])
-        #expect(RulerScale.accessibilityLabelSets(["0 h", "need 8:18", "10 h"]) == [["0 h", "need 8:18", "10 h"], ["0 h", "10 h"], ["0 h"]])
+        #expect(RulerScale.accessibilityLabelSets(["0\u{00A0}h", "need 8:18", "10\u{00A0}h"]) == [["0\u{00A0}h", "need 8:18", "10\u{00A0}h"], ["0\u{00A0}h", "10\u{00A0}h"], ["0\u{00A0}h"]])
         #expect(RulerScale.accessibilityLabelSets(["0", "21"]) == [["0", "21"], ["0"]], "two labels are already the ends")
         #expect(RulerScale.accessibilityLabelSets(["0"]) == [["0"]])
         #expect(RulerScale.accessibilityLabelSets([]).isEmpty)

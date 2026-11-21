@@ -73,7 +73,7 @@ enum E1RMChange {
 
     /// "▲ 11.6 kg in 90 days" under the numeral.
     static func overWindow(_ change: String) -> String {
-        String(localized: "\(change) in 90 days",
+        String(localized: "\(change) in 90\u{00A0}days",
                comment: "The exercise page, under its estimated 1RM: the change over the chart's 90 days (\"▲ 11.6 kg\", \"Steady\").")
     }
 
@@ -553,7 +553,7 @@ struct E1RMChart: View {
         .frame(height: typeSize.isAccessibilitySize ? ExerciseDetailLayout.chartHeightLargeText : ExerciseDetailLayout.chartHeight)
         .chartAppear()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Estimated one-rep max, last 90 days"))
+        .accessibilityLabel(Text("Estimated one-rep max, last 90\u{00A0}days"))
         .accessibilityValue(Text(summary))
         .accessibilityChartDescriptor(SeriesChartDescriptor(title: String(localized: "Estimated 1RM"), valueName: "kg",
                                                             points: points.map { ($0.date, $0.value) },

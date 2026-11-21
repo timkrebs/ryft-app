@@ -46,7 +46,7 @@ final class APIStatus {
     }
 
     func waiting(seconds: Int) {
-        retryNotice = String(localized: "RYFT is catching up, retrying in \(seconds) s")
+        retryNotice = String(localized: "RYFT is catching up, retrying in \(seconds)\u{00A0}s")
     }
 
     func finishedWaiting() {

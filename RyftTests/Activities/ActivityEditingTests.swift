@@ -429,8 +429,8 @@ struct ActivityOriginAndParkingTests {
         let parked = try #require(ParkedActivitiesNotice.parkedToMention(in: env))
         #expect(parked == .init(count: 2, until: until))
         let message = ParkedActivitiesNotice.message(parked)
-        #expect(message.contains(until.formatted(.dateTime.day().month(.wide))) && !message.contains("30 days"))
-        #expect(ParkedActivitiesNotice.message(.init(count: 2, until: nil)).contains("within 30 days"))
+        #expect(message.contains(until.formatted(.dateTime.day().month(.wide))) && !message.contains("30\u{00A0}days"))
+        #expect(ParkedActivitiesNotice.message(.init(count: 2, until: nil)).contains("within 30\u{00A0}days"))
 
         // "Delete from this iPhone".
         #expect(env.activities.purgeParked() == 2)
