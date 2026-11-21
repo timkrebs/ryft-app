@@ -395,12 +395,22 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
-    /// Runs before each `DELETE /v1/me/consent` is taken, before its scripted failure: tests hold a withdrawal open with it,
-    /// then let it answer or fail.
+    #if DEBUG
+    /// Runs as each `DELETE /v1/me/consent` arrives: tests hold a withdrawal open with it, then let it answer or fail.
+    /// Unlike its siblings it runs before `enter`, on purpose: a withdrawal held here isn't counted yet
+    /// (`count("revokeConsent")` stays 0 while it waits, so "nothing went out" reads off the count), and its scripted
+    /// failure is taken only when it is let go, so a `failNext` can be used up by another call meanwhile (script a held
+    /// withdrawal's failure with `faults["revokeConsent"]`). Cancelled while held, it ends as a cancelled request does.
     var beforeRevokeConsent: (@Sendable () async -> Void)?
+    #endif
 
     func revokeConsent() async throws {
-        await beforeRevokeConsent?()
+        #if DEBUG
+        if let hold = beforeRevokeConsent {
+            await hold()
+            try Task.checkCancellation()
+        }
+        #endif
         try enter("revokeConsent")
         lock.withLock {
             accountConsent = nil
