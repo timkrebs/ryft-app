@@ -27,8 +27,9 @@ struct TrainPlansSummaryShotsTests {
         case "summary-pending": return (AnyView(TrainShotFixtures.pendingSummary()), 1_000, 2_300)
         case "banner": return (AnyView(TrainShotFixtures.banner()), 300, 500)
         case "plans": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog())), 844, 844)
-        // Paused as the platform reports it: no enrolment, the plan remembered on this iPhone (set in `writeScreen`).
-        case "plans-paused": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(enrolled: false))), 844, 844)
+        // Paused as the platform reports it: no enrolment, the plan remembered on this iPhone.
+        case "plans-paused":
+            return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)), 844, 844)
         case "plans-import": return (AnyView(TrainShotFixtures.importPlans()), 844, 844)
         case "plans-empty-mine": return (AnyView(TrainShotFixtures.plans(MockTrain.catalog(enrolled: false, mine: false))), 844, 844)
         case "plan-detail": return (AnyView(TrainShotFixtures.planDetail(MockTrain.fullBody.id)), 844, 844)
@@ -44,8 +45,6 @@ struct TrainPlansSummaryShotsTests {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["TRAIN_PLANS_SHOTS_DIR"] else { return }
         if let only = env["TRAIN_PLANS_SHOTS_ONLY"], !only.split(separator: ",").contains(Substring(name)) { return }
-        let previous = TrainShotFixtures.setPausedPlan(name == "plans-paused" ? MockTrain.upperLower.id : nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         let (view, height, ax3Height) = Self.view(name)
         for (size, typeSize, category, h) in [("default", DynamicTypeSize.large, UIContentSizeCategory.large, height),
                                               ("ax3", .accessibility3, .accessibilityExtraLarge, ax3Height)] {
@@ -119,26 +118,6 @@ struct OfflineTrainSource: TrainDataSource {
 /// The states the shots draw, each from its own store where it needs one.
 @MainActor
 enum TrainShotFixtures {
-    /// Sets the plan remembered as paused (`train.pausedPlanID`; nil: none) and returns the one that was there, to put back.
-    @discardableResult
-    static func setPausedPlan(_ id: UUID?) -> UUID? {
-        let key = "train.pausedPlanID"
-        let previous = UserDefaults.standard.string(forKey: key).flatMap(UUID.init(uuidString:))
-        if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        return previous
-    }
-
-    /// Runs `body` with `id` remembered as paused, then puts back what was there.
-    static func withPausedPlan(_ id: UUID?, _ body: () -> Void) {
-        let previous = setPausedPlan(id)
-        defer { setPausedPlan(previous) }
-        body()
-    }
-
     /// Offline for the reads (nothing is sent); kept alive, as the scheduler holds its environment weakly.
     private static let offlineEnvironment = AppEnvironment.test(online: false)
 
@@ -162,19 +141,21 @@ enum TrainShotFixtures {
             .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
     }
 
-    /// A library whose cached catalog is `catalog` (an active, a paused or no enrolment), restored as the app restores it.
-    static func library(_ catalog: PlansOverview) -> TrainLibrary {
+    /// A library whose cached catalog is `catalog` (an active, a paused or no enrolment), restored as the app restores it;
+    /// `paused`: the plan this iPhone remembers as paused, in the library's own defaults (nil: none).
+    static func library(_ catalog: PlansOverview, paused: UUID? = nil) -> TrainLibrary {
         let store = TrainStore(inMemory: true)
         store.cache(exercises: MockTrain.exercises)
         store.cache(plans: MockTrain.plans)
         store.saveDocument(catalog, key: "train.plans")
         if catalog.active?.status == .active { store.saveDocument(MockTrain.planToday, key: "train.today") }
-        return TrainLibrary.testing(store: store, remote: { MockTrainSource.shared }, restore: true)
+        return TrainLibrary.testing(store: store, remote: { MockTrainSource.shared }, restore: true,
+                                    defaults: .isolated(pausedPlan: paused))
     }
 
-    static func plans(_ catalog: PlansOverview) -> some View {
+    static func plans(_ catalog: PlansOverview, paused: UUID? = nil) -> some View {
         NavigationStack { PlansView().trainDestinations() }
-            .environment(library(catalog))
+            .environment(library(catalog, paused: paused))
     }
 
     static func planDetail(_ id: UUID) -> some View {

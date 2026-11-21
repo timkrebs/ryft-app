@@ -575,20 +575,23 @@ private struct PlanDetailScreen: View {
 private enum PlansPreview {
     /// A library whose cached overview is `catalog`, restored as the app restores it (the paused plan's outline, no plans of
     /// the user's own).
-    static func library(_ catalog: PlansOverview) -> TrainLibrary {
+    static func library(_ catalog: PlansOverview, defaults: UserDefaults = .standard) -> TrainLibrary {
         let store = TrainStore(inMemory: true)
         store.cache(exercises: MockTrain.exercises)
         store.cache(plans: MockTrain.plans)
         store.saveDocument(catalog, key: "train.plans")
         if catalog.active?.status == .active { store.saveDocument(MockTrain.planToday, key: "train.today") }
         let outbox = TrainSyncService.preview(store: store)
-        return TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { outbox }, restore: true)
+        return TrainLibrary(store: store, remote: { MockTrainSource.shared }, outbox: { outbox }, restore: true,
+                            defaults: defaults)
     }
 
-    /// Paused as the platform reports it: no enrolment in `GET /v1/plans`, the plan remembered on this iPhone.
+    /// Paused as the platform reports it: no enrolment in `GET /v1/plans`, the plan remembered on this iPhone (in defaults
+    /// of the preview's own, not the app's).
     static func pausedLibrary() -> TrainLibrary {
-        UserDefaults.standard.set(MockTrain.upperLower.id.uuidString, forKey: "train.pausedPlanID")
-        return library(MockTrain.catalog(enrolled: false, mine: false))
+        let defaults = UserDefaults(suiteName: "preview.plans.paused") ?? .standard
+        defaults.set(MockTrain.upperLower.id.uuidString, forKey: "train.pausedPlanID")
+        return library(MockTrain.catalog(enrolled: false, mine: false), defaults: defaults)
     }
 }
 
