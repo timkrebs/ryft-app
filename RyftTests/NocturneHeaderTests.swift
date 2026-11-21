@@ -47,11 +47,20 @@ struct NocturneHeaderTests {
         return found.sorted { $0.0 < $1.0 }
     }
 
-    /// The lines of `text` that match `pattern`, as "path:line: text".
+    /// The lines of `text` whose code matches `pattern`, as "path:line: text": `//` comments don't count
+    /// (`NocturneGateComponentsTests.code`, line for line), so a note on what a header was may stay.
     private static func hits(_ path: String, _ text: String, _ pattern: Regex<AnyRegexOutput>) -> [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, line in
-            line.firstMatch(of: pattern) == nil ? nil : "\(path):\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
-        }
+        NocturneGateComponentsTests.code(text).split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            .compactMap { index, line in
+                line.firstMatch(of: pattern) == nil ? nil : "\(path):\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
+            }
+    }
+
+    @Test("The scan reads code: SubpageHeader in a `//` or `///` comment passes, in code it fails")
+    func theScanSkipsComments() throws {
+        let retired = try Regex(#"\bSubpageHeader\b"#)
+        let text = "/// Was `SubpageHeader` (deleted by the gate).\nlet a = 1 // SubpageHeader\nSubpageHeader(title: t)\n"
+        #expect(Self.hits("X.swift", text, retired) == ["X.swift:3: SubpageHeader(title: t)"])
     }
 
     /// SubpageHeader is gone; `ScreenHeaderTitle` and `ScreenHeader(title:)` stay where they belong.
