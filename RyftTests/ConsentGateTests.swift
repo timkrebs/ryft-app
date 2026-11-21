@@ -199,6 +199,34 @@ private final class Switch {
     init(_ on: Bool) { self.on = on }
 }
 
+/// A Train platform that runs `run` after each `PUT` it answered: what another suite's `AppState.reset()` does to the
+/// shared demo platform, at the one moment that matters (a replay's `PUT` is done, its completion not yet sent).
+private struct AfterPut: TrainDataSource, @unchecked Sendable {
+    let base: TrainDataSource
+    let run: @Sendable () -> Void
+
+    func exercises() async throws -> [Exercise] { try await base.exercises() }
+    func createExercise(_ e: Exercise) async throws -> Exercise { try await base.createExercise(e) }
+    func exerciseHistory(id: UUID) async throws -> ExerciseHistory { try await base.exerciseHistory(id: id) }
+    func plans() async throws -> PlansOverview { try await base.plans() }
+    func plan(id: UUID) async throws -> Plan { try await base.plan(id: id) }
+    func savePlan(_ p: Plan) async throws -> Plan { try await base.savePlan(p) }
+    func deletePlan(id: UUID) async throws { try await base.deletePlan(id: id) }
+    func enroll(planID: UUID) async throws -> Enrollment { try await base.enroll(planID: planID) }
+    func pauseEnrollment() async throws { try await base.pauseEnrollment() }
+    func planToday() async throws -> PlanToday? { try await base.planToday() }
+    func sessions(from: Date, to: Date) async throws -> [SessionSummary] { try await base.sessions(from: from, to: to) }
+    func session(id: UUID) async throws -> TrainSession { try await base.session(id: id) }
+    func putSession(_ s: TrainSession) async throws -> SessionPutResult {
+        defer { run() }
+        return try await base.putSession(s)
+    }
+    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
+        try await base.completeSession(id: id, body)
+    }
+    func deleteSession(id: UUID) async throws { try await base.deleteSession(id: id) }
+}
+
 // MARK: - T1: the rule
 
 @Suite("Consent gates: the rule (T1)")
@@ -1200,6 +1228,15 @@ struct ConsentReleaseTests {
 @Suite("Consent gates: Train's outbox (T8)")
 @MainActor
 struct ConsentTrainTests {
+    /// Train's platform for these tests: its own in-memory one, never `MockTrainSource.shared`. `MockPlatformAPI()`
+    /// shares that with every suite in the process, and `AppState.reset()` (the Demo data switch, a sign-out) empties
+    /// it: one that ran between a `PUT` and its completion made the completion `404`, and the op stayed queued.
+    /// `afterPut`: runs once the platform has answered a `PUT`, before the next call.
+    private static func platform(afterPut: (@Sendable () -> Void)? = nil) -> MockPlatformAPI {
+        let own = MockTrainSource()
+        return MockPlatformAPI(train: afterPut.map { AfterPut(base: own, run: $0) } ?? own)
+    }
+
     private func outbox(_ api: MockPlatformAPI) -> (TrainSyncService, TrainStore) {
         let store = TrainStore(inMemory: true)
         let sync = TrainSyncService(store: store, remote: { api }, owner: { "A" }, debounce: .seconds(3_600),
@@ -1208,7 +1245,7 @@ struct ConsentTrainTests {
     }
 
     @Test func withoutConsentPutsAndCompletionsWaitInOrderAndGoWhenItArrives() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         let consent = Switch(false)
         sync.gate = { write in consent.on || write == .erasure ? nil : .gate(.consentRequired) }
@@ -1221,8 +1258,18 @@ struct ConsentTrainTests {
         #expect(sync.pendingCount == 0 && sync.heldAt == nil)
     }
 
+    /// Any suite's `AppState.reset()` empties the shared demo platform; an outbox on its own platform is unaffected.
+    @Test func aResetOfTheSharedDemoPlatformBetweenAPutAndItsCompletionDoesntTouchTheOutbox() async {
+        let api = Self.platform(afterPut: { MockTrainSource.shared.reset() })
+        let (sync, store) = outbox(api)
+        sync.gate = { _ in nil }
+        await sync.finish(SessionFactory.empty(in: store))
+        #expect(api.calls.filter { $0.hasSuffix("Session") } == ["putSession", "completeSession"])
+        #expect(sync.pendingCount == 0 && sync.heldAt == nil)
+    }
+
     @Test func aDeleteGoesWithoutConsentAndTakesItsSessionsHeldOpsWithIt() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         sync.gate = { $0 == .erasure ? nil : .gate(.consentRequired) }
         let other = SessionFactory.empty(in: store)
@@ -1237,7 +1284,7 @@ struct ConsentTrainTests {
     }
 
     @Test func aHeldPutKeepsTheLaterOnesBehindIt() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         // Held at the replay's start and for the first op, then open (consent arrives mid-pass).
         var dataAnswers: [UploadGate?] = [.gate(.consentRequired), .gate(.consentRequired)]
@@ -1254,7 +1301,7 @@ struct ConsentTrainTests {
     }
 
     @Test func aWithdrawalMidQueueHoldsTheNextOp() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         sync.gate = { _ in api.count("putSession") >= 1 ? .gate(.consentRequired) : nil }
         sync.sessionChanged(SessionFactory.empty(in: store))
@@ -1264,7 +1311,7 @@ struct ConsentTrainTests {
     }
 
     @Test func anUnknownPolicyIsAskedForOnceBeforeHolding() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         var asked = 0
         sync.gate = { _ in .policyUnknown }
@@ -1276,7 +1323,7 @@ struct ConsentTrainTests {
     }
 
     @Test func closedUntilTheAppConnectsIt() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         let uploaded = SessionFactory.empty(in: store)
         uploaded.uploaded = true
@@ -1287,7 +1334,7 @@ struct ConsentTrainTests {
     }
 
     @Test func readsDontAskTheGate() async {
-        let api = MockPlatformAPI()
+        let api = Self.platform()
         let (sync, store) = outbox(api)
         sync.gate = { _ in .gate(.consentRequired) }
         let library = TrainLibrary(store: store, remote: { api }, outbox: { sync }, restore: false)
@@ -1308,7 +1355,7 @@ struct ConsentTrainTests {
     }
 
     @Test func aDemoOpNeverGoesLive() async {
-        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(true), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         sync.sessionChanged(SessionFactory.empty(in: store))
         demo.on = false
@@ -1321,7 +1368,7 @@ struct ConsentTrainTests {
     }
 
     @Test func anAccountOpNeverGoesToTheMock() async {
-        let demo = Switch(false), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(false), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         sync.sessionChanged(SessionFactory.empty(in: store))
         demo.on = true
@@ -1333,7 +1380,7 @@ struct ConsentTrainTests {
     }
 
     @Test func anOpFromBeforeBindingIsTheAccountsAndWaitsWhileDemoIsOn() async {
-        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(true), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         let s = SessionFactory.empty(in: store)
         store.enqueue(.put, sessionID: s.id) // no owner: queued by an earlier build
@@ -1345,7 +1392,7 @@ struct ConsentTrainTests {
     }
 
     @Test func theCountIsTheBindingsAndDemosOpsGoWhenItsOff() async {
-        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(true), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         sync.sessionChanged(SessionFactory.empty(in: store)) // demo's
         demo.on = false
@@ -1361,7 +1408,7 @@ struct ConsentTrainTests {
     }
 
     @Test func aPutIsCoalescedOnlyIntoItsOwnBindings() {
-        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(true), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         let session = SessionFactory.empty(in: store)
         sync.sessionChanged(session)
@@ -1372,7 +1419,7 @@ struct ConsentTrainTests {
     }
 
     @Test func aDeleteGoesWhereTheUploadsWent() async {
-        let demo = Switch(false), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(false), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         let session = SessionFactory.empty(in: store)
         sync.sessionChanged(session)
@@ -1388,7 +1435,7 @@ struct ConsentTrainTests {
     }
 
     @Test func eachOpRecordsItsOwner() {
-        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let demo = Switch(true), live = Self.platform(), mock = Self.platform()
         let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
         sync.sessionChanged(SessionFactory.empty(in: store))
         demo.on = false
