@@ -180,61 +180,113 @@ struct NocturneGateSweepHostedTests {
         return (n, CGSize(width: CGFloat(maxX - minX + 1) / render.scale, height: CGFloat(maxY - minY + 1) / render.scale))
     }
 
-    /// The import card's steps in `w`, `current` the inverse chip: every name drawn whole (as many of its glyphs' pixels as
-    /// the name drawn alone at AX3 by `ControlRender`), inside the card's column, and the current one on one line at its full
-    /// size (its ink's box the same as alone: not cut, shrunk or broken across lines; on the inverse chip its ink is its own).
-    private func expectStepsWhole(_ w: HostedWindow, current: ImportProgress.Step) throws {
-        let steps = try node(w, prefix: "Step ")
-        #expect(steps.label.hasSuffix(current.title), "\(steps.label)")
-        let leading = Theme.Metrics.screenPadding + CardSpec.padding
-        #expect(steps.frame.minX >= leading - 0.5 && steps.frame.maxX <= Self.width - leading + 0.5,
-                "inside the card's column: \(steps.frame)")
-        let px = try WindowPixels(w)
-        let area = steps.frame.insetBy(dx: -1, dy: -1)
-        for step in ImportProgress.Step.allCases {
-            let isCurrent = step == current
-            let colour = isCurrent ? Theme.background : step < current ? Theme.textSecondary : Theme.textTertiary
-            let ground = isCurrent ? Theme.textPrimary : Theme.surface
-            let alone = Text(step.title).font(.ryft(.caption)).foregroundStyle(colour).fixedSize()
-                .padding(8).background(ground).environment(\.dynamicTypeSize, .accessibility3)
-            let render = try #require(ControlRender(alone, scale: px.scale))
-            let whole = inkDrawn(render, ink: colour, on: ground)
-            let drawn = inkPixels(px, in: area, ink: colour, on: ground)
-            #expect(whole.pixels > 100, "\(step.title): the reference drew \(whole.pixels) pixels")
-            #expect(Double(drawn) >= 0.9 * Double(whole.pixels), "\(step.title): \(drawn) of its \(whole.pixels) pixels, cut or shrunk")
-            guard isCurrent else { continue }
-            #expect(whole.size.width < steps.frame.width - 16, "\(step.title) fits the column at AX3: \(whole.size)")
-            let target = Tokens.over(Tokens.resolve(colour), Tokens.resolve(ground))
-            let box = try #require(px.box(in: area) { $0.near(target, 6) }, "\(step.title) drawn")
-            #expect(abs(box.width - whole.size.width) < 1.5 && abs(box.height - whole.size.height) < 1.5,
-                    "\(step.title) on one line, whole: \(box.size), alone \(whole.size)")
-        }
+    /// A step as drawn when `current` is the current one: its ink and the ground under it.
+    private func look(_ step: ImportProgress.Step, current: ImportProgress.Step) -> (ink: Color, ground: Color) {
+        step == current ? (Theme.background, Theme.textPrimary)
+            : (step < current ? Theme.textSecondary : Theme.textTertiary, Theme.surface)
     }
 
-    @Test("Today importing at AX3 (the part 1 validation's shot): every step's name whole, the steps wrapping inside the card")
+    /// The step's name drawn alone at AX3 (`ControlRender`, at the window's scale) in its look: its ink's pixels and box.
+    private func reference(_ step: ImportProgress.Step, current: ImportProgress.Step, scale: CGFloat) throws -> (pixels: Int, size: CGSize) {
+        let (colour, ground) = look(step, current: current)
+        let alone = Text(step.title).font(.ryft(.caption)).foregroundStyle(colour).fixedSize()
+            .padding(8).background(ground).environment(\.dynamicTypeSize, .accessibility3)
+        let whole = inkDrawn(try #require(ControlRender(alone, scale: scale)), ink: colour, on: ground)
+        #expect(whole.pixels > 100, "\(step.title): the reference drew \(whole.pixels) pixels")
+        return whole
+    }
+
+    /// The current step's chip in `strip`: the box of its `textPrimary` fill (the only ink-filled thing in the strip).
+    private func currentChip(_ px: WindowPixels, in strip: CGRect) throws -> CGRect {
+        let fill = Tokens.resolve(Theme.textPrimary)
+        return try #require(px.box(in: strip) { $0.near(fill, 6) }, "the current chip's fill in \(strip)")
+    }
+
+    /// `step`'s name inside `rect`, its own chip: as many of its glyphs' pixels as drawn alone, and, `oneLine`, the same ink
+    /// box (not cut, shrunk or broken across lines).
+    private func expectWhole(_ step: ImportProgress.Step, current: ImportProgress.Step, in rect: CGRect, _ px: WindowPixels,
+                             oneLine: Bool, _ context: String) throws {
+        let (colour, ground) = look(step, current: current)
+        let whole = try reference(step, current: current, scale: px.scale)
+        let area = rect.insetBy(dx: -1, dy: -1)
+        let drawn = inkPixels(px, in: area, ink: colour, on: ground)
+        #expect(Double(drawn) >= 0.9 * Double(whole.pixels),
+                "\(context), \(step.title): \(drawn) of its \(whole.pixels) pixels in its chip \(rect), cut or shrunk")
+        guard oneLine else { return }
+        let target = Tokens.over(Tokens.resolve(colour), Tokens.resolve(ground))
+        let box = try #require(px.box(in: area) { $0.near(target, 6) }, "\(context), \(step.title) drawn")
+        #expect(abs(box.width - whole.size.width) < 1.5 && abs(box.height - whole.size.height) < 1.5,
+                "\(context), \(step.title) on one line, whole: \(box.size), alone \(whole.size)")
+    }
+
+    /// The steps' strip: inside the card's column.
+    private func expectInTheColumn(_ strip: HostedWindow.Node) {
+        let leading = Theme.Metrics.screenPadding + CardSpec.padding
+        #expect(strip.frame.minX >= leading - 0.5 && strip.frame.maxX <= Self.width - leading + 0.5,
+                "inside the card's column: \(strip.frame)")
+    }
+
+    @Test("Today importing at AX3 (the part 1 validation's shot): the steps wrap in the card, the current one whole in its chip")
     func importStepsWholeAtAX3() async throws {
         let today = TodayView().previewEnvironment(.preview(scenario: .importing)).environment(\.locale, Self.english)
         try await run(Self.ax3, height: 2_600, today) { w in
             try await w.wait("the steps") { w.node("Step ") != nil }
             try await w.settle()
-            try expectStepsWhole(w, current: .uploading)
+            let strip = try node(w, prefix: "Step ")
+            #expect(strip.label.hasSuffix(ImportProgress.Step.uploading.title), "\(strip.label)")
+            expectInTheColumn(strip)
+            let px = try WindowPixels(w)
+            try expectWhole(.uploading, current: .uploading, in: currentChip(px, in: strip.frame), px, oneLine: true, "Today")
         }
     }
 
-    @Test("The import card at AX3 in each phase: the current step's name on one line, whole; the others whole",
-          arguments: ImportProgress.Step.allCases)
-    func importCardStepsAtAX3(_ step: ImportProgress.Step) async throws {
-        var progress = TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now)))
-        progress.step = step
-        let card = ImportCard(progress: progress)
-            .padding(.horizontal, Theme.Metrics.screenPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Theme.background)
-            .environment(\.locale, Self.english)
-        try await run(Self.ax3, height: 1_400, card) { w in
-            try await w.wait("the steps") { w.node("Step ") != nil }
+    /// The card in each phase, one above the other: the chips' sizes don't depend on the colours, so the three cards lay out
+    /// alike and each step's own chip, relative to its card's title, is where its fill is in the phase it is current. Every
+    /// name is checked in its own chip in every phase (the steps to come share `textTertiary` with each other and the
+    /// chevrons, so the strip as a whole can't say which name is whole); the current one also keeps its one-line ink box.
+    /// (The strips' accessibility frames can't place the chips: they are the union of what is drawn, a fill or a word.)
+    @Test("The import card at AX3 in each phase: every step's name whole in its own chip; the current one on one line")
+    func importCardStepsAtAX3() async throws {
+        let steps = ImportProgress.Step.allCases
+        let progress = steps.map { step in
+            var progress = TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now)))
+            progress.step = step
+            return progress
+        }
+        let cards = VStack(spacing: 24) {
+            ForEach(progress, id: \.step) { ImportCard(progress: $0) }
+        }
+        .padding(.horizontal, Theme.Metrics.screenPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.background)
+        .environment(\.locale, Self.english)
+        // At most 2 730 tall: the window draws at 3x, and a layer over 8 192 pixels draws nothing.
+        try await run(Self.ax3, height: 2_400, cards) { w in
+            try await w.wait("the steps") { w.nodes().filter { $0.label.hasPrefix("Step ") }.count == steps.count }
             try await w.settle()
-            try expectStepsWhole(w, current: step)
+            let strips = w.nodes().filter { $0.label.hasPrefix("Step ") }.sorted { $0.frame.minY < $1.frame.minY }
+            let titles = w.nodes().filter { $0.label == "Setting up RYFT" }.sorted { $0.frame.minY < $1.frame.minY }
+            try #require(strips.count == steps.count && titles.count == steps.count && (strips.last?.frame.maxY ?? .infinity) < 2_400,
+                         "\(strips.map(\.frame))")
+            for (step, strip) in zip(steps, strips) {
+                #expect(strip.label.hasSuffix(step.title), "\(strip.label)")
+                expectInTheColumn(strip)
+            }
+            let px = try WindowPixels(w)
+            // Each step's chip, relative to its card's title: its fill where it is current.
+            let chips = try zip(strips, titles).map { strip, title in
+                try currentChip(px, in: strip.frame.insetBy(dx: -4, dy: -4))
+                    .offsetBy(dx: -title.frame.minX, dy: -title.frame.minY)
+            }
+            for (current, title) in zip(steps, titles) {
+                for (step, chip) in zip(steps, chips) {
+                    let own = chip.offsetBy(dx: title.frame.minX, dy: title.frame.minY)
+                    #expect(own.minX >= Theme.Metrics.screenPadding + CardSpec.padding - 0.5
+                            && own.maxX <= Self.width - Theme.Metrics.screenPadding - CardSpec.padding + 0.5,
+                            "\(step.title)'s chip inside the card's column: \(own)")
+                    try expectWhole(step, current: current, in: own, px, oneLine: step == current, "\(current.title) current")
+                }
+            }
         }
     }
 
