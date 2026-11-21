@@ -14,14 +14,24 @@ final class NocturneGateKeyboardUITests: XCTestCase {
         app.descendants(matching: .any)[identifier]
     }
 
-    /// `element` is hittable and wholly above the keyboard (when a software keyboard shows).
+    /// `element` is hittable and wholly above the software keyboard, which is up.
     private func assertAboveTheKeyboard(_ element: XCUIElement, _ keyboard: XCUIElement, _ name: String,
                                         file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(element.isHittable, "\(name) is hittable", file: file, line: line)
-        if keyboard.exists {
-            XCTAssertLessThanOrEqual(element.frame.maxY, keyboard.frame.minY + 0.5,
-                                     "\(name) \(element.frame) above the keyboard \(keyboard.frame)", file: file, line: line)
+        XCTAssertTrue(keyboard.exists, "the keyboard is up", file: file, line: line)
+        XCTAssertLessThanOrEqual(element.frame.maxY, keyboard.frame.minY + 0.5,
+                                 "\(name) \(element.frame) above the keyboard \(keyboard.frame)", file: file, line: line)
+    }
+
+    /// Waits for the software keyboard after a field took focus; skips the test when none shows (the simulator's hardware
+    /// keyboard is connected), so it never passes without proving where the bar sits against the keyboard.
+    private func softwareKeyboard(_ app: XCUIApplication) throws -> XCUIElement {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.waitForExistence(timeout: 5) else {
+            throw XCTSkip("No software keyboard showed (the simulator's hardware keyboard is connected: I/O → Keyboard → "
+                + "Connect Hardware Keyboard off), so the test can't prove the controls sit above it.")
         }
+        return keyboard
     }
 
     // MARK: D5: Report a problem
@@ -52,8 +62,7 @@ final class NocturneGateKeyboardUITests: XCTestCase {
         XCTAssertFalse(done.exists, "no Done before the message has focus")
 
         message.tap()
-        let keyboard = app.keyboards.firstMatch
-        let softwareKeyboard = keyboard.waitForExistence(timeout: 5)
+        let keyboard = try softwareKeyboard(app)
         message.typeText("The sleep chart is empty")
         XCTAssertTrue(done.waitForExistence(timeout: 5), "Done joins Send while the message has focus")
         assertAboveTheKeyboard(done, keyboard, "Done")
@@ -71,13 +80,13 @@ final class NocturneGateKeyboardUITests: XCTestCase {
         add(attachment)
 
         done.tap()
-        if softwareKeyboard { waitForAbsence(of: keyboard, timeout: 5, "Done closes the keyboard") }
+        waitForAbsence(of: keyboard, timeout: 5, "Done closes the keyboard")
         waitForAbsence(of: done, timeout: 5, "Send alone once the message has no focus")
         XCTAssertTrue(send.isHittable)
         XCTAssertEqual(message.value as? String, "The sleep chart is empty", "what was typed stays")
 
         message.tap()
-        if softwareKeyboard { XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "the keyboard again") }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "the keyboard again")
         message.typeText(", twice")
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         assertAboveTheKeyboard(send, keyboard, "Send")
@@ -103,8 +112,7 @@ final class NocturneGateKeyboardUITests: XCTestCase {
             ? app.textViews["addActivity.notes"] : app.textFields["addActivity.notes"]
         XCTAssertTrue(notes.waitForExistence(timeout: wait), "Notes")
         notes.tap()
-        let keyboard = app.keyboards.firstMatch
-        _ = keyboard.waitForExistence(timeout: 5)
+        let keyboard = try softwareKeyboard(app)
         notes.typeText("Easy spin")
         let save = app.buttons["addActivity.save"]
         XCTAssertTrue(save.exists)
