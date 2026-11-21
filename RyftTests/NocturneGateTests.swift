@@ -3,39 +3,30 @@ import SwiftUI
 import Testing
 @testable import Ryft
 
-/// The Nocturne gate's sweep (G1, docs/work/2026-11-20-nocturne-gate/design.md §5.1), without a window: no retired token left in
-/// the app's sources, the insight tile's legend colour (D1), the recovery metrics' colour, and the range bar's good side.
-/// The hosted checks (no teal on the swept screens, the pills, the prompt, the card radius) are `NocturneGateSweepHostedTests`.
+/// The Nocturne gate's sweep (G1, docs/work/2026-11-20-nocturne-gate/design.md §5.1) and deletion (G4, §5.4), without a window:
+/// no retired token left in the code of the app, the widget and `Shared/`, the insight tile's legend colour (D1), the recovery
+/// metrics' colour, and the range bar's good side. The hosted checks (no teal on the swept screens, the pills, the prompt,
+/// the card radius) are `NocturneGateSweepHostedTests`.
 @MainActor
 @Suite("Nocturne gate G1: the sweep")
 struct NocturneGateTests {
     // MARK: the source scan
 
-    /// What the gate retires (§5.1): the old buttons, the teal tokens, the zones and stage colours, the light pair and the light
-    /// and German previews. `PrimaryButton(` as a word (`ImportStepButton(` is not it); a `· light` or `· de` only in a preview's
-    /// name (the strain band "of 21 · light" is a word on screen). Simple word boundaries: Unicode's would read
-    /// "Theme.accent.opacity" as one word and miss it.
+    /// What the gate retires (§5.1, §5.4): the old buttons, the teal tokens and assets, SwiftUI's teal and accent colour, the
+    /// zones and stage colours, the light pair and the light and German previews. The colour patterns are
+    /// `scripts/check-accent-use.py`'s retired-token rule (1a). `PrimaryButton(` as a word (`ImportStepButton(` is not it); a
+    /// `· light` or `· de` only in a preview's name (the strain band "of 21 · light" is a word on screen); `.accentColor` the
+    /// colour, not the modifier `.accentColor(_:)`. Simple word boundaries: Unicode's would read "Theme.accent.opacity" as
+    /// one word and miss it.
     nonisolated static let patterns = [
         #"\bPrimaryButton\("#, "TealButtonStyle", #"Theme\.(?:accent|onAccent|teal|zones)\b"#, #"Theme\.stage"#, "SchemePair",
         #"scheme: \.light"#, #"preferredColorScheme\(\.light\)"#, #"#Preview\("[^"]*· (?:light|de)\b"#,
+        #"\b(?:UIColor|Color)\(\s*(?:named:\s*)?"(?:Accent|Teal)"\s*[,)]"#, #"\.accentColor\b(?!\s*\()"#, #"\.(?:teal|systemTeal)\b"#,
     ]
 
     nonisolated static func retired() throws -> Regex<AnyRegexOutput> {
         try Regex(patterns.joined(separator: "|")).wordBoundaryKind(.simple)
     }
-
-    /// The definitions that name what they define, until G4 deletes them (then this list is empty and the scan covers every
-    /// file). `Theme.swift` needs no entry: it declares `static let accent`, never `Theme.accent`.
-    nonisolated static let definitions = [
-        "Ryft/Features/Profile/ProfileComponents.swift", "Ryft/Features/Train/TrainComponents.swift", "Ryft/Preview/PreviewSupport.swift",
-    ]
-
-    /// Files another gate ticket sweeps (design.md §6), each with its ticket. Remove an entry when that ticket lands: the next
-    /// test fails for an entry whose file is gone or holds nothing retired any more, so the list can't outlive its reason.
-    nonisolated static let otherTickets = [
-        "Ryft/Features/Train/Session/SetColumnPreview.swift": "G4 deletes the light previews",
-        "Ryft/Features/Train/Session/SessionPager.swift": "G4 deletes the light preview",
-    ]
 
     /// The repository, symlinks resolved: the enumerator hands back resolved paths (`/private/tmp/…` for `/tmp/…`).
     private static var root: URL {
@@ -57,31 +48,22 @@ struct NocturneGateTests {
         return found.sorted()
     }
 
-    /// The lines of `path` that name a retired token, as "path:line: text".
-    private static func hits(_ path: String) throws -> [String] {
-        let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+    /// The lines of `source` (at `path`) that name a retired token in code, as "path:line: text": `//` comments don't count
+    /// (`NocturneGateComponentsTests.code`, line for line), so a note on what a token was may stay.
+    private static func hits(_ path: String, _ source: String) throws -> [String] {
         let pattern = try Self.retired()
-        return source.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, line in
-            line.firstMatch(of: pattern) == nil ? nil : "\(path):\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
-        }
+        return NocturneGateComponentsTests.code(source).split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            .compactMap { index, line in
+                line.firstMatch(of: pattern) == nil ? nil : "\(path):\(index + 1): \(line.trimmingCharacters(in: .whitespaces))"
+            }
     }
 
-    @Test("§5.1: no retired token in Ryft/, RyftWidgets/ or Shared/ outside the definitions and the other tickets' files")
+    @Test("§5.1, §5.4: no retired token in the code of Ryft/, RyftWidgets/ or Shared/ (G4 deleted the definitions)")
     func noRetiredTokensRemain() throws {
         let files = try Self.sources()
         #expect(files.count > 300, "the sources were found: \(files.count)")
-        let skipped = Set(Self.definitions).union(Self.otherTickets.keys)
-        let found = try files.filter { !skipped.contains($0) }.flatMap(Self.hits)
+        let found = try files.flatMap { try Self.hits($0, String(contentsOf: Self.root.appendingPathComponent($0), encoding: .utf8)) }
         #expect(found.isEmpty, "\(found.count) retired uses:\n\(found.joined(separator: "\n"))")
-    }
-
-    @Test("§5.1: every file the scan skips still exists and still names a retired token (else its entry goes)")
-    func skippedFilesStillNeedSkipping() throws {
-        for path in Self.definitions + Self.otherTickets.keys.sorted() {
-            let exists = FileManager.default.fileExists(atPath: Self.root.appendingPathComponent(path).path)
-            #expect(exists, "\(path) is gone (\(Self.otherTickets[path] ?? "G4")): remove its entry")
-            if exists { #expect(try !Self.hits(path).isEmpty, "\(path) names nothing retired any more: remove its entry") }
-        }
     }
 
     @Test("The scan's pattern: the retired names match; ImportStepButton, accentSecondary and an on-screen \"· light\" don't")
@@ -90,11 +72,25 @@ struct NocturneGateTests {
         let caught = ["PrimaryButton(title: \"x\")", ".buttonStyle(TealButtonStyle())", "Theme.accent)", "Theme.accent.opacity(0.14)",
                       "Theme.onAccent", "Theme.teal,",
                       "Theme.zones[i]", "Theme.stageDeep", "SchemePair {", "previewEnvironment(scheme: .light)",
-                      ".preferredColorScheme(.light)", "#Preview(\"Pager · light\") {", "#Preview(\"Error card · de · AX3\") {"]
+                      ".preferredColorScheme(.light)", "#Preview(\"Pager · light\") {", "#Preview(\"Error card · de · AX3\") {",
+                      // The lint's rule 1a: the assets by name, SwiftUI's accent colour and teal.
+                      "Color(\"Accent\")", "Color(\"Teal\", bundle: .main)", "UIColor(named: \"Accent\")", ".foregroundStyle(.accentColor)",
+                      "Color.accentColor", "Circle().fill(Color.teal)", ".fill(.teal)", "Color(uiColor: .systemTeal)"]
         let passed = ["ImportStepButton(title: \"x\")", "Theme.accentSecondary", "Theme.recovery",
-                      "String(localized: \"of 21 · light\")", "#Preview(\"Error card · AX3\") {", ".preferredColorScheme(.dark)"]
+                      "String(localized: \"of 21 · light\")", "#Preview(\"Error card · AX3\") {", ".preferredColorScheme(.dark)",
+                      "Color(\"AccentColor\")", "Color(\"AccentSecondary\")", "Text(x).accentColor(Theme.textPrimary)", "let tealish = 1",
+                      "x.tealCount"]
         for line in caught { #expect(line.firstMatch(of: pattern) != nil, "\(line)") }
         for line in passed { #expect(line.firstMatch(of: pattern) == nil, "\(line)") }
+    }
+
+    @Test("The scan reads code: a retired token in a `//` or `///` comment passes, in code after a comment's line it fails")
+    func theScanSkipsComments() throws {
+        let commented = "/// `Theme.accent` was this colour (deleted by the gate).\nlet c = Theme.recovery // not Theme.teal\n"
+        #expect(try Self.hits("X.swift", commented).isEmpty)
+        let code = "// Theme.accent\nlet c = Theme.accent\nlet u = URL(string: \"ryft://today\"); let d = Color(\"Teal\")\n"
+        #expect(try Self.hits("X.swift", code) == ["X.swift:2: let c = Theme.accent",
+                                                   "X.swift:3: let u = URL(string: \"ryft://today\"); let d = Color(\"Teal\")"])
     }
 
     // MARK: D1: the insight tile's colour

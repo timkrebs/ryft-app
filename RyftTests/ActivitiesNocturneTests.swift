@@ -21,7 +21,7 @@ struct ActivitiesNocturneRuleTests {
         #expect(EffortScaleSpec.ink(selected: false) == Theme.textPrimary)
         #expect(EffortScaleSpec.weight(selected: true) == .bold && EffortScaleSpec.weight(selected: false) == .regular)
         // L27: teal is recovery's, Volt is "now"; neither marks a choice.
-        #expect(EffortScaleSpec.fill(selected: true) != Theme.accent)
+        #expect(EffortScaleSpec.fill(selected: true) != Theme.recovery)
         #expect(EffortScaleSpec.fill(selected: true) != Theme.accentSecondary)
     }
 

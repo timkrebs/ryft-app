@@ -604,7 +604,7 @@ struct ReadinessWidgetGallery: View {
                 ReadinessFamilyView(entry: entry, family: .accessoryRectangular)
                     .padding(8)
                     .frame(width: 172, height: 76)
-                    .background(Brand.mist.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Brand.textPrimary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             }
             ReadinessFamilyView(entry: ReadinessEntry(date: .now, snapshot: .preview(.score)), family: .accessoryInline)
                 .font(.caption)
@@ -641,7 +641,7 @@ struct ReadinessWidgetLockedGallery: View {
                     RectangularReadiness(snapshot: snapshot, bedtime: bedtime)
                         .padding(8)
                         .frame(width: 170, height: 76)
-                        .background(Brand.mist.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Brand.textPrimary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                     InlineReadiness(snapshot: snapshot, bedtime: bedtime)
                         .font(.caption)
                         .frame(width: 150, alignment: .leading)

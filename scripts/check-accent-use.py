@@ -141,10 +141,6 @@ class Allow:
 ARGS = r"(?:[^()]|\((?:[^()]|\([^()]*\))*\))*"
 
 ALLOW = [
-    # Teal: one definition left, deleted with Theme.accent in the gate PR.
-    Allow("Ryft/Features/Train/TrainComponents.swift", ("Theme.accent", "TealButtonStyle"), r"\bstruct TealButtonStyle\b",
-          "its definition only: still used outside the linted folders (CoachMarks, PushPrePromptCard); T5.9 deletes the "
-          "struct, Theme.accent and this entry together", construct=True),
     # Volt: the brief's five marks (brief.md §1, Theme.signal's doc), L27's two for Train, L17's series end. Each entry is
     # the mark's own expression; a label or a line beside it is not covered.
     # The active row's dot and bar: the constant and its three uses.

@@ -69,25 +69,15 @@ import UIKit
             ("separator", Theme.separator, rgba(ink, 0.08)),
             ("surfaceRaised (the 16 % track flattened over background)", Theme.surfaceRaised, over(rgba(ink, 0.16), rgba(screen))),
             ("recovery", Theme.recovery, rgba(0x63D2B4)),
-            ("accent", Theme.accent, rgba(0x63D2B4)),
             ("sleep", Theme.metricSleep, rgba(0x9B8AF0)),
             ("strain", Theme.metricStrain, rgba(0x5E8BEA)),
             ("signal", Theme.signal, rgba(0xD8FF4F)),
             ("onSignal", Theme.onSignal, rgba(0x0A0C0B)),
-            ("onAccent", Theme.onAccent, rgba(0x0A0C0B)),
-            // The legacy names carry the Nocturne values, not their old ones.
-            ("graphite", Theme.graphite, rgba(0x0A0C0B)),
-            ("slate", Theme.slate, rgba(0x121514)),
-            ("mist", Theme.mist, rgba(ink)),
-            ("teal", Theme.teal, rgba(0x63D2B4)),
-            ("sage", Theme.sage, rgba(0x6EA89A)),
             ("accentSecondary", Theme.accentSecondary, rgba(0x6EA89A)),
             ("warning", Theme.warning, rgba(0xE3C25B)),
             ("alert", Theme.alert, rgba(0xE36B5B)),
-            ("stageDeep", Theme.stageDeep, rgba(0x2F55D4)),
-            ("stageLight", Theme.stageLight, rgba(0x4F7BE8)),
-            ("stageREM", Theme.stageREM, rgba(0x8FB3FF)),
-            ("stageAwake", Theme.stageAwake, rgba(0xB8C4D6)),
+            // The asset catalog's global accent (the gate's §1.10): ink, so a control nobody tints is never system blue.
+            ("AccentColor", Color("AccentColor"), rgba(ink)),
         ]
     }
 
@@ -106,7 +96,7 @@ import UIKit
         }
     }
 
-    /// The legend: the orbit's three colours are the ones the rings, tiles and trends use, and `recovery` is `accent`.
+    /// The legend: the orbit's three colours are the ones the rings, tiles and trends use.
     @Test func theLegendIsThreeDistinctColours() {
         let legend = [Theme.recovery, Theme.metricSleep, Theme.metricStrain].map { Self.resolve($0) }
         for i in legend.indices {
@@ -114,7 +104,6 @@ import UIKit
                 #expect(!Self.matches(legend[i], legend[j]), "legend colours \(i) and \(j) are the same")
             }
         }
-        #expect(Self.matches(Self.resolve(Theme.recovery), Self.resolve(Theme.accent)))
     }
 
     // MARK: contrast
@@ -134,7 +123,7 @@ import UIKit
                 #expect(r >= 4.5, "\(name) on \(groundName): \(String(format: "%.2f", r))")
             }
         }
-        #expect(Self.ratio(Self.resolve(Theme.onAccent), on: Self.resolve(Theme.accent)) >= 4.5)
+        #expect(Self.ratio(Self.resolve(Theme.recovery), on: Self.resolve(Theme.background)) >= 4.5, "recovery's teal on the screen")
         #expect(Self.ratio(Self.resolve(Theme.onSignal), on: Self.resolve(Theme.signal)) >= 4.5)
     }
 

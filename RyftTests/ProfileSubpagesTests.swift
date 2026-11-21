@@ -431,12 +431,12 @@ struct ProfileSubpagesHostedTests {
 
     @Test("L27: Report a problem draws no teal: Send the light pill, the chosen kind's mark and the diagnostics switch in ink")
     func reportDrawsNoTeal() async throws {
-        let teals = [Theme.teal, Theme.accent, Theme.recovery].map { NocturneTokenTests.resolve($0) }
+        let teals = [Theme.recovery].map { NocturneTokenTests.resolve($0) }
         func isTeal(_ r: Double, _ g: Double, _ b: Double) -> Bool {
             teals.contains { abs($0.r - r) + abs($0.g - g) + abs($0.b - b) < 0.15 }
         }
         // The probe itself: a teal swatch is seen.
-        let swatch = Rectangle().fill(Theme.accent).frame(width: 40, height: 40)
+        let swatch = Rectangle().fill(Theme.recovery).frame(width: 40, height: 40)
             .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
         try await host(AnyView(swatch)) { w in
             try await w.settle()

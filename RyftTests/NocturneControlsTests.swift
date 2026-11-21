@@ -389,7 +389,6 @@ struct NocturneControlsTests {
         let teal = Tokens.rgba(0x63D2B4)
         let recovery = Tokens.resolve(Color("Recovery"))
         #expect(Tokens.matches(recovery, teal), "\(Tokens.describe(recovery))")
-        #expect(Tokens.matches(recovery, Tokens.resolve(Theme.accent)), "the same as Accent")
         #expect(Tokens.matches(recovery, Tokens.resolve(Theme.recovery)), "the same as Theme.recovery")
         #expect(Tokens.matches(Tokens.resolve(OrbitGaugePalette.assets.recovery), teal), "the recovery orbit")
         #expect(Tokens.matches(Tokens.resolve(OrbitGaugePalette.assets.calibration), teal), "the calibration segments")

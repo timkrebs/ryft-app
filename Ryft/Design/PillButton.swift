@@ -19,8 +19,8 @@ import SwiftUI
 /// ignores taps, and VoiceOver reads the title with the value "In progress". Disabled (`.disabled(true)` from the caller)
 /// dims the whole pill to 35 %.
 ///
-/// The `async` initialisers run the action in a `Task` (`PrimaryButton`'s shape); the pill does not track it, so a caller
-/// that must not run twice passes `busy` while it works.
+/// The `async` initialisers run the action in a `Task`; the pill does not track it, so a caller that must not run twice
+/// passes `busy` while it works.
 struct PillButton: View {
     enum Style { case primary, secondary, destructive }
 

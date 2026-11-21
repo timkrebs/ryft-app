@@ -119,24 +119,6 @@ extension Muscle {
 
 // MARK: - buttons and rows
 
-/// The big teal call to action, 56 pt tall. Area B's screens call `PillButton` (D6B-17); this stays for the callers outside
-/// them until the gate (T5.9) deletes it.
-struct TealButtonStyle: ButtonStyle {
-    var prominent = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.ryft(.headline))
-            .foregroundStyle(prominent ? Theme.onAccent : Theme.accent)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(prominent ? Theme.accent : Theme.accent.opacity(0.14), in: Capsule())
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(Theme.Motion.respecting(reduceMotion, PressableButtonStyle.pressAnimation), value: configuration.isPressed)
-    }
-}
-
 /// The resume banner's numbers (PR 6 B §3.1, `b-23`).
 enum WorkoutBannerSpec {
     /// 68 high at least (it grows with its text), radius 22, `surface`, a 1 pt ink 20 % border: the one outlined row, because
