@@ -103,7 +103,8 @@ struct TrainActionPatchTests {
         #expect(stored(rig)?.active?.id == MockTrain.enrollment.id)
     }
 
-    /// Switching plans with the read failing: the new plan is the active one, and the old plan's day isn't offered.
+    /// Switching plans with the plans read failing and today's plan day answering: the new plan is the active one, and
+    /// Today has its day (F1 round 2: the plan day is read whatever the plans read said).
     @Test func aSwitchWithTheReadAfterItFailingShowsTheNewPlan() async {
         let alex = SideTrainSource(.demo)
         let rig = TrainSides([SideSwitch.alex: alex])
@@ -113,6 +114,24 @@ struct TrainActionPatchTests {
         #expect(await rig.library.enroll(in: MockTrain.fullBody))
         #expect(rig.library.activeEnrollment?.planId == MockTrain.fullBody.id && rig.library.activePlanName == "Full Body 3×")
         #expect(stored(rig)?.active?.planId == MockTrain.fullBody.id)
+        #expect(alex.count(.today) == 2, "today's plan day was read again")
+        let day = rig.library.today
+        #expect(day?.enrollment.planId == MockTrain.fullBody.id && day?.enrollment == rig.library.activeEnrollment)
+        #expect(MockTrain.fullBody.days.contains { $0.id == day?.day.id }, "Full Body's day: \(day?.day.name ?? "none")")
+        // Stored too (the store keeps whole seconds of `startedAt`: the same enrolment and day, not an equal value).
+        let stored = rig.store.document(PlanToday.self, key: "train.today")
+        #expect(stored?.enrollment.id == day?.enrollment.id && stored?.day.id == day?.day.id && stored != nil)
+    }
+
+    /// Both reads failing after the switch: no plan day, rather than the old plan's.
+    @Test func aSwitchWithBothReadsFailingOffersNoDay() async {
+        let alex = SideTrainSource(.demo)
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        alex.fail(.plans, with: refused)
+        alex.fail(.today, with: refused)
+        #expect(await rig.library.enroll(in: MockTrain.fullBody))
+        #expect(rig.library.activeEnrollment?.planId == MockTrain.fullBody.id && alex.count(.today) == 2)
         #expect(rig.library.today == nil, "Upper/Lower's day isn't today's plan day any more")
     }
 

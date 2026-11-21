@@ -632,11 +632,14 @@ final class TrainLibrary {
         if let today, today.enrollment.id != enrollment.id { setToday(nil) }
     }
 
-    /// After an action: the plans and today's plan day again from `client`, written only while its binding holds.
+    /// After an action: the plans and today's plan day again from `client`, written only while its binding holds. Each is
+    /// read whatever the other answered: after a switch whose plans read failed, today's plan day is still the new plan's.
     private func reloadCatalog(from client: Client) async {
-        guard let c = try? await client.source.plans(), client.isCurrent else { return }
-        catalog = c
-        store.saveDocument(c, key: Self.catalogKey)
+        if let c = try? await client.source.plans(), client.isCurrent {
+            catalog = c
+            store.saveDocument(c, key: Self.catalogKey)
+        }
+        guard client.isCurrent else { return }
         try? await loadToday(from: client)
     }
 
