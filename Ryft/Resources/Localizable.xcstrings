@@ -1029,29 +1029,6 @@
         }
       }
     },
-    "%lld sets skipped (no weight or reps)" : {
-      "comment" : "Training import I3: sets that weren't imported.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld set skipped (no weight or reps)"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld sets skipped (no weight or reps)"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "%lld sets · best %@" : {
       "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6.",
       "localizations" : {
@@ -1286,29 +1263,6 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld workouts looked like ones you already logged and were skipped"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "%lld workouts not imported" : {
-      "comment" : "Training import I4.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld workout not imported"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld workouts not imported"
                 }
               }
             }
@@ -1585,29 +1539,6 @@
     },
     "and %lld more" : {
       "comment" : "Training import, step 2: warnings not listed."
-    },
-    "and %lld notes" : {
-      "comment" : "Training import, step 2: notes after the warnings count.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "and %lld note"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "and %lld notes"
-                }
-              }
-            }
-          }
-        }
-      }
     },
     "Anything your tracker syncs later will appear here." : {
       "comment" : "My Day: under 'Nothing recorded on this day'."
@@ -2428,6 +2359,29 @@
     "Import needs attention" : {
       "comment" : "Training import: the resume row."
     },
+    "Import needs attention · %lld workouts not imported" : {
+      "comment" : "Training import: the resume row when a finished import has workouts that weren't imported. One line, with a count.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import needs attention · %lld workout not imported"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import needs attention · %lld workouts not imported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Import not finished" : {},
     "Import paused" : {
       "comment" : "Training import: the resume row, held for a reason the user can't act on."
@@ -2455,6 +2409,52 @@
     },
     "Imported %@" : {
       "comment" : "Training import I3: the result, e.g. Imported 1 plan and 12 workouts."
+    },
+    "Imported %@ · %lld workouts not imported" : {
+      "comment" : "Training import I4: the result, then how many workouts weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 workouts not imported.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld workout not imported"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld workouts not imported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Imported %@ · %lld sets skipped (no weight or reps)" : {
+      "comment" : "Training import I3: the result, then the sets that weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps).",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld set skipped (no weight or reps)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld sets skipped (no weight or reps)"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "Imported exercise" : {
       "comment" : "Training import: the name of a new custom exercise when the file's name can't be used."
@@ -3119,6 +3119,29 @@
     },
     "The privacy policy version didn't load. You can agree once it's shown." : {
       "comment" : "Onboarding, consent: shown when the privacy policy version can't be loaded. The user can agree once it's shown."
+    },
+    "The rest imports normally, and %lld notes." : {
+      "comment" : "Training import, step 2: under the warnings row, when some lines couldn't be read and there are notes too. One sentence, so its word order is the language's.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The rest imports normally, and %lld note."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The rest imports normally, and %lld notes."
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "The timeline isn't available for this night." : {
       "comment" : "Sleep's hypnogram tile when the night has stage totals but no timeline."

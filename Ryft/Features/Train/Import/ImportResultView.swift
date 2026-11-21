@@ -455,15 +455,16 @@ enum ImportResultText {
         let what = parts.count > 1
             ? String(localized: "\(first) and \(parts[1])", comment: "Training import: two counts, e.g. 1 plan and 12 workouts.")
             : first
-        var sentence = String(localized: "Imported \(what)", comment: "Training import I3: the result, e.g. Imported 1 plan and 12 workouts.")
         let failed = job.sessions.rejected + job.sessions.blocked
         if failed > 0 {
-            sentence += " · " + String(localized: "\(failed) workouts not imported", comment: "Training import I4.")
-        } else if job.skipped.skippedSets > 0 {
-            sentence += " · " + String(localized: "\(job.skipped.skippedSets)\u{00A0}sets skipped (no weight or reps)",
-                                       comment: "Training import I3: sets that weren't imported.")
+            return String(localized: "Imported \(what) · \(failed) workouts not imported",
+                          comment: "Training import I4: the result, then how many workouts weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 workouts not imported.")
         }
-        return sentence
+        if job.skipped.skippedSets > 0 {
+            return String(localized: "Imported \(what) · \(job.skipped.skippedSets)\u{00A0}sets skipped (no weight or reps)",
+                          comment: "Training import I3: the result, then the sets that weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps).")
+        }
+        return String(localized: "Imported \(what)", comment: "Training import I3: the result, e.g. Imported 1 plan and 12 workouts.")
     }
 
     /// "Upper/Lower · 6 weeks".
