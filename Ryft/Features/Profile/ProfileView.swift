@@ -699,6 +699,8 @@ private struct ProfileDeveloperGroup: View {
 private enum ProfilePreview {
     enum Case {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
+        /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
+        case withdrawing
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
@@ -708,10 +710,14 @@ private enum ProfilePreview {
         // Apple Health uploaded a minute ago: "up to date" needs it.
         settings.lastSync = demo ? nil : .now.addingTimeInterval(-60)
         let api = MockPlatformAPI(activities: .demoSource())
+        let withdrawing = kind == .withdrawing
+        // Never answered while the preview is open; on a clock that stands still, so `SettingsWrite.deadline` never ends it.
+        if withdrawing { api.beforeRevokeConsent = { try? await Task.sleep(for: .seconds(86_400)) } }
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
-                                 persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
+                                 persistence: TrainStore(inMemory: true),
+                                 clock: withdrawing ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
@@ -726,6 +732,8 @@ private enum ProfilePreview {
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                    store: TrainPreview.store, library: TrainPreview.library)
         return ProfileView()
+            // The confirmation's Withdraw consent, tapped.
+            .task { if withdrawing { await screens.profile.withdrawConsent() } }
             .environment(\.appEnvironment, env)
             .environment(screens)
             .environment(settings)
@@ -781,6 +789,8 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
+#Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
+#Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
 #Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }
 #Preview("Profile · exporting · AX3", traits: .sizeThatFitsLayout) {
     DarkPreview { ProfileButtonsPreview() }.environment(\.dynamicTypeSize, .accessibility3)
