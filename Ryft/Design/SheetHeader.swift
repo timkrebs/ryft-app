@@ -1,7 +1,9 @@
 // The header of a sheet that commits or closes (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2; PR 6 B §1.2, S3,
 // D6B-13): a close circle on the left, the title centred between the edges whatever the slots hold, and a trailing slot that
 // is empty, a `CircleButton` (a menu), or a compact primary pill for the commit ("Save", "Add", "Done"). It replaces the
-// system toolbar's glass "Cancel" / "Save" capsules, which can't be recoloured.
+// system toolbar's glass "Cancel" / "Save" capsules, which can't be recoloured. The one sheet header (Nocturne gate D4,
+// docs/work/2026-11-20-nocturne-gate/design.md §2.4): B's sheets (`SheetFrame`) and every sheet root of `SubpageScaffold`
+// (`navigation: .close`) draw it, pinned above their scroll; a page pushed inside a sheet has `PushedHeader`'s row instead.
 import SwiftUI
 
 /// The sheet header's numbers.
@@ -45,7 +47,7 @@ struct SheetHeader<Trailing: View>: View {
 
     init(_ title: Text, closeLabel: Text? = nil, onClose: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
-        self.closeLabel = closeLabel ?? SubpageHeader<EmptyView>.closeLabel
+        self.closeLabel = closeLabel ?? CircleButton.closeLabel
         self.onClose = onClose
         self.trailing = trailing()
     }

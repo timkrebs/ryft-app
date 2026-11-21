@@ -161,7 +161,7 @@ struct StrainZones: Equatable {
         return sentences.joined(separator: ". ") + ". " + Self.footnote
     }
 
-    /// Under the tile (the old `ZoneBar` line, reworded).
+    /// Under the tile (the old zones line, reworded).
     static var footnote: String {
         String(localized: "Zones are in % of heart-rate reserve.", comment: "Under the heart-rate zones tile on Strain and a workout.")
     }

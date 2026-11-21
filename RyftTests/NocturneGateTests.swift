@@ -33,11 +33,6 @@ struct NocturneGateTests {
     /// Files another gate ticket sweeps (design.md §6), each with its ticket. Remove an entry when that ticket lands: the next
     /// test fails for an entry whose file is gone or holds nothing retired any more, so the list can't outlive its reason.
     nonisolated static let otherTickets = [
-        "Ryft/Design/MetricGauge.swift": "G2 deletes it",
-        "Ryft/Design/MetricTile.swift": "G2 deletes it",
-        "Ryft/Design/ScoreRing.swift": "G2 deletes it",
-        "Ryft/Design/ZoneBar.swift": "G2 deletes it",
-        "Ryft/Features/Profile/DebugComponentCatalog.swift": "G2 deletes the old rows",
         "Ryft/Features/Train/Session/SetColumnPreview.swift": "G4 deletes the light previews",
         "Ryft/Features/Train/Session/SessionPager.swift": "G4 deletes the light preview",
     ]

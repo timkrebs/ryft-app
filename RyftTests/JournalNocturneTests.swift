@@ -393,7 +393,7 @@ struct JournalNocturneTests {
             try await w.wait("Profile → Journal's page") { w.nodes().contains { $0.label.hasPrefix("Alcohol") } }
             try await w.settle()
             // PR 6 C's page in the sheet's own stack: its header's Back (no system bar) and the back swipe kept.
-            let back = try #require(w.nodes().first { $0.identifier == "subpage.back" }, "C's SubpageHeader Back")
+            let back = try #require(w.nodes().first { $0.identifier == "subpage.back" }, "the pushed header's Back")
             #expect(back.label == "Back")
             let nav = try #require(Self.navigation(in: w.window.rootViewController), "the sheet's stack")
             #expect(nav.viewControllers.count == 2, "pushed inside the sheet: \(nav.viewControllers.count)")
