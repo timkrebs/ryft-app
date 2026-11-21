@@ -334,8 +334,11 @@ circle **trailing**, scrolling with the page.
 1. **The close circle is leading.** A `CircleButton("xmark")` labelled "Close", or "Cancel" when closing discards what was typed
    (as today), or "Done" for a sheet that has nothing to discard and calls it so (Details). Always the sheet's dismissal; the caller's
    `onClose` asks first when work would be lost.
-2. **The title is centred**, `callout` `textPrimary`, header trait, between slots of equal width (`SheetHeaderLayout`); under the
-   row, centred, when it would be narrower than 120 pt (AX sizes).
+2. **The title is centred**, `callout` `textPrimary`, header trait, between slots of equal width (`SheetHeaderLayout`); below AX1
+   under the row, centred, when it would be narrower than 120 pt (a wide pill at XXXL). **From AX1 the header stacks as
+   `PushedHeader` does** (one header everywhere, part 2): the close circle and the trailing slot on the first 40 pt row; 12 below
+   them the title from the leading inset, across the width, wrapping, never squeezed between the circles; VoiceOver in the order
+   drawn (Close, the trailing slot, the title). Below AX1 VoiceOver reads the title first.
 3. **The trailing slot is empty, one `CircleButton` or `CircleMenu`, or the commit**: a compact primary `PillButton`
    ("Save", "Add", "Done"). Never a second dismissal.
 4. **Where the commit lives.** A sheet whose job is a short form with a keyboard puts its commit in the header (Add activity,

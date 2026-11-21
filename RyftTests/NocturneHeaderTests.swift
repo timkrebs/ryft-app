@@ -108,7 +108,7 @@ struct NocturneHeaderTests {
     private static let leadingBox: CGFloat = SubpageSpec.sidePadding - ScreenHeaderSpec.buttonOverhang
     private static let trailingBox: CGFloat = 390 - leadingBox
 
-    @Test("A C sheet (Sleep need): Close leading, the title centred and read first, the header pinned while the page scrolls",
+    @Test("A C sheet (Sleep need): Close leading, the title centred (from AX1 under it), the header pinned while the page scrolls",
           arguments: Self.sizes)
     func sheetRoot(_ ax: Bool) async throws {
         let screen = SleepNeedShotScreen("sleep-need")
@@ -124,11 +124,21 @@ struct NocturneHeaderTests {
             #expect(abs(close.frame.minY - top - (SubpageSpec.sheetTopInset - ScreenHeaderSpec.buttonOverhang)) < 1,
                     "26 below the sheet's top edge: \(close.frame), top \(top)")
             #expect(title.traits.contains(.header))
-            #expect(abs(title.frame.midX - 195) < 1 && abs(title.frame.midY - close.frame.midY) < 1.5,
-                    "the title centred on Close's row: \(title.frame) \(close.frame)")
-            #expect(!w.nodes().contains { $0.identifier == "subpage.back" }, "a sheet's root has no Back")
             let order = w.nodes().map(\.label)
-            #expect((order.firstIndex(of: "Sleep need") ?? .max) < (order.firstIndex(of: "Close") ?? -1), "\(order)")
+            let at = { (label: String) in order.firstIndex(of: label) ?? .max }
+            if ax {
+                // D4 rule 2, as PushedHeader: Close on the first row, the title 12 under it, from the inset, across the width.
+                #expect(abs(title.frame.minY - (close.frame.maxY - ScreenHeaderSpec.buttonOverhang) - SubpageSpec.stackedGap) < 1.5,
+                        "the title 12 under the buttons' row: \(title.frame) \(close.frame)")
+                #expect(abs(title.frame.minX - SubpageSpec.sidePadding) < 1 && title.frame.maxX <= 390 - SubpageSpec.sidePadding + 0.5,
+                        "from the inset, inside it: \(title.frame)")
+                #expect(at("Close") < at("Sleep need"), "read as drawn: \(order)")
+            } else {
+                #expect(abs(title.frame.midX - 195) < 1 && abs(title.frame.midY - close.frame.midY) < 1.5,
+                        "the title centred on Close's row: \(title.frame) \(close.frame)")
+                #expect(at("Sleep need") < at("Close"), "the title first: \(order)")
+            }
+            #expect(!w.nodes().contains { $0.identifier == "subpage.back" }, "a sheet's root has no Back")
 
             let scroll = try #require(w.pageScrollView(), "the page's scroll view")
             let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
@@ -146,6 +156,49 @@ struct NocturneHeaderTests {
                     "the page scrolls under the header, not over it")
         }
         await screen.finish()
+    }
+
+    /// B's form sheets (Add activity): Cancel leading and Save trailing on one row; the title centred between them below AX1,
+    /// and from AX1 12 under the row from the inset, across the width, read after the buttons (D4 rule 2, the part 1
+    /// validation's m-x3/m-y3: a title squeezed between the circles at AX3).
+    @Test("A sheet header with a commit: one row at the default size; from AX1 the title under Cancel and Save", arguments: Self.sizes)
+    func sheetHeaderWithACommit(_ ax: Bool) async throws {
+        let header = SheetHeader(Text(verbatim: "Maximum heart rate"), closeLabel: Text(verbatim: "Cancel"), onClose: {}) {
+            PillButton(Text(verbatim: "Save"), size: .compact) {}
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .accessibilityIdentifier("test.save")
+        }
+        .padding(.horizontal, SheetHeaderSpec.sidePadding)
+        .padding(.top, SheetHeaderSpec.topInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.background)
+        try await run(ax, height: 600, header) { w in
+            try await w.wait("the header") { w.nodes().contains { $0.identifier == "test.save" } }
+            try await w.settle()
+            let close = try node(w, id: "sheet.close"), save = try node(w, id: "test.save")
+            let title = try node(w, "Maximum heart rate")
+            #expect(close.label == "Cancel" && abs(close.frame.minX - Self.leadingBox) < 1, "Cancel leads: \(close.frame)")
+            #expect(abs(save.frame.maxX - (390 - SheetHeaderSpec.sidePadding)) < 1, "Save trails: \(save.frame)")
+            #expect(abs(close.frame.midY - save.frame.midY) < 1, "one row of buttons: \(close.frame) \(save.frame)")
+            let order = w.nodes().map(\.label)
+            let at = { (label: String) in order.firstIndex(of: label) ?? .max }
+            if ax {
+                // The row: 40, or the pill's 44 pt box when it is taller.
+                let row = max(close.frame.maxY - ScreenHeaderSpec.buttonOverhang, save.frame.maxY)
+                #expect(abs(title.frame.minY - row - SheetHeaderSpec.accessibilityStackedGap) < 1.5, "12 under the row: \(title.frame), row \(row)")
+                #expect(abs(title.frame.minX - SheetHeaderSpec.sidePadding) < 1, "from the inset: \(title.frame)")
+                // Wider than the row would leave it between Cancel and Save: not squeezed.
+                let between = 390 - 2 * SheetHeaderSpec.sidePadding - 2 * (save.frame.width + SheetHeaderSpec.minGap)
+                #expect(title.frame.maxX <= 390 - SheetHeaderSpec.sidePadding + 0.5 && title.frame.width > between,
+                        "across the width, not between the buttons: \(title.frame), \(between) between them")
+                #expect(at("Cancel") < at("Save") && at("Save") < at("Maximum heart rate"), "read as drawn: \(order)")
+            } else {
+                #expect(abs(title.frame.midY - close.frame.midY) < 1.5, "the title on the buttons' row: \(title.frame)")
+                #expect(abs(title.frame.midX - 195) < 1 && title.frame.minX > close.frame.maxX && title.frame.maxX < save.frame.minX,
+                        "centred between them: \(title.frame)")
+                #expect(at("Maximum heart rate") < at("Cancel") && at("Cancel") < at("Save"), "the title first: \(order)")
+            }
+        }
     }
 
     @Test("A pushed C page (Devices & sync): Back leading, the title centred; from AX1 under the buttons' row, from the inset",

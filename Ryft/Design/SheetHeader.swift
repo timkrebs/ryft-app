@@ -16,19 +16,24 @@ enum SheetHeaderSpec {
     static let sidePadding = Theme.Metrics.screenPadding
     /// The least room between the title and either slot.
     static let minGap = ScreenHeaderSpec.minGap
-    /// The title keeps its place between the slots while it has at least this; with less (a wide pill at AX3) it goes on
-    /// its own line under them, centred.
+    /// Below AX1 the title keeps its place between the slots while it has at least this; with less (a wide pill at XXXL) it
+    /// goes on its own line under them, centred.
     static let minTitleWidth: CGFloat = 120
-    /// The buttons' row → the title under it.
+    /// Below AX1, the buttons' row → the title centred under it when the slots squeeze it.
     static let stackedGap: CGFloat = 8
+    /// From AX1, the buttons' row → the title under it, from the leading inset: `PushedHeader`'s (C §2.9).
+    static let accessibilityStackedGap = SubpageSpec.stackedGap
 }
 
 /// `SheetHeader(Text("Add activity")) { PillButton(Text("Save"), size: .compact) { … } }`. The close circle says "Close", or
 /// the caller's label ("Cancel" when closing discards what was typed); `onClose` is the caller's (a sheet that discards asks
 /// first), or `dismiss` when nil. The title is `callout` (15) `textPrimary`, a header for VoiceOver, which reads it first,
-/// then the close circle, then the trailing slot. A compact pill in the slot keeps its one line: cap the slot's type at
-/// `.xxLarge` where it would crowd the title, as `PillButton.compact` says. A `CircleButton` in the slot takes
-/// `.headerEdgeButton()`, so its circle's edge, not its tap box's, is on the inset.
+/// then the close circle, then the trailing slot. From AX1 it stacks as `PushedHeader` does (Nocturne gate D4 rule 2): the
+/// close circle and the trailing slot on the first 40 pt row, 12 under it the title from the leading inset across the whole
+/// width, wrapping, never squeezed between the circles; VoiceOver then reads them as drawn: the close circle, the trailing
+/// slot, the title. A compact pill in the slot keeps its one line: cap the slot's type at `.xxLarge` where it would crowd
+/// the title, as `PillButton.compact` says. A `CircleButton` in the slot takes `.headerEdgeButton()`, so its circle's edge,
+/// not its tap box's, is on the inset.
 ///
 /// The close circle, when the sheet needs it otherwise (each a modifier on the header; the default is unchanged):
 /// `.closeHidden()` for a sheet whose commit is its only way out (Reorder: every move is made at once, so a close beside
@@ -44,6 +49,7 @@ struct SheetHeader<Trailing: View>: View {
     private var closeID = "sheet.close"
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: Text, closeLabel: Text? = nil, onClose: (() -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -53,30 +59,66 @@ struct SheetHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        SheetHeaderLayout(minHeight: SheetHeaderSpec.height, minGap: SheetHeaderSpec.minGap) {
-            if closeIsHidden {
-                // The empty leading slot: the title stays centred on the trailing slot's width.
-                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
-            } else {
-                CircleButton(systemImage: "xmark", accessibilityLabel: closeLabel) {
-                    if let onClose { onClose() } else { dismiss() }
-                }
-                .headerEdgeButton()
-                .disabled(closeIsDisabled)
-                .accessibilityIdentifier(closeID)
-                .accessibilitySortPriority(1)
+        if typeSize.isAccessibilitySize {
+            stacked
+        } else {
+            SheetHeaderLayout(minHeight: SheetHeaderSpec.height, minGap: SheetHeaderSpec.minGap) {
+                closeSlot
+                    .accessibilitySortPriority(1)
+                titleText(.center)
+                    .accessibilitySortPriority(2)
+                // One subview however many (or few) views the slot holds.
+                trailingSlot
             }
-            title
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textPrimary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilitySortPriority(2)
-            // One subview however many (or few) views the slot holds.
-            HStack(spacing: SubpageSpec.trailingSpacing) { trailing }
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    /// From AX1 (D4 rule 2, as `PushedHeader`): the close circle and the trailing slot on the first 40 pt row, 12 under it
+    /// the title from the leading inset across the width. No sort priorities: VoiceOver reads in the order drawn.
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: SheetHeaderSpec.accessibilityStackedGap) {
+            // A header with neither a close circle nor a trailing view (a stack's root) has no row to draw.
+            if !(closeIsHidden && Trailing.self == EmptyView.self) {
+                HStack(spacing: 0) {
+                    closeSlot
+                    Spacer(minLength: SheetHeaderSpec.minGap)
+                    trailingSlot
+                }
+                .frame(minHeight: SheetHeaderSpec.height)
+            }
+            titleText(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// The close circle laid out as its 40 pt circle, or, hidden, the empty leading slot (below AX1 the title stays centred
+    /// on the trailing slot's width).
+    @ViewBuilder private var closeSlot: some View {
+        if closeIsHidden {
+            Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+        } else {
+            CircleButton(systemImage: "xmark", accessibilityLabel: closeLabel) {
+                if let onClose { onClose() } else { dismiss() }
+            }
+            .headerEdgeButton()
+            .disabled(closeIsDisabled)
+            .accessibilityIdentifier(closeID)
+        }
+    }
+
+    private var trailingSlot: some View {
+        HStack(spacing: SubpageSpec.trailingSpacing) { trailing }
+    }
+
+    private func titleText(_ alignment: TextAlignment) -> some View {
+        title
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textPrimary)
+            .multilineTextAlignment(alignment)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -114,7 +156,7 @@ extension SheetHeader where Trailing == EmptyView {
 /// of the two slots on both sides, so it stays centred under the grabber when the slots differ (a 40 pt circle against a
 /// 70 pt "Save"). Everything is centred vertically; the row is at least `minHeight`. When that leaves the centre less than
 /// `minTitleWidth`, the slots keep their row and the centre goes under it, as wide as the row. Three subviews: leading,
-/// centre, trailing.
+/// centre, trailing. The headers use it below AX1 only; from AX1 they stack (`SheetHeader.stacked`, `PushedHeader`).
 struct SheetHeaderLayout: Layout {
     let minHeight: CGFloat
     let minGap: CGFloat
