@@ -202,8 +202,9 @@ sessions. Completing a workout returns a demo load, strain and PRs.
 sets → kill → resume → finish) runs on the `RyftUITests` scheme. It finds the app by bundle
 ID; to use `XCUIApplication()`, set the target's *Target Application* to Ryft in Xcode.
 
-`scripts/screenshots.sh ["iPhone 17 Pro"]` builds the app, launches each tab in both
-colour schemes and writes PNGs to `docs/screenshots/`.
+`scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario …]` builds the app, launches
+each tab (or Debug screen, or Today scenario) in demo mode, dark and in English, and writes PNGs
+to `docs/screenshots/`.
 
 ### Against a local platform (compose, `AUTH_MODE=apikey`)
 
