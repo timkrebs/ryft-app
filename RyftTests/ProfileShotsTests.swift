@@ -80,9 +80,10 @@ struct ProfileShotGraph {
         _ = await eventually { !screens.profile.withdrawingConsent }
     }
 
-    static func make(_ name: String) async throws -> ProfileShotGraph {
+    /// `clock`: the signed-in graph's (a test that holds a withdrawal passes one that stands still).
+    static func make(_ name: String, clock: AppClock = SystemClock()) async throws -> ProfileShotGraph {
         switch name {
-        case "signed-in": return graph(demo: false, signedIn: true, lastSync: .now)
+        case "signed-in": return graph(demo: false, signedIn: true, lastSync: .now, clock: clock)
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         case "demo": return graph(demo: true, signedIn: true, provider: "apple")
         case "signed-out": return graph(demo: true, signedIn: false)
@@ -103,8 +104,9 @@ struct ProfileShotGraph {
             _ = g.screens.profile.switchingDemoOff()
             return g
         case "withdrawing":
-            // D6: the confirmation's Withdraw consent tapped, the request on its way: Demo data and Log out held.
-            var g = graph(demo: false, signedIn: true, lastSync: .now)
+            // D6: the confirmation's Withdraw consent tapped, the request on its way: Demo data and Log out held. On a
+            // clock that stands still, so the hold outlasts `SettingsWrite.deadline` (25 s) however long the shots take.
+            var g = graph(demo: false, signedIn: true, lastSync: .now, clock: TestClock(now: .now))
             let gate = Gate()
             g.withdrawal = gate
             let api = try #require(g.state.env.api as? MockPlatformAPI)
@@ -122,7 +124,7 @@ struct ProfileShotGraph {
     private static func graph(demo: Bool, signedIn: Bool, provider: String = "email", lastSync: Date? = nil,
                               health: MockHealthStore = MockHealthStore(),
                               api: MockPlatformAPI = MockPlatformAPI(activities: .demoSource()),
-                              rig: DemoTrainRig? = nil) -> ProfileShotGraph {
+                              rig: DemoTrainRig? = nil, clock: AppClock = SystemClock()) -> ProfileShotGraph {
         let suite = "ryft.test.profile-shots.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let settings = Settings(defaults: defaults)
@@ -137,7 +139,7 @@ struct ProfileShotGraph {
                                postAppleAuthorization: { _ in })
         let env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: api,
                                  auth: auth, persistence: TrainStore(inMemory: true),
-                                 clock: SystemClock(), notifier: MockNotifier(),
+                                 clock: clock, notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true, .trainImport: true]),
                                  connectivity: .preview(online: true), defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }

@@ -29,6 +29,10 @@ struct ProfileWithdrawalHoldTests {
 
     nonisolated static let b = UUID(uuidString: "0000000B-0000-4000-8000-0000000000F2") ?? UUID()
 
+    /// A clock that stands still: a held withdrawal outlasts `SettingsWrite.deadline` (25 s, S-2) and a held re-check its
+    /// timeout, however long the renders take on a loaded Mac.
+    private static func stoppedClock() -> TestClock { TestClock(now: .now) }
+
     /// What the model handed VoiceOver, in order.
     @MainActor
     private final class Spoken {
@@ -136,7 +140,7 @@ struct ProfileWithdrawalHoldTests {
     @Test("Withdrawing: Demo data and Log out held with the reason, taps do nothing; live again and announced once RYFT confirms",
           .timeLimit(.minutes(2)))
     func heldUntilConfirmed() async throws {
-        let graph = try await ProfileShotGraph.make("signed-in")
+        let graph = try await ProfileShotGraph.make("signed-in", clock: Self.stoppedClock())
         defer { graph.tearDown() }
         let api = try #require(graph.state.env.api as? MockPlatformAPI)
         let gate = Gate()
@@ -175,9 +179,40 @@ struct ProfileWithdrawalHoldTests {
         }
     }
 
+    @Test("Live again and announced as soon as the withdrawal is recorded, while its re-check is still out (N-3)",
+          .timeLimit(.minutes(2)))
+    func liveOnceRecorded() async throws {
+        let graph = try await ProfileShotGraph.make("signed-in", clock: Self.stoppedClock())
+        defer { graph.tearDown() }
+        let api = try #require(graph.state.env.api as? MockPlatformAPI)
+        let check = Gate()
+        let profile = graph.screens.profile
+        let onboarding = graph.screens.onboarding
+        let spoken = Spoken()
+        profile.announce = { spoken.lines.append($0) }
+        try await HostedWindow.run(width: 390, height: Self.height, graph.view) { w in
+            try await w.settle()
+            let asked = api.count("me")
+            // The re-check takes its time: its `GET /v1/me` waits here.
+            api.beforeMeRead = { await check.wait() }
+            let withdrawing = Task { await profile.withdrawConsent() }
+            #expect(await eventually { api.count("revokeConsent") == 1 && api.count("me") > asked }, "recorded; the re-check is out")
+            #expect(onboarding.isWithdrawing, "the withdrawal still runs: its re-check is held")
+            try await w.wait("live") { find(w, Self.logOut)?.isEnabled == true }
+            try await w.settle()
+            try await expectLive(w)
+            #expect(spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement], "\(spoken.lines)")
+            #expect(w.node(String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.")) == nil)
+
+            await check.open()
+            await withdrawing.value
+            #expect(!onboarding.isWithdrawing && spoken.lines.count == 1)
+        }
+    }
+
     @Test("A failed withdrawal: live again, the failure under Privacy, nothing announced", .timeLimit(.minutes(2)))
     func liveAgainAfterAFailure() async throws {
-        let graph = try await ProfileShotGraph.make("signed-in")
+        let graph = try await ProfileShotGraph.make("signed-in", clock: Self.stoppedClock())
         defer { graph.tearDown() }
         let api = try #require(graph.state.env.api as? MockPlatformAPI)
         let gate = Gate()

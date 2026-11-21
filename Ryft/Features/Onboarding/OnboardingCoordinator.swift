@@ -566,9 +566,11 @@ final class OnboardingCoordinator {
     /// last word on the platform and on this phone, and Profile shows its failure (security review N-B). A sign-out or
     /// another account meanwhile ends it unsent: A's withdrawal never goes out with B's session. A second one while
     /// this one is on its way sends nothing (Profile's row is busy). It fails fast (`revokeFailingFast`): Profile holds
-    /// Demo data and Log out meanwhile, for seconds, not for a request's 5 minutes.
+    /// Demo data and Log out meanwhile, for seconds, not for a request's 5 minutes. `onRecorded` runs once the platform's
+    /// answer is recorded on this phone, before the re-check (Profile's hold ends then, and VoiceOver hears it, security
+    /// review N-3); true is returned only after the re-check.
     @discardableResult
-    func withdrawConsent() async -> Bool {
+    func withdrawConsent(onRecorded: @MainActor () -> Void = {}) async -> Bool {
         guard !isWithdrawing else { return false }
         isWithdrawing = true
         let started = turn
@@ -588,6 +590,7 @@ final class OnboardingCoordinator {
             // Asked again only when the user wants to (Profile → Privacy, Today's action). Not a read already in
             // flight: it may have been answered before the withdrawal.
             self.deferred.insert(.consent)
+            onRecorded()
             await self.check(force: true, changedSince: revokedAt)
         } message: { _ in nil }
     }

@@ -123,6 +123,30 @@ struct WithdrawalHoldModelTests {
         #expect(!g.auth.isSignedIn, "live again: Log out logs out")
     }
 
+    // MARK: N-3: it ends when the answer is recorded
+
+    @Test("The hold ends once the withdrawal is recorded, while its re-check is still out: Log out works, VoiceOver heard it",
+          .timeLimit(.minutes(1)))
+    func holdEndsWhenRecorded() async throws {
+        let g = Graph()
+        await g.onboarding.check()
+        let asked = g.api.count("me")
+        let check = Gate()
+        g.api.beforeMeRead = { await check.wait() }
+
+        let withdrawing = Task { await g.profile.withdrawConsent() }
+        #expect(await eventually { g.api.count("revokeConsent") == 1 && g.api.count("me") > asked }, "recorded; the re-check is out")
+        #expect(g.onboarding.isWithdrawing, "the withdrawal still runs: its re-check is held")
+        #expect(!g.profile.withdrawingConsent && g.state.user?.consent == nil, "released with the recording")
+        #expect(g.spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement], "heard as it was released: \(g.spoken.lines)")
+        await g.profile.logOut()
+        #expect(!g.auth.isSignedIn, "live: the withdrawal is on the platform and on this phone")
+
+        await check.open()
+        await withdrawing.value
+        #expect(g.api.count("revokeConsent") == 1 && g.spoken.lines.count == 1)
+    }
+
     // MARK: S-2: it fails fast, so the hold lasts seconds
 
     static let noConnection = "No connection. Check your internet and try again."

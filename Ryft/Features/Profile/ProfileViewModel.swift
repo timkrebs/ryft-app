@@ -270,11 +270,13 @@ final class ProfileViewModel {
         return String(localized: "Agreed on \(Fmt.date(c.grantedAt)) · policy \(c.policyVersion)")
     }
 
-    /// From the confirmation until the platform answered, a wait for a step's request included. Meanwhile the Demo data
-    /// switch and Log out are held (D6, security review N-2): either ends the withdrawal unsent (another platform, or no
-    /// session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, a failure, or an account
-    /// change that ended it unsent.
-    var withdrawingConsent: Bool { onboarding?.isWithdrawing ?? false }
+    /// From the confirmation until the platform's answer is recorded, a wait for a step's request included. Meanwhile the
+    /// Demo data switch and Log out are held (D6, security review N-2): either ends the withdrawal unsent (another platform,
+    /// or no session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, as soon as it is
+    /// recorded (the consent gone from the account: `storeConsentWithdrawn`), not after the re-check that follows (security
+    /// review N-3); or with a failure, or an account change that ended it unsent. A withdrawal starts only from a current
+    /// consent (`ProfileRows`), so the consent is there until it is recorded.
+    var withdrawingConsent: Bool { (onboarding?.isWithdrawing ?? false) && state.user?.consent != nil }
     var consentError: String? { onboarding?.errorMessage }
     /// Status and request ID of `consentError`, behind its Details.
     var consentErrorDetails: String? { onboarding?.errorDetails }
@@ -296,11 +298,11 @@ final class ProfileViewModel {
     @ObservationIgnored var announce: @MainActor (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
 
     /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted. Never dropped: it waits for a step's request
-    /// still out, and a failure shows under Privacy (`consentError`). Confirmed, VoiceOver is told; a failure or an
-    /// account change that ended it unsent says nothing here.
+    /// still out, and a failure shows under Privacy (`consentError`). Confirmed, VoiceOver is told, as the hold ends (the
+    /// answer recorded, before the re-check: security review N-3); a failure or an account change that ended it unsent
+    /// says nothing here.
     func withdrawConsent() async {
-        guard await onboarding?.withdrawConsent() == true else { return }
-        announce(Self.consentWithdrawnAnnouncement)
+        await onboarding?.withdrawConsent(onRecorded: { [self] in announce(Self.consentWithdrawnAnnouncement) })
     }
 
     /// The consent screen, again.
