@@ -63,8 +63,6 @@ enum StrainLayout {
 
     /// The stat tiles: two columns.
     nonisolated static let statColumns = 2
-    /// The header's centre: the sport → the time range under it.
-    nonisolated static let headerSubtitleGap: CGFloat = 2
     /// Strain's header → the shown day's date under it ("Mon 16 Nov"), on another day than today.
     nonisolated static let dateLineGap: CGFloat = 2
     /// The heart-rate card: the card radius, 22 (`Theme.Metrics.neutralTileRadius`), padding 14 / 16 / 14; the chart 150 high,
