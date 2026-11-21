@@ -25,11 +25,12 @@ struct ProfileShotsTests {
                 let data = try #require(image.pngData())
                 try data.write(to: URL(fileURLWithPath: "\(dir)/profile-\(name)-\(size).png"))
             }
+            await graph.releaseWithdrawal()
             graph.tearDown()
         }
     }
 
-    nonisolated static let names = ["signed-in", "demo", "signed-out", "sync-issue", "demo-exit-error"]
+    nonisolated static let names = ["signed-in", "demo", "signed-out", "sync-issue", "demo-exit-error", "withdrawing"]
 }
 
 /// Thrown by a Train store that can't be read: the demo exit's refusal (review R12).
@@ -46,6 +47,10 @@ struct ProfileShotGraph {
     let screens: ScreenModels
     /// Kept alive for the demo-exit state: its coordinator is the one Profile asks.
     let rig: DemoTrainRig?
+    /// The session's client: a test signs another account in through it.
+    let client: MockAuthClient
+    /// The "withdrawing" state's `DELETE /v1/me/consent`, held open until `releaseWithdrawal()`.
+    var withdrawal: Gate?
 
     var view: AnyView {
         AnyView(ProfileView()
@@ -66,6 +71,13 @@ struct ProfileShotGraph {
 
     func tearDown() {
         state.env.defaults.removePersistentDomain(forName: suite)
+    }
+
+    /// Lets the held withdrawal answer and waits until Profile says so (nothing to do for the other states).
+    func releaseWithdrawal() async {
+        guard let withdrawal else { return }
+        await withdrawal.open()
+        _ = await eventually { !screens.profile.withdrawingConsent }
     }
 
     static func make(_ name: String) async throws -> ProfileShotGraph {
@@ -90,6 +102,18 @@ struct ProfileShotGraph {
             rig.sync.fetchSessions = { _, _ in throw UnreadableStore() }
             _ = g.screens.profile.switchingDemoOff()
             return g
+        case "withdrawing":
+            // D6: the confirmation's Withdraw consent tapped, the request on its way: Demo data and Log out held.
+            var g = graph(demo: false, signedIn: true, lastSync: .now)
+            let gate = Gate()
+            g.withdrawal = gate
+            let api = try #require(g.state.env.api as? MockPlatformAPI)
+            api.beforeRevokeConsent = { await gate.wait() }
+            let profile = g.screens.profile
+            Task { await profile.withdrawConsent() }
+            let held = await eventually { profile.withdrawingConsent }
+            try #require(held, "the withdrawal is on its way")
+            return g
         default:
             throw UnreadableStore()
         }
@@ -106,7 +130,8 @@ struct ProfileShotGraph {
         // Apple Health's last good upload: "up to date" needs one.
         settings.lastSync = lastSync
         // `AuthService.preview`'s session in the graph's own defaults: a sign-out here leaves nothing for other suites.
-        let auth = AuthService(client: MockAuthClient(session: signedIn ? .preview(provider: provider) : nil), defaults: defaults,
+        let client = MockAuthClient(session: signedIn ? .preview(provider: provider) : nil)
+        let auth = AuthService(client: client, defaults: defaults,
                                wipeLocalData: { _ in true },
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
@@ -128,7 +153,8 @@ struct ProfileShotGraph {
                                    library: TrainPreview.library, apiStatus: APIStatus(), train: rig?.coordinator)
         // The policy in force is the demo account's: its consent is current.
         sync.gate = { nil }
-        return ProfileShotGraph(suite: suite, state: state, settings: settings, sync: sync, screens: screens, rig: rig)
+        return ProfileShotGraph(suite: suite, state: state, settings: settings, sync: sync, screens: screens, rig: rig,
+                                client: client)
     }
 
     private static func heartRate(_ n: Int) -> HealthDelta {
