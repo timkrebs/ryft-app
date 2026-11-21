@@ -40,9 +40,13 @@ struct ActivitiesNocturneRuleTests {
         }
     }
 
+    /// At 10:00 by the env's clock: the default hour and the half hour after its start are behind it. On the wall clock in
+    /// the half hour after midnight the default starts at midnight, and its start plus 30 minutes ends in the future.
     @Test func saveStaysOffUntilTheFormIsValid() {
-        let state = ActivitiesShotFixtures.state()
-        let model = AddActivityModel(env: state.env, day: .now)
+        let ten = Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: .now) ?? .now
+        let env = AppEnvironment.test(clock: TestClock(now: ten), flags: [.todayMyDay: true, .activitiesManual: true])
+        let model = AddActivityModel(env: env, day: ten)
+        #expect(model.start == ten.addingTimeInterval(-3_600) && model.end == ten, "09:00 to 10:00")
         #expect(model.canSave, "the default hour is valid")
         model.end = model.start.addingTimeInterval(-60)
         #expect(!model.canSave && model.issues.contains(.endBeforeStart))
