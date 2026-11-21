@@ -354,6 +354,10 @@ circle **trailing**, scrolling with the page.
 `SubpageHeader`. `SubpageNavigation.close`'s doc says so. The trailing slot of the scaffold (`trailing:`) is what `SheetHeader`'s
 trailing is. `SheetFrame` is unchanged.
 
+**Superseded in part by the user's call (DG-6, `plan.md`, 2026-11-21): one header everywhere.** Pushed pages
+(`.back`) draw `PushedHeader`'s row (Back leading, title centred). `.backAndClose` draws Back, the centred title, then
+the caller's circles and Close trailing. `SubpageHeader` is deleted.
+
 **Why.** HIG for iOS 26–27 sheets puts the dismissal leading and the confirmation trailing; B's header already does and is
 keyboard-proof. "Numbers first" says the page's own first line should be its numeral, not a 26-pt title competing with it (Sleep
 need opens on an 8:18 numeral; the draft shows both). C's 26-pt title is the *page* look (Back, big title); a sheet root is not a

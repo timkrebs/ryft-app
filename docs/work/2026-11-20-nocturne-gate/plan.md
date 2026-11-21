@@ -107,3 +107,13 @@ part builds this on `feat/nocturne-gate-g2` after G1 and G2 are merged (f51a7fa)
   it needs a security review.
 - **Found:** `ActivitiesNocturneRuleTests/saveStaysOffUntilTheFormIsValid` fails between 00:00 and 00:30. The form's
   start is midnight and its end lies in the future. A `test:` fix (inject the clock) goes into the follow-ups PR.
+
+## Part 1 and part 2 (2026-11-21)
+To fit a merge window the gate ships in two PRs:
+- **Part 1** (this branch): G1, G2 with the one header, G3, the strings pass, and the `ConsentTrainTests` platform fix.
+- **Part 2:** G4 (delete the tokens, `AccentColor`, the lint's widened scope, light previews), G5 (the remaining unit keys
+  and sentence keys), and G6 (the screenshots).
+
+The 16:00 grant ran out before part 1 was ready. #132 was merged in time; part 1 waits for the user's go.
+Also for part 2: `sync-strings.py` extracts the sample VoiceOver values in `#Preview` bodies (its docstring says it
+skips them). Decide whether to fix the script or the docstring.
