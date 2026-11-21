@@ -249,51 +249,27 @@ struct NocturneGateAXTests {
         }
     }
 
-    // MARK: D5: Report a problem's bar with the keyboard up
+    // MARK: D5: Report a problem's bar while the message has focus
 
-    /// The keyboard's frame in screen points, as UIKit last announced it (`.zero` before it shows). `stop()` when done.
-    @MainActor
-    private final class KeyboardWatch {
-        private(set) var frame: CGRect = .zero
-        private var token: NSObjectProtocol?
-
-        init() {
-            token = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil,
-                                                           queue: .main) { [weak self] note in
-                let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue ?? .zero
-                MainActor.assumeIsolated { self?.frame = end }
-            }
-        }
-
-        func stop() {
-            if let token { NotificationCenter.default.removeObserver(token) }
-            token = nil
-        }
-    }
+    // A hosted window shows no software keyboard (its frame stays `.zero`), so these checks are the bar's layout while the
+    // message has focus; that Done and Send ride above a real keyboard is `RyftUITests/NocturneGateKeyboardUITests`' proof.
 
     /// The message's text view (a vertical `TextField` is a `UITextView`).
     private static func messageField(_ w: HostedWindow) throws -> UITextView {
         try #require(views(UITextView.self, in: w.window).first, "the message's text view")
     }
 
-    /// The part of the window the keyboard leaves: above its top, or the whole window while none shows.
-    private static func uncovered(_ w: HostedWindow, keyboard: CGRect) -> CGRect {
-        let top = keyboard.height > 0 ? w.window.convert(keyboard, from: nil).minY : w.window.bounds.maxY
-        return CGRect(x: 0, y: 0, width: w.window.bounds.width, height: min(top, w.window.bounds.maxY))
-    }
-
     private func reportPage() -> AnyView {
         SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data) }
     }
 
-    @Test("D5: with the message focused the bar is Done · Send, equal and 12 apart, above the keyboard; Done closes it")
+    @Test("D5: with the message focused the bar is Done · Send, equal and 12 apart, inside the window; Done ends the focus")
     func reportBarWhileTyping() async throws {
         try await run(Self.standard, reportPage()) { w in
             try await w.wait("the form") { has(w, id: "report.send") }
             try await w.settle()
             #expect(!has(w, id: "report.done"), "no Done without focus")
             let alone = try node(w, id: "report.send").frame
-            let keyboard = KeyboardWatch()
             let field = try Self.messageField(w)
             w.window.makeKey()
             #expect(field.becomeFirstResponder(), "the message takes focus")
@@ -306,25 +282,22 @@ struct NocturneGateAXTests {
             #expect(abs(done.frame.minY - send.frame.minY) < 0.5, "one row")
             #expect(abs(done.frame.minX - alone.minX) < 0.5 && abs(send.frame.maxX - alone.maxX) < 0.5, "the row spans Send's width")
             #expect(done.isEnabled && send.isEnabled)
-            let free = Self.uncovered(w, keyboard: keyboard.frame)
-            #expect(free.contains(send.frame) && free.contains(done.frame), "clear of the keyboard \(keyboard.frame): \(send.frame) \(done.frame)")
+            #expect(w.window.bounds.contains(send.frame) && w.window.bounds.contains(done.frame), "inside the window: \(send.frame) \(done.frame)")
             #expect(done.label == "Done" && !done.traits.contains(.notEnabled))
             #expect(done.activate(), "Done is a button")
-            try await w.wait("the keyboard closed") { !field.isFirstResponder }
+            try await w.wait("the focus ended") { !field.isFirstResponder }
             try await w.wait("Send alone") { !has(w, id: "report.done") }
             try await w.settle()
             #expect(try node(w, id: "report.send").frame.width > send.frame.width, "Send full width again")
             #expect(field.text == SubpageShotScreen.message, "what was typed stays")
-            keyboard.stop()
         }
     }
 
-    @Test("D5 at AX3: Send above Done, 8 apart, both 44 or more, inside the window above the keyboard")
+    @Test("D5 at AX3: Send above Done, 8 apart, both 44 or more, inside the window")
     func reportBarWhileTypingAtAX3() async throws {
         try await run(Self.ax3, reportPage()) { w in
             try await w.wait("the form") { has(w, id: "report.send") }
             try await w.settle()
-            let keyboard = KeyboardWatch()
             let field = try Self.messageField(w)
             w.window.makeKey()
             #expect(field.becomeFirstResponder(), "the message takes focus")
@@ -336,10 +309,8 @@ struct NocturneGateAXTests {
             for pill in [send, done] {
                 #expect(pill.frame.width >= Theme.Metrics.minHitTarget && pill.frame.height >= Theme.Metrics.minHitTarget, "\(pill.label) \(pill.frame)")
             }
-            let free = Self.uncovered(w, keyboard: keyboard.frame)
-            #expect(free.contains(send.frame) && free.contains(done.frame), "clear of the keyboard \(keyboard.frame): \(send.frame) \(done.frame)")
+            #expect(w.window.bounds.contains(send.frame) && w.window.bounds.contains(done.frame), "inside the window: \(send.frame) \(done.frame)")
             _ = field.resignFirstResponder()
-            keyboard.stop()
         }
     }
 }
