@@ -131,11 +131,12 @@ final class SideSwitch: @unchecked Sendable {
 }
 
 /// A library and its outbox on one in-memory store, answered by the side `sides` has switched to; `reads`: the app's read
-/// pipeline (`env.reads`), or none.
+/// pipeline (`env.reads`), or none. The paused plan's id is kept in `defaults`, the rig's own suite.
 @MainActor
 struct TrainSides {
     let sides: SideSwitch
     let store = TrainStore(inMemory: true)
+    let defaults = UserDefaults.isolated()
     let outbox: TrainSyncService
     let library: TrainLibrary
 
@@ -145,7 +146,7 @@ struct TrainSides {
         let outbox = TrainSyncService(store: store, remote: { sides.source }, owner: { sides.owner }, monitorsNetwork: false)
         outbox.gate = { _ in nil }
         self.outbox = outbox
-        library = TrainLibrary(store: store, remote: { sides.source }, outbox: { outbox }, restore: false)
+        library = TrainLibrary(store: store, remote: { sides.source }, outbox: { outbox }, restore: false, defaults: defaults)
         library.reads = reads
     }
 

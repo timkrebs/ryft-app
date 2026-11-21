@@ -184,29 +184,37 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func theViewModelBuildsTheTileFromTheLibrary() {
-        TrainShotFixtures.withPausedPlan(nil) {
-            let active = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog()))
-            #expect(active.tile?.state == .active)
-            #expect(active.tile?.nextText == "Next: Upper A" && active.tile?.weekText == "Week 6")
-            #expect(active.builtinRows.first { $0.id == MockTrain.upperLower.id }?.row.filledDisc == true)
-            #expect(active.hasCatalog && !active.isLoading && !active.isOffline)
+        let active = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog()))
+        #expect(active.tile?.state == .active)
+        #expect(active.tile?.nextText == "Next: Upper A" && active.tile?.weekText == "Week 6")
+        #expect(active.builtinRows.first { $0.id == MockTrain.upperLower.id }?.row.filledDisc == true)
+        #expect(active.hasCatalog && !active.isLoading && !active.isOffline)
 
-            let none = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false, mine: false)))
-            #expect(none.tile == nil && none.mineRows.isEmpty)
-        }
+        let none = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false, mine: false)))
+        #expect(none.tile == nil && none.mineRows.isEmpty)
     }
 
     /// The real paused path: no enrolment in the catalog, the plan remembered on this iPhone. "Paused", the name, "Resume
     /// continues where you stopped." and nothing else.
     @Test func thePausedPlanAsThePlatformReportsIt() {
-        TrainShotFixtures.withPausedPlan(MockTrain.upperLower.id) {
-            let model = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false)))
-            let tile = model.tile
-            #expect(tile?.state == .paused && tile?.name == MockTrain.upperLower.name)
-            #expect(tile?.weekText == nil && tile?.nextText == "Resume continues where you stopped.")
-            let row = model.builtinRows.first { $0.id == MockTrain.upperLower.id }
-            #expect(row?.row.filledDisc == false && row?.row.spoken.contains("Paused") == true)
-        }
+        let library = TrainShotFixtures.library(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)
+        let model = PlansViewModel(library: library)
+        let tile = model.tile
+        #expect(tile?.state == .paused && tile?.name == MockTrain.upperLower.name)
+        #expect(tile?.weekText == nil && tile?.nextText == "Resume continues where you stopped.")
+        let row = model.builtinRows.first { $0.id == MockTrain.upperLower.id }
+        #expect(row?.row.filledDisc == false && row?.row.spoken.contains("Paused") == true)
+    }
+
+    /// Each test's library remembers its own paused plan (F1 round 2): one test's paused plan isn't another's, whichever
+    /// runs alongside it, so none of them saves and restores `UserDefaults.standard`.
+    @Test func aPausedPlanIsTheLibrarysOwn() {
+        let paused = TrainShotFixtures.library(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)
+        let other = TrainShotFixtures.library(MockTrain.catalog(enrolled: false))
+        #expect(paused.pausedPlanID == MockTrain.upperLower.id)
+        #expect(other.pausedPlanID == nil && PlansViewModel(library: other).tile == nil, "no Resume of another test's plan")
+        let built = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: false)
+        #expect(built.pausedPlanID == nil)
     }
 
     /// Nothing cached: outlines only while a load runs (or before the first); offline (the reads send nothing) a line, not
@@ -399,10 +407,8 @@ struct TrainPlansSummaryHostedTests {
     }
 
     @Test func aPausedPlanIsAnOutlineWithResume() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(MockTrain.upperLower.id)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
-                                   TrainShotFixtures.plans(MockTrain.catalog(enrolled: false))) { w in
+                                   TrainShotFixtures.plans(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)) { w in
             try await w.settle()
             let found = ids(w)
             #expect(found.contains("plans.resume") && !found.contains("plans.pause"), "\(found.sorted())")
@@ -418,8 +424,6 @@ struct TrainPlansSummaryHostedTests {
     }
 
     @Test func theActivePlanGlows() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
                                    TrainShotFixtures.plans(MockTrain.catalog())) { w in
             try await w.settle()
@@ -435,8 +439,6 @@ struct TrainPlansSummaryHostedTests {
     }
 
     @Test func withoutPlansOfYourOwnTheSentenceShows() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
                                    TrainShotFixtures.plans(MockTrain.catalog(enrolled: false, mine: false))) { w in
             try await w.settle()
@@ -448,8 +450,6 @@ struct TrainPlansSummaryHostedTests {
 
     /// Offline with nothing cached: the calm line with Try again, no outlines, and no sentence about plans of your own.
     @Test func offlineWithoutPlansSaysSo() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0, TrainShotFixtures.offlinePlans()) { w in
             try await w.wait("the offline line") { w.node("Plans appear once you're online.", exactly: true) != nil }
             let found = ids(w)

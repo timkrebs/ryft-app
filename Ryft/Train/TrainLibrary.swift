@@ -32,14 +32,18 @@ final class TrainLibrary {
     @ObservationIgnored private var histories: [UUID: ExerciseHistory] = [:]
     /// Whose `histories` are (`checkHistories`).
     @ObservationIgnored private var currentMark: HistoriesMark?
+    /// Where this phone remembers the paused plan (`pausedPlanID`): the app's `UserDefaults.standard`. A test's library has
+    /// a suite of its own, so tests running side by side never share the key.
+    private let defaults: UserDefaults
 
     /// The longest custom exercise name the platform takes (API.md: `name` 1–80 characters; it counts Unicode scalars
     /// of the trimmed name).
     nonisolated static let maxExerciseName = 80
 
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, outbox: @escaping @MainActor () -> TrainSyncService,
-         exerciseWait: Duration = .seconds(10), restore: Bool = true) {
+         exerciseWait: Duration = .seconds(10), restore: Bool = true, defaults: UserDefaults = .standard) {
         self.store = store ?? .shared
+        self.defaults = defaults
         self.remoteProvider = remote ?? { TrainSource.current }
         self.outbox = outbox
         self.exerciseWait = exerciseWait
@@ -538,8 +542,8 @@ final class TrainLibrary {
         await perform({ try await $0.deletePlan(id: p.id) }, then: { _ in
             store.removePlan(id: p.id)
             if activeEnrollment?.planId == p.id { enrollmentEnded() }
-            if UserDefaults.standard.string(forKey: Self.pausedKey) == p.id.uuidString {
-                UserDefaults.standard.removeObject(forKey: Self.pausedKey)
+            if defaults.string(forKey: Self.pausedKey) == p.id.uuidString {
+                defaults.removeObject(forKey: Self.pausedKey)
             }
             patchCatalog { $0.mine.removeAll { $0.id == p.id } }
         })
@@ -556,7 +560,7 @@ final class TrainLibrary {
     var pausedPlanID: UUID? {
         if let e = activeEnrollment, e.status == .paused { return e.planId }
         guard activeEnrollment == nil else { return nil }
-        return UserDefaults.standard.string(forKey: Self.pausedKey).flatMap(UUID.init(uuidString:))
+        return defaults.string(forKey: Self.pausedKey).flatMap(UUID.init(uuidString:))
     }
 
     var isPaused: Bool { pausedPlanID != nil }
@@ -568,7 +572,7 @@ final class TrainLibrary {
         if paused {
             guard let planID = activeEnrollment?.planId else { return false }
             return await perform({ try await $0.pauseEnrollment() }, then: { _ in
-                UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey)
+                defaults.set(planID.uuidString, forKey: Self.pausedKey)
                 enrollmentEnded()
             })
         }
@@ -623,7 +627,7 @@ final class TrainLibrary {
     /// Enrolled, switched or resumed: the platform's answer is the active enrolment (a resumed one where it stopped). A plan
     /// day of another enrolment goes; this one's comes with the read after it.
     private func enrolled(_ enrollment: Enrollment) {
-        UserDefaults.standard.removeObject(forKey: Self.pausedKey)
+        defaults.removeObject(forKey: Self.pausedKey)
         patchCatalog { $0.active = enrollment }
         if let today, today.enrollment.id != enrollment.id { setToday(nil) }
     }
@@ -650,7 +654,7 @@ final class TrainLibrary {
         error = nil
         errorDetails = nil
         plansDeclined = nil
-        UserDefaults.standard.removeObject(forKey: Self.pausedKey)
+        defaults.removeObject(forKey: Self.pausedKey)
         histories = [:]
         currentMark = nil
     }

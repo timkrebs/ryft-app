@@ -72,8 +72,6 @@ struct TrainActionPatchTests {
 
     /// Pause, and the plans can't be read after it: paused on Plans and on the page (Resume, no week), no plan day.
     @Test func aPauseWithTheReadAfterItFailingShowsPaused() async {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.demo)
         let rig = TrainSides([SideSwitch.alex: alex])
         await rig.library.refresh()
@@ -92,8 +90,6 @@ struct TrainActionPatchTests {
 
     /// Resume with the read failing: active again, where it stopped (the platform's answer), not paused.
     @Test func aResumeWithTheReadAfterItFailingShowsItActive() async {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.demo)
         let rig = TrainSides([SideSwitch.alex: alex])
         await rig.library.refresh()
@@ -140,8 +136,6 @@ struct TrainActionPatchTests {
     /// paused, so Plans has no tile and nothing to resume.
     @Test(arguments: [false, true])
     func deletingTheCurrentPlanEndsItsEnrolment(paused: Bool) async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.demo)
         let mine = MockTrain.homeDumbbells
         try await alex.enrollNow(mine.id)
@@ -154,14 +148,12 @@ struct TrainActionPatchTests {
         #expect(await rig.library.deletePlan(mine))
         #expect(rig.library.activeEnrollment == nil && rig.library.pausedPlanID == nil && plans.tile == nil)
         #expect(rig.library.today == nil && stored(rig)?.active == nil)
-        #expect(UserDefaults.standard.string(forKey: "train.pausedPlanID") == nil)
+        #expect(rig.defaults.string(forKey: "train.pausedPlanID") == nil, "nor remembered")
     }
 
     /// Alex's pause is answered after the Demo data switch, with the demo enrolled in the same plan: the demo's overview and
     /// plan day aren't patched, and the demo's plan isn't paused.
     @Test func aBindingChangeBeforeThePatchWritesNothing() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.demo, holding: [.pause])
         let demo = SideTrainSource(.demo)
         let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: demo])
@@ -179,5 +171,21 @@ struct TrainActionPatchTests {
         #expect(rig.library.catalog == demos && stored(rig) == demos, "the demo's overview as the demo read it")
         #expect(rig.library.today == demosDay && !rig.library.isPaused)
         #expect(alex.count(.plans) == 1, "nor were Alex's plans read again")
+    }
+}
+
+/// F1 round 2, review should-fix 1: each rig remembers its paused plan in a suite of its own, never in
+/// `UserDefaults.standard`, so tests running side by side (the Unit plan's parallel suites) don't see each other's.
+@MainActor
+@Suite("F1 round 2: a rig's paused plan is its own", .serialized)
+struct TrainRigDefaultsTests {
+    /// Two rigs at once, as two suites side by side: Alex pauses on one; the other has nothing to resume.
+    @Test func anotherRigsPauseIsNotThisOnes() async {
+        let rig = TrainSides([SideSwitch.alex: SideTrainSource(.demo)])
+        let other = TrainSides([SideSwitch.alex: SideTrainSource(.demo)])
+        await rig.library.refresh()
+        #expect(await rig.library.setPaused(true) && rig.library.pausedPlanID == MockTrain.upperLower.id)
+        #expect(rig.defaults.string(forKey: "train.pausedPlanID") == MockTrain.upperLower.id.uuidString, "the rig's own")
+        #expect(other.library.pausedPlanID == nil && !other.library.isPaused, "nothing of the other rig's")
     }
 }
