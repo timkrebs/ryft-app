@@ -328,6 +328,30 @@ struct NocturneControlsTests {
         #expect(underline > text.midY && underline < 44, "under the text: \(underline), text \(text)")
     }
 
+    @Test("The gauge note's link underlines its words, not the space and the chevron after them (part 1 review nit 6)")
+    func gaugeNoteLinkUnderlinesItsWordsOnly() throws {
+        let link = GaugeNoteLink(title: "How to set up Garmin Connect") {}.frame(width: 390).background(Theme.background)
+        let shot = try #require(ControlRender(link))
+        let all = 0...Double(shot.size.width)
+        let ink = try #require(shot.bounds(xs: all, ys: 0...Double(shot.size.height)) { $0.near(self.ink, 6) }, "the words and the chevron")
+        // The chevron is the last run of ink columns; the words end at the gap before it.
+        let scale = Double(shot.scale), rows = Int(Double(ink.minY) * scale)...Int(Double(ink.maxY) * scale) - 1
+        func inkColumn(_ ix: Int) -> Bool { rows.contains { shot.px(ix, $0).near(self.ink, 6) } }
+        var ix = Int(Double(ink.maxX) * scale) - 1
+        while ix > 0, inkColumn(ix) { ix -= 1 }
+        let chevronStart = ix + 1
+        while ix > 0, !inkColumn(ix) { ix -= 1 }
+        let wordsEnd = Double(ix + 1) / scale
+        #expect(Double(chevronStart) / scale - wordsEnd >= 2, "a space before the chevron: the words end at \(wordsEnd)")
+        let y = try #require(underlineRow(shot, xs: (Double(ink.minX) + 2)...(Double(ink.minX) + 60)), "an underline under the first words")
+        let half = over(Theme.textPrimary, 0.5)
+        let line = try #require(shot.bounds(xs: all, ys: y...(y + 0.01)) { $0.near(half, 14) }, "the underline's extent")
+        // The line starts at the text's origin, the ink after the first glyph's side bearing (1.5 for "H").
+        #expect(Double(line.minX) <= Double(ink.minX) + 0.5 && Double(line.minX) >= Double(ink.minX) - 3,
+                "the line starts under the first word: \(line), the ink \(ink)")
+        #expect(Double(line.maxX) <= wordsEnd + 1.5, "the line ends with the words at \(wordsEnd), not under the chevron: \(line)")
+    }
+
     @Test("Markdown links: the link runs get the ink and the underline; the other runs keep the caller's style")
     func styledRuns() throws {
         let source = try AttributedString(markdown: "Read the [Privacy Policy](https://example.com/privacy) and the [Terms](https://example.com/terms).")
