@@ -66,7 +66,7 @@ struct ReadinessWidget: Widget {
     }
 }
 
-/// Graphite, like the app: the widget is dark-only.
+/// The app's `background` (`Brand.background`): the widget is dark-only.
 private struct WidgetBackground: View {
     var body: some View { Brand.background }
 }

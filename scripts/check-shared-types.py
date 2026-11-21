@@ -11,7 +11,7 @@ The widget's colours stay the app's:
 - Every colorset in both catalogs has the same Contents.json, whether or not `Shared/` names it.
 - `WidgetBackground` is the app's `Background`.
 - Each hex literal in the widget's `enum Brand` (`RyftWidgets/RyftWidgets.swift`) is the app colorset of its name
-  (`graphite` is `Graphite.colorset`); a `Brand` colour without one fails.
+  (`background` is `Background.colorset`); a `Brand` colour without one fails.
 - `Brand.signal` (Volt) exists and is `Theme.signal`'s colour: `Theme.signal` names the `Signal` asset, which `Brand.signal`
   is compared with.
 

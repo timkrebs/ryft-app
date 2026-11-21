@@ -203,10 +203,16 @@ colour fix, G1), `DarkPreview`.
 
 ### 1.10 The `AccentColor` asset (G4)
 
-`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor` is set in both app configurations, but `Ryft/Assets.xcassets` has no
-`AccentColor.colorset`, so a control that nobody tints falls back to system blue (`PresentedRoot.swift:13` says so). G4 adds
-`AccentColor.colorset` with one universal value, `#F2F1EC` (the `TextPrimary` value): the safety net the PR 5 review asked for. The
-widget's empty `AccentColor` stays: its one `Link` is tinted `Brand.signal` in code and nothing else there is a control.
+`Ryft/Assets.xcassets` had no `AccentColor.colorset`, so a control that nobody tints fell back to system blue (`PresentedRoot.swift`
+says so). G4 adds `AccentColor.colorset` with one universal value, `#F2F1EC` (the `TextPrimary` value): the safety net the PR 5
+review asked for.
+
+**As built (G4).** This note first said `ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor` was set in both app
+configurations. It was set only on the widget target, so the app's Info.plist had no `NSAccentColorName`. G4 sets it for the app in
+`Config/Production.xcconfig`, the committed base of both configurations (no project-file edit); the built `Ryft.app/Info.plist`
+carries `NSAccentColorName = AccentColor`. The widget's `AccentColor` is filled with the same value, not left empty:
+`scripts/check-shared-types.py` requires a set that both catalogs hold to be identical. Its one `Link` is still tinted
+`Brand.signal` in code.
 
 ## 2. Decisions D1 to D9
 
@@ -346,7 +352,9 @@ circle **trailing**, scrolling with the page.
    footnote) keeps its single pinned primary (`PinnedActionBar`) and has an empty trailing slot. One primary per sheet, in one place.
 5. **The header is pinned**, not scroll content: the close circle stays reachable. This is the only behavioural change for C's pages.
    While content has scrolled under it, the page stops 12 below the header at a 1 pt `separator` rule, the pinned bar's edge
-   turned over (part 2, `.underPinnedHeader()`); at rest nothing shows.
+   turned over (part 2, `.underPinnedHeader()`); at rest nothing shows. Every sheet with this header does it, the exercise history
+   sheet from the live workout, Start workout and Reorder included (the part 2 review's N1). Reorder is a `List`; it reports its
+   scroll geometry as a `ScrollView` does, so it needs no exception (`NocturneHeaderTests`, "Pinned in review N1").
 6. **A page pushed inside a sheet** is a page: Back leading, its own title (`SubpageHeader`/`PushedHeader`), no close; a swipe down
    still dismisses the sheet. The one exception is the training import, a flow whose steps 2–5 need Back *and* a close that asks
    first: Back leading, the close circle trailing (`SubpageNavigation.backAndClose`, as built). Its root (step 1) has the sheet

@@ -17,7 +17,7 @@ enum ChartStyle {
     static let bandOpacity = 0.10
     static let appear = Animation.easeOut(duration: 0.25)
 
-    /// Baselines and bounds: Mist at 40 % in dark, Graphite at 40 % in light.
+    /// Baselines and bounds: the ink (`textPrimary`) at 40 % (dark only, ADR 0016).
     static var reference: Color { Theme.textPrimary.opacity(0.4) }
     static var axisFont: Font { .ryft(.axis).monospacedDigit() }
 

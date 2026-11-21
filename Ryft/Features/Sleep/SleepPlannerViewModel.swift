@@ -1457,7 +1457,7 @@ enum AlarmKitWake {
     /// asset colours may not resolve (`AlarmKitWakeTests` keeps them equal to the Theme's). Never teal: teal is
     /// recovery's (L27).
     static let tint = Color(red: 0.949, green: 0.945, blue: 0.925)
-    /// Snooze's words, on the tint: `Theme.background`'s graphite, #0A0C0B. Stop (iOS 26.0 only) sits on the system's own
+    /// Snooze's words, on the tint: `Theme.background`, #0A0C0B. Stop (iOS 26.0 only) sits on the system's own
     /// fill, so its words stay light.
     static let snoozeText = Color(red: 0.039, green: 0.047, blue: 0.043)
 
