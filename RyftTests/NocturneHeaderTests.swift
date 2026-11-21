@@ -6,8 +6,9 @@ import UIKit
 
 /// The Nocturne gate's one header (G2, docs/work/2026-11-20-nocturne-gate/design.md §2.4 D4, DG-6): a sheet's root draws
 /// `SheetHeader` (Close leading, the title centred, pinned), a pushed page `PushedHeader`'s row (Back leading, the title
-/// centred; stacked from AX1), the import's steps 2 to 5 Back, the title and Close trailing. Only the tab roots keep the
-/// 26 pt leading title (`ScreenHeader`), and the onboarding and gate pages theirs (D4 rule 7). Synthetic data only.
+/// centred; stacked from AX1), the import's steps 2 to 5 Back, the title and Close trailing (steps 1 and 6 its sheet header,
+/// pinned). Only the tab roots keep the 26 pt leading title (`ScreenHeader`), and the onboarding and gate pages theirs (D4
+/// rule 7). Synthetic data only.
 @MainActor
 @Suite("Nocturne gate G2: one header", .serialized)
 struct NocturneHeaderTests {
@@ -174,6 +175,33 @@ struct NocturneHeaderTests {
             #expect((order.firstIndex(of: "Back") ?? .max) < (order.firstIndex(of: "Devices & sync") ?? -1), "\(order)")
         }
         g.tearDown()
+    }
+
+    /// Steps 1 and 6 are the cover's sheet roots (D4): Close leads, and the header stays put while the step scrolls under it,
+    /// as `SubpageScaffold`'s sheets do (the part 1 review's nit 3).
+    @Test("The import's steps 1 and 6: Close leading, the header pinned while the step scrolls under it",
+          arguments: ["1-pick", "6-done"])
+    func importSheetRootPinsItsHeader(_ name: String) async throws {
+        let id = name.hasPrefix("6") ? "import.close" : "import.cancel"
+        // Short enough that both steps scroll at the default size.
+        try await run(false, height: 480, ImportNocturneShotsTests.screen(name)) { w in
+            try await w.wait("the step") { w.nodes().contains { $0.identifier == id } }
+            try await w.settle()
+            let close = try node(w, id: id)
+            #expect(close.label == "Close" && abs(close.frame.minX - Self.leadingBox) < 1, "Close leads: \(close.frame)")
+            #expect(!w.nodes().contains { $0.identifier == "subpage.back" }, "a sheet root has no Back")
+            let scroll = try #require(w.pageScrollView(), "the step's scroll view")
+            #expect(scroll.convert(scroll.bounds, to: w.window).minY >= close.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5,
+                    "the step scrolls under the header, not with it: \(scroll.convert(scroll.bounds, to: w.window)) \(close.frame)")
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            #expect(end > 40, "the step scrolls: \(end)")
+            let start = scroll.contentOffset.y, by = min(120, end)
+            scroll.setContentOffset(CGPoint(x: 0, y: start + by), animated: false)
+            try await w.settle()
+            #expect(abs(scroll.contentOffset.y - start - by) < 1, "the step scrolled: \(scroll.contentOffset.y)")
+            let stays = try node(w, id: id)
+            #expect(abs(stays.frame.minY - close.frame.minY) < 0.5, "the header stays put (D4 rule 5): \(stays.frame) \(close.frame)")
+        }
     }
 
     /// From AX1 Back and Close share the first row and the title goes under it.
