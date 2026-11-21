@@ -113,7 +113,7 @@ final class ImportUITests: XCTestCase {
         let result = app.staticTexts["import.result"]
         XCTAssertTrue(result.waitForExistence(timeout: wait), "step 6's result")
         XCTAssertTrue(result.label.hasPrefix("Imported 1 plan and 3 workouts"), result.label)
-        XCTAssertTrue(result.label.contains("1 set skipped"), result.label)
+        XCTAssertTrue(result.label.contains("1\u{00A0}set skipped"), result.label)
         let openPlan = app.buttons["import.openPlan"]
         XCTAssertTrue(openPlan.exists, "Open plan")
         openPlan.tap()
