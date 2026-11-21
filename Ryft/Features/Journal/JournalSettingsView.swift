@@ -91,7 +91,7 @@ struct JournalSettingsView: View {
 
     private var list: some View {
         List {
-            SubpageHeader(Text("Journal")) {
+            PushedHeader(Text("Journal"), identifierPrefix: SubpageSpec.identifierPrefix) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text("Add a habit")) { adding = true }
                     .accessibilityIdentifier("journal.add")
             }
