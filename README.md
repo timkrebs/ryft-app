@@ -9,7 +9,7 @@ API key, no settings.
 | Today | Sleep | Strain | Insights | Profile |
 |---|---|---|---|---|
 | ![Today](docs/screenshots/today-dark.png) | ![Sleep](docs/screenshots/sleep-dark.png) | ![Strain](docs/screenshots/strain-dark.png) | ![Insights](docs/screenshots/insights-dark.png) | ![Profile](docs/screenshots/profile-dark.png) |
-| ![Calibrating](docs/screenshots/calibrating-dark.png) | ![Sleep week](docs/screenshots/sleep-week-dark.png) | ![Workout](docs/screenshots/workout-dark.png) | ![Tonight](docs/screenshots/tonight-dark.png) | ![Setup](docs/screenshots/setup-dark.png) |
+| ![Calibrating](docs/screenshots/calibrating-dark.png) | ![Sleep need](docs/screenshots/sleepNeed-dark.png) | ![Bedtime](docs/screenshots/bedtime-dark.png) | ![Tonight](docs/screenshots/tonight-dark.png) | ![Notifications](docs/screenshots/notifications-dark.png) |
 
 Screenshots come from the simulator with the built-in mock data (`scripts/screenshots.sh`).
 
