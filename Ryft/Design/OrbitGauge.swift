@@ -16,7 +16,7 @@ struct OrbitGauge: View {
     typealias Size = OrbitGaugeSize
 
     /// What Today puts under the gauge: the caption ("Overall readiness") and, under a readiness, the band word and
-    /// the change against the week (the line `MetricGauge` drew there). Shown from the `.large` dial up.
+    /// the change against the week. Shown from the `.large` dial up.
     struct Caption: Equatable {
         var title: String
         /// "vs 7 d", row A only.

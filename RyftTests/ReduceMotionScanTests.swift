@@ -41,8 +41,6 @@ struct ReduceMotionScanTests {
                 reason: "`ChartAppear`: the `else` of `if reduceMotion { shown = true }`."),
         Guarded(file: "Design/DateStrip.swift", call: "withAnimation(animated ? Theme.Motion.respecting(reduceMotion) : nil",
                 reason: "A ternary of the respecting animation and none."),
-        Guarded(file: "Design/MetricGauge.swift", call: "withAnimation(fromZero ? Theme.ringAnimation : Theme.Motion.slow",
-                reason: "`animate(fromZero:)`: the `else` of `if reduceMotion { shown = target }`."),
         Guarded(file: "Design/OrbitGauge.swift", call: "TimelineView(.animation(paused: frozenAt != nil || entranceDone)",
                 reason: "The entrance's clock: under Reduce Motion (`reducesEntrance`) the stage is a cross-fade and nothing moves."),
         Guarded(file: "Design/OrbitGauge.swift", call: ".animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow",
@@ -53,8 +51,6 @@ struct ReduceMotionScanTests {
                 reason: "One phase, so no motion, under Reduce Motion."),
         Guarded(file: "Design/RyftTabBar.swift", call: ".animation(Self.selectionAnimation(reduceMotion: reduceMotion)",
                 reason: "`selectionAnimation(reduceMotion:)` is `Theme.Motion.respecting(reduceMotion)` (RyftTabBarTests)."),
-        Guarded(file: "Design/ScoreRing.swift", call: "withAnimation(Theme.ringAnimation",
-                reason: "`animate()`: the `else` of `if reduceMotion { shown = target }`."),
         Guarded(file: "Features/Profile/DebugComponentCatalog.swift", call: "TimelineView(.animation",
                 reason: "DEBUG only: the catalog's launch replay plays the variant its own Reduce Motion switch picks."),
         Guarded(file: "Features/Sleep/SleepView.swift", call: "withAnimation(Theme.ringAnimation",
@@ -84,8 +80,9 @@ struct ReduceMotionScanTests {
         #expect(applied.left.isEmpty, "\(applied.left.map(\.description).joined(separator: "\n"))")
         #expect(applied.unmatched.isEmpty,
                 "entries without their findings: \(applied.unmatched.map { "\($0.file) \($0.call) ×\($0.count)" })")
-        // The app's own (Today, Sleep, the gauges, onboarding), Train's and the journal's.
-        #expect(seen >= 110, "animation calls seen: \(seen)")
+        // The app's own (Today, Sleep, the gauges, onboarding), Train's and the journal's: 109 once the gate deleted
+        // `MetricGauge` and `ScoreRing`.
+        #expect(seen >= 105, "animation calls seen: \(seen)")
     }
 
     @Test("The scan's own control: each bare form is caught, each respecting form passes")

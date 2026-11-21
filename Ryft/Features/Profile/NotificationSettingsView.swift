@@ -144,10 +144,10 @@ private struct NotificationSettingsScreen: View {
                               isOn: change(Self.quietKey, get: { model.quietHoursOn }, set: { await model.setQuietHours(on: $0) }))
                 .disabled(inFlight)
             if model.quietHoursOn {
-                ValueChipRow(Text("From")) {
+                ValueChipRow(Text("From"), role: .row) {
                     timeChip(Text("From"), get: { model.quietFrom }, set: { await model.setQuietFrom($0) })
                 }
-                ValueChipRow(Text("Until")) {
+                ValueChipRow(Text("Until"), role: .row) {
                     timeChip(Text("Until"), get: { model.quietTo }, set: { await model.setQuietTo($0) })
                 }
             }

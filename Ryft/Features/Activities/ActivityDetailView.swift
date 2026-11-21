@@ -106,25 +106,15 @@ struct ActivityDetailScreen: View {
         }
     }
 
-    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers.
+    /// Edit and Delete, in the one circle menu (D3).
     private var menu: some View {
-        Menu {
+        CircleMenu(systemImage: "ellipsis",
+                   accessibilityLabel: Text("More", comment: "VoiceOver: the activity detail's menu (Edit, Delete).")) {
             Button { editing = model.editModel() } label: { Label("Edit", systemImage: "pencil") }
                 .accessibilityIdentifier("activityDetail.menu.edit")
             Button(role: .destructive) { confirmsDelete = true } label: { Label("Delete", systemImage: "trash") }
                 .accessibilityIdentifier("activityDetail.menu.delete")
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: CircleButton.iconSize, weight: .regular))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
-                .overlay {
-                    Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
-                }
-                .frame(width: CircleButton.hitSize, height: CircleButton.hitSize)
-                .contentShape(Rectangle())
         }
-        .accessibilityLabel(Text("More", comment: "VoiceOver: the activity detail's menu (Edit, Delete)."))
         .accessibilityIdentifier("activityDetail.menu")
     }
 

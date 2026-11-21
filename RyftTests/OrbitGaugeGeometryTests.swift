@@ -69,7 +69,8 @@ import Testing
         #expect(m.outerRadius - m.dotRadius > m.innerRadius + m.dotRadius)
     }
 
-    @Test func sizesKeepMetricGaugeFrames() {
+    /// The dial sizes the screens were laid out for, plus 6 pt a side for the ticks.
+    @Test func sizesKeepTheirDialFrames() {
         #expect(OrbitGauge.Size.small.frame == 84)
         #expect(OrbitGauge.Size.medium.frame == 124)
         #expect(OrbitGauge.Size.large.frame == 172)
