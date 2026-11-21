@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// "What do you wear?" from Devices & sync: the same tiles; Done saves, Cancel leaves the choice as it was.
+/// "What do you wear?" from Devices & sync (Nocturne PR 6 C2, §4.4, draft c-07): a sheet's page with Close, the same tiles as
+/// onboarding, and Done pinned under them. Done saves; Close leaves the choice as it was.
 struct TrackerPickerSheet: View {
     let model: DevicesViewModel
     @State private var picked: [String]
@@ -12,39 +13,38 @@ struct TrackerPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    TrackerPickerGrid(catalog: model.catalog, picked: $picked)
-                    Text("RYFT only uses this to show you setup steps and to check that your data arrives.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Theme.Metrics.screenPadding)
+        SubpageScaffold(Text("What do you wear?"), navigation: .close(), isSheet: true) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+                Text("Pick your watch, tracker or ring. RYFT then shows how to get its data into Apple Health.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TrackerPickerGrid(catalog: model.catalog, picked: $picked)
+                GroupFooter(Text("RYFT only uses this to show you setup steps and to check that your data arrives."))
             }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Text("What do you wear?"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) { SheetTitle(text: "What do you wear?") }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        model.save(picked)
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("wear.done")
-                }
+        }
+        .pinnedBar {
+            PillButton(Text("Done"), systemImage: PillButton.Icon.confirm) {
+                model.save(picked)
+                dismiss()
             }
+            .accessibilityIdentifier("wear.done")
         }
     }
 }
 
-#Preview("Tracker picker sheet · dark") { devicesScreenPreview(sheet: true) }
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
+#Preview("Tracker picker") {
+    let g = MockDevicesStates.graph(trackers: ["garmin", "oura"])
+    TrackerPickerSheet(model: g.devices)
+        .previewEnvironment(g.state)
+}
+
+#Preview("Tracker picker · AX3") {
+    let g = MockDevicesStates.graph(trackers: ["garmin"])
+    TrackerPickerSheet(model: g.devices)
+        .previewEnvironment(g.state)
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+#endif

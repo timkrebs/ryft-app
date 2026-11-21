@@ -7,8 +7,9 @@
 //   503 → never sign out; wait `Retry-After`, retry (sync is idempotent).
 //   429 → wait `Retry-After`, retry once.
 //   413 → thrown; SyncService halves the page size.
-// A scheduled read (`singleAttempt`, set by `ReadScheduler`) and a report (`postFeedback`) make
-// one attempt: no 429/503 loop, `Retry-After` on the error, the fail-fast session (ADR 0001).
+// A scheduled read (`singleAttempt`, set by `ReadScheduler`), a settings write (`SettingsWrite`: the body-setting editors,
+// Notifications, Journal's habits) and a report (`postFeedback`) make one attempt: no 429/503 loop, `Retry-After` on the
+// error, the fail-fast session (ADR 0001).
 // A retry never outlives the account it started for (`APIStatus.epoch`). A cancelled request
 // throws `CancellationError`; a request without an answer is recorded with status 0.
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
@@ -308,8 +309,9 @@ final class APIClient: RyftDataSource {
 
     /// One attempt: no `429`/`503` loop (the error carries `Retry-After` instead), the fail-fast
     /// session, no `APIStatus.retryNotice`. Set by `ReadScheduler`, the one retry layer for reads
-    /// (ADR 0001), so a scheduled read never sees two; and by `postFeedback`, whose queue retries.
-    /// The `401` refresh-once stays: that's auth.
+    /// (ADR 0001), so a scheduled read never sees two; by `postFeedback`, whose queue retries; and by
+    /// `SettingsWrite`, so a settings page hears within its deadline and a `429` or `503` is said at
+    /// once (the user tries again). The `401` refresh-once stays: that's auth.
     @TaskLocal static var singleAttempt = false
 
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the

@@ -14,8 +14,12 @@ final class MyDayViewModel {
 
     /// The full screen's day (start of day). The card shows today whatever this says.
     var date: Date
-    /// Days whose load failed with nothing cached: an error instead of the skeleton.
+    /// Days whose load failed, or was held back (`ReadScheduler` sent nothing: a `Retry-After` still holding), with
+    /// nothing cached: an error with Try again instead of the skeleton.
     private(set) var failed: Set<String> = []
+    /// A failed day's own status and request ID for Details, kept with the day (code review N5): the read record is one
+    /// per resource, so another day's failure (or success) since would answer for it.
+    private var failedDetails: [String: String] = [:]
     /// The tracker catalog was parsed off the main actor (`load`): rows name trackers by it from then on, and by
     /// HealthKit's raw source names before (ui.md §2.3), so Today's first frame never parses it.
     private(set) var namesTrackers = false
@@ -59,14 +63,28 @@ final class MyDayViewModel {
         let items = items(for: day)
         let detail = state.cachedDayDetail(for: day)
         let cached = detail != nil || state.repository.activitiesFetchedAt(day: key) != nil
-        let phase: MyDayContent.Phase = cached || !items.isEmpty ? .ready : failed.contains(key) ? .failed : .loading
+        let online = env.isDemo || env.connectivity.isOnline
+        // Offline nothing is read (`ReadScheduler` sends nothing and throws nothing): without a cache that is its own
+        // state, never the skeleton for good.
+        let phase: MyDayContent.Phase = cached || !items.isEmpty ? .ready
+            : !online ? .offline
+            : failed.contains(key) ? .failed : .loading
         let isToday = calendar.isDate(day, inSameDayAs: today)
         let stale = phase == .ready ? staleSince(key, isToday: isToday) : nil
         let score = detail?.score ?? state.score(for: day)
         return MyDayContent(day: day, isToday: isToday, phase: phase, items: items, staleSince: stale,
                             offersRetry: stale.map { env.clock.now().timeIntervalSince($0) > MyDayContent.retryAfter } ?? false,
                             dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil,
-                            title: Fmt.dayTitle(day, today: today))
+                            title: Fmt.dayTitle(day, today: today),
+                            isYesterday: calendar.isDate(day, inSameDayAs: DayFormat.shift(today, days: -1)),
+                            failedDetails: phase == .failed ? failedDetails[key] : nil)
+    }
+
+    /// The side that ended (sign-out, another account, the Demo data switch): its failed days and their request IDs go
+    /// (`ScreenModels` registers it with the account-state forgetters).
+    func forget() {
+        failed = []
+        failedDetails = [:]
     }
 
     /// The full screen's week strip: today and the six days before, the selected one highlighted.
@@ -155,6 +173,15 @@ final class MyDayViewModel {
         }
     }
 
+    /// Retry on a row whose upload failed (R4): an activity, or a night the user added; the uploader sends it now.
+    func retryUpload(_ item: MyDayItem) async {
+        switch item.kind {
+        case .activity(let id): await env.uploader.retry(id)
+        case .sleep(let key) where item.isManualSleep: await env.uploader.retrySleep(day: key)
+        default: break
+        }
+    }
+
     /// The cached workout behind a row (`WorkoutDetailView`).
     func workout(_ id: UUID, on day: Date) -> Workout? {
         state.cachedDayDetail(for: day)?.workouts.first { $0.id == id }
@@ -182,11 +209,17 @@ final class MyDayViewModel {
         let key = DayFormat.string(from: day)
         let mode: ReadMode = force ? .latest : .ifStale
         failed.remove(key)
+        failedDetails[key] = nil
         async let detail = loadDetail(day, mode: mode, userInitiated: force)
-        async let activities: Void = loadActivities(key, mode: mode, userInitiated: force)
-        let loaded = await detail
-        await activities
-        if !loaded, state.cachedDayDetail(for: day) == nil { failed.insert(key) }
+        async let activities = loadActivities(key, mode: mode, userInitiated: force)
+        let read = await detail
+        let activitiesFailure = await activities
+        // Failed, or held back with nothing cached (offline it is `.offline` whatever this says). Its Details: the day's
+        // own failure, else the one that holds its reads back, else the activities' own failure.
+        if read.missing, state.cachedDayDetail(for: day) == nil {
+            failed.insert(key)
+            failedDetails[key] = read.details ?? activitiesFailure
+        }
         // Workouts to name: the catalog's first parse off the main actor, then the rows name trackers by it.
         if !namesTrackers, state.cachedDayDetail(for: day)?.workouts.isEmpty == false {
             _ = await TrackerCatalog.loadBundled()
@@ -233,20 +266,57 @@ final class MyDayViewModel {
         }
     }
 
-    /// False when the read failed (a cancellation isn't a failure: the next load says what's true).
-    private func loadDetail(_ day: Date, mode: ReadMode, userInitiated: Bool) async -> Bool {
+    /// How a day's read ended.
+    private enum DetailRead {
+        /// The day is here (fresh, fetched, or cached beside a failure).
+        case read
+        /// Nothing was sent and nothing is cached: offline, or a `Retry-After` holds automatic reads back (`details`: the
+        /// failure that set the hold, as the record had it then).
+        case declined(details: String?)
+        /// `details`: the failure's own status and request ID.
+        case failed(details: String?)
+        /// Not a failure: the next load says what's true.
+        case cancelled
+
+        /// Nothing read: failed, or nothing sent.
+        var missing: Bool {
+            switch self {
+            case .declined, .failed: return true
+            case .read, .cancelled: return false
+            }
+        }
+
+        var details: String? {
+            switch self {
+            case .declined(let details), .failed(let details): return details
+            case .read, .cancelled: return nil
+            }
+        }
+    }
+
+    private func loadDetail(_ day: Date, mode: ReadMode, userInitiated: Bool) async -> DetailRead {
         do {
-            _ = try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated)
-            return true
+            guard try await state.repository.refreshDay(day, mode: mode, userInitiated: userInitiated) != nil else {
+                let resource: ReadResource = calendar.isDate(day, inSameDayAs: today) ? .today : .day
+                return .declined(details: JournalSheetModel.readDetails(env.reads.states[resource]))
+            }
+            return .read
         } catch {
-            return error.isCancellation
+            return error.isCancellation ? .cancelled : .failed(details: error.diagnosticDetails)
         }
     }
 
     /// Behind `today.my_day` only. A failure keeps what's cached; the read record says it failed (the stale caption).
-    private func loadActivities(_ key: String, mode: ReadMode, userInitiated: Bool) async {
-        guard isEnabled else { return }
-        _ = try? await state.repository.refreshActivities(key, mode: mode, userInitiated: userInitiated)
+    /// The failure's own status and request ID, for a day with nothing to show (`failedDetails`); nil when it didn't fail.
+    @discardableResult
+    private func loadActivities(_ key: String, mode: ReadMode, userInitiated: Bool) async -> String? {
+        guard isEnabled else { return nil }
+        do {
+            _ = try await state.repository.refreshActivities(key, mode: mode, userInitiated: userInitiated)
+            return nil
+        } catch {
+            return error.isCancellation ? nil : error.diagnosticDetails
+        }
     }
 }
 
@@ -255,8 +325,10 @@ struct MyDayContent: Equatable {
     enum Phase: Equatable {
         /// Nothing cached yet: outline rows, no spinner.
         case loading
-        /// Nothing cached and the read failed.
+        /// Nothing cached and the read failed, or was held back.
         case failed
+        /// Nothing cached and offline: nothing can be read until the iPhone is back online (a calm line, Try again).
+        case offline
         case ready
     }
 
@@ -277,8 +349,12 @@ struct MyDayContent: Equatable {
     var dayStrain: Double?
     /// "Today", "Yesterday", "Wed 21 Oct" against the environment's clock (`Fmt.dayTitle`); nil: against `.now`.
     var title: String?
+    /// The day before today on the environment's clock and calendar (the full screen's "Yesterday · Tue, Nov 17").
+    var isYesterday = false
+    /// `failed`: the failure's status and request ID, behind the message's Details ("HTTP 503 · Request ID …").
+    var failedDetails: String?
 
-    /// No workout, session or activity (the night may be there): "Nothing yet today" (ui.md §2.1 M2).
+    /// No workout, session or activity (the night may be there): "Nothing logged yet today." (ui.md §2.1 M2).
     var hasNoActivities: Bool { !items.contains { !$0.kind.isSleep } }
     /// Nothing at all but, maybe, the missing night: "Nothing recorded on this day" (F3).
     var isEmpty: Bool { items.allSatisfy(\.kind.isMissingSleep) }
@@ -291,14 +367,14 @@ struct MyDayContent: Equatable {
         return night + others.suffix(max(0, Self.cardCap - night.count))
     }
 
-    /// "Show all 9" when the card leaves rows out.
-    var showsAll: Bool { items.count > cardRows.count }
-
     /// Everything but the night: workouts, sessions, activities.
     var activities: [MyDayItem] { items.filter { !$0.kind.isSleep } }
 
     /// "3 activities · 1h 52m · 14.8 km"; nil without any.
-    var summary: String? {
+    var summary: String? { summaryParts.map(MyDayText.join) }
+
+    /// The summary's parts, one per line from AX1 (`PartsLine`); nil without any activity.
+    var summaryParts: [String]? {
         let list = activities
         guard !list.isEmpty else { return nil }
         var parts = [String(localized: "\(list.count) activities", comment: "My Day: how many workouts and activities a day has.")]
@@ -306,7 +382,7 @@ struct MyDayContent: Equatable {
         if duration >= 60 { parts.append(Fmt.duration(seconds: duration)) }
         let distance = list.compactMap(\.distanceM).reduce(0, +)
         if distance > 0 { parts.append(Fmt.distance(meters: distance)) }
-        return MyDayText.join(parts)
+        return parts
     }
 }
 

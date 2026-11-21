@@ -36,31 +36,37 @@ enum Volume {
 }
 
 extension Fmt {
-    /// 100 → "100", 82.5 → "82.5", nil → "–".
-    static func kgNumber(_ kg: Double?) -> String {
+    // The default locale is the user's own; a view or a model given one passes it (Train's history does).
+
+    /// 100 → "100", 82.5 → "82.5", nil → "–", in the user's own locale. Its own function, not a default argument: the live
+    /// workout passes it as one (`map(Fmt.kgNumber)`).
+    static func kgNumber(_ kg: Double?) -> String { kgNumber(kg, locale: .autoupdatingCurrent) }
+
+    /// `kgNumber(_:)` in `locale` ("82,5" in German).
+    static func kgNumber(_ kg: Double?, locale: Locale) -> String {
         guard let kg else { return placeholder }
-        return kg.formatted(.number.precision(.fractionLength(0...2)))
+        return kg.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
     }
 
     /// "82.5 kg".
-    static func kg(_ kg: Double?) -> String {
+    static func kg(_ kg: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let kg else { return placeholder }
-        return String(localized: "\(kgNumber(kg)) kg", comment: "A weight in kilograms, e.g. 82.5 kg.")
+        return String(localized: "\(kgNumber(kg, locale: locale)) kg", comment: "A weight in kilograms, e.g. 82.5 kg.")
     }
 
     /// Volume: "4,250 kg"; tonnes above 10 t ("12.4 t").
-    static func volume(_ kg: Double?) -> String {
+    static func volume(_ kg: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let kg else { return placeholder }
         if kg >= 10_000 {
-            return String(localized: "\((kg / 1000).formatted(.number.precision(.fractionLength(1)))) t",
+            return String(localized: "\((kg / 1000).formatted(.number.precision(.fractionLength(1)).locale(locale))) t",
                           comment: "Training volume in tonnes, e.g. 12.4 t.")
         }
-        return String(localized: "\(kg.formatted(.number.precision(.fractionLength(0)))) kg",
+        return String(localized: "\(kg.formatted(.number.precision(.fractionLength(0)).locale(locale))) kg",
                       comment: "Training volume in kilograms, e.g. 4,250 kg.")
     }
 
     /// Muscular load: one decimal like strain ("11.2").
-    static func load(_ v: Double?) -> String { strain(v) }
+    static func load(_ v: Double?, locale: Locale = .autoupdatingCurrent) -> String { strain(v, locale: locale) }
 
     /// Elapsed workout time: "23:05" or "1:02:10".
     static func clock(_ seconds: TimeInterval) -> String {

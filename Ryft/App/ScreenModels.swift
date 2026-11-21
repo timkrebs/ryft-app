@@ -40,6 +40,8 @@ final class ScreenModels {
     private let widgetSetupWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
+    /// Train's plans and reads (the app's: `TrainLibrary.shared`, RyftApp's `trainLibrary`).
+    private let library: TrainLibrary
 
     /// `train`: the live workout's coordinator, which Profile asks what ending the demo would discard (nil in tests
     /// and previews that don't need it).
@@ -49,6 +51,7 @@ final class ScreenModels {
         self.state = state
         self.sync = sync
         self.trainSync = trainSync
+        self.library = library
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
         // The widget's calibration decides with the same tracker setup as Today's (F3), and is published again when
@@ -75,13 +78,30 @@ final class ScreenModels {
         trainImport.gate = { [onboarding] in onboarding.uploadGate(for: .trainImport, write: $0) }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
+        // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
+        // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
+        state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         push = PushRegistrar(env: state.env)
-        journal = JournalStore(env: state.env)
+        // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
+        journal = JournalStore(state: state)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
+        // Sleep → Bedtime's plan is the account's, or demo data's: the other side's goes with the account-state forgetters.
+        // So do Sleep's failed night or range and its request ID.
+        state.forgetsAccountState { [weak sleep] in
+            sleep?.forget()
+            sleep?.planner.accountChanged()
+        }
+        // So do Tonight's plan, schedule and planned nights (Bedtime & wake), at once; RyftApp then asks for this side's.
+        bedtime = BedtimePlanner(state: state)
+        state.forgetsAccountState { [weak bedtime] in bedtime?.forget() }
         strain = StrainViewModel(state: state, store: store)
+        // Strain's failed day and a deep link's Train page are the side's too.
+        state.forgetsAccountState { [weak strain] in strain?.forget() }
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
+        // My Day's failed days and their request IDs are the side's.
+        state.forgetsAccountState { [weak myDay] in myDay?.forget() }
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
@@ -102,13 +122,16 @@ final class ScreenModels {
                 return config
             }
         }
+        // Analytics' gate reads the newest config, pending or shown: a kill switch acts now, not on the next screen.
+        env.flags.onNewest = { [weak env] in env?.analytics.reevaluate() }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
                                    devices: devices, train: train)
         state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
+        // Start workout's last session and plan are the account's, or demo data's: they go with the others.
+        state.forgetsAccountState { [weak trainToday] in trainToday?.forget() }
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads
-        bedtime = BedtimePlanner(state: state)
     }
 
     /// A path's data gate changed (RootView forwards each). When it opens, that path's queue goes: the activity
@@ -142,4 +165,16 @@ final class ScreenModels {
     func pullToRefresh() async {
         await state.pullToRefresh(coordinator: coordinator)
     }
+
+    /// Profile's Demo data switch, Train's part (RyftApp's `onChange(of: settings.demoMode)` calls it; here, a test sees
+    /// it). Train's cache is one store for both sides (ADR 0019): what was read for the other side goes, and the plans and
+    /// today's plan day are read for this one (`trainRefresh`, which tests await).
+    func trainDemoModeChanged() {
+        library.demoModeChanged()
+        let library = library
+        trainRefresh = Task { await library.refresh() }
+    }
+
+    /// The refresh the last Demo data switch started (`trainDemoModeChanged`).
+    @ObservationIgnored private(set) var trainRefresh: Task<Void, Never>?
 }

@@ -43,6 +43,8 @@ final class FlagStore: FeatureFlagProvider {
     /// Bumped by every account or demo switch: an answer asked for before it isn't applied after it.
     @ObservationIgnored private(set) var generation = 0
     private(set) var remote: [String: Bool] = [:]
+    /// The shown config's `analytics`, kept beside `remote` (`newestAnalytics`).
+    private(set) var analytics: AnalyticsConfig?
     private(set) var evaluatedAt: Date?
     private(set) var fetchedAt: Date?
     private(set) var ttl: TimeInterval = FlagStore.defaultTTL
@@ -57,6 +59,8 @@ final class FlagStore: FeatureFlagProvider {
     @ObservationIgnored private var shownAppAttest: AppAttestMode?
     /// What `publishAppAttest` last told the attestor.
     @ObservationIgnored private var published: (mode: AppAttestMode?, fetchedAt: Date?)?
+    /// After every change of `newest` or `newestAnalytics` (ScreenModels: analytics' gate).
+    @ObservationIgnored var onNewest: (@MainActor () -> Void)?
 
     /// `appAttest`: `.live` for `shared`; it learns the cached mode here, before any request of a cold or background
     /// launch.
@@ -90,6 +94,18 @@ final class FlagStore: FeatureFlagProvider {
         return remote[flag.rawValue] != nil ? .remote : .compiled
     }
 
+    /// Like `isOn`, but a pending answer counts at once: a kill switch mustn't wait for the next screen.
+    func newest(_ flag: FeatureFlag) -> Bool {
+        if launchFlags.contains(flag) { return true }
+        return overrides[flag] ?? (pending?.config.flags ?? remote)[flag.rawValue] ?? flag.compiledDefault
+    }
+
+    /// The pending answer's `analytics` (`null` included), else the shown one's.
+    var newestAnalytics: AnalyticsConfig? {
+        if let pending { return pending.config.analytics }
+        return analytics
+    }
+
     // MARK: remote
 
     /// Due once `evaluated_at + ttl_sec` has passed (or never answered). A
@@ -118,6 +134,7 @@ final class FlagStore: FeatureFlagProvider {
         }
         // The mode isn't on screen: a pending answer's counts at once.
         publishAppAttest()
+        onNewest?()
     }
 
     /// A screen is appearing: switch to an answer that arrived meanwhile.
@@ -147,6 +164,7 @@ final class FlagStore: FeatureFlagProvider {
         store.removeDocument(key: cacheKey)
         clear()
         publishAppAttest()
+        onNewest?()
     }
 
     private func reload() {
@@ -154,10 +172,12 @@ final class FlagStore: FeatureFlagProvider {
         clear()
         if let cached = store.document(Cached.self, key: cacheKey) { show(cached) }
         publishAppAttest()
+        onNewest?()
     }
 
     private func clear() {
         remote = [:]
+        analytics = nil
         evaluatedAt = nil
         fetchedAt = nil
         ttl = Self.defaultTTL
@@ -167,6 +187,7 @@ final class FlagStore: FeatureFlagProvider {
 
     private func show(_ cached: Cached) {
         remote = cached.config.flags
+        analytics = cached.config.analytics
         evaluatedAt = cached.config.evaluatedAt
         fetchedAt = cached.fetchedAt
         ttl = Self.ttl(of: cached.config)
@@ -196,6 +217,7 @@ final class FlagStore: FeatureFlagProvider {
         overrides[flag] = value
         defaults.set(Dictionary(uniqueKeysWithValues: overrides.map { ($0.key.rawValue, $0.value) }),
                      forKey: Self.overridesKey)
+        onNewest?()
         #endif
     }
 
@@ -203,6 +225,7 @@ final class FlagStore: FeatureFlagProvider {
         #if DEBUG
         overrides = [:]
         defaults.removeObject(forKey: Self.overridesKey)
+        onNewest?()
         #endif
     }
 }

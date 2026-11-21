@@ -82,14 +82,18 @@ struct RestChoices: View {
     }
 }
 
-#Preview("Exercise menu · dark and light", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    return SchemePair {
+// MARK: - previews (dark only)
+
+#Preview("Exercise menu", traits: .sizeThatFitsLayout) {
+    let c = SessionSheetsPreview.listDraft()
+    return DarkPreview {
         // Every item without opening the menu: a menu's items exist only while it's open.
         VStack(alignment: .leading, spacing: 12) {
             ExerciseMenuItems(controller: c, exercise: c.exercises[0], onReplace: {}, onTargets: {}, onNotes: {}, onPlates: {},
                               onHistory: {}, onRemove: {}, onAddWarmup: {})
         }
         .font(.ryft(.callout))
+        .tint(Theme.textPrimary)
     }
+    .previewEnvironment()
 }

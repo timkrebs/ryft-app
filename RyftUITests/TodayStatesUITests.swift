@@ -131,6 +131,6 @@ final class TodayStatesUITests: XCTestCase {
         XCTAssertTrue((gauge.value as? String ?? "").contains("Still scoring your night"), "the gauge, in its own words")
         XCTAssertFalse(app.staticTexts["Scoring your night"].exists)
         line.tap()
-        XCTAssertTrue(app.navigationBars["Sync details"].waitForExistence(timeout: 5), "Details: Sync details")
+        XCTAssertTrue(app.descendants(matching: .any)["syncDetails.engine"].waitForExistence(timeout: 5), "Details: Sync details")
     }
 }

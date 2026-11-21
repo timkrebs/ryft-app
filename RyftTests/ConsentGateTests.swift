@@ -1492,7 +1492,7 @@ extension ConsentWriterTests {
         #expect(h.state.user?.consent == nil)
         h.clock.advance(by: .seconds(1))
         patch.release()
-        await save.value
+        _ = await save.value
         #expect(h.state.user?.consent == nil)
         recheck.release()
 

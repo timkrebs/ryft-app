@@ -421,9 +421,10 @@ struct SleepBedtimeBoardTests {
     @Test("Bedtime & wake's summary in the locale's clock: 12-hour in en_US, 24-hour in en_GB (Profile's row too)")
     func theSummary() {
         // en_GB's short time is 24-hour; whether it has a leading zero is the system's (iOS 27: "6:30").
-        #expect(plain(BedtimePlanner.summary(.default, locale: enUS)) == "6:30 AM · weekend 8:00 AM")
+        // A no-break space keeps "weekend" with its time when the row wraps.
+        #expect(plain(BedtimePlanner.summary(.default, locale: enUS)) == "6:30 AM · weekend\u{00A0}8:00 AM")
         let gb = BedtimePlanner.summary(.default, locale: enGB)
-        #expect(["6:30 · weekend 8:00", "06:30 · weekend 08:00"].contains(gb), "\(gb)")
+        #expect(["6:30 · weekend\u{00A0}8:00", "06:30 · weekend\u{00A0}08:00"].contains(gb), "\(gb)")
         let everyDay = SleepSchedule(wake: Array(repeating: "06:30", count: 7))
         #expect(plain(BedtimePlanner.summary(everyDay, locale: enUS)) == "6:30 AM")
         #expect(["6:30", "06:30"].contains(BedtimePlanner.summary(everyDay, locale: enGB)))

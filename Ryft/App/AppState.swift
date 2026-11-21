@@ -372,6 +372,9 @@ final class AppState {
         env.reads.reset()
         repository.reset()
         lastNight = nil
+        // The body-setting editors' words and the value on its way are the account's, or demo data's: on the other side of
+        // the switch they go, and nothing waits for an answer meant for this side (C3 review 2, item 1).
+        for forget in accountStateForgetters { forget() }
         // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
         // and so does an upload of them (or of the account's) in flight.
         env.uploader.accountChanged()
@@ -395,6 +398,13 @@ final class AppState {
 
     /// The previous account's export (shown, failed): ScreenModels connects the profile's `forgetExport()`.
     @ObservationIgnored var onForgetAccountState: (@MainActor () -> Void)?
+    /// Others that forget the previous account's state at the same moment, each adding itself (the body-setting editors:
+    /// their words and the value on its way).
+    @ObservationIgnored private var accountStateForgetters: [@MainActor () -> Void] = []
+
+    func forgetsAccountState(_ forget: @escaping @MainActor () -> Void) {
+        accountStateForgetters.append(forget)
+    }
 
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
@@ -434,6 +444,8 @@ final class AppState {
     /// Inside every wipe (sign-out, expiry, deletion, another account), a runloop before `accountChanged(from:)`.
     func wiped(_ wipe: AuthService.Wipe) {
         forgetActivityState()
+        // Usage analytics: the queue and the random id go, and whoever signs in next is asked again.
+        env.analytics.accountLeft()
     }
 
     /// The uploader stops (answers in flight are dropped), decoded read models go (the wipe changed the store
@@ -451,14 +463,23 @@ final class AppState {
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
         // The export of what was just wiped (privacy review 3).
         onForgetAccountState?()
+        for forget in accountStateForgetters { forget() }
     }
 
     /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline). An answer that arrives after a
-    /// sign-out (another account, the Demo data switch) is dropped unwritten.
-    func patchUser(_ patch: UserPatch) async throws {
-        let change = repository.userChange()
+    /// sign-out (another account, the Demo data switch) is dropped unwritten, as is one a change of the user begun
+    /// meanwhile may have overtaken: `false` then, and the caller doesn't say it saved.
+    @discardableResult
+    func patchUser(_ patch: UserPatch) async throws -> Bool {
+        try await patchUser(patch, begun: repository.userChange(), via: source)
+    }
+
+    /// The same, begun at `change` and sent to `source`, both taken by the caller in the step the change began: one that
+    /// sends it from a task of its own (`BodySettingsEditor`) sends it for that moment's account and platform, not the
+    /// task's first turn's (the Demo data switch can come in between).
+    func patchUser(_ patch: UserPatch, begun change: Repository.UserChange, via source: PlatformAPI) async throws -> Bool {
         let patched = try await source.patchMe(patch)
-        await repository.store(user: patched, asOf: change).committed()
+        return !(await repository.store(user: patched, asOf: change).committed()).dropped
     }
 
     // MARK: per-screen data (cache-first, revalidated)

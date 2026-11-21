@@ -68,6 +68,8 @@ final class Repository {
     @ObservationIgnored private var userChanges = 0
     /// A refused save of the user went again (`committed`): a second refusal in a row isn't retried.
     @ObservationIgnored private var resubmittedUser = false
+    /// Stores whose cached user may not be what the platform holds (`userMayDiffer()`), until a user is stored in them.
+    @ObservationIgnored private var userOutdated: Set<StoreID> = []
     /// A misuse (`seed` while writes are pending, a preview setter on the live graph): Debug builds stop at it; in the
     /// unit tests' host it fails the test that made it (`Misuse.report`). A test that expects one records it here.
     @ObservationIgnored var onMisuse: (String) -> Void = { Misuse.report($0) }
@@ -420,7 +422,7 @@ final class Repository {
     }
 
     func refreshUser(mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws {
-        if mode == .ifStale {
+        if mode == .ifStale, !userOutdated.contains(store.epoch.store) {
             var d = FetchDescriptor<CachedUser>()
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.user) { return }
@@ -433,6 +435,16 @@ final class Repository {
 
     func refreshUser(force: Bool) async throws {
         try await refreshUser(mode: force ? .latest : .ifStale)
+    }
+
+    /// `refreshUser(mode: .changed(since:))` for a page that reads its save back: `true` when a `GET /v1/me` started at or
+    /// after `since` answered (and was stored), `false` when nothing was sent (offline, or `.me` waits out a retry-after),
+    /// so the cached user may be older than `since`.
+    func readUserBack(since: Date) async throws -> Bool {
+        try await env.reads.run(ReadKey(.me), mode: .changed(since: since),
+                                storeAsked: { [weak self] (user: User, asked: Date) in
+                                    await self?.store(fetchedUser: user, askedAt: asked).committed()
+                                }, { [env] in try await env.api.me() }) != nil
     }
 
     func refreshSleepRange(_ kind: SleepRangeKind, mode: ReadMode = .ifStale) async throws {
@@ -722,6 +734,7 @@ final class Repository {
     /// upload gate decides from it in the same step (ADR 0008). A commit never replaces it; `invalidate()` does.
     @discardableResult
     func store(user: User) -> WriteTicket {
+        userOutdated.remove(store.epoch.store)
         writtenThroughUser = (store.epoch.store, user)
         forget([.user])
         return submit(.user(user))
@@ -772,9 +785,17 @@ final class Repository {
             return .dropped
         }
         noteUserChange()
+        userOutdated.remove(change.store)
         writtenThroughUser = (change.store, user)
         forget([.user])
         return submit(.user(user), at: change.epoch)
+    }
+
+    /// A change of the user may have gone through without its answer reaching this phone (none came, or the store dropped
+    /// it), and RYFT couldn't be asked again (offline, or the question failed): the cached user may not be what the platform
+    /// holds. The next `refreshUser(mode: .ifStale)` asks, fresh or not; the next user stored in this store ends it.
+    func userMayDiffer() {
+        userOutdated.insert(store.epoch.store)
     }
 
     /// The withdrawal (`DELETE /v1/me/consent` answered), begun at `change`: the user as this phone has it, without the
@@ -1015,7 +1036,8 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
     case insights     // GET /v1/insights
     case journal      // GET /v1/behaviors, /v1/journal/{day}, /v1/behaviors/impact
     case config       // GET /v1/config
-    case train        // TrainLibrary: exercises, plans, plans/today
+    case train        // TrainLibrary: exercises, plans, plans/today, a plan, the session list, a session, an exercise's
+                      // history; one key per owner (`TrainLibrary.readKey`), one record (and `Retry-After` hold) for all
     case sleepRange   // GET /v1/sleep
     case activities   // GET /v1/activities?from&to, one local day (My Day)
 
@@ -1342,12 +1364,27 @@ final class ReadScheduler {
 
     // MARK: flights
 
+    /// Why `run` would send nothing for `key` now; nil when it would send. A caller that shows the reason asks first (Train's
+    /// pages: offline is not the same as held back while online).
+    enum Hold: Equatable {
+        /// Offline, or signed out (not demo).
+        case offline
+        /// Online, but a `Retry-After` beyond what a refresh waits holds automatic reads of the resource back
+        /// (`retryNotBefore`): a user's own read (`userInitiated`, Try again) goes through.
+        case heldBack
+    }
+
+    func hold(_ key: ReadKey, userInitiated: Bool) -> Hold? {
+        guard let env, env.isDemo || (env.connectivity.isOnline && env.auth.accountID != nil) else { return .offline }
+        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return .heldBack }
+        return nil
+    }
+
     /// The outcome to wait on: the flight for `key` (joined), its follow-up, or a new flight; nil
-    /// when nothing is sent (offline, signed out, held back). No await: two callers can't both start one.
+    /// when nothing is sent (offline, signed out, held back: `hold`). No await: two callers can't both start one.
     private func enter<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool, store: Store?,
                                     _ fetch: @escaping @MainActor () async throws -> T) -> Outcome? {
-        guard let env, env.isDemo || (env.connectivity.isOnline && env.auth.accountID != nil) else { return nil }
-        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return nil }
+        guard hold(key, userInitiated: userInitiated) == nil else { return nil }
         if let flight = flights[key] {
             if case .changed(let since) = mode, flight.started < since {
                 if flight.followUpStore == nil { flight.followUpStore = store }

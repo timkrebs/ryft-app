@@ -1,20 +1,37 @@
 import SwiftUI
 
-/// The rest timer, pinned under the session header outside the list (ui.md §6): ring, time, the next set,
-/// −15 / +15 / Skip. One home for the timer, so a jump to the next exercise never scrolls it away.
-/// At AX sizes it can shrink to a one-line pill (`pill`); a tap on the pill asks for the full bar (`onExpand`).
+/// The rest timer, pinned under the session header outside the list (ui.md §6; PR 6 B §4.5, `b-02`): ring, time, the next set,
+/// −15 s / +15 s / Skip. One home for the timer, so a jump to the next exercise never scrolls it away.
+/// At the accessibility sizes it is a one-line pill: the ring, the time and Skip (lead decision, PR 6 ui-validator S8: the
+/// stacked buttons took 42 % of the screen at AX3). Its −15 s and +15 s live in the rest sheet, which a tap on the pill opens
+/// (`onOpen`).
+///
+/// Nocturne: a `surface` card, radius 22, with a 1 pt edge of ink at 20 % (the running rest pill's). The ring is 36 pt, 4 pt of
+/// Volt progress on an ink track at 16 % (the running rest is one of Volt's marks, D6B-1); the time is 28 pt Light ink; the
+/// three buttons are compact outline pills under it, −15 s and +15 s leading and Skip trailing, one per line wherever the line
+/// can't hold them (XXL at 320 pt). "Rest over" is the same card with the bell, the words and a compact "Dismiss" (under the
+/// words at AX sizes). Nothing is filled: the active set's ✓ is the screen's one filled mark.
 ///
 /// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
-/// for ±15 s and Skip, and on the pill one more to show the full bar); −15, +15 and Skip are buttons of their own,
+/// for ±15 s and Skip, and on the pill one more to open the rest sheet); −15, +15 and Skip are buttons of their own,
 /// which Voice Control can name.
 struct RestBar: View {
     var controller: SessionController
-    var pill = false
-    var onExpand: () -> Void = {}
+    /// The pill's tap (accessibility sizes): the rest sheet, with −15 s and +15 s.
+    var onOpen: () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title) private var timeSize: CGFloat = 28
+
+    /// The card: radius 22 (`CardSpec.radius`), a 1 pt edge of ink at 20 %; 12 above and below, 14 at the sides.
+    static let radius = CardSpec.radius, edge = 0.20
+    static let verticalPadding: CGFloat = 12, horizontalPadding: CGFloat = 14
+    /// The ring: 36 pt (28 at AX sizes), a 4 pt stroke, Volt on an ink track at 16 %.
+    static let ring: CGFloat = 36, compactRing: CGFloat = 28, ringLine: CGFloat = 4, ringTrack = 0.16
+    static let ringInk = Theme.signal
+    /// The buttons' titles: a true minus (U+2212), as the rest sheet's keys.
+    static let lessTitle = "\u{2212}15 s", moreTitle = "+15 s"
 
     var body: some View {
         switch controller.rest.phase {
@@ -22,12 +39,13 @@ struct RestBar: View {
             EmptyView()
         case .running:
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
-                if pill { pillBar(at: context.date) } else { running(at: context.date) }
+                if isAX { pillBar(at: context.date) } else { running(at: context.date) }
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("session.restBar")
         case .finished:
             finished
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("session.restBar")
         }
     }
@@ -35,68 +53,54 @@ struct RestBar: View {
     // MARK: running
 
     private var isAX: Bool { typeSize.isAccessibilitySize }
-    /// XL and up: the buttons get a full-width row of their own and the next set wraps.
-    private var isLarge: Bool { typeSize >= .xLarge }
 
     private func running(at date: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
                 ring(at: date)
-                if isLarge {
-                    VStack(alignment: .leading, spacing: 2) {
-                        time(at: date)
-                        nextText
-                            .lineLimit(isAX ? 3 : 2)
-                            // Its full height: inside the bar's HStack it would otherwise get one line.
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .modifier(RestTimeElement(controller: controller, date: date))
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            time(at: date)
-                            nextText.lineLimit(1)
-                        }
-                        .modifier(RestTimeElement(controller: controller, date: date))
-                        buttons
-                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    time(at: date)
+                    nextText
+                        .lineLimit(2)
+                        // Its full height: inside the bar's HStack it would otherwise get one line.
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .modifier(RestTimeElement(controller: controller, date: date))
             }
-            if isLarge { buttons }
+            buttons
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
+        .padding(.vertical, Self.verticalPadding)
+        .padding(.horizontal, Self.horizontalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-            .strokeBorder(Theme.accent.opacity(0.35), lineWidth: Theme.Metrics.hairline))
+        .modifier(RestBarCard(shape: RoundedRectangle(cornerRadius: Self.radius, style: .continuous)))
     }
 
-    /// AX sizes while the list is in use: ring, time, Skip. A tap elsewhere on it shows the full bar.
+    /// The accessibility sizes: ring, time, Skip, in a capsule. A tap elsewhere on it opens the rest sheet.
     private func pillBar(at date: Date) -> some View {
         HStack(spacing: 12) {
             ring(at: date)
             time(at: date)
-                .modifier(RestTimeElement(controller: controller, date: date, onExpand: onExpand))
+                .modifier(RestTimeElement(controller: controller, date: date, onOpen: onOpen))
             Spacer(minLength: 0)
-            skipButton.fixedSize()
+            skipButton
         }
         .padding(.vertical, 6)
-        .padding(.horizontal, 12)
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: Theme.Metrics.hairline))
+        .modifier(RestBarCard(shape: Capsule()))
         .contentShape(Capsule())
-        .onTapGesture(perform: onExpand)
+        .onTapGesture(perform: onOpen)
     }
 
+    /// Volt on an ink track. Under Reduce Motion it still draws, and jumps from tick to tick (it never eases).
     private func ring(at date: Date) -> some View {
-        let size: CGFloat = isAX ? 28 : 36
+        let size = isAX ? Self.compactRing : Self.ring
         return ZStack {
-            Circle().stroke(Theme.accent.opacity(0.14), lineWidth: 4)
+            Circle().stroke(Theme.textPrimary.opacity(Self.ringTrack), lineWidth: Self.ringLine)
             Circle()
                 .trim(from: 0, to: controller.rest.fraction(at: date))
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .stroke(Self.ringInk, style: StrokeStyle(lineWidth: Self.ringLine, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: size, height: size)
@@ -127,14 +131,22 @@ struct RestBar: View {
                comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
     }
 
-    /// AX3 and up: one full-width button per row. Otherwise −15 and +15 hug their label and Skip takes the rest,
-    /// so "Überspringen" fits.
-    private var stacksButtons: Bool { typeSize >= .accessibility3 }
+    /// −15 s and +15 s leading and Skip at the end of the line, while the three fit on it; where they don't (XXL at 320 pt) one
+    /// per line, leading. (The accessibility sizes draw the pill.)
+    private var buttons: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                adjustButton(by: -RestTimer.step)
+                adjustButton(by: RestTimer.step)
+                Spacer(minLength: 0)
+                skipButton
+            }
+            stackedButtons
+        }
+    }
 
-    @ViewBuilder private var buttons: some View {
-        let layout = stacksButtons
-            ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
-        layout {
+    private var stackedButtons: some View {
+        VStack(alignment: .leading, spacing: 8) {
             adjustButton(by: -RestTimer.step)
             adjustButton(by: RestTimer.step)
             skipButton
@@ -142,22 +154,9 @@ struct RestBar: View {
     }
 
     private func adjustButton(by delta: TimeInterval) -> some View {
-        Button {
+        PillButton(verbatim: delta < 0 ? Self.lessTitle : Self.moreTitle, style: .secondary, size: .compact) {
             controller.adjustRest(by: delta)
-        } label: {
-            // A true minus (U+2212).
-            Text(verbatim: delta < 0 ? "−15" : "+15")
-                .font(.ryft(.headline))
-                .monospacedDigit()
-                .lineLimit(1)
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, 14)
-                .frame(minWidth: 64, maxWidth: stacksButtons ? .infinity : nil, minHeight: buttonHeight)
-                .background(Theme.surfaceRaised, in: Capsule())
-                .contentShape(Capsule().inset(by: -2))
         }
-        .buttonStyle(PressableButtonStyle())
-        .fixedSize(horizontal: !stacksButtons, vertical: false)
         .accessibilityLabel(delta < 0 ? Text("Fifteen seconds less") : Text("Fifteen seconds more"))
         .accessibilityInputLabels(delta < 0
             ? [Text("Minus 15", comment: "Voice Control name of the rest bar's −15 button."), Text("Fifteen seconds less")]
@@ -165,74 +164,105 @@ struct RestBar: View {
     }
 
     private var skipButton: some View {
-        Button {
+        PillButton(Text("Skip"), style: .secondary, size: .compact) {
             controller.skipRest()
-        } label: {
-            Text("Skip")
-                .font(.ryft(.headline))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7) // a last resort for "Überspringen" in a narrow bar
-                .foregroundStyle(Theme.onAccent)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: pill ? nil : .infinity, minHeight: buttonHeight)
-                .background(Theme.accent, in: Capsule())
-                .contentShape(Capsule().inset(by: -2))
         }
-        .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(Text("Skip rest"))
         .accessibilityInputLabels([Text("Skip"), Text("Skip rest")])
     }
 
-    private var buttonHeight: CGFloat { typeSize >= .accessibility3 ? 48 : 44 }
-
     // MARK: finished
 
+    /// "Rest over", the next set, and a compact "Dismiss". The whole card still dismisses on a tap, as the banner did. At AX sizes
+    /// the words take the card's width and Dismiss goes under them, leading, so the next set isn't cut beside the pill.
     private var finished: some View {
-        Button {
-            controller.dismissRestBanner()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Rest over")
-                        .font(.ryft(.headline))
-                    Text(Self.nextLine(controller.nextLabel()))
-                        .font(.ryft(.caption))
-                        .lineLimit(isAX ? 3 : 1)
+        Group {
+            if isAX {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        bell
+                        finishedWords
+                    }
+                    dismissButton
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .accessibilityHidden(true)
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    bell
+                    finishedWords
+                    dismissButton
+                }
             }
-            .foregroundStyle(Theme.onAccent)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 56)
-            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         }
-        .buttonStyle(PressableButtonStyle())
+        .padding(.vertical, Self.verticalPadding)
+        .padding(.leading, Self.horizontalPadding)
+        .padding(.trailing, Self.horizontalPadding - 2)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .modifier(RestBarCard(shape: RoundedRectangle(cornerRadius: Self.radius, style: .continuous)))
+        .contentShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
+        .onTapGesture { controller.dismissRestBanner() }
+    }
+
+    private var bell: some View {
+        Image(systemName: "bell")
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(Theme.textSecondary)
+            .accessibilityHidden(true)
+    }
+
+    /// "Rest over" and the next set, one element. At AX sizes the next set takes the lines it needs (up to 3).
+    private var finishedWords: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Rest over")
+                .font(.ryft(.headline))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: isAX)
+            Text(Self.nextLine(controller.nextLabel()))
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(isAX ? 3 : 1)
+                .fixedSize(horizontal: false, vertical: isAX)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Rest over. \(Self.nextLine(controller.nextLabel()))"))
+    }
+
+    private var dismissButton: some View {
+        PillButton(Text("Dismiss"), style: .secondary, size: .compact) {
+            controller.dismissRestBanner()
+        }
         .accessibilityHint(Text("Dismisses the banner"))
+    }
+}
+
+/// The bar's ground: `surface` in `shape`, with the 1 pt edge of ink at 20 %.
+private struct RestBarCard<S: InsettableShape>: ViewModifier {
+    let shape: S
+
+    func body(content: Content) -> some View {
+        content
+            .background(Theme.surface, in: shape)
+            .overlay(shape.strokeBorder(Theme.textPrimary.opacity(RestBar.edge), lineWidth: Theme.Metrics.hairline))
     }
 }
 
 /// The time and the next set as one VoiceOver element, every modifier on this one level: label "Rest timer", value
 /// "1 minute, 35 seconds left. Next: …" (in 5 s steps, so it doesn't chatter), adjustable by ±15 s, actions for
-/// ±15 s and Skip; on the pill a named action shows the full bar. No default action: SwiftUI would add the button
+/// ±15 s and Skip; on the pill a named action opens the rest sheet. No default action: SwiftUI would add the button
 /// trait, and the element should read as adjustable only.
 private struct RestTimeElement: ViewModifier {
     var controller: SessionController
     var date: Date
-    var onExpand: (() -> Void)?
+    var onOpen: (() -> Void)?
 
     @ViewBuilder func body(content: Content) -> some View {
-        if let onExpand {
+        if let onOpen {
             element(content)
-                .accessibilityAction(named: Text("Show rest timer",
-                                                 comment: "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.")) { onExpand() }
+                .accessibilityAction(named: Text(
+                    "Show rest timer",
+                    comment: "VoiceOver action on the rest bar's small pill (large text sizes): opens the rest sheet.")) {
+                    onOpen()
+                }
         } else {
             element(content)
         }
@@ -272,40 +302,61 @@ private struct RestTimeElement: ViewModifier {
     }
 }
 
-// MARK: - previews
+// MARK: - previews (dark only)
 
-#Preview("Rest bar · running, pill", traits: .sizeThatFitsLayout) {
-    let running = TrainPreview.liveController()
-    return SchemePair {
-        VStack(spacing: 12) {
-            RestBar(controller: running)
-            RestBar(controller: running, pill: true)
-        }
-    }
+/// `b-02`'s bar: 1:54 left of Bench press's rest.
+#Preview("Rest bar · running", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listDraft())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
 }
 
 #Preview("Rest bar · XL", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        RestBar(controller: TrainPreview.liveController())
-    }
-    .dynamicTypeSize(.xLarge)
+    RestBar(controller: SessionSheetsPreview.listDraft())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.xLarge)
 }
 
-#Preview("Rest bar · AX3", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    return SchemePair {
-        VStack(spacing: 12) {
-            RestBar(controller: c)
-            RestBar(controller: c, pill: true)
-        }
+/// The accessibility sizes: the pill (ring, time, Skip), at AX3 and AX5.
+#Preview("Rest bar · AX3, AX5", traits: .sizeThatFitsLayout) {
+    let c = SessionSheetsPreview.listDraft()
+    return VStack(spacing: 12) {
+        RestBar(controller: c).dynamicTypeSize(.accessibility3)
+        RestBar(controller: c).dynamicTypeSize(.accessibility5)
     }
-    .dynamicTypeSize(.accessibility3)
+    .padding(LiveSessionSpec.sidePadding)
+    .frame(width: 390)
+    .background(Theme.background)
+    .previewEnvironment()
 }
 
 #Preview("Rest bar · rest over", traits: .sizeThatFitsLayout) {
-    let c = TrainPreview.liveController()
-    c.adjustRest(by: -RestTimer.maxRest)
-    return SchemePair {
-        RestBar(controller: c)
-    }
+    RestBar(controller: SessionSheetsPreview.listFolded())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
+}
+
+#Preview("Rest bar · rest over, AX3", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listFolded())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 390)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Rest bar · XXL at 320", traits: .sizeThatFitsLayout) {
+    RestBar(controller: SessionSheetsPreview.listDraft())
+        .padding(LiveSessionSpec.sidePadding)
+        .frame(width: 320)
+        .background(Theme.background)
+        .previewEnvironment()
+        .dynamicTypeSize(.xxLarge)
 }

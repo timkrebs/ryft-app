@@ -121,6 +121,7 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
+        TrainCoordinator.shared.analytics = { [env = AppEnvironment.live] in env.analytics.track($0) }
         // The demo's workouts (ADR 0019): the list's one-time seed for workouts logged before it, then, with Demo data
         // off, the sweep. "Signed in" also counts the account `auth.lastUserID` still names (`AccountScope`): its wipe may
         // have failed, and its workouts must never be seeded as the demo's. Before the first unlock that id (and the
@@ -218,6 +219,9 @@ struct RyftApp: App {
                     sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
+                    // Train's cache is one store for both sides (ADR 0019): what was read for the other side goes, and
+                    // the plans and today's plan day are read for this one.
+                    screens.trainDemoModeChanged()
                     // A start asked for in the demo doesn't carry over, as one doesn't across an account change.
                     if !on { WorkoutLauncher.discardPending() }
                     // Demo's remembered import matches and its import job go with it (also when it's switched off
@@ -229,6 +233,11 @@ struct RyftApp: App {
                     screens.trainImport.accountChanged()
                     // The import flow and any file it holds stay with the side they arrived on.
                     screens.importer.demoModeChanged()
+                    // Tonight's plan, schedule and planned nights are the side's: the other side's went with the reset
+                    // (`BedtimePlanner.forget`), and this one's plan is asked for now. Reminders and alarms are only ever
+                    // the account's: demo data sets none and leaves the account's as they are; off again, they're set
+                    // afresh.
+                    Task { await screens.bedtime.refresh() }
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
@@ -255,8 +264,10 @@ struct RyftApp: App {
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
+                .onChange(of: state.selectedTab) { _, tab in env.analytics.track(.screenViewed(AnalyticsScreen(tab))) }
                 // The first successful sync unlocks the push pre-prompt on Today.
                 .onChange(of: sync.phase) { _, phase in
+                    if phase == .done, !screens.push.hasSynced { env.analytics.track(.firstSyncCompleted) }
                     if phase == .done { screens.push.syncSucceeded() }
                 }
                 // Today was fetched again (after a sync that touched it): tonight's bedtime moves
@@ -269,6 +280,9 @@ struct RyftApp: App {
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
+                    // Usage analytics from the cached config (its sink starts only if the user opted in), after an
+                    // owed wipe has forgotten the last account's answer.
+                    env.analytics.reevaluate()
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.
@@ -453,6 +467,10 @@ struct RootView: View {
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
     @Environment(\.launchInterrupt) private var launchInterrupt
+    /// The root's cross-fades (splash, Welcome, the steps, the tabs) are `Theme.Motion.quick`, none under Reduce Motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The tabs are on screen: the only place the analytics prompt presents from.
+    @State private var tabsShown = false
 
     var body: some View {
         Group {
@@ -478,8 +496,21 @@ struct RootView: View {
 
     /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
     private var presentsSomething: Bool {
+        presentsBesidesAnalytics || (tabsShown && env.analytics.showsPrompt)
+    }
+
+    /// The other root presentations: the analytics prompt waits for them (`analyticsOptInPrompt(blocked:)`).
+    private var presentsBesidesAnalytics: Bool {
         onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
             || screens.importer.flow != nil || screens.importer.showsUnavailable
+    }
+
+    /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode.
+    private var analyticsStep: OnboardingStepName? {
+        guard !settings.demoMode, auth.state == .signedIn, !onboarding.holdsFirstRun else { return nil }
+        if let step = onboarding.flowStep ?? onboarding.sheetStep { return OnboardingStepName(step) }
+        if needsHealthIntro { return .health }
+        return onboarding.showsTrackerSetup ? .trackerSetup : nil
     }
 
     /// Report a problem, pre-filled with what failed, pushed onto the Details sheet's stack.
@@ -521,10 +552,11 @@ struct RootView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
-        .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
-        .animation(.easeInOut(duration: 0.3), value: onboarding.showsTrackerSetup)
+        .animation(rootFade, value: settings.demoMode ? .signedIn : auth.state)
+        .animation(rootFade, value: needsHealthIntro)
+        .animation(rootFade, value: onboarding.flowStep)
+        .animation(rootFade, value: onboarding.showsTrackerSetup)
+        .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
@@ -544,6 +576,9 @@ struct RootView: View {
         }
     }
 
+    /// One screen of the root replacing another (PR 6 A G10): `quick`, or none under Reduce Motion.
+    private var rootFade: Animation? { Theme.Motion.respecting(reduceMotion, Theme.Motion.quick) }
+
     /// After sign-in, once per account: explain Apple Health before iOS asks.
     private var needsHealthIntro: Bool {
         env.health.isAvailable && !settings.healthIntroDone
@@ -556,6 +591,12 @@ struct RootView: View {
         tabBar
             .onAppear { Task { await WorkoutLauncher.tabsAppeared() } }
             .onDisappear { WorkoutLauncher.tabsDisappeared() }
+            .onAppear {
+                tabsShown = true
+                env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab)))
+            }
+            .onDisappear { tabsShown = false }
+            .analyticsOptInPrompt(blocked: presentsBesidesAnalytics)
     }
 
     /// E6: a file opened while signed out waits in memory for the sign-in.
@@ -572,8 +613,7 @@ struct RootView: View {
     private var tabBar: some View {
         RootTabs()
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
-            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0).presentedRoot() }
-            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
+            .importPresentations(screens.importer)
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
@@ -644,6 +684,8 @@ enum DebugScreen: String {
     case syncCheck = "sync-check"
     /// Welcome after a session expiry, with a parked run and night on a preview store (`activities.manual` off).
     case welcomeParked = "welcome-parked"
+    /// The usage analytics prompt, and Profile → Privacy's switch (phase 1 shows neither to anyone).
+    case analyticsPrompt = "analytics-prompt", analyticsRow = "analytics-row"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -680,6 +722,8 @@ enum DebugScreen: String {
             DebugSyncCheck()
         case .welcomeParked:
             DebugWelcomeParked()
+        case .analyticsPrompt: AnalyticsOptInSheet { _ in }
+        case .analyticsRow: AnalyticsOptInRowCapture()
         }
     }
 
@@ -711,7 +755,7 @@ private struct DebugBedtime: View {
     var body: some View {
         NavigationStack {
             if screen == .bedtime {
-                SleepScheduleView(planner: screens.bedtime)
+                SleepScheduleView(planner: screens.bedtime, placement: .root)
             } else {
                 ScrollView { TonightCard(planner: screens.bedtime).padding() }
                     .background(Theme.background.ignoresSafeArea())
@@ -801,9 +845,9 @@ private struct DebugDevices: View {
                 case .trackerSetup: TrackerSetupStepView(model: screens.onboarding)
                 case .trackerCard:
                     NavigationStack {
-                        TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                        TrackerDetailView(tracker: tracker, model: screens.profile.devices, placement: .root) {}
                     }
-                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices) }
+                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices, placement: .root) }
                 }
             }
         }
@@ -833,7 +877,7 @@ private struct DebugSyncCheck: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers)) }
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers), placement: .root) }
     }
 }
 
@@ -842,7 +886,7 @@ private struct DebugSyncDetails: View {
     @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails) }
+        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails, placement: .root) }
     }
 }
 #endif
@@ -915,22 +959,6 @@ private final class NextFrame: NSObject {
         body?()
         body = nil
     }
-}
-
-/// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
-struct SplashView: View {
-    var body: some View {
-        RyftMark()
-            .frame(width: 64, height: 64)
-            .foregroundStyle(Theme.textPrimary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.background.ignoresSafeArea())
-            .accessibilityLabel(Text("RYFT"))
-    }
-}
-
-#Preview("Splash · dark") {
-    SplashView().preferredColorScheme(.dark)
 }
 
 #Preview("App · dark") {

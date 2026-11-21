@@ -117,6 +117,37 @@ struct NocturneFoundationHostedTests {
         }
     }
 
+    @Test("C §2.9: from AX1 a short title goes under Back and the trailing button too; at xxxLarge it stays on their row",
+          arguments: [false, true])
+    func subpageHeaderShortTitleAtAX(_ ax: Bool) async throws {
+        let page = Stack(pushed: true) {
+            SubpageScaffold(Text(verbatim: "Journal")) {
+                CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
+            } content: {
+                Rows(count: 1)
+            }
+        }
+        try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, typeSize: ax ? .accessibility1 : .xxxLarge,
+                                   category: ax ? .accessibilityMedium : .extraExtraExtraLarge, page) { w in
+            try await w.wait("the pushed page") { w.node("Journal", exactly: true) != nil }
+            try await w.settle()
+            let back = try node(w, "Back"), add = try node(w, "Add a habit"), title = try node(w, "Journal")
+            #expect(abs(back.frame.midY - add.frame.midY) < 1, "Back and + share a row: \(back.frame) \(add.frame)")
+            let order = w.nodes().map(\.label)
+            let (backAt, addAt, titleAt) = (order.firstIndex(of: "Back") ?? .max, order.firstIndex(of: "Add a habit") ?? .max,
+                                            order.firstIndex(of: "Journal") ?? .max)
+            if ax {
+                #expect(title.frame.minY >= back.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5,
+                        "the title under the buttons' row: \(title.frame) \(back.frame)")
+                #expect(abs(title.frame.minX - 20) < 1, "the title from the inset: \(title.frame)")
+                #expect(backAt < addAt && addAt < titleAt, "the buttons' row, then the title: \(order)")
+            } else {
+                #expect(abs(title.frame.midY - back.frame.midY) < 1.5, "one row: \(title.frame) \(back.frame)")
+                #expect(backAt < titleAt && titleAt < addAt, "Back, the title, +: \(order)")
+            }
+        }
+    }
+
     @Test("The back swipe stays on with the bar hidden: allowed on a pushed page, refused on the root")
     func backSwipe() async throws {
         for pushed in [true, false] {
@@ -404,6 +435,95 @@ struct NocturneFoundationHostedTests {
             let message = try node(w, "Couldn't reach RYFT. Showing what was loaded earlier.")
             #expect(message.frame.maxY <= retry.frame.minY + 0.5, "the sentence above the buttons")
         }
+    }
+
+    @Test("C §2.9: the glyph beside the sentence by default, above it from AX1, where the sentence takes the card's width",
+          arguments: [false, true])
+    func noticeGlyphAtAX(_ ax: Bool) async throws {
+        let notice = InlineMessage(message: "Notifications are being rolled out", systemImage: "bell",
+                                   caption: "We'll let you know here when notifications reach your account.", announces: false)
+        try await host(notice.padding(.top, 20), typeSize: ax ? .accessibility1 : .large,
+                       category: ax ? .accessibilityMedium : .large) { w in
+            try await w.settle()
+            let sentence = try node(w, "Notifications are being rolled out")
+            let caption = try node(w, "We'll let you know here when notifications reach your account.")
+            let inset = 20 + InlineMessageSpec.horizontalPadding
+            if ax {
+                #expect(abs(sentence.frame.minX - inset) < 1, "from the card's inset, under the glyph: \(sentence.frame)")
+                #expect(sentence.frame.minY > 20 + InlineMessageSpec.topPadding + InlineMessageSpec.glyphSize, "the glyph above")
+            } else {
+                #expect(sentence.frame.minX >= inset + InlineMessageSpec.glyphSize + InlineMessageSpec.glyphGap - 1,
+                        "beside the glyph: \(sentence.frame)")
+            }
+            #expect(abs(caption.frame.minX - sentence.frame.minX) < 1, "the caption under the sentence")
+        }
+    }
+
+    /// PR 6 ui-validator (Welcome's two banners): the sentences started at x 153 and 162 under glyphs of different widths.
+    @Test("The glyph sits in a fixed column: banners with narrow and wide glyphs start their sentences on one line")
+    func bannerGlyphColumn() async throws {
+        let messages = [("You were signed out. Log in again to continue.", "person.crop.circle.badge.exclamationmark"),
+                        ("2 activities or nights you added haven't reached RYFT yet.", "icloud.and.arrow.up"),
+                        ("This day can't be changed any more.", "lock"),
+                        ("Nothing logged yet today.", "dumbbell")]
+        let banners = VStack(spacing: 12) {
+            ForEach(messages, id: \.0) { InlineMessage(message: $0.0, systemImage: $0.1, announces: false) }
+        }
+        try await host(banners.padding(.top, 20)) { w in
+            try await w.settle()
+            let column = 20 + InlineMessageSpec.horizontalPadding + InlineMessageSpec.glyphColumn + InlineMessageSpec.glyphGap
+            for (message, glyph) in messages {
+                let sentence = try node(w, message)
+                #expect(abs(sentence.frame.minX - column) < 1, "\(glyph): \(sentence.frame) from \(column)")
+            }
+        }
+    }
+
+    /// C §2.6: an action inside a notice is a text link, 16 Medium in ink with a 1 pt underline in ink at 35 %. Read in pixels:
+    /// the underline is a row under the word's middle whose pixels sit at 35 % ink over `surface` along most of the word (the
+    /// system skips descenders, so "Try again" breaks at y and g); a glyph's edges reach that level only here and there.
+    @Test("A banner's ink actions are text links: 'Try again' and a plain action are underlined in ink at 35 %, Details is not")
+    func bannerActionsAreTextLinks() async throws {
+        let banner = InlineMessage(message: "2 activities or nights you added haven't reached RYFT yet.",
+                                   systemImage: "icloud.and.arrow.up", retry: {}, onDetails: {}, identifier: "link",
+                                   action: ("Delete from this iPhone", {}), announces: false)
+        try await host(banner.padding(.top, 20)) { w in
+            try await w.settle()
+            let pixels = try WindowPixels(w)
+            let surface = NocturneTokenTests.resolve(Theme.surface)
+            let ink = NocturneTokenTests.resolve(Theme.textPrimary)
+            let underline = surface.g + (ink.g - surface.g) * InlineMessageSpec.linkUnderlineOpacity
+            for id in ["link.retry", "link.action", "link.details"] {
+                let frame = try #require(w.nodes().first { $0.identifier == id }, "\(id)").frame
+                let text = try #require(pixels.box(in: frame) { $0.g > surface.g + 0.12 }, "\(id) is drawn")
+                // Below the word's middle: an underline, not a strike-through.
+                let lower = CGRect(x: text.minX, y: text.midY, width: text.width, height: frame.maxY - text.midY)
+                let row = Self.fullestRow(pixels, in: lower) { abs($0.g - underline) < 0.1 }
+                if id == "link.details" {
+                    #expect(row < text.width * 0.3, "Details has no underline: \(row) of \(text.width)")
+                } else {
+                    #expect(row > text.width * 0.55, "\(id) is underlined in ink at 35 %: \(row) of \(text.width)")
+                }
+            }
+        }
+    }
+
+    /// The most pixels on one row inside `rect` for which `match` holds, in points (gaps allowed).
+    private static func fullestRow(_ pixels: WindowPixels, in rect: CGRect, where match: (WindowPixels.RGBA) -> Bool) -> CGFloat {
+        let step = 1 / pixels.scale
+        var best = 0
+        var y = rect.minY + step / 2
+        while y < rect.maxY {
+            var count = 0
+            var x = rect.minX + step / 2
+            while x < rect.maxX {
+                if match(pixels.at(x, y)) { count += 1 }
+                x += step
+            }
+            best = max(best, count)
+            y += step
+        }
+        return CGFloat(best) * step
     }
 
     @Test("Retrying reads 'Trying again…' and is disabled; a notice has no buttons; readsAsOne is one element")

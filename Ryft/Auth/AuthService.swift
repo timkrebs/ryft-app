@@ -981,6 +981,9 @@ final class AuthService {
             Settings.shared.clearPerUserState()
             // The App Attest key is the account's: its Keychain item now, then its token and any renewal (ADR 0023).
             AppAttestor.live.wipe()
+            // The usage analytics answer is the person's: whoever signs in next is asked, with a new id. Here too, not
+            // only in `AppState.wiped`, because a wipe resumed at launch runs before that hook is bound.
+            Analytics.forgetAnswer(defaults: .standard)
         }, store: wipeStoreStep, after: {
             RestActivityController.shared.end()
             // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the

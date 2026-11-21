@@ -1,63 +1,111 @@
 import SwiftUI
 
-/// Profile → Data → Sync details: what the sync knows, stream by stream, the last requests
-/// with their IDs, and "Sync last 3 days again", "Full resync", "Copy diagnostics".
+/// Profile → Sync details (Nocturne PR 6 C2, design-pr6-c-settings.md §4.6, drafts c-09, c-09b): for support, what the sync
+/// knows, numbers first: the engine (its state never "Up to date" without an upload on record or a connection; the last
+/// upload's real age), what waits to be sent (activities and nights, workouts, reports), what the app loaded, each stream,
+/// the last requests with their IDs, and "Sync last 3 days again", "Copy diagnostics", "Full resync" (the two that upload
+/// are disabled offline, and the footer says why). Monospace only for paths and IDs.
 struct SyncDetailsView: View {
     let model: SyncDetailsModel
+    var placement: DevicesPagePlacement = .pushed
     @State private var showResyncConfirm = false
+    @State private var resending = false
+    @State private var resyncing = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
+        SubpageScaffold(Text("Sync details"), navigation: placement.navigation, isSheet: placement.isSheet) {
+            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+                if model.isOffline {
+                    InlineMessage(message: String(localized: "Offline — will sync when back"), systemImage: "wifi.slash",
+                                  announces: false, readsAsOne: true)
+                        .accessibilityIdentifier("syncDetails.offline")
+                }
                 engine
+                waiting
                 loadedData
                 streams
                 requests
                 actions
             }
-            .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.vertical, 16)
         }
-        .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text("Sync details"))
-        .navigationBarTitleDisplayMode(.inline)
+        .devicesPagePlacement(placement)
         .task { await model.loadQueue() }
+        .onChange(of: model.copied) { _, copied in
+            if copied { AccessibilityNotification.Announcement(String(localized: "Copied")).post() }
+        }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
             Button("Re-sync", role: .destructive) {
-                Task { await model.fullResync() }
+                resyncing = true
+                Task {
+                    await model.fullResync()
+                    resyncing = false
+                }
             }
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
+        .analyticsScreen(.syncDetails)
     }
 
     private var engine: some View {
-        ProfileSection(title: "Engine") {
-            StatRow(title: "State", value: model.phaseText)
-            StatRow(title: "Scoring", value: model.scoringText, detail: model.scoringIsSlow ? String(localized: "Taking longer than usual") : nil)
-            StatRow(title: "Queue", value: model.queueText)
-            StatRow(title: "Backlog", value: model.backlogText)
-            StatRow(title: "Uploaded", value: model.uploadedText)
+        GroupedCard(Text("Engine")) {
+            GroupedRow.value(Text("State"),
+                             value: Text(model.phaseText)
+                                 .foregroundStyle(model.stateNeedsAttention ? Theme.warning : Theme.textTertiary),
+                             identifier: "syncDetails.state")
+            // The last upload's age, kept current like Loaded data's times.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                GroupedRow.value(Text("Last sync"), value: Text(model.lastSyncText(now: context.date)),
+                                 identifier: "syncDetails.lastSync")
+            }
+            GroupedRow.value(Text("Scoring"), value: Text(model.scoringText),
+                             detail: model.scoringIsSlow ? Text("Taking longer than usual") : nil)
+            GroupedRow.value(Text("Queue"), value: Text(model.queueText))
+            GroupedRow.value(Text("Backlog"), value: Text(model.backlogText))
+            GroupedRow.value(Text("Uploaded"), value: Text(model.uploadedText))
             if model.engine.pendingDeletions > 0 {
-                StatRow(title: "Deletions kept", value: model.engine.pendingDeletions.formatted())
+                GroupedRow.value(Text("Deletions kept"), value: Text(model.engine.pendingDeletions.formatted()))
             }
             if let error = model.lastErrorText {
-                Text(error)
+                Text(verbatim: error)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(Theme.warning)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, GroupedListSpec.rowInset)
+                    .padding(.vertical, SyncDetailsSpec.blockPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .groupedRowHairline()
+                    .accessibilityIdentifier("syncDetails.lastError")
             }
         }
+        .accessibilityIdentifier("syncDetails.engine")
+    }
+
+    /// What this iPhone keeps until RYFT confirms it, beside Apple Health's uploads: a count per kind, "None" when nothing
+    /// waits, and why the workouts wait when a gate holds them. A recording isn't counted until it is saved.
+    private var waiting: some View {
+        GroupedCard(Text("Waiting to send", comment: "Sync details: the group of what this iPhone keeps until RYFT confirms it.")) {
+            GroupedRow.value(Text("Activities and nights",
+                                  comment: "Sync details → Waiting to send: activities and nights saved on this iPhone."),
+                             value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentActivities)),
+                             identifier: "syncDetails.unsent")
+            GroupedRow.value(Text("Workouts"), value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentWorkouts)),
+                             detail: model.workoutsHeldText.map { Text(verbatim: $0).foregroundStyle(Theme.warning) },
+                             identifier: "syncDetails.unsentWorkouts")
+            GroupedRow.value(Text("Reports", comment: "Sync details → Waiting to send: problem reports kept for later."),
+                             value: Text(verbatim: SyncDetailsModel.waitingText(model.unsentReports)),
+                             identifier: "syncDetails.unsentReports")
+        }
+        .accessibilityIdentifier("syncDetails.waiting")
     }
 
     /// What the app reads (uploads are Streams): when each loaded, and how its last fetches went.
     private var loadedData: some View {
-        ProfileSection(title: "Loaded data") {
+        GroupedCard(Text("Loaded data")) {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(model.resources) { row in
                         LoadedDataRow(row: row, now: context.date)
                     }
@@ -67,186 +115,177 @@ struct SyncDetailsView: View {
     }
 
     private var streams: some View {
-        ProfileSection(title: "Streams") {
-            ForEach(model.streams) { row in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(row.title)
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textPrimary)
-                        Spacer()
-                        Text((row.progress?.sent ?? 0).formatted())
-                            .font(.ryft(.callout))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    Text(row.newestText)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                    if let last = row.lastPageText {
-                        Text(last)
-                            .font(.ryft(.caption))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textTertiary)
+        GroupedCard(Text("Streams")) {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(model.streams) { row in
+                        let newest = Text(verbatim: row.newestLine(now: context.date))
+                        let lines = row.lastPageText.map { newest + Text(verbatim: "\n") + Text($0) } ?? newest
+                        GroupedRow.value(Text(row.title), value: Text((row.progress?.sent ?? 0).formatted()), detail: lines,
+                                         identifier: "syncDetails.stream.\(row.id)")
                     }
                 }
-                .accessibilityElement(children: .combine)
             }
         }
     }
 
     private var requests: some View {
-        ProfileSection(title: "Last requests") {
+        GroupedCard(Text("Last requests")) {
             if model.requests.isEmpty {
                 Text("No requests since launch.")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, GroupedListSpec.rowInset)
+                    .padding(.vertical, SyncDetailsSpec.blockPadding)
+                    .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: SyncDetailsSpec.requestSpacing) {
+                    ForEach(model.requests) { RequestLine(request: $0) }
+                }
+                .padding(.horizontal, GroupedListSpec.rowInset)
+                .padding(.vertical, SyncDetailsSpec.blockPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            ForEach(model.requests) { r in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "\(r.transport ?? String(r.status))\(r.code.map { " \($0)" } ?? "") \(r.method) \(redactedPath(r.path))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle((200..<300).contains(r.status) ? Theme.textSecondary : Theme.warning)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(verbatim: "\(r.requestID ?? "–") · \(r.date.formatted(date: .omitted, time: .standard))")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Theme.textTertiary)
-                        .textSelection(.enabled)
+        }
+        .accessibilityIdentifier("syncDetails.requests")
+    }
+
+    /// The actions as rows: two that work here, the destructive one last; none while a sync can't run, and offline the
+    /// footer says why (copying always can).
+    private var actions: some View {
+        GroupedCard(footer: actionsFooter) {
+            GroupedRow.action(Text("Sync last 3 days again"), systemImage: "arrow.clockwise", busy: resending,
+                              identifier: "syncDetails.resendRecent") {
+                // Busy before the task starts: a second tap in the same frame finds it busy.
+                resending = true
+                Task {
+                    await model.resendRecent()
+                    resending = false
                 }
             }
+            .disabled(!model.canSyncAgain)
+            GroupedRow.action(model.copied ? Text("Copied") : Text("Copy diagnostics"),
+                              systemImage: model.copied ? "checkmark" : "doc.on.doc", hint: SyncDetailsView.diagnosticsNote,
+                              identifier: "syncDetails.copy") {
+                Task { await model.copyAndConfirm() }
+            }
+            GroupedRow.destructive(Text("Full resync"), busy: resyncing, identifier: "syncDetails.fullResync") {
+                showResyncConfirm = true
+            }
+                .disabled(!model.canSyncAgain)
         }
     }
 
-    private var actions: some View {
-        VStack(spacing: 10) {
-            PrimaryButton(title: "Sync last 3 days again", style: .secondary) { await model.resendRecent() }
-                .disabled(!model.canSync)
-            PrimaryButton(title: "Full resync", style: .destructive) { showResyncConfirm = true }
-                .disabled(!model.canSync)
-            PrimaryButton(title: model.copied ? "Copied" : "Copy diagnostics", style: .secondary) {
-                model.copyDiagnostics()
-            }
-            .accessibilityHint(Text("Counts, dates and request IDs for support; no health data"))
-        }
+    private var actionsFooter: Text {
+        guard model.isOffline else { return SyncDetailsView.diagnosticsNote }
+        return Text("You're offline. Syncing again works when you're back online.",
+                    comment: "Sync details: under the actions while offline; Sync last 3 days again and Full resync are disabled.")
+            + Text(verbatim: " ") + SyncDetailsView.diagnosticsNote
+    }
+
+    /// What Copy diagnostics copies: the group's footer and the row's VoiceOver hint.
+    static var diagnosticsNote: Text {
+        Text("Counts, dates and request IDs for support; no health data.",
+             comment: "Sync details: under the actions, and the VoiceOver hint of Copy diagnostics.")
     }
 }
 
-/// Sync details as a sheet (Today's status line): its own stack and "Done".
+/// Sync details' own numbers (§4.6); the rest is the grouped list's.
+enum SyncDetailsSpec {
+    /// A block of text in a card (the last error, the requests), and one request line → the next.
+    static let blockPadding: CGFloat = 12, requestSpacing: CGFloat = 10
+}
+
+/// Sync details as a sheet (Today's status line): the sheet's page, with Close.
 struct SyncDetailsSheet: View {
     let model: SyncDetailsModel
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            SyncDetailsView(model: model)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                }
-        }
+        SyncDetailsView(model: model, placement: .sheet)
     }
 }
 
-/// One resource in Sync details → Loaded data: name and load time, then its last error or "No errors".
+/// One request: the status, the method and the path in 12 pt monospace (`warning` when it wasn't a 2xx), then its request ID
+/// and time in 11 pt. Both wrap; one element.
+private struct RequestLine: View {
+    let request: APIStatus.RequestFailure
+
+    private var served: Bool { (200..<300).contains(request.status) }
+
+    var body: some View {
+        let r = request
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: "\(r.transport ?? String(r.status))\(r.code.map { " \($0)" } ?? "") \(r.method) \(redactedPath(r.path))")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(served ? Theme.textSecondary : Theme.warning)
+            Text(verbatim: "\(r.requestID ?? "–") · \(r.date.formatted(date: .omitted, time: .standard))")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One resource in Sync details → Loaded data: name and load time, then its last error or "No errors" (`textSecondary`
+/// after a failure, `warning` from the threshold on, the words always saying it).
 private struct LoadedDataRow: View {
     let row: SyncDetailsModel.ResourceRow
     let now: Date
-    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var statusColor: Color {
+        row.isWarning ? Theme.warning : row.state.consecutiveFailures > 0 ? Theme.textSecondary : Theme.textTertiary
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-            layout {
-                Text(row.name)
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                if !typeSize.isAccessibilitySize { Spacer() }
-                Text(row.fetchedText(now: now))
-                    .font(.ryft(.callout))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Text(row.statusText(now: now))
-                .font(.ryft(.caption))
-                .monospacedDigit()
-                .foregroundStyle(row.isWarning ? Theme.warning
-                                 : row.state.consecutiveFailures > 0 ? Theme.textSecondary : Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(row.spoken(now: now)))
-        .accessibilityIdentifier("syncDetails.loaded.\(row.id)")
+        GroupedRowLabel(Text(row.name), value: Text(row.fetchedText(now: now)),
+                        detail: Text(row.statusText(now: now)).foregroundStyle(statusColor))
+            .groupedRowHairline()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(row.spoken(now: now)))
+            .accessibilityIdentifier("syncDetails.loaded.\(row.id)")
     }
 }
 
-#Preview("Sync details · dark") {
-    let state = AppState.preview()
-    let sync = SyncService(env: state.env)
-    NavigationStack {
-        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
-                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
-                                                                             clock: state.env.clock)))
-    }
-    .previewEnvironment(state)
+// Previews only: `MockDevicesStates` is a debug type, and a Release build has no previews.
+#if DEBUG
+#Preview("Sync details") {
+    let g = MockDevicesStates.graph(demo: false)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
 }
 
-#Preview("Sync details · de") {
-    let state = AppState.preview()
-    let sync = SyncService(env: state.env)
-    NavigationStack {
-        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
-                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
-                                                                             clock: state.env.clock)))
-    }
-    .previewEnvironment(state)
-    .environment(\.locale, Locale(identifier: "de"))
+#Preview("Sync details · offline, last sync 3 h ago") {
+    let g = MockDevicesStates.graph(demo: false, online: false, lastSync: 3 * 3_600)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
 }
 
-/// Loaded data in every row state: fine, one failure, three in a row, never loaded.
-private enum SyncDetailsPreview {
-    @MainActor
-    static func seed(_ reads: ReadScheduler) {
-        let now = Date.now
-        func error(_ status: Int?, _ minutesAgo: Double) -> ResourceError {
-            ResourceError(kind: .transient, status: status, code: nil, requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c",
-                          transport: status == nil ? "timedOut" : nil, attempts: 3, at: now.addingTimeInterval(-minutesAgo * 60))
-        }
-        reads.seed([
-            .history: ResourceState(fetchedAt: now.addingTimeInterval(-600)),
-            .me: ResourceState(fetchedAt: now.addingTimeInterval(-7_200), lastError: error(503, 0.2), consecutiveFailures: 3),
-            .syncStatus: ResourceState(fetchedAt: now.addingTimeInterval(-60)),
-            .trends: ResourceState(fetchedAt: now.addingTimeInterval(-900), lastError: error(nil, 2), consecutiveFailures: 1),
-            .insights: ResourceState(fetchedAt: now.addingTimeInterval(-900)),
-            .config: ResourceState(fetchedAt: now.addingTimeInterval(-3_600)),
-        ])
-    }
+#Preview("Sync details · reports waiting") {
+    let g = MockDevicesStates.graph(demo: false, reportsWaiting: 2)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
 }
 
-#Preview("Sync details · loaded data · dark") {
-    let state = AppState.preview()
-    let sync = SyncService(env: state.env)
-    SyncDetailsPreview.seed(state.env.reads)
-    return NavigationStack {
-        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
-                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
-                                                                             clock: state.env.clock)))
-    }
-    .previewEnvironment(state)
+#Preview("Sync details · never synced") {
+    let g = MockDevicesStates.graph(demo: false, lastSync: nil)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
 }
 
-#Preview("Sync details · loaded data · de · AX3") {
-    let state = AppState.preview()
-    let sync = SyncService(env: state.env)
-    SyncDetailsPreview.seed(state.env.reads)
-    return NavigationStack {
-        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
-                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
-                                                                             clock: state.env.clock)))
-    }
-    .previewEnvironment(state)
-    .environment(\.locale, Locale(identifier: "de"))
-    .environment(\.dynamicTypeSize, .accessibility3)
+#Preview("Sync details · sheet") {
+    let g = MockDevicesStates.graph(demo: false)
+    SyncDetailsSheet(model: g.details)
+        .previewEnvironment(g.state)
 }
+
+#Preview("Sync details · AX3") {
+    let g = MockDevicesStates.graph(demo: false)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+#endif

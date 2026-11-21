@@ -197,6 +197,8 @@ struct TrainImportUploaderPlatformTests {
         #expect(status.sessions == ImportItemCounts(total: 3, done: 3) && status.plans == ImportItemCounts(total: 1, done: 1))
         #expect(status.leftAsIs == 2)
         #expect(status.leftAsIsSessions == 1 && status.sessionsImported == 2 && status.plansImported == 0)
+        // The plan's summary carries the answer, so the result names no plan as imported.
+        #expect(status.planSummaries.map(\.result) == ["newer_on_server"] && !status.planSummaries.contains(where: \.isImported))
         // Sets of the two sessions that were imported now; not the one left as it is.
         #expect(status.setsDone == 6)
         #expect(h.requests.count == 1) // the plan and the sessions in one request; nothing resent

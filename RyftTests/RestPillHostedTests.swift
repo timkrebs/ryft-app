@@ -144,7 +144,9 @@ struct RestPillHostedTests {
         return r
     }
 
-    private func value(_ w: HostedWindow) -> String? { w.node("Rest", exactly: true)?.value }
+    /// The clock, by its identifier: the sheet's header title says "Rest" too (PR 6 B §4.5, a heading where the navigation bar's
+    /// title was), and it comes first.
+    private func value(_ w: HostedWindow) -> String? { w.nodes().first { $0.identifier == "restSheet.value" }?.value }
 
     @Test("−15 and +15 change the length Start begins, and nothing of the exercise")
     func idleSheetStepsLeaveTheExercise() async throws {

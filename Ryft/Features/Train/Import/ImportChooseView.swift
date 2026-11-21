@@ -2,21 +2,15 @@ import SwiftUI
 
 /// Step 3 (ui.md §6): the plan or plans, the workout history and its range, and whether an imported plan becomes the
 /// active one. Importing never changes someone's training silently: with a plan already active, "make active" starts off.
+/// Look (PR 6 C §4.14): two grouped cards of switch rows; what's off and why is the pinned bar's caption.
 struct ImportChooseView: View {
     @Bindable var model: ImportFlowModel
 
     var body: some View {
         ImportStepScaffold(model: model, step: .choose) {
-            if let bundle = model.detection.bundle, model.selection != nil {
-                if !bundle.plans.isEmpty { planCard(bundle) }
-                if !bundle.sessions.isEmpty { historyCard(bundle) }
-                if model.selection?.includesHistory == true {
-                    Text("Imported workouts count towards strain on their days. Past strain can change once.",
-                         comment: "Training import, step 3: the footnote while history is on.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if let bundle = model.detection.bundle, let selection = model.selection {
+                if !bundle.plans.isEmpty { planGroup(bundle, selection: selection) }
+                if !bundle.sessions.isEmpty { historyGroup(bundle) }
             }
         } bottom: {
             if let reason = blockReason { ImportBarCaption(text: reason) }
@@ -38,76 +32,63 @@ struct ImportChooseView: View {
 
     // MARK: Plan
 
-    private func planCard(_ bundle: ImportBundle) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(Array(bundle.plans.enumerated()), id: \.offset) { index, plan in
-                    planRow(index: index, plan: plan, several: bundle.plans.count > 1)
-                }
-                if let selection = model.selection, !selection.importedPlans.isEmpty {
-                    Divider().overlay(Theme.separator)
-                    activeChoice(bundle, selection: selection)
-                }
+    /// "Plan": a switch per plan (its name over its weeks and days), what an existing copy means, and "Make this my active
+    /// plan" (one plan) or the active plan's menu (several). The footer says what making it active replaces.
+    private func planGroup(_ bundle: ImportBundle, selection: ImportSelection) -> some View {
+        let title = bundle.plans.count > 1 ? Text("Plans") : Text("Plan", comment: "Training import, step 3: the plan toggle.")
+        let showsActive = !selection.importedPlans.isEmpty
+        return GroupedCard(title, footer: showsActive ? activeFooter(on: selection.activePlan != nil) : nil) {
+            ForEach(Array(bundle.plans.enumerated()), id: \.offset) { index, plan in
+                planRows(index: index, plan: plan)
             }
+            if showsActive { activeChoice(bundle, selection: selection) }
         }
     }
 
     @ViewBuilder
-    private func planRow(index: Int, plan: ImportedPlan, several: Bool) -> some View {
+    private func planRows(index: Int, plan: ImportedPlan) -> some View {
         let choice = model.selection?.plans[safe: index]
         let state = choice?.state ?? .importable
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: Binding(get: { choice?.isOn ?? false }, set: { model.selection?.setPlan(index, on: $0) })) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: several ? plan.name : String(localized: "Plan", comment: "Training import, step 3: the plan toggle."))
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(verbatim: ImportChooseText.planSubtitle(plan, includeName: !several))
-                        .font(.ryft(.callout))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .tint(Theme.accent)
+        GroupedRow.toggle(Text(verbatim: plan.name), detail: Text(verbatim: ImportChooseText.planSubtitle(plan, includeName: false)),
+                          identifier: "import.plan.\(index)",
+                          isOn: Binding(get: { choice?.isOn ?? false }, set: { model.selection?.setPlan(index, on: $0) }))
             .disabled(!state.canImport)
-            .accessibilityIdentifier("import.plan.\(index)")
-            switch state {
-            case .importable:
-                EmptyView()
-            case .alreadyInRYFT(replace: false):
-                ImportNoteLine(systemImage: "checkmark.circle",
-                               text: String(localized: "Already in RYFT", comment: "Training import, step 3: the plan exists."))
-                ImportTextButton(title: String(localized: "Replace with the file's version",
-                                               comment: "Training import, step 3: import the plan over RYFT's copy.")) {
-                    model.selection?.replaceExisting(index)
-                }
-            case .alreadyInRYFT(replace: true):
-                ImportNoteLine(systemImage: "arrow.triangle.2.circlepath",
-                               text: String(localized: "This replaces your copy, including edits.",
-                                            comment: "Training import, step 3: after Replace with the file's version."))
-            case let .tooManyDays(days):
-                ImportNoteLine(systemImage: "exclamationmark.circle",
-                               text: String(localized: "This plan has \(days) days. RYFT plans have at most 7.",
-                                            comment: "Training import, step 3: why a plan can't be imported."))
+        switch state {
+        case .importable:
+            EmptyView()
+        case .alreadyInRYFT(replace: false):
+            ImportCardNote(systemImage: "checkmark.circle",
+                           text: String(localized: "Already in RYFT", comment: "Training import, step 3: the plan exists."))
+            GroupedRow.action(Text("Replace with the file's version", comment: "Training import, step 3: import the plan over RYFT's copy."),
+                              systemImage: "arrow.triangle.2.circlepath", identifier: "import.replace.\(index)") {
+                model.selection?.replaceExisting(index)
             }
+        case .alreadyInRYFT(replace: true):
+            ImportCardNote(systemImage: "arrow.triangle.2.circlepath",
+                           text: String(localized: "This replaces your copy, including edits.",
+                                        comment: "Training import, step 3: after Replace with the file's version."))
+        case let .tooManyDays(days):
+            ImportCardNote(systemImage: "exclamationmark.circle",
+                           text: String(localized: "This plan has \(days) days. RYFT plans have at most 7.",
+                                        comment: "Training import, step 3: why a plan can't be imported."),
+                           attention: true)
         }
     }
 
     @ViewBuilder
     private func activeChoice(_ bundle: ImportBundle, selection: ImportSelection) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if bundle.plans.count == 1, let only = selection.importedPlans.first {
-                Toggle(isOn: Binding(get: { model.selection?.activePlan == only },
-                                     set: { model.selection?.setActive($0 ? only : nil) })) {
-                    Text("Make this my active plan", comment: "Training import, step 3: enrol in the imported plan.")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                }
-                .tint(Theme.accent)
+        if bundle.plans.count == 1, let only = selection.importedPlans.first {
+            GroupedRow.toggle(Text("Make this my active plan", comment: "Training import, step 3: enrol in the imported plan."),
+                              identifier: "import.makeActive",
+                              isOn: Binding(get: { model.selection?.activePlan == only },
+                                            set: { model.selection?.setActive($0 ? only : nil) }))
                 .accessibilityHint(Text(verbatim: activeHelp(on: selection.activePlan != nil)))
-                .accessibilityIdentifier("import.makeActive")
-            } else {
+        } else {
+            let current = selection.activePlan.flatMap { bundle.plans[safe: $0]?.name }
+            GroupedRow.menu(Text("Active plan", comment: "Training import, step 3: which imported plan becomes active."),
+                            value: Text(verbatim: current ?? String(localized: "No plan",
+                                                                    comment: "Training import, step 3: no imported plan becomes active.")),
+                            identifier: "import.activePlan") {
                 Picker(selection: Binding(get: { model.selection?.activePlan ?? -1 },
                                           set: { model.selection?.setActive($0 < 0 ? nil : $0) })) {
                     Text("No plan", comment: "Training import, step 3: no imported plan becomes active.").tag(-1)
@@ -116,23 +97,16 @@ struct ImportChooseView: View {
                     }
                 } label: {
                     Text("Active plan", comment: "Training import, step 3: which imported plan becomes active.")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
                 }
-                .pickerStyle(.menu)
-                .tint(Theme.accent)
-                .frame(minHeight: 44)
-            }
-            Text(verbatim: activeHelp(on: selection.activePlan != nil))
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if selection.activePlan != nil {
-                Text("Starts today, at week 1.", comment: "Training import, step 3: when an imported plan starts.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
             }
         }
+    }
+
+    /// C2: what "make active" replaces, or that it can change later; when one will be active, when it starts.
+    private func activeFooter(on: Bool) -> Text {
+        let help = Text(verbatim: activeHelp(on: on))
+        guard on else { return help }
+        return help + Text(verbatim: " ") + Text("Starts today, at week 1.", comment: "Training import, step 3: when an imported plan starts.")
     }
 
     /// C2: what "make active" replaces, or that it can change later.
@@ -154,36 +128,29 @@ struct ImportChooseView: View {
 
     // MARK: History
 
-    private func historyCard(_ bundle: ImportBundle) -> some View {
+    /// "Workout history": the switch with the file's counts, then the range (a menu row with the result under it, and From
+    /// and Until for a custom range). The footer says what history does to strain.
+    private func historyGroup(_ bundle: ImportBundle) -> some View {
         let today = model.today
         let zone = model.deps.zone
         let all = bundle.sessions.filter { $0.start.date <= today }
         let inRange = model.selection?.sessions(in: bundle, today: today, zone: zone) ?? []
-        return Card {
-            VStack(alignment: .leading, spacing: 14) {
-                Toggle(isOn: Binding(get: { model.selection?.includesHistory ?? false },
-                                     set: { model.selection?.includesHistory = $0 })) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Workout history", comment: "Training import, step 3: the history toggle.")
-                            .font(.ryft(.body))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(verbatim: ImportChooseText.counts(workouts: all.count, sets: ImportSelection.performedSets(in: all)))
-                            .font(.ryft(.callout))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                }
-                .tint(Theme.accent)
-                .accessibilityIdentifier("import.history")
-                if model.selection?.includesHistory == true, let first = bundle.sessions.map(\.start.date).min(),
-                   let last = bundle.sessions.map(\.start.date).max() {
-                    DateRangeControl(
-                        preset: Binding(get: { model.selection?.preset ?? .allTime }, set: { model.selection?.preset = $0 }),
-                        from: Binding(get: { model.selection?.from ?? first }, set: { model.selection?.from = $0 }),
-                        to: Binding(get: { model.selection?.to ?? last }, set: { model.selection?.to = $0 }),
-                        limits: first...max(first, min(last, today)), zone: zone,
-                        result: ImportChooseText.rangeResult(inRange, zone: zone), isEmpty: inRange.isEmpty)
-                }
+        let on = model.selection?.includesHistory == true
+        let footer = on ? Text("Imported workouts count towards strain on their days. Past strain can change once.",
+                               comment: "Training import, step 3: the footnote while history is on.") : nil
+        return GroupedCard(nil, footer: footer) {
+            GroupedRow.toggle(Text("Workout history", comment: "Training import, step 3: the history toggle."),
+                              detail: Text(verbatim: ImportChooseText.counts(workouts: all.count, sets: ImportSelection.performedSets(in: all))),
+                              identifier: "import.history",
+                              isOn: Binding(get: { model.selection?.includesHistory ?? false },
+                                            set: { model.selection?.includesHistory = $0 }))
+            if on, let first = bundle.sessions.map(\.start.date).min(), let last = bundle.sessions.map(\.start.date).max() {
+                DateRangeControl(
+                    preset: Binding(get: { model.selection?.preset ?? .allTime }, set: { model.selection?.preset = $0 }),
+                    from: Binding(get: { model.selection?.from ?? first }, set: { model.selection?.from = $0 }),
+                    to: Binding(get: { model.selection?.to ?? last }, set: { model.selection?.to = $0 }),
+                    limits: first...max(first, min(last, today)), zone: zone,
+                    result: ImportChooseText.rangeResult(inRange, zone: zone), isEmpty: inRange.isEmpty)
             }
         }
     }
@@ -220,23 +187,26 @@ private extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
-#Preview("Step 3 · both on · dark") {
+#Preview("Step 3 · both on") {
     NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose, enrolled: false)) }
         .previewEnvironment()
+        .toggleStyle(.ryft)
 }
 
-#Preview("Step 3 · existing active plan · light · AX3") {
+#Preview("Step 3 · existing active plan · AX3") {
     NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose) { $0.selection?.setActive(0) }) }
-        .previewEnvironment(scheme: .light)
+        .previewEnvironment()
+        .toggleStyle(.ryft)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Step 3 · history off · light") {
+#Preview("Step 3 · history off") {
     NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose) { $0.selection?.includesHistory = false }) }
-        .previewEnvironment(scheme: .light)
+        .previewEnvironment()
+        .toggleStyle(.ryft)
 }
 
-#Preview("Step 3 · empty range · dark") {
+#Preview("Step 3 · empty range") {
     NavigationStack {
         ImportChooseView(model: ImportMockData.flow(.choose) {
             $0.selection?.preset = .custom
@@ -244,29 +214,33 @@ private extension Array {
         })
     }
     .previewEnvironment()
+    .toggleStyle(.ryft)
 }
 
-#Preview("Step 3 · nothing selected · light") {
+#Preview("Step 3 · nothing selected") {
     NavigationStack {
         ImportChooseView(model: ImportMockData.flow(.choose) {
             $0.selection?.setPlan(0, on: false)
             $0.selection?.includesHistory = false
         })
     }
-    .previewEnvironment(scheme: .light)
+    .previewEnvironment()
+    .toggleStyle(.ryft)
 }
 
-#Preview("Step 3 · plan already in RYFT · dark") {
+#Preview("Step 3 · plan already in RYFT") {
     NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose) { $0.selection?.markExisting([true]) }) }
         .previewEnvironment()
+        .toggleStyle(.ryft)
 }
 
-#Preview("Step 3 · plan with 9 days · light") {
+#Preview("Step 3 · plan with 9 days") {
     NavigationStack {
         ImportChooseView(model: ImportMockData.flow(.choose) {
             $0.selection?.plans[0] = ImportSelection.PlanChoice(isOn: false, state: .tooManyDays(9))
             $0.selection?.activePlan = nil
         })
     }
-    .previewEnvironment(scheme: .light)
+    .previewEnvironment()
+    .toggleStyle(.ryft)
 }

@@ -390,7 +390,8 @@ struct AppAttestModeDecodingTests {
         #expect(c.appAttestMode == .off && c.appAttest == "off")
         #expect(c.flags.count == 8 && c.flags["analytics.enabled"] == true && c.flags["train.import"] == false)
         #expect(c.ttlSec == 21600 && c.privacyPolicyVersion == "2026-10-26")
-        // `analytics` is in the document and not in the model yet (PR 2): ignored, not a failure.
+        // Both optional fields from one document (#129's `app_attest` beside #130's `analytics`).
+        #expect(c.analytics == AnalyticsConfig(host: "https://eu.i.posthog.com", projectKey: "phc_…"))
 
         // API.md's second example: `analytics: null` and `"warn"`.
         let second = #"""
@@ -400,7 +401,7 @@ struct AppAttestModeDecodingTests {
           "analytics": null, "app_attest": "warn" }
         """#
         let warn = try APIClient.jsonDecoder.decode(RemoteConfig.self, from: Data(second.utf8))
-        #expect(warn.appAttestMode == .warn)
+        #expect(warn.appAttestMode == .warn && warn.analytics == nil)
     }
 
     @Test func cachedConfigWithoutTheFieldDecodes() throws {
@@ -411,7 +412,7 @@ struct AppAttestModeDecodingTests {
          "fetched_at":"2026-10-19T06:12:00Z"}
         """#
         let cached = try APIClient.jsonDecoder.decode(FlagStore.Cached.self, from: Data(old.utf8))
-        #expect(cached.config.appAttest == nil && cached.config.appAttestMode == nil)
+        #expect(cached.config.appAttest == nil && cached.config.appAttestMode == nil && cached.config.analytics == nil)
         #expect(cached.config.flags["train.enabled"] == true)
     }
 

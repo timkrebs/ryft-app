@@ -26,6 +26,8 @@ struct TodayView: View {
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
     static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
+    /// Bedtime & wake from Tonight, pushed from here: Today stays when the card leaves (the evening ends, an import starts).
+    @State private var bedtimeOpening: SleepScheduleView.Opening?
     /// Counts scores that landed while the night was pending: one success haptic each.
     @State private var landed = 0
     /// The calibration note's link, open in a sheet (design.md §7 rev. 2 §2).
@@ -88,11 +90,12 @@ struct TodayView: View {
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal)).presentedRoot()
                 }
-                // The status line's tap: Sync details over Today, with its own stack.
+                .navigationDestination(item: $bedtimeOpening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
+                // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
                     SyncDetailsSheet(model: screens.profile.syncDetails).presentedRoot()
                 }
-                // The calibration note's link: the tracker's card, Check sync or Devices & sync, with Done.
+                // The calibration note's link: the tracker's card, Check sync or Devices & sync, each with Close.
                 .sheet(item: $calibrationLink, onDismiss: { linkCheck = nil }) { link in
                     CalibrationLinkSheet(link: link, check: linkCheck).presentedRoot()
                 }
@@ -401,7 +404,7 @@ struct TodayView: View {
             }
             // From 17:00: when to be in bed tonight (Bedtime & wake).
             if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {
-                TonightCard(planner: screens.bedtime)
+                TonightCard(planner: screens.bedtime) { bedtimeOpening = $0 }
             }
             if model.showsTrain, !day.hero.isImporting { TrainTodayCard() }
             if !day.hero.isImporting {
@@ -613,7 +616,8 @@ private struct GaugeEntranceConsumer: ViewModifier {
 }
 
 /// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
-/// sync, each with its own stack and "Done", like Sync details from the status line.
+/// sync, each the root of its own stack as a sheet's page with Close (Nocturne PR 6 C2); what Devices & sync pushes keeps
+/// the sheet's top inset (`DevicesPagePlacement.pushedInSheet`). Sync details from the status line is the same kind of page.
 private struct CalibrationLinkSheet: View {
     let link: CalibrationLink
     /// Check sync's model, made on the tap (`TodayView.open`).
@@ -621,18 +625,9 @@ private struct CalibrationLinkSheet: View {
 
     @Environment(ScreenModels.self) private var screens
     @Environment(\.appEnvironment) private var env
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            destination
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                            .accessibilityIdentifier("today.calibrationSheet.done")
-                    }
-                }
-        }
+        NavigationStack { destination }
     }
 
     @ViewBuilder
@@ -641,14 +636,18 @@ private struct CalibrationLinkSheet: View {
         case .setup(let id, _):
             // A newer catalog may have dropped the tracker: Devices & sync then.
             if let tracker = env.trackerCatalog.tracker(id) {
-                TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                TrackerDetailView(tracker: tracker, model: screens.profile.devices, placement: .sheet) {}
             } else {
-                DevicesAndSyncView(model: screens.profile.devices)
+                DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
             }
         case .checkSync:
-            if let check { TrackerCheckView(model: check) } else { DevicesAndSyncView(model: screens.profile.devices) }
+            if let check {
+                TrackerCheckView(model: check, placement: .sheet)
+            } else {
+                DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
+            }
         case .devices:
-            DevicesAndSyncView(model: screens.profile.devices)
+            DevicesAndSyncView(model: screens.profile.devices, placement: .sheet)
         }
     }
 }
@@ -959,20 +958,6 @@ extension SyncLine {
     }
 }
 
-/// "Offline": the numbers are the last loaded ones; sync resumes on reconnect.
-struct OfflinePill: View {
-    var body: some View {
-        Label("Offline", systemImage: "wifi.slash")
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Theme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
-            .accessibilityLabel(Text("Offline. Showing your last loaded data."))
-    }
-}
-
 // MARK: - previews (dark only, default and AX3; design.md §P4-10)
 
 /// A state of Today on mock data, at the default size or AX3.
@@ -995,6 +980,22 @@ private struct TodayPreview: View {
 private func noScoresState() -> AppState {
     let state = AppState(env: .preview())
     state.user = MockData.user
+    return state
+}
+
+/// The account, offline, with the mock data as `AppState.preview` has it. Not a demo data graph: demo data answers on the
+/// phone, so Tonight plans there offline too, and the screen wouldn't be the account's offline one.
+@MainActor
+private func offlineAccountState() -> AppState {
+    let state = AppState(env: .test(clock: TestClock(now: .now), online: false))
+    state.env.uploader.gate = { _ in nil }
+    // No coach marks, as on `AppState.preview` (only the preview that asks for them shows them).
+    state.env.defaults.set(true, forKey: CoachMarks.doneKey)
+    state.history = MockData.history
+    state.user = MockData.user
+    state.insights = MockData.insights
+    state.readinessWeek = MockData.trend(.readiness, range: .week)
+    state.today = MockData.todayDetail
     return state
 }
 
@@ -1037,8 +1038,8 @@ private func namelessState() -> AppState {
 #Preview("Today · no scores yet · AX3") { TodayPreview(state: noScoresState(), ax3: true) }
 #Preview("Today · not set up") { TodayPreview(state: .preview(empty: true)) }
 #Preview("Today · not set up · AX3") { TodayPreview(state: .preview(empty: true), ax3: true) }
-#Preview("Today · offline") { TodayPreview(state: .preview(online: false), online: false) }
-#Preview("Today · offline · AX3") { TodayPreview(state: .preview(online: false), online: false, ax3: true) }
+#Preview("Today · offline") { TodayPreview(state: offlineAccountState(), online: false) }
+#Preview("Today · offline · AX3") { TodayPreview(state: offlineAccountState(), online: false, ax3: true) }
 #Preview("Today · demo") { TodayPreview(state: .preview(coachMarks: true)) }
 #Preview("Today · demo · AX3") { TodayPreview(state: .preview(coachMarks: true), ax3: true) }
 #Preview("Today · with attention cards (night hint)") { TodayPreview(state: .preview(scenario: .nightGap)) }

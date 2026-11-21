@@ -62,6 +62,7 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 - RYFT proves to its servers that requests come from the genuine app on your iPhone (Apple's App Attest). Nothing
   changes until the servers start checking; a workout or sync they refuse for it stays queued and goes again.
+- Optional usage analytics, off unless you opt in, never with health data (not active yet).
 
 ### Changed
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.
@@ -93,6 +94,23 @@ Store "What's New".
 - Profile: grouped lists, and every link says where it opens. With Demo data on while signed in, Profile still shows
   your own account.
 - Switches and buttons in sheets now match the new look.
+- A button at work shows a spinner and keeps its title ("Log in", "Send", "Check again"), instead of changing to
+  "Logging in…" or "Sending…"; it takes no second tap, and VoiceOver says "In progress".
+- Onboarding and sign-in in the new look: Welcome, Log in, Create account, the invite code, consent, About you, Apple
+  Health and "What do you wear?".
+- Train, My Day, Activities and the morning journal in the new look: the live workout (list and focused), the rest
+  timer, the summary, History, an exercise's page, Plans and the plan builder; My Day on Today; Add activity and an
+  activity's page; the journal's card and sheet.
+- Profile's pages in the new look: About you and body settings, Sleep need, Devices & sync, Sync details, Check sync,
+  Notifications, Journal, Bedtime & wake, Licences, Report a problem, and the training import. The widgets and the
+  rest timer on the Lock Screen follow.
+- The journal says "habits" everywhere, where it said "behaviors".
+- Train's History, a workout, an exercise's page and a plan open at once when you're offline with what's on your
+  iPhone, and load again by themselves when you're back. When one can't load, Details shows what failed and its
+  request ID, as on Today.
+- At the largest text sizes, a page's title sits on its own line under Back, and summaries list one part per line.
+  The rest bar in a workout shows its time and Skip; ±15 s are in the rest timer it opens.
+- With Reduce Motion on, Train and the journal change without animation.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
@@ -131,6 +149,12 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- "Logged session" on a workout opens that session again, also from Today and My Day.
+- The journal sheet closes when its account signs out or you switch Demo data while it's open, instead of dropping
+  your answers when you save.
+- After you sign out, switch accounts or turn Demo data on or off, Train no longer shows what belonged to the other
+  side: a workout list, an exercise's history, the plan and last workout in Start workout, or a plan action's error.
+- Copy request ID stays on this iPhone, as Copy details does (it no longer reaches your other devices).
 - A workout that uses a custom exercise you made offline now syncs once you're back online, and a workout the server
   turns down stays on your iPhone, queued, instead of being dropped.
 - Welcome and the live workout work at the largest text sizes: Welcome scrolls to its Privacy Policy link, words in

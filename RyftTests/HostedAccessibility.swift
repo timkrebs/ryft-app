@@ -150,6 +150,12 @@ final class HostedWindow {
 
     // MARK: the accessibility tree
 
+    /// Every named element of the sheet presented over the host, in tree order; nil when nothing is presented. A presented
+    /// sheet's views live beside the host's, so `nodes()` doesn't see them.
+    func presentedNodes() -> [Node]? {
+        host.presentedViewController.flatMap { $0.view }.map { nodes(in: $0) }
+    }
+
     /// Every named element on screen, in tree order; `root`: only those under a view of the window, such as a sheet's
     /// (`presentedView`).
     func nodes(in root: UIView? = nil) -> [Node] {

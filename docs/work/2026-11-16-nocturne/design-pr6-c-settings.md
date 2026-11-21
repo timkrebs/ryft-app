@@ -135,7 +135,7 @@ and sit in a row's trailing slot.
 | Text link | `Font.ryft(.button)` (16 Medium), `textPrimary`, a 1 pt underline in ink 35 %, 44 pt tall. The underline is the non-colour cue that tells it from body text. | an action inside a notice ("Try again", "Copy message", "Add workouts file"); a title-line action ("Edit") |
 | External link | a link-out row (↗) | Privacy Policy, Terms of Use, store pages |
 | **Destructive** *(shared, to reconcile with T5.0)* | A destructive **row** in `Theme.alert` at the end of its group, never a filled red pill. Where it is a page's only action (rare) a `PillButton` destructive style: outline 1 pt `alert` at 45 % (2.1:1 border, decoration), title `alert`, 52 high. The confirmation is always the system dialog, with its destructive button (§4.16). | Delete account, Withdraw consent, Full re-sync, Turn off Bedtime & wake |
-| **Busy** *(shared, to reconcile with T5.0)* | No spinner. The control's title changes to the progressive form ("Sending…", "Checking…", "Syncing…", "Saving…"), the control is disabled, and its glyph becomes `ellipsis` (a primary pill's icon circle shows it at 55 %; an action row's trailing glyph is replaced by it). The ellipsis pulses 100 → 35 % over 1 s while busy (none under Reduce Motion; the title says it). The pill's fill drops to 35 % like any disabled pill. | Send, Check again, Sync now, Save, Rescore |
+| **Busy** *(superseded: the build plan's busy rule, lead decision M3b)* | **The busy rule** (`build-plan.md` §2, the `PillButton` row; `PillButton(…, busy:)`, `GroupedRow.action`/`.destructive(…, busy:)`): a busy control shows a spinner (in the primary pill's icon circle, in place of an outline pill's title, in place of an action row's trailing glyph), **keeps its title** and its size, takes no taps, and VoiceOver reads the title with the value "In progress". It is not dimmed; only the caller's disabled dims. Where a page below says a control is busy "Sending…", "Checking…", "Saving…", "Rescoring…" and so on, read it as this rule: the title stays. The gerund look this row used to give (title swap, `ellipsis` glyph, 35 % fill) is not built. | Send, Check again, Sync now, Save, Rescore, Turn off Bedtime & wake |
 | Disabled | the whole control at 35 % (as `PillButton`); a caption above says why when it is not obvious | Send with no message; Continue with items left to check |
 
 ### 2.7 Notices and honest states
@@ -154,8 +154,8 @@ the request ID in its caption and a Details link into Report a problem), **savin
 ### 2.8 Motion
 
 Every animation is `Theme.Motion.quick` (250 ms ease-out): the switch's knob, a disclosure opening, a row's state change,
-the ruler's needle (the component's own). Nothing springs, nothing counts up. **Reduce Motion:** no animation at all; the
-busy ellipsis is static; the disclosure and the Report result cross-fade becomes a cut.
+the ruler's needle (the component's own). Nothing springs, nothing counts up. **Reduce Motion:** no animation at all (the
+busy spinner is the system's, §2.6); the disclosure and the Report result cross-fade becomes a cut.
 
 ### 2.9 Accessibility and Dynamic Type, the baseline
 

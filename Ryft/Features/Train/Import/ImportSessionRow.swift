@@ -2,7 +2,9 @@ import SwiftUI
 
 /// One imported workout in step 5's history (ui.md §8.1): its day, title and counts, and a 44 pt include control. A
 /// workout that looks like one already logged says so in words and starts off; one already imported has no control.
-/// The row opens its sets; VoiceOver reads the control as one switch with the whole sentence.
+/// The row opens its sets; VoiceOver reads the control as one switch with the whole sentence. Look (PR 6 C §4.14): a row of
+/// its month's grouped card; the include control is the ink check (filled when included, an outline circle when not) and
+/// says "Included" or "Skipped" to VoiceOver, never colour alone.
 struct ImportSessionRow: View {
     let preview: ImportSessionPreview
     let isIncluded: Bool
@@ -20,26 +22,27 @@ struct ImportSessionRow: View {
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 10))
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: ImportLayout.lineGap))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: GroupedListSpec.rowSpacing))
         layout {
             Button(action: onOpen) {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: GroupedListSpec.rowSpacing) {
                     if isDuplicate {
                         Image(systemName: "rectangle.on.rectangle")
-                            .font(.system(size: 14))
+                            .font(.system(size: GroupedListSpec.checkmarkSize, weight: .regular))
                             .foregroundStyle(Theme.textPrimary)
                             .padding(.top, 2)
                             .accessibilityHidden(true)
                     }
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
                         Text(verbatim: ImportPreviewText.dayAndTitle(preview, zone: zone))
-                            .font(.ryft(.body))
+                            .font(.ryft(.callout))
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(verbatim: ImportPreviewText.counts(preview))
                             .font(.ryft(.caption))
                             .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
+                            .foregroundStyle(Theme.textTertiary)
                         ForEach(notes, id: \.self) { note in
                             Text(verbatim: note.text)
                                 .font(.ryft(.caption))
@@ -50,6 +53,8 @@ struct ImportSessionRow: View {
                     }
                     Spacer(minLength: 0)
                 }
+                // The row's padding is inside the button, so the whole row's height opens it (44 pt and more).
+                .padding(.vertical, GroupedListSpec.textPadding)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -57,8 +62,11 @@ struct ImportSessionRow: View {
             .accessibilityHint(Text("Shows its exercises and sets", comment: "Training import, step 5, VoiceOver: a workout row."))
             control
         }
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, GroupedListSpec.rowInset)
+        .padding(.trailing, preview.verdict.isToggleable && !typeSize.isAccessibilitySize ? GroupedListSpec.rowInset - 10 : GroupedListSpec.rowInset)
+        .padding(.bottom, typeSize.isAccessibilitySize ? GroupedListSpec.textPadding : 0)
+        .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+        .groupedRowHairline()
     }
 
     private struct Note: Hashable {
@@ -91,11 +99,12 @@ struct ImportSessionRow: View {
     private var control: some View {
         if preview.verdict == .alreadyImported {
             HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle").accessibilityHidden(true)
+                Image(systemName: "checkmark").accessibilityHidden(true)
                 Text("Already imported", comment: "Training import, step 5: the workout's id is already in RYFT.")
             }
             .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(Theme.textTertiary)
+            .fixedSize()
             .accessibilityElement(children: .combine)
         } else if preview.verdict.isToggleable {
             Button {
@@ -109,10 +118,10 @@ struct ImportSessionRow: View {
                         Spacer(minLength: 0)
                     }
                     Image(systemName: isIncluded ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 22))
-                        .foregroundStyle(isIncluded ? Theme.accent : Theme.textTertiary)
+                        .font(.system(size: 22, weight: .light))
+                        .foregroundStyle(isIncluded ? Theme.textPrimary : Theme.textTertiary)
                 }
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(minWidth: Theme.Metrics.minHitTarget, minHeight: Theme.Metrics.minHitTarget)
                 .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
                 .contentShape(Rectangle())
             }
@@ -168,12 +177,11 @@ enum ImportPreviewText {
 
 #Preview("Session rows", traits: .sizeThatFitsLayout) {
     let build = ImportMockData.build()
-    return SchemePair {
-        VStack(spacing: 0) {
+    return DarkPreview {
+        GroupedCard {
             ForEach(Array(build.sessions.prefix(4).enumerated()), id: \.offset) { index, preview in
                 ImportSessionRow(preview: preview, isIncluded: build.defaultIncluded.contains(preview.id), index: index,
                                  zone: ImportMockData.zone, onToggle: { _ in }, onOpen: {})
-                Divider().overlay(Theme.separator)
             }
         }
     }
@@ -181,8 +189,8 @@ enum ImportPreviewText {
 
 #Preview("Session rows · AX3", traits: .sizeThatFitsLayout) {
     let build = ImportMockData.build()
-    return SchemePair {
-        VStack(spacing: 0) {
+    return DarkPreview {
+        GroupedCard {
             ForEach(Array(build.sessions.prefix(2).enumerated()), id: \.offset) { index, preview in
                 ImportSessionRow(preview: preview, isIncluded: build.defaultIncluded.contains(preview.id), index: index,
                                  zone: ImportMockData.zone, onToggle: { _ in }, onOpen: {})

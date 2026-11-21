@@ -23,7 +23,8 @@ enum SubpageSpec {
     static let maxContentWidth: CGFloat = 560
     /// A sheet's page starts 26 below the sheet's top edge: 14 under the grabber (derived, PR 6 B §1.2, C §2.1).
     static let sheetTopInset: CGFloat = 26
-    /// When the title does not fit on the buttons' line (long titles, large text): the buttons' row, 12, then the title.
+    /// When the title does not fit on the buttons' line (long titles), and always at the accessibility sizes (C §2.9): the
+    /// buttons' row, 12, then the title.
     static let stackedGap: CGFloat = 12
 }
 
@@ -121,13 +122,15 @@ private struct SheetPresentation: ViewModifier {
 
 /// The subpage header on its own (a page that is not a `SubpageScaffold`, such as a form that manages its keyboard): Back,
 /// 12, the title (26 Light, header trait), the trailing circles and the close circle at the end. When the title does not fit
-/// on the buttons' line it goes under them and wraps (C §2.9); it never truncates. VoiceOver reads it in visual order.
+/// on the buttons' line, and at every accessibility size however short it is, it goes under them and wraps (C §2.9); it
+/// never truncates. VoiceOver reads it in visual order.
 struct SubpageHeader<Trailing: View>: View {
     private let title: Text
     private let navigation: SubpageNavigation
     private let trailing: Trailing
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ title: Text, navigation: SubpageNavigation = .back(), @ViewBuilder trailing: () -> Trailing) {
         self.title = title
@@ -136,9 +139,15 @@ struct SubpageHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row
-            stacked
+        Group {
+            if typeSize.isAccessibilitySize {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    row
+                    stacked
+                }
+            }
         }
         .accessibilityElement(children: .contain)
     }
@@ -247,7 +256,7 @@ enum PinnedBarSpec {
 /// top (the tab bar's), 12 above and below its content, 20 at the sides. An optional caption above says why the primary is
 /// disabled (12 pt `textSecondary`); an optional footnote under it says what happens (12 pt `textTertiary`); a quiet text
 /// action ("Not now") goes in the content under the pill. Use it with `.pinnedBar { … }`, which keeps the page scrollable
-/// above it. (A §3 calls it `PinnedBar`; that name is taken by onboarding's private bar until area A moves onto this one.)
+/// above it. (A §3 calls it `PinnedBar`; the type keeps this name, and onboarding uses it too.)
 struct PinnedActionBar<Content: View>: View {
     private let caption: Text?
     private let footnote: Text?
@@ -313,9 +322,9 @@ extension View {
 }
 
 /// Keeps the edge swipe that pops a page working while the navigation bar is hidden (A D6A-6, C §2.1). UIKit's own delegate
-/// refuses the swipe without a bar, so the page's navigation controller gets `InteractivePopGestureKeeper` as the gesture's
-/// delegate, once, kept alive with the controller: it allows the swipe whenever there is a page to go back to and no
-/// transition is running. A page outside a navigation stack (a sheet's root) changes nothing.
+/// refuses the swipe without a bar, so each back-swipe recognizer of the page's navigation controller gets an
+/// `InteractivePopGestureKeeper` as its delegate, kept alive with the recognizer: it decides only whether the swipe may
+/// begin (`BackSwipeRule`). A page outside a navigation stack (a sheet's root) changes nothing.
 private struct InteractivePopGesture: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ controller: Probe, context: Context) {}
@@ -338,36 +347,140 @@ private struct InteractivePopGesture: UIViewControllerRepresentable {
     }
 }
 
-/// The interactive pop gesture's delegate for a navigation controller whose pages hide the bar. One per controller,
-/// retained by it.
+/// When a back swipe may begin on a page without a bar (`InteractivePopGestureKeeper`), from plain values.
+enum BackSwipeRule {
+    enum Swipe: Equatable {
+        /// The screen-edge swipe: its recognizer checks the direction itself.
+        case edge
+        /// iOS 26's swipe from anywhere in the content: its velocity so far, the page's layout direction, and whether it
+        /// started on something that scrolls sideways and can still scroll back (`canScrollBack`).
+        case content(velocity: CGPoint, rightToLeft: Bool, startsOnBackScroller: Bool)
+    }
+
+    /// A page to go back to, no push or pop running, and a Back button the page doesn't hide (Import's result has no way
+    /// back): a swipe on the root page would leave the stack stuck. The content swipe also has to go sideways towards the
+    /// trailing edge, and not start on a scroller that can scroll back (a carousel keeps its own swipe).
+    static func mayBegin(pages: Int, transitioning: Bool, hidesBackButton: Bool, swipe: Swipe) -> Bool {
+        guard pages > 1, !transitioning, !hidesBackButton else { return false }
+        guard case let .content(velocity, rightToLeft, startsOnBackScroller) = swipe else { return true }
+        let forward = rightToLeft ? -velocity.x : velocity.x
+        return forward > 0 && abs(velocity.x) > abs(velocity.y) && !startsOnBackScroller
+    }
+
+    /// A scroll view wider than its frame and not at its leading end (half a point either way is rounding).
+    static func canScrollBack(contentWidth: CGFloat, width: CGFloat, offset: CGFloat, insets: UIEdgeInsets,
+                              rightToLeft: Bool) -> Bool {
+        guard contentWidth > width + 0.5 else { return false }
+        let leadingEnd = rightToLeft ? contentWidth + insets.right - width : -insets.left
+        return abs(offset - leadingEnd) > 0.5
+    }
+}
+
+/// The delegate of one back-swipe recognizer (the edge's, iOS 26's content one) of a navigation controller whose pages hide
+/// the bar, retained by the recognizer. It answers only whether the swipe may begin; the protocol's other questions (which
+/// touches it takes, what it waits for or runs with: a list's swipe actions, a control's drag) go to UIKit's delegate it
+/// replaced.
 @MainActor
 final class InteractivePopGestureKeeper: NSObject, UIGestureRecognizerDelegate {
     private weak var navigationController: UINavigationController?
+    /// UIKit's delegate: weak, as the recognizer held it (the navigation controller owns it).
+    private let uikit = WeakObject()
     private static var associationKey: UInt8 = 0
 
     private init(_ navigationController: UINavigationController) {
         self.navigationController = navigationController
     }
 
-    /// Enables `navigationController`'s back swipe and makes the keeper its delegate.
+    /// Enables `navigationController`'s back swipes and makes a keeper the delegate of each.
     static func keep(_ navigationController: UINavigationController?) {
         guard let navigationController, let pop = navigationController.interactivePopGestureRecognizer else { return }
+        install(on: pop, of: navigationController)
+        // iOS 26's swipe from anywhere in the content takes the drags the edge swipe doesn't (a slow one); UIKit's
+        // delegate refuses it without a bar, too.
+        if #available(iOS 26.0, *), let content = navigationController.interactiveContentPopGestureRecognizer {
+            install(on: content, of: navigationController)
+        }
+    }
+
+    private static func install(on recognizer: UIGestureRecognizer, of navigationController: UINavigationController) {
         let keeper: InteractivePopGestureKeeper
-        if let existing = objc_getAssociatedObject(navigationController, &associationKey) as? InteractivePopGestureKeeper {
+        if let existing = objc_getAssociatedObject(recognizer, &associationKey) as? InteractivePopGestureKeeper {
             keeper = existing
         } else {
             keeper = InteractivePopGestureKeeper(navigationController)
-            objc_setAssociatedObject(navigationController, &associationKey, keeper, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            objc_setAssociatedObject(recognizer, &associationKey, keeper, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
-        pop.isEnabled = true
-        if pop.delegate !== keeper { pop.delegate = keeper }
+        recognizer.isEnabled = true
+        guard recognizer.delegate !== keeper else { return }
+        // The first time, or UIKit set its own again: that one keeps answering the rest.
+        if let current = recognizer.delegate as? NSObject, !(current is InteractivePopGestureKeeper) { keeper.uikit.object = current }
+        recognizer.delegate = keeper
     }
 
-    /// A page to go back to, and no push or pop running: a swipe on the root page would leave the stack stuck.
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let navigationController else { return false }
-        return navigationController.viewControllers.count > 1 && navigationController.transitionCoordinator == nil
+        let swipe: BackSwipeRule.Swipe
+        if gestureRecognizer === navigationController.interactivePopGestureRecognizer {
+            swipe = .edge
+        } else {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else { return false }
+            swipe = .content(velocity: pan.velocity(in: view),
+                             rightToLeft: view.effectiveUserInterfaceLayoutDirection == .rightToLeft,
+                             startsOnBackScroller: Self.startsOnBackScroller(pan, in: view))
+        }
+        return BackSwipeRule.mayBegin(pages: navigationController.viewControllers.count,
+                                      transitioning: navigationController.transitionCoordinator != nil,
+                                      hidesBackButton: navigationController.topViewController?.navigationItem.hidesBackButton == true,
+                                      swipe: swipe)
     }
+
+    /// Under where `pan` started (where it is minus how far it moved), a scroll view that can scroll back.
+    private static func startsOnBackScroller(_ pan: UIPanGestureRecognizer, in view: UIView) -> Bool {
+        let now = pan.location(in: view), moved = pan.translation(in: view)
+        var candidate = view.hitTest(CGPoint(x: now.x - moved.x, y: now.y - moved.y), with: nil)
+        while let current = candidate, current !== view {
+            if let scroll = current as? UIScrollView,
+               BackSwipeRule.canScrollBack(contentWidth: scroll.contentSize.width, width: scroll.bounds.width,
+                                           offset: scroll.contentOffset.x, insets: scroll.adjustedContentInset,
+                                           rightToLeft: scroll.effectiveUserInterfaceLayoutDirection == .rightToLeft) {
+                return true
+            }
+            candidate = current.superview
+        }
+        return false
+    }
+
+    // MARK: UIKit's delegate answers the rest
+
+    /// The questions UIKit's delegate keeps answering: the protocol's, but the start. Its private ones aren't passed on:
+    /// one of them (`_gestureRecognizer:shouldReceiveEvent:`) refuses every event on a page without a bar, as its start does.
+    nonisolated private static let forwarded: Set<String> = [
+        "gestureRecognizer:shouldReceiveTouch:", "gestureRecognizer:shouldReceivePress:", "gestureRecognizer:shouldReceiveEvent:",
+        "gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:",
+        "gestureRecognizer:shouldRequireFailureOfGestureRecognizer:",
+        "gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:",
+    ]
+
+    nonisolated override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || uikitAnswering(aSelector) != nil
+    }
+
+    nonisolated override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        uikitAnswering(aSelector) ?? super.forwardingTarget(for: aSelector)
+    }
+
+    /// UIKit's delegate, when it answers `selector` and the keeper passes that question on.
+    nonisolated private func uikitAnswering(_ selector: Selector?) -> NSObject? {
+        guard let selector, let object = uikit.object, Self.forwarded.contains(NSStringFromSelector(selector)),
+              object.responds(to: selector) else { return nil }
+        return object
+    }
+}
+
+/// A weak reference the keeper's forwarding (`NSObject`'s, not isolated) can read; UIKit sets and asks the delegate on the
+/// main thread only.
+private final class WeakObject: @unchecked Sendable {
+    weak var object: NSObject?
 }
 
 // MARK: - previews (dark only; verbatim: the screens own the strings)
@@ -405,7 +518,7 @@ private struct SubpagePreviewList: View {
 
 #Preview("SubpageScaffold · sheet root, a trailing button") {
     SubpageScaffold(Text(verbatim: "Journal"), navigation: .close(), isSheet: true) {
-        CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a behavior")) {}
+        CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
     } content: {
         SubpagePreviewList()
     }

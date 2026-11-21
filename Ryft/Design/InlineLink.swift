@@ -27,6 +27,15 @@ enum InlineLink {
     }
 }
 
+extension Text {
+    /// Running text with Markdown links (`"… the [Privacy Policy](https://ryftlab.de/privacy)."`), looked up in the string
+    /// catalog. The links are `textPrimary`, underlined at 50 %; the other words take the caller's font and colour. A tap goes
+    /// through the environment's `openURL` (so `safariSheet` keeps them in the app), and VoiceOver's Links rotor reaches each.
+    init(inlineLinks resource: LocalizedStringResource) {
+        self.init(InlineLink.styled(AttributedString(localized: resource)))
+    }
+}
+
 extension View {
     /// A text control on its own line: apply to a `Button` or a `Link`. Callout, `textPrimary`, underlined at 50 %, at least
     /// 44 × 44 and all of it tappable; pressed 60 %, disabled 35 %.

@@ -204,7 +204,7 @@ final class LocalSessionExercise {
         if let kg = targetKg { return "\(base) @ \(Fmt.kg(kg))" }
         switch targetKind {
         case .rpe: return targetValue.map { "\(base) @ RPE \(Fmt.kgNumber($0))" } ?? base
-        case .pct1rm: return targetValue.map { "\(base) @ \(Fmt.kgNumber($0)) % 1RM" } ?? base
+        case .pct1rm: return targetValue.map { "\(base) @ \(Fmt.kgNumber($0))\u{00A0}%\u{00A0}1RM" } ?? base
         default: return base
         }
     }

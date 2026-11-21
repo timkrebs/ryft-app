@@ -117,7 +117,10 @@ final class ImportUITests: XCTestCase {
         let openPlan = app.buttons["import.openPlan"]
         XCTAssertTrue(openPlan.exists, "Open plan")
         openPlan.tap()
-        XCTAssertTrue(app.navigationBars["Upper/Lower Base"].waitForExistence(timeout: wait), "the imported plan on Strain")
+        // The plan's page has its own header now (Nocturne PR 6 B §6.2), not a navigation bar.
+        let header = app.descendants(matching: .any)["plan.header"]
+        XCTAssertTrue(header.waitForExistence(timeout: wait), "the imported plan on Strain")
+        XCTAssertEqual(header.label, "Upper/Lower Base")
     }
 
     /// V5 and I9: before the platform takes imports, step 5 offers to keep the import on this iPhone.

@@ -445,7 +445,7 @@ struct NotificationSettingsViewModelTests {
         api.failNext = APIError.http(422, "")
         await model.set(.syncStale, on: false)
         #expect(model.isOn(.syncStale))
-        #expect(model.error != nil)
+        #expect(model.failure != nil)
     }
 
     @Test func quietHoursStartAtTheDefaultAndCanMove() async {

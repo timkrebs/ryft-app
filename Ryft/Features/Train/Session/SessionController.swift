@@ -33,6 +33,8 @@ final class SessionController: Identifiable {
     private(set) var phase: LiveSessionPhase = .idle
     @ObservationIgnored private var machine: GKTableMachine<LiveSessionPhase>!
     var isFinishing: Bool { phase == .finishing }
+    /// Set by `stop()` (finish, discard or an account change): the controller is done with its session (`isUnderway`).
+    @ObservationIgnored private(set) var stopped = false
 
     private(set) var rest: RestTimer
     var focus: SetFocus?
@@ -169,6 +171,7 @@ final class SessionController: Identifiable {
 
     /// Finish, discard or an account change: an open undo goes without a write (nothing commits it later).
     func stop() {
+        stopped = true
         ticker?.cancel()
         ticker = nil
         restOverTask?.cancel()
@@ -460,8 +463,11 @@ final class SessionController: Identifiable {
 
     // MARK: exercises
 
+    /// The new row, or nil once the workout isn't underway (`isUnderway`): a slow pick that comes back after Finish, Discard or
+    /// an account change adds nothing to the session.
     @discardableResult
-    func add(_ exercise: Exercise) -> LocalSessionExercise {
+    func add(_ exercise: Exercise) -> LocalSessionExercise? {
+        guard isUnderway else { return nil }
         dropUndo()
         let row = SessionFactory.add(exercise, to: session, sets: 3, in: store)
         edited()

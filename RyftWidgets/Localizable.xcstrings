@@ -4,7 +4,21 @@
     "%@, not scored" : {
       "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain)."
     },
-    "Baselines %lld of %lld" : {},
+    "%lld of %lld" : {
+      "comment" : "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7. Keep the no-break spaces."
+    },
+    "As of %@" : {
+      "comment" : "Widget: the app last updated it on that day: a weekday (Monday), a date (Nov 16) or one with its year."
+    },
+    "As of yesterday" : {
+      "comment" : "Widget: the app last updated it yesterday; what it shows is from then."
+    },
+    "Baselines" : {
+      "comment" : "Widget, lock screen rectangle: under the nights counted (3 of 7)."
+    },
+    "Baselines %lld of %lld" : {
+      "comment" : "Widget, the small orbit's caption while the baselines count: nights counted of the nights the baselines need, e.g. Baselines 3 of 7. Keep the no-break spaces."
+    },
     "Bed by %@" : {},
     "High" : {},
     "Last readiness %lld." : {},
@@ -18,10 +32,13 @@
     "Readiness" : {},
     "Readiness %lld · %@" : {},
     "Readiness %lld, %@" : {},
+    "Readiness · %@" : {
+      "comment" : "Widget, under the orbit: the readiness band, e.g. Readiness · High. Keep the no-break space before the dot."
+    },
     "Recovery" : {
       "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”."
     },
-    "Recovery %@ percent" : {
+    "Recovery %@ percent" : {
       "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71."
     },
     "Rest" : {
@@ -31,7 +48,7 @@
     "Sleep" : {
       "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”."
     },
-    "Sleep %@ percent" : {
+    "Sleep %@ percent" : {
       "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88."
     },
     "Snoozing" : {},
@@ -41,7 +58,7 @@
     "Strain" : {
       "comment" : "Widget VoiceOver: the Strain score's name, before “no data”."
     },
-    "Strain %@ of 21" : {
+    "Strain %@ of 21" : {
       "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6."
     },
     "Today's readiness, or how far scoring your night is." : {},

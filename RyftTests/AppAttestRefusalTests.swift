@@ -82,7 +82,9 @@ struct AppAttestRequiredTests {
         rig.server.hold(AttestServer.challenge)                     // the renewal's challenge stays out
         let requests = (0..<5).map { _ in Task { try await rig.getMe() } }
         #expect(await rig.until { await rig.attestor.waiting == 5 })
-        #expect(rig.server.heldCount == 1)
+        // The renewal's challenge reaches the server on its own thread, possibly after the five are waiting: released
+        // before it is held, it would stay out and every request time out.
+        #expect(await rig.until { rig.server.heldCount == 1 })
         #expect(rig.server.count(AttestServer.challenge) == 3)      // two for the first run, one held
         rig.server.releaseHeld()
         for request in requests { _ = try await request.value }

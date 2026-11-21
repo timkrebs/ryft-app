@@ -1,187 +1,262 @@
 import SwiftUI
 
-/// Finished sessions by week, with each week's volume and muscular load.
-struct TrainHistoryView: View {
-    @Environment(TrainLibrary.self) private var library
+/// History's numbers (PR 6 B §7.1, `b-13`), bottom of one element to the top of the next.
+enum TrainHistoryLayout {
+    /// The header → the first week's title (Plans' 20).
+    nonisolated static let headerGap: CGFloat = 20
+    /// A week's title → its first row, and between its rows.
+    nonisolated static let weekTitleGap: CGFloat = 10, rowSpacing: CGFloat = 8
+    /// Between two weeks (the grouped list's 18).
+    nonisolated static let weekSpacing = GroupedListSpec.groupSpacing
+    /// While the list loads the first time: this many outline rows.
+    nonisolated static let placeholderRows = 3
+    /// The empty card's glyph and the gap to its sentence.
+    nonisolated static let emptyGlyphSize: CGFloat = 16, emptyGlyphGap: CGFloat = 12
+    /// Under the last week.
+    nonisolated static let bottomPadding: CGFloat = 32
+}
 
-    var body: some View {
-        TrainHistoryScreen(model: TrainHistoryViewModel(library: library))
+/// What History's rows and week headers say (PR 6 B §7.1). Pure, so tests read them without a view.
+enum TrainHistoryRows {
+    /// A session as Strain's activity row draws it: `dumbbell.fill`, the title ("Workout" without one), "Fri, Nov 13 · 55m ·
+    /// 7,500 kg", the muscular load at the right with "load" under it ("–" without one). VoiceOver: "Upper A, Friday, November
+    /// 13, 55 minutes, 7,500 kilograms, Muscular load 85".
+    static func row(_ s: SessionSummary, locale: Locale = .autoupdatingCurrent) -> ActivityListRow.Content {
+        let title = s.title.isEmpty ? String(localized: "Workout") : s.title
+        var meta = [s.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(locale))]
+        var spoken = [title, s.startedAt.formatted(.dateTime.weekday(.wide).day().month(.wide).locale(locale))]
+        if let min = s.durationMin {
+            meta.append(Fmt.duration(minutes: min))
+            spoken.append(Fmt.spokenDuration(minutes: min, locale: locale))
+        }
+        if let v = s.volumeKg {
+            meta.append(Fmt.volume(v, locale: locale))
+            spoken.append(HistorySpeech.kilograms(v, locale: locale))
+        }
+        spoken.append(s.muscularTrimp.map { String(localized: "Muscular load \(HistorySpeech.number($0, locale: locale))") }
+            ?? String(localized: "No muscular load", comment: "VoiceOver: a History row whose session has no muscular load (yet)."))
+        return ActivityListRow.Content(systemImage: "dumbbell.fill", title: title, meta: StrainRows.join(meta),
+                                       value: s.muscularTrimp.map { Fmt.load($0, locale: locale) }, spoken: spoken.joined(separator: ", "),
+                                       valueCaption: loadCaption)
+    }
+
+    /// A failed read with nothing cached.
+    static var failureText: String {
+        String(localized: "Your workouts couldn't be loaded. Try again when you're online.",
+               comment: "History: the platform couldn't be reached and nothing is cached (as the session detail's message).")
+    }
+
+    /// The word under a row's load.
+    static var loadCaption: String {
+        String(localized: "load", comment: "History: under a session's muscular load at the right of its row (\"85.0\" over \"load\").")
     }
 }
 
-/// Layout only; the first model handed in is kept for the screen's lifetime.
+/// "Offline · as of 14:05" (History, the exercise page): the copy on this phone after a read the iPhone couldn't send, quiet
+/// (`caption`, `textTertiary`, `wifi.slash`). The time is when the copy was fetched, never relative ("14:05", "Yesterday
+/// 14:05", "Tue 14:05"). Not `offline` (online, but the read was held back by a `Retry-After` or failed): the status line's
+/// "Showing data from 14:05" with its `clock`, no offline words (code review N4).
+struct TrainOfflineNote: View {
+    let fetchedAt: Date?
+    var offline = true
+    var identifier = "train.offline"
+    var now: Date = .now
+
+    static func text(fetchedAt: Date?, offline: Bool = true, now: Date) -> String {
+        if !offline, let fetchedAt { return SyncLine.stale(since: fetchedAt).text(now: now) }
+        guard let fetchedAt else { return String(localized: "Offline") }
+        return String(localized: "Offline · as of \(SyncLine.dataTime(fetchedAt, now: now))",
+                      comment: "Train's History and exercise page: offline, showing the copy fetched at this time (\"14:05\", \"Yesterday 14:05\").")
+    }
+
+    var body: some View {
+        Label {
+            Text(verbatim: Self.text(fetchedAt: fetchedAt, offline: offline, now: now))
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: offline ? "wifi.slash" : "clock")
+        }
+        .font(.ryft(.caption))
+        .monospacedDigit()
+        .foregroundStyle(Theme.textTertiary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+/// Numbers as VoiceOver should hear them.
+enum HistorySpeech {
+    /// "7,500 kilograms", "93.3 kilograms".
+    static func kilograms(_ kg: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        Measurement(value: kg, unit: UnitMass.kilograms)
+            .formatted(.measurement(width: .wide, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1)))
+                .locale(locale))
+    }
+
+    /// "85", "84.6": no trailing ".0" to read out.
+    static func number(_ v: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        v.formatted(.number.precision(.fractionLength(0...1)).locale(locale))
+    }
+}
+
+/// Finished sessions by week, with each week's count, volume and muscular load.
+struct TrainHistoryView: View {
+    @Environment(TrainLibrary.self) private var library
+    @Environment(\.appEnvironment) private var env
+
+    var body: some View {
+        TrainHistoryScreen(model: TrainHistoryViewModel(library: library, clock: env.clock))
+            .analyticsScreen(.trainHistory)
+    }
+}
+
+/// Wiring; the first model handed in is kept for the screen's lifetime. It reads again when the iPhone goes online (and
+/// offline, which ends at once on the copy).
 private struct TrainHistoryScreen: View {
     @State var model: TrainHistoryViewModel
+    @Environment(\.appEnvironment) private var env
+
+    var body: some View {
+        TrainHistoryPage(model: model)
+            .task(id: env.connectivity.isOnline) { await model.load() }
+    }
+}
+
+/// The pushed page (PR 6 B §7.1, `b-13`): Back, "History" over "25 workouts · last 90 days", then per week its title and
+/// totals over the session rows. Loading the first time is three outline rows; none yet (the platform said so) is an outlined
+/// card that says where they come from; a failed read with nothing cached is the message with Try again; the copy on this
+/// phone after a failed read carries "Offline · as of 14:05". Layout only.
+struct TrainHistoryPage: View {
+    let model: TrainHistoryViewModel
+    @Environment(\.locale) private var locale
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
-                if model.isEmpty {
-                    if model.loaded {
-                        InlineMessage(message: String(localized: "No workouts logged yet. Finished sessions appear here."),
-                                      systemImage: "dumbbell")
-                    } else {
-                        ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 0) {
+                PushedHeader(Text("History"), subtitleParts: model.subtitleParts, identifierPrefix: "history")
+                VStack(alignment: .leading, spacing: TrainHistoryLayout.weekSpacing) {
+                    if model.isOffline {
+                        TrainOfflineNote(fetchedAt: model.fetchedAt, identifier: "history.offline", now: model.now)
+                    } else if model.isStale {
+                        TrainOfflineNote(fetchedAt: model.fetchedAt, offline: false, identifier: "history.stale", now: model.now)
                     }
-                }
-                ForEach(model.weeks) { week in
-                    VStack(alignment: .leading, spacing: 10) {
-                        weekHeader(week)
-                        ForEach(week.sessions) { s in
-                            NavigationLink(value: TrainRoute.session(s.id)) { SessionRow(session: s) }
-                                .buttonStyle(PressableButtonStyle())
-                        }
+                    switch model.state {
+                    case .loading: placeholders
+                    case .empty: empty
+                    case .failed: failure
+                    case .list: EmptyView()
                     }
+                    ForEach(model.weeks) { week($0) }
                 }
+                .padding(.top, TrainHistoryLayout.headerGap)
             }
-            .padding(Theme.Metrics.screenPadding)
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.bottom, TrainHistoryLayout.bottomPadding)
         }
+        .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .task { await model.load() }
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
         .refreshable { await model.refresh() }
     }
 
-    private func weekHeader(_ week: TrainHistoryViewModel.Week) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(week.title)
-                .ryftLabelStyle()
-            Spacer()
-            Text(week.summary)
+    private func week(_ week: TrainHistoryViewModel.Week) -> some View {
+        VStack(alignment: .leading, spacing: TrainHistoryLayout.weekTitleGap) {
+            HistoryWeekHeader(title: week.title(locale: locale), summary: week.summaryParts(locale: locale),
+                              spokenSummary: week.spokenSummary(locale: locale))
+            VStack(spacing: TrainHistoryLayout.rowSpacing) {
+                ForEach(week.sessions) { s in
+                    NavigationLink(value: TrainRoute.session(s.id)) {
+                        ActivityListRow(content: TrainHistoryRows.row(s, locale: locale), accessory: .chevron)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityHint(Text("Opens the session"))
+                    .accessibilityIdentifier("history.row.\(s.id.uuidString)")
+                }
+            }
+        }
+    }
+
+    /// The first load with nothing cached: three outline rows; VoiceOver hears it once.
+    private var placeholders: some View {
+        VStack(spacing: TrainHistoryLayout.rowSpacing) {
+            ForEach(0..<TrainHistoryLayout.placeholderRows, id: \.self) { _ in ActivityListRowPlaceholder() }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Loading workouts", comment: "VoiceOver: History's outline rows while the list loads the first time."))
+        .accessibilityIdentifier("history.loading")
+    }
+
+    /// No session in 90 days, as the platform said: a calm outlined card, the dumbbell and the sentence.
+    private var empty: some View {
+        PlaceholderRow(height: ActivityListRowSpec.minHeight, radius: ActivityListRowSpec.radius) {
+            HStack(alignment: .center, spacing: TrainHistoryLayout.emptyGlyphGap) {
+                Image(systemName: "dumbbell")
+                    .font(.system(size: TrainHistoryLayout.emptyGlyphSize, weight: .light))
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
+                Text("No workouts logged yet. Finished sessions appear here.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, ActivityListRowSpec.verticalPadding)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("history.empty")
+    }
+
+    /// The read failed and nothing is cached: say so, with Try again (the session detail's words) and the failure's status
+    /// and request ID behind Details.
+    private var failure: some View {
+        InlineMessage(message: model.failureText, details: model.failureDetails, retry: { await model.refresh() },
+                      identifier: "history.failure")
+    }
+}
+
+/// "Week of Nov 8" (`label`) and "2 sessions · 12.2 t · load 126" (`caption`) at the right, both `textTertiary`; the totals go
+/// under the title from AX1, one per line (`PartsLine`). One header element: the title, with the totals as its value.
+private struct HistoryWeekHeader: View {
+    let title: String
+    /// The totals' parts.
+    let summary: [String]
+    let spokenSummary: String
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: GroupedListSpec.detailGap))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: GroupedListSpec.rowSpacing))
+        layout {
+            Text(verbatim: title)
+                .font(.ryft(.label))
+                .fixedSize(horizontal: false, vertical: true)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            PartsLine(summary)
                 .font(.ryft(.caption))
                 .monospacedDigit()
-                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
         }
-        .accessibilityElement(children: .combine)
+        .foregroundStyle(Theme.textTertiary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityValue(Text(verbatim: spokenSummary))
         .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// History row: dumbbell, title, day · duration · volume, load chip.
-struct SessionRow: View {
-    let session: SessionSummary
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "dumbbell.fill")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 44, height: 44)
-                .background(Theme.accent.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 4) {
-                Text(session.title.isEmpty ? String(localized: "Workout") : session.title)
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(subtitle)
-                    .font(.ryft(.caption))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Spacer(minLength: 6)
-            LoadChip(load: session.muscularTrimp)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary)
-        }
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    private var subtitle: String {
-        var parts = [session.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))]
-        if let min = session.durationMin { parts.append(Fmt.duration(minutes: min)) }
-        if let v = session.volumeKg { parts.append(Fmt.volume(v)) }
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// A finished session: totals, then each exercise with its sets.
-struct SessionDetailView: View {
-    let sessionID: UUID
-    @Environment(TrainLibrary.self) private var library
-    @State private var session: TrainSession?
-    @State private var loaded = false
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                if let s = session {
-                    HStack(spacing: 10) {
-                        MetricTile(title: "Volume", value: Fmt.volume(s.volumeKg), systemImage: "scalemass")
-                        MetricTile(title: "Load", value: Fmt.load(s.muscularTrimp), systemImage: "dumbbell.fill",
-                                   tint: Theme.accentSecondary)
-                        MetricTile(title: "Strain", value: Fmt.strain(s.strain), systemImage: "bolt.fill")
-                    }
-                    if !s.notes.isEmpty {
-                        Card { Text(s.notes).font(.ryft(.body)).foregroundStyle(Theme.textPrimary) }
-                    }
-                    ForEach(s.exercises.sorted { $0.position < $1.position }) { e in
-                        exerciseCard(e)
-                    }
-                } else if loaded {
-                    InlineMessage(message: String(localized: "This workout couldn't be loaded. Try again when you're online."))
-                } else {
-                    ProgressView().tint(Theme.accent)
-                }
-            }
-            .padding(Theme.Metrics.screenPadding)
-        }
-        .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(session?.title ?? "")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .task {
-            session = await library.session(id: sessionID)
-            loaded = true
-        }
-    }
-
-    private func exerciseCard(_ e: SessionExercise) -> some View {
-        let name = library.exercise(id: e.exerciseId)?.name ?? String(localized: "Exercise")
-        return NavigationLink(value: TrainRoute.exercise(e.exerciseId)) {
-            Card {
-                VStack(alignment: .leading, spacing: 10) {
-                    CardHeader(title: LocalizedStringKey(name), showsChevron: false)
-                    ForEach(Array(e.sets.sorted { $0.setIndex < $1.setIndex }.enumerated()), id: \.element.id) { i, set in
-                        HStack {
-                            Text(set.isWarmup ? "W" : "\(i + 1)")
-                                .font(.ryftNumber(size: 14))
-                                .foregroundStyle(set.isWarmup ? Theme.warning : Theme.textTertiary)
-                                .frame(width: 24, alignment: .leading)
-                            Text(SetText.short(set))
-                                .font(.ryft(.body))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.textPrimary)
-                            Spacer()
-                            if let rpe = set.rpe {
-                                Text("RPE \(Fmt.kgNumber(rpe))")
-                                    .font(.ryft(.caption))
-                                    .foregroundStyle(Theme.textSecondary)
-                            }
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-            }
-        }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityHint(Text("Opens the exercise's history"))
     }
 }
 
 enum SetText {
     /// "100 kg × 5", "× 8", "45 s".
-    static func short(_ s: SessionSet) -> String {
+    static func short(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         if let d = s.durationSec, s.reps == nil { return String(localized: "\(d) s") }
         switch (s.weightKg, s.reps) {
-        case let (kg?, r?): return "\(Fmt.kg(kg)) × \(r)"
+        case let (kg?, r?): return "\(Fmt.kg(kg, locale: locale)) × \(r)"
         case let (nil, r?): return "× \(r)"
-        case let (kg?, nil): return Fmt.kg(kg)
+        case let (kg?, nil): return Fmt.kg(kg, locale: locale)
         default: return Fmt.placeholder
         }
     }
@@ -211,17 +286,51 @@ extension View {
     }
 }
 
-#Preview("History · dark") {
+// MARK: - previews (dark only)
+
+@MainActor
+enum TrainHistoryPreview {
+    /// A new account's: the platform has no session, nothing is cached.
+    static var emptyLibrary: TrainLibrary {
+        let store = TrainStore(inMemory: true), outbox = TrainSyncService.preview(store: store)
+        return TrainLibrary(store: store, remote: { MockTrainSource(start: .empty) }, outbox: { outbox }, restore: false)
+    }
+}
+
+#Preview("History") {
     NavigationStack { TrainHistoryView().trainDestinations() }
         .previewEnvironment()
 }
 
-#Preview("History · light") {
+#Preview("History · empty") {
     NavigationStack { TrainHistoryView().trainDestinations() }
-        .previewEnvironment(scheme: .light)
+        .environment(TrainHistoryPreview.emptyLibrary)
+        .previewEnvironment()
 }
 
-#Preview("Session detail") {
-    NavigationStack { SessionDetailView(sessionID: MockTrain.history[MockTrain.history.count - 1].id).trainDestinations() }
+#Preview("History · loading") {
+    NavigationStack { TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary)) }
         .previewEnvironment()
+}
+
+#Preview("History · offline") {
+    NavigationStack {
+        TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary,
+                                                      sessions: MockTrain.history.reversed().map(SessionSummary.init),
+                                                      fresh: false, fetchedAt: .now.addingTimeInterval(-3 * 3600)))
+    }
+    .previewEnvironment()
+}
+
+#Preview("History · failed") {
+    NavigationStack {
+        TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary, sessions: [], fresh: false))
+    }
+    .previewEnvironment()
+}
+
+#Preview("History · AX3") {
+    NavigationStack { TrainHistoryView().trainDestinations() }
+        .previewEnvironment()
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
