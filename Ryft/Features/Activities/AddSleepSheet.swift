@@ -17,8 +17,11 @@ struct AddSleepSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .title2) private var valueSize: CGFloat = ActivitiesLayout.sleepValueSize
 
-    /// The save error's place in the scroll view.
+    /// The save error's identifier (it comes first, before the form).
     private static let saveErrorID = "addSleep.saveError"
+    /// The scroll view's top, above the top padding: scrolled to with the save error, so the page is at rest and the pinned
+    /// header's edge doesn't cut the error's top (as `AddActivitySheet.formTopID`).
+    static let formTopID = "addSleep.formTop"
 
     /// From xLarge the form doesn't fit the medium detent: it opens large.
     static func detents(for typeSize: DynamicTypeSize) -> Set<PresentationDetent> {
@@ -30,29 +33,32 @@ struct AddSleepSheet: View {
             header
             ScrollViewReader { scroll in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if model.trackerHasNight {
-                            InlineMessage(message: String(localized: "Sleep was already recorded by \(MyDayAssembler.appleHealth).",
-                                                          comment: "Add sleep: the platform has a night for this day; its source."),
-                                          systemImage: "bed.double", identifier: "addSleep.exists")
-                        } else {
-                            if saveFailed {
-                                saveError.id(Self.saveErrorID).padding(.bottom, ActivitiesLayout.sleepIntroGap)
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 0).id(Self.formTopID)
+                        VStack(alignment: .leading, spacing: 0) {
+                            if model.trackerHasNight {
+                                InlineMessage(message: String(localized: "Sleep was already recorded by \(MyDayAssembler.appleHealth).",
+                                                              comment: "Add sleep: the platform has a night for this day; its source."),
+                                              systemImage: "bed.double", identifier: "addSleep.exists")
+                            } else {
+                                if saveFailed {
+                                    saveError.padding(.bottom, ActivitiesLayout.sleepIntroGap)
+                                }
+                                form
                             }
-                            form
                         }
+                        .padding(.horizontal, Theme.Metrics.screenPadding)
+                        .padding(.top, ActivitiesLayout.headerGap)
+                        .padding(.bottom, ActivitiesLayout.bottomPadding)
                     }
-                    .padding(.horizontal, Theme.Metrics.screenPadding)
-                    .padding(.top, ActivitiesLayout.headerGap)
-                    .padding(.bottom, ActivitiesLayout.bottomPadding)
                 }
                 .scrollIndicators(.hidden)
                 .underPinnedHeader(gap: ActivitiesLayout.headerGap)
-                // Save is at the top, the form may be scrolled: bring the reason into view.
+                // Save is at the top, the form may be scrolled: bring the reason, the first block, into view at rest.
                 .onChange(of: saveFailed) { _, failed in
                     guard failed else { return }
                     withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
-                        scroll.scrollTo(Self.saveErrorID, anchor: .top)
+                        scroll.scrollTo(Self.formTopID, anchor: .top)
                     }
                 }
             }

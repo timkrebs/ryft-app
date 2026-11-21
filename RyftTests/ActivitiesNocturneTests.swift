@@ -508,6 +508,49 @@ struct ActivitiesNocturneHostedTests {
         }
     }
 
+    /// Gate part 2 review S1: Save is in the pinned header and the form may be scrolled, so a failed save scrolls the error
+    /// (the form's first block) into view. It brings the page to rest (offset 0): the header's edge (`underPinnedHeader`)
+    /// is off and the error's card starts `headerGap` under the header, its rounded top whole. Scrolled to the error itself,
+    /// the page stopped 10 down and the edge cut the card's top.
+    @Test("A failed save brings the form to rest: no edge, the error's top whole", arguments: ["addActivity", "addSleep"])
+    func aFailedSaveShowsTheErrorAtRest(_ sheet: String) async throws {
+        // Signed out meanwhile: nothing can be written on this iPhone.
+        let env = AppEnvironment.test(auth: .preview(signedIn: false), flags: [.todayMyDay: true, .activitiesManual: true])
+        let state = AppState(env: env)
+        let view: AnyView
+        if sheet == "addActivity" {
+            let model = AddActivityModel(env: env, day: env.clock.now())
+            try #require(model.canSave, "a valid form: only the write fails")
+            view = AnyView(AddActivitySheet(model: model).previewEnvironment(state))
+        } else {
+            let model = AddSleepModel(env: env, day: DayFormat.shift(env.clock.now(), days: -1))
+            try #require(model.canSave, "a valid night: only the write fails, \(model.issues)")
+            view = AnyView(AddSleepSheet(model: model).previewEnvironment(state))
+        }
+        try await run(view.environment(\.locale, Locale(identifier: "en_US")), height: 360, waitFor: "\(sheet).save") { w in
+            let scroll = try #require(w.pageScrollView(), "the form's scroll view")
+            let top = scroll.convert(scroll.bounds, to: w.window).minY
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            try #require(end > 40, "the form scrolls at this height: \(end)")
+            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top + min(end, 160)), animated: false)
+            try await w.settle()
+            #expect(try node(w, "\(sheet).save").activate())
+            try await w.wait("the error") { w.nodes().contains { $0.identifier == "\(sheet).saveError.retry" } }
+            try await w.settle()
+            #expect(scroll.contentOffset.y + scroll.adjustedContentInset.top < 0.5, "at rest: \(scroll.contentOffset.y)")
+            let px = try WindowPixels(w)
+            let gap = ActivitiesLayout.headerGap
+            let rule = NocturneTokenTests.over(NocturneTokenTests.resolve(Theme.separator), NocturneTokenTests.resolve(Theme.background))
+            let rows = stride(from: top + gap - 1.5, through: top + gap + 0.5, by: 1 / px.scale)
+            #expect(![60, 195, 330].allSatisfy { x in rows.contains { px.at(CGFloat(x), $0).near(rule, 4) } }, "no edge at rest")
+            // The card's top edge `gap` under the header, its corner rounded: not cut flat by a band over it.
+            let surface = NocturneTokenTests.resolve(Theme.surface)
+            #expect(px.at(195, top + gap + 1).near(surface, 3), "the card's top \(gap) under the header")
+            #expect(!px.at(195, top + gap - 1).near(surface, 3), "nothing of the card above it")
+            #expect(!px.at(Theme.Metrics.screenPadding + 1, top + gap + 1).near(surface, 3), "its corner rounded, whole")
+        }
+    }
+
     @Test func aSaveClosesTheSheetAndASecondTapWritesNothing() async throws {
         let state = ActivitiesShotFixtures.state()
         let model = AddActivityModel(env: state.env, day: .now)

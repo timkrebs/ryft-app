@@ -23,8 +23,11 @@ struct AddActivitySheet: View {
 
     private enum Field { case distance, notes }
 
-    /// The save error's place in the scroll view.
+    /// The save error's identifier (it is the form's first block).
     private static let saveErrorID = "addActivity.saveError"
+    /// The scroll view's top, above the form's top padding: scrolled to with the save error, so the page is at rest (offset 0)
+    /// and the pinned header's edge (`underPinnedHeader`) doesn't cut the error's top.
+    static let formTopID = "addActivity.formTop"
 
     /// Save is off while a time, the distance or the notes need fixing (not while it saves: the pill is busy then); it also
     /// stays off once it saved, while the sheet closes (`didSave`).
@@ -36,33 +39,36 @@ struct AddActivitySheet: View {
                 header
                 ScrollViewReader { scroll in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: ActivitiesLayout.blockSpacing) {
-                            if saveFailed { saveError.id(Self.saveErrorID) }
-                            sportGroup
-                            if model.suggestsTrain {
-                                strengthSuggestion
-                            } else if model.sport == .strength, model.mode == .add {
-                                strengthNote
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: 0).id(Self.formTopID)
+                            VStack(alignment: .leading, spacing: ActivitiesLayout.blockSpacing) {
+                                if saveFailed { saveError }
+                                sportGroup
+                                if model.suggestsTrain {
+                                    strengthSuggestion
+                                } else if model.sport == .strength, model.mode == .add {
+                                    strengthNote
+                                }
+                                whenGroup
+                                if model.showsDistance { distanceGroup }
+                                effortGroup
+                                notesGroup
+                                if model.sport != .strength { footer }
                             }
-                            whenGroup
-                            if model.showsDistance { distanceGroup }
-                            effortGroup
-                            notesGroup
-                            if model.sport != .strength { footer }
+                            .padding(.horizontal, Theme.Metrics.screenPadding)
+                            .padding(.top, ActivitiesLayout.headerGap)
+                            .padding(.bottom, ActivitiesLayout.bottomPadding)
+                            .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.suggestsTrain)
                         }
-                        .padding(.horizontal, Theme.Metrics.screenPadding)
-                        .padding(.top, ActivitiesLayout.headerGap)
-                        .padding(.bottom, ActivitiesLayout.bottomPadding)
-                        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.suggestsTrain)
                     }
                     .scrollIndicators(.hidden)
                     .scrollDismissesKeyboard(.interactively)
                     .underPinnedHeader(gap: ActivitiesLayout.headerGap)
-                    // Save is at the top, the form may be scrolled: bring the reason into view.
+                    // Save is at the top, the form may be scrolled: bring the reason, the first block, into view at rest.
                     .onChange(of: saveFailed) { _, failed in
                         guard failed else { return }
                         withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
-                            scroll.scrollTo(Self.saveErrorID, anchor: .top)
+                            scroll.scrollTo(Self.formTopID, anchor: .top)
                         }
                     }
                 }
