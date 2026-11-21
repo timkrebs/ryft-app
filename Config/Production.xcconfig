@@ -28,3 +28,8 @@ INFOPLIST_OTHER_PREPROCESSOR_FLAGS = -traditional
 // file only reaches our own targets.
 RYFT_STRICT_WARNINGS = NO
 SWIFT_TREAT_WARNINGS_AS_ERRORS = $(RYFT_STRICT_WARNINGS)
+
+// The app's global accent: the AccentColor asset, the ink (#F2F1EC). What nobody tints (an alert's buttons, a caret,
+// a control the root's `.tint` doesn't reach) falls back to it, not to system blue (Nocturne gate §1.10). The widget's
+// target sets the same name itself.
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor

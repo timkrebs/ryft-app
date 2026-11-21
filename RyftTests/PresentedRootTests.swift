@@ -7,7 +7,8 @@ import UIKit
 /// does), so every presentation ends its content with `presentedRoot()`. First what crosses a sheet; then the real presenters,
 /// under a root that carries the app root's two modifiers and nothing set on the presented view: no stock switch anywhere in
 /// the window, and every control UIKit tints (bar buttons, text fields) in the ink, never in system blue. Then a scan of
-/// `Ryft/` for a presentation whose content goes without it.
+/// `Ryft/` for a presentation whose content goes without it. Since the gate (G4) the app's global accent (`AccentColor`) is
+/// the ink too, so the tint checks hold even where the tint got lost: the switches and the scan are what catch that.
 @MainActor
 @Suite("T5.7: presented roots", .serialized)
 struct PresentedRootTests {
