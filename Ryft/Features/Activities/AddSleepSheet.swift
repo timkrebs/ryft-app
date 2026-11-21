@@ -47,6 +47,7 @@ struct AddSleepSheet: View {
                     .padding(.bottom, ActivitiesLayout.bottomPadding)
                 }
                 .scrollIndicators(.hidden)
+                .underPinnedHeader(gap: ActivitiesLayout.headerGap)
                 // Save is at the top, the form may be scrolled: bring the reason into view.
                 .onChange(of: saveFailed) { _, failed in
                     guard failed else { return }

@@ -111,6 +111,7 @@ struct ImportStepScaffold<Content: View, Bottom: View>: View {
                         .closeIdentifier(closeIdentifier)
                 }
                 scroll { EmptyView() }
+                    .underPinnedHeader()
             }
         case .detected, .choose, .map, .preview:
             scroll {

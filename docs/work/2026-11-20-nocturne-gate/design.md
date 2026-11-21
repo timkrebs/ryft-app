@@ -345,6 +345,8 @@ circle **trailing**, scrolling with the page.
    Add sleep, plans, notes, targets). A sheet that is a page (Details' Send, Check sync, the tracker picker, an editor with a long
    footnote) keeps its single pinned primary (`PinnedActionBar`) and has an empty trailing slot. One primary per sheet, in one place.
 5. **The header is pinned**, not scroll content: the close circle stays reachable. This is the only behavioural change for C's pages.
+   While content has scrolled under it, the page stops 12 below the header at a 1 pt `separator` rule, the pinned bar's edge
+   turned over (part 2, `.underPinnedHeader()`); at rest nothing shows.
 6. **A page pushed inside a sheet** is a page: Back leading, its own title (`SubpageHeader`/`PushedHeader`), no close; a swipe down
    still dismisses the sheet. The one exception is the training import, a flow whose steps 2–5 need Back *and* a close that asks
    first: Back leading, the close circle trailing (`SubpageNavigation.backAndClose`, as built). Its root (step 1) has the sheet

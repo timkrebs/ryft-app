@@ -57,6 +57,7 @@ struct AddActivitySheet: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollDismissesKeyboard(.interactively)
+                    .underPinnedHeader(gap: ActivitiesLayout.headerGap)
                     // Save is at the top, the form may be scrolled: bring the reason into view.
                     .onChange(of: saveFailed) { _, failed in
                         guard failed else { return }

@@ -181,6 +181,7 @@ struct PlateCalculatorSheet: View {
                 .padding(Theme.Metrics.screenPadding)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .underPinnedHeader()
             if let onUse {
                 PillButton(Text("Use \(Fmt.kg(load.total))")) {
                     onUse(load.total)

@@ -114,6 +114,7 @@ private struct PlanBuilderScreen: View {
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
+            .underPinnedHeader()
         }
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)

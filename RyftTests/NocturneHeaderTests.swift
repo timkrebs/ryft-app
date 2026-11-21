@@ -108,7 +108,24 @@ struct NocturneHeaderTests {
     private static let leadingBox: CGFloat = SubpageSpec.sidePadding - ScreenHeaderSpec.buttonOverhang
     private static let trailingBox: CGFloat = 390 - leadingBox
 
-    @Test("A C sheet (Sleep need): Close leading, the title centred (from AX1 under it), the header pinned while the page scrolls",
+    /// The pinned header's edge (D4 rule 5): the pinned bar's `separator` rule over the screen colour, `gap` under the header.
+    private static var edgeRule: NocturneTokenTests.RGBA {
+        NocturneTokenTests.over(NocturneTokenTests.resolve(Theme.separator), NocturneTokenTests.resolve(Theme.background))
+    }
+
+    /// Whether the window draws the edge's rule across the column `gap` under `top` (the scroll view's top edge), and how
+    /// many pixels in the band above it are not the screen colour (content showing between the header and the rule).
+    private func edge(_ w: HostedWindow, top: CGFloat, gap: CGFloat = PinnedBarSpec.topPadding) throws -> (rule: Bool, inkAbove: Int) {
+        let px = try WindowPixels(w)
+        // The rule's row, give or take a pixel where `top` falls between pixels.
+        let rows = stride(from: top + gap - 1.5, through: top + gap + 0.5, by: 1 / px.scale)
+        let rule = [60, 195, 330].allSatisfy { x in rows.contains { px.at(CGFloat(x), $0).near(Self.edgeRule, 4) } }
+        let screen = NocturneTokenTests.resolve(Theme.background)
+        let band = CGRect(x: 0, y: top + 0.5, width: 390, height: gap - Theme.Metrics.hairline - 1)
+        return (rule, px.count(in: band) { !$0.near(screen, 3) })
+    }
+
+    @Test("A C sheet (Sleep need): Close leading, the title centred (from AX1 under it), pinned, the bar's edge over the page",
           arguments: Self.sizes)
     func sheetRoot(_ ax: Bool) async throws {
         let screen = SleepNeedShotScreen("sleep-need")
@@ -141,6 +158,8 @@ struct NocturneHeaderTests {
             #expect(!w.nodes().contains { $0.identifier == "subpage.back" }, "a sheet's root has no Back")
 
             let scroll = try #require(w.pageScrollView(), "the page's scroll view")
+            let scrollTop = scroll.convert(scroll.bounds, to: w.window).minY
+            #expect(try !edge(w, top: scrollTop).rule, "no edge at rest")
             let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
             #expect(end > 60, "the page scrolls: \(end)")
             let link = try node(w, id: "sleepNeed.changeBaseline")
@@ -154,6 +173,11 @@ struct NocturneHeaderTests {
                     "the header stays put (D4 rule 5): \(stays.frame) \(close.frame)")
             #expect(scroll.convert(scroll.bounds, to: w.window).minY >= close.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5,
                     "the page scrolls under the header, not over it")
+            // The part 1 validation's AX5 finding: the text ran right up to the title. Now it stops 12 under the header, at
+            // the pinned bar's rule.
+            let scrolled = try edge(w, top: scrollTop)
+            #expect(scrolled.rule, "the rule 12 under the header while the page is under it")
+            #expect(scrolled.inkAbove == 0, "nothing between the header and the rule: \(scrolled.inkAbove) pixels")
         }
         await screen.finish()
     }
