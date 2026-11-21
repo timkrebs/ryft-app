@@ -565,7 +565,8 @@ final class OnboardingCoordinator {
     /// still out (an Agree's re-check, an invite, About you): it waits for that one's answer and then goes, so it's the
     /// last word on the platform and on this phone, and Profile shows its failure (security review N-B). A sign-out or
     /// another account meanwhile ends it unsent: A's withdrawal never goes out with B's session. A second one while
-    /// this one is on its way sends nothing (Profile's row is busy).
+    /// this one is on its way sends nothing (Profile's row is busy). It fails fast (`revokeFailingFast`): Profile holds
+    /// Demo data and Log out meanwhile, for seconds, not for a request's 5 minutes.
     @discardableResult
     func withdrawConsent() async -> Bool {
         guard !isWithdrawing else { return false }
@@ -574,7 +575,7 @@ final class OnboardingCoordinator {
         defer { if started == turn { isWithdrawing = false } }
         return await perform(waitsForTurn: true) { sent in
             let change = self.state.repository.userChange()
-            try await self.api.revokeConsent()
+            try await self.revokeFailingFast()
             // A's withdrawal answered after a sign-out: never recorded as B's.
             try self.answered(sent)
             let revokedAt = self.env.clock.now()
@@ -589,6 +590,21 @@ final class OnboardingCoordinator {
             self.deferred.insert(.consent)
             await self.check(force: true, changedSince: revokedAt)
         } message: { _ in nil }
+    }
+
+    /// `DELETE /v1/me/consent` as a settings write sends it (`SettingsWrite`, security review S-2). Offline, nothing is
+    /// sent and it fails at once. Online, it is one attempt on the fail-fast session (no waiting for a network, no `429`
+    /// or `503` loop; the `401` refresh stays), with an answer within `SettingsWrite.deadline` or none. No answer in time,
+    /// or the network gone while it was out, reads as a lost connection does on every step ("No connection…", the
+    /// request cancelled). The user tries again: a withdrawal is idempotent. Before, it went on the default session,
+    /// which waits up to 5 minutes for a network.
+    private func revokeFailingFast() async throws {
+        guard env.connectivity.isOnline else { throw APIError.transport(URLError(.notConnectedToInternet)) }
+        do {
+            try await SettingsWrite.answer(in: env) { try await self.api.revokeConsent() }
+        } catch is SettingsWrite.NoAnswer {
+            throw APIError.transport(URLError(.timedOut))
+        }
     }
 
     /// RYFT's minimum age (Art. 8 GDPR, Germany). The platform checks `birth_year ≤ this year − 16`.

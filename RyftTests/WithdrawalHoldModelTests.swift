@@ -5,9 +5,10 @@ import Testing
 /// D6, security review S-1: while a consent withdrawal is on its way, the model logs nobody out and doesn't switch Demo
 /// data, whatever its view shows. Log out's "Send first" waits up to 10 s for the queue; a withdrawal begun during that
 /// wait used to end unsent, because the log-out followed the upload. When the upload went up, it logged out; when the
-/// wait ended with items left, the dialog came back with "Log out anyway" under a held pill. Synthetic data only (Alex Doe).
+/// wait ended with items left, the dialog came back with "Log out anyway" under a held pill. S-2: the withdrawal fails
+/// fast (offline at once, no answer at `SettingsWrite.deadline`), so the hold lasts seconds. Synthetic data only (Alex Doe).
 @MainActor
-@Suite("D6: the model holds log-out and Demo data while a consent withdrawal runs", .serialized)
+@Suite("D6: the model holds log-out and Demo data while a consent withdrawal runs, for seconds", .serialized)
 struct WithdrawalHoldModelTests {
     nonisolated static let a = UUID(uuidString: "0000000A-0000-4000-8000-0000000000F3") ?? UUID()
 
@@ -120,5 +121,66 @@ struct WithdrawalHoldModelTests {
         await withdrawing.value
         await g.profile.logOut()
         #expect(!g.auth.isSignedIn, "live again: Log out logs out")
+    }
+
+    // MARK: S-2: it fails fast, so the hold lasts seconds
+
+    static let noConnection = "No connection. Check your internet and try again."
+
+    @Test("Offline: the withdrawal fails at once and sends nothing; Log out is live again", .timeLimit(.minutes(1)))
+    func offlineFailsAtOnce() async throws {
+        let g = Graph()
+        await g.onboarding.check()
+        try #require(g.state.user?.consent != nil)
+        g.env.connectivityMonitor.update(false)
+
+        // No clock moves: it ends on its own, without waiting for a network.
+        await g.profile.withdrawConsent()
+        #expect(g.api.count("revokeConsent") == 0, "nothing sent: \(g.api.calls)")
+        #expect(g.profile.consentError == Self.noConnection)
+        #expect(!g.profile.withdrawingConsent && g.state.user?.consent != nil, "not held; the consent stays")
+        #expect(g.spoken.lines.isEmpty)
+        await g.profile.logOut()
+        #expect(!g.auth.isSignedIn, "live: Log out logs out")
+    }
+
+    @Test("No answer within SettingsWrite's deadline: the withdrawal fails, its request is cancelled, Log out is live again",
+          .timeLimit(.minutes(1)))
+    func noAnswerFailsAtTheDeadline() async throws {
+        let g = Graph()
+        await g.onboarding.check()
+        let revoke = Gate()
+        g.api.beforeRevokeConsent = { await revoke.wait() }
+        let sleeps = g.clock.pendingSleeps
+
+        let withdrawing = Task { await g.profile.withdrawConsent() }
+        #expect(await eventually { g.profile.withdrawingConsent && g.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        g.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually(timeout: .seconds(5)) { !g.profile.withdrawingConsent }, "ended at the deadline, not by an answer")
+        #expect(g.profile.consentError == Self.noConnection)
+        #expect(g.state.user?.consent != nil && g.spoken.lines.isEmpty)
+        await g.profile.logOut()
+        #expect(!g.auth.isSignedIn, "live: Log out logs out")
+
+        // The answer comes too late: the request was cancelled, so the mock never takes it.
+        await revoke.open()
+        await withdrawing.value
+        #expect(await eventually(timeout: .seconds(1)) { g.api.count("revokeConsent") > 0 } == false, "\(g.api.calls)")
+    }
+
+    @Test("A 503 fails at once in RYFT's words, and trying again withdraws", .timeLimit(.minutes(1)))
+    func busyPlatformFailsRetryably() async throws {
+        let g = Graph()
+        await g.onboarding.check()
+        g.api.faults["revokeConsent"] = .init(.status(503, retryAfter: nil))
+
+        await g.profile.withdrawConsent()
+        #expect(g.profile.consentError == "RYFT is catching up. Try again in a moment.")
+        #expect(!g.profile.withdrawingConsent && g.state.user?.consent != nil)
+
+        g.api.faults["revokeConsent"] = nil
+        await g.profile.withdrawConsent()
+        #expect(g.profile.consentError == nil && g.state.user?.consent == nil, "withdrawn on the second try")
+        #expect(g.spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement])
     }
 }
