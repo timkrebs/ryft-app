@@ -1277,6 +1277,16 @@ struct RemoteConfig: Codable, Hashable {   // GET /v1/config
     /// Where opted-in usage analytics go (PostHog EU), or `null` while none may be sent. A config cached before
     /// it existed decodes as nil too. Never logged with its key (`AnalyticsConfig`'s descriptions redact it).
     var analytics: AnalyticsConfig? = nil
+    /// API.md → `app_attest` (AA2, D247): "off" | "warn" | "on", absent before D247. A string, so an unknown
+    /// value can't fail the whole config; read it through `appAttestMode`.
+    var appAttest: String? = nil
+
+    var appAttestMode: AppAttestMode? { appAttest.flatMap(AppAttestMode.init(rawValue:)) }
+}
+
+/// The server's App Attest mode (`RemoteConfig.app_attest`). Closed, exact match: "OFF" is unknown, read as absent.
+enum AppAttestMode: String, Equatable, Sendable {
+    case off, warn, on
 }
 
 /// `GET /v1/config` → `analytics`: the PostHog host and the project's public key. `Analytics` checks both before
