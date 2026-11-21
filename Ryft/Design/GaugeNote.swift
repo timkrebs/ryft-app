@@ -37,9 +37,9 @@ struct GaugeNote: View {
     }
 }
 
-/// The way to a fix under a `GaugeNote` (design.md §7 rev. 2 §5): "How to set up Garmin Connect ›" in `callout`
-/// and `Theme.accent`, centred and wrapping, at least 44 pt tall, its own VoiceOver button. It opens a sheet;
-/// nothing on it moves.
+/// The way to a fix under a `GaugeNote` (design.md §7 rev. 2 §5): "How to set up Garmin Connect ›", the app's link
+/// (`.ryftLink()`: `callout` in `InlineLink.ink`, underlined; Nocturne gate accent map, class X), centred and wrapping, at
+/// least 44 pt tall, its own VoiceOver button. It opens a sheet; nothing on it moves.
 struct GaugeNoteLink: View {
     let title: String
     let action: () -> Void
@@ -52,17 +52,13 @@ struct GaugeNoteLink: View {
         Button(action: action) {
             // One text, so the chevron follows the last word when the title wraps (German at AX3).
             (Text(title) + Text(verbatim: "\u{00A0}") + Text(Image(systemName: "chevron.right")).font(.ryft(.caption)))
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.accent)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.vertical, inset)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
         }
-        // No press motion: the plain style only dims the label.
-        .buttonStyle(.plain)
+        // The link's look and its 44 pt minimum; no press motion, the label dims.
+        .ryftLink()
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .accessibilityLabel(Text(title))
