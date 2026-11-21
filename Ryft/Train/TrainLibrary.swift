@@ -14,6 +14,10 @@ final class TrainLibrary {
     /// A refresh is running. Counted: one that ends for a binding that's over doesn't end the next binding's.
     var isLoading: Bool { refreshes > 0 }
     private var refreshes = 0
+    /// Counts what the actions write into the plans overview (`patchCatalog`, `reloadCatalog`). A refresh whose plans read
+    /// began before one of them writes neither its overview nor its plan day: they're older than the action's (an answer
+    /// on its way during a pause would show the plan active again).
+    @ObservationIgnored private var catalogWrites = 0
     /// The Plans page's message and the actions' (save, enrol, pause, delete, a custom exercise): a refresh's first failure
     /// or the last action's, with its status and request ID. Never a page's own read (`loadPlan`).
     var error: String?
@@ -103,12 +107,15 @@ final class TrainLibrary {
             store.cache(exercises: list)
             exercises = store.exercises()
         }
+        let writes = catalogWrites
         let plans = await fetch("plans", from: client, userInitiated: userInitiated) { try await $0.plans() }
         note(plans) { c in
+            guard catalogWrites == writes else { return }
             catalog = c
             store.saveDocument(c, key: Self.catalogKey)
         }
         note(await fetch("plans/today", from: client, userInitiated: userInitiated) { try await $0.planToday() }) {
+            guard catalogWrites == writes else { return }
             setToday($0)
         }
         guard client.isCurrent else { return }
@@ -611,6 +618,8 @@ final class TrainLibrary {
 
     /// The plans overview with `change`, in memory and stored: what an action changed, before the read after it.
     private func patchCatalog(_ change: (inout PlansOverview) -> Void) {
+        // Also without an overview yet: a refresh's, read before the action, is older than it.
+        catalogWrites += 1
         guard var overview = catalog else { return }
         change(&overview)
         catalog = overview
@@ -636,6 +645,7 @@ final class TrainLibrary {
     /// read whatever the other answered: after a switch whose plans read failed, today's plan day is still the new plan's.
     private func reloadCatalog(from client: Client) async {
         if let c = try? await client.source.plans(), client.isCurrent {
+            catalogWrites += 1
             catalog = c
             store.saveDocument(c, key: Self.catalogKey)
         }

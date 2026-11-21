@@ -193,6 +193,65 @@ struct TrainActionPatchTests {
     }
 }
 
+/// F1 round 2, review nit 2: a refresh's read can be on its way when an action changes the enrolment. Its answer is older
+/// than the action's, so the refresh writes neither the overview nor the plan day (`TrainLibrary.catalogWrites`). Synthetic
+/// data only (Alex Doe).
+@MainActor
+@Suite("F1 round 2: a refresh in flight doesn't undo an action", .serialized)
+struct TrainRefreshAfterActionTests {
+    private let refused = APIError.http(400, "bad request", requestID: "rid-alex-400")
+
+    private func stored(_ rig: TrainSides) -> PlansOverview? { rig.store.document(PlansOverview.self, key: "train.plans") }
+
+    /// The refresh's plans read (or its plan day) is held, answered as the platform had it before the pause: Upper/Lower
+    /// active, Upper A today. Alex pauses meanwhile; the read after the pause answers (or fails). Once the refresh's answer
+    /// comes, the page still offers Resume, and Today has no plan day of the paused plan.
+    @Test(arguments: [SideTrainSource.Call.plans, .today], [false, true])
+    func aRefreshAnsweredAfterAPauseLeavesItPaused(late: SideTrainSource.Call, reloadFails: Bool) async {
+        let alex = SideTrainSource(.demo, onArrival: [late])
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        #expect(rig.library.activeEnrollment?.status == .active && rig.library.today != nil)
+        alex.hold(late)
+        let refresh = Task { await rig.library.refresh() }
+        #expect(await eventually { alex.count(late) == 2 }, "the refresh's read is on its way")
+        alex.unhold(late)
+        if reloadFails { alex.fail(.plans, with: refused) }
+        let page = PlanDetailViewModel(planID: MockTrain.upperLower.id, library: rig.library)
+        let plans = PlansViewModel(library: rig.library)
+        #expect(await rig.library.setPaused(true))
+        #expect(alex.count(late) == 3, "read again after the pause, past the held one")
+        #expect(page.isPaused && rig.library.today == nil)
+        alex.fail(.plans, with: nil)
+        alex.release()
+        await refresh.value
+        #expect(page.isCurrent && page.isPaused && page.activeWeek == nil, "the page offers Resume")
+        #expect(plans.tile?.state == .paused && rig.library.pausedPlanID == MockTrain.upperLower.id)
+        #expect(rig.library.activeEnrollment == nil && stored(rig)?.active == nil, "stored too")
+        #expect(rig.library.today == nil && rig.store.document(PlanToday.self, key: "train.today") == nil,
+                "no plan day of a paused plan")
+    }
+
+    /// A plan saved while the refresh's plans read is on its way (answered without it): the list keeps the plan.
+    @Test func aRefreshAnsweredAfterASaveKeepsThePlan() async throws {
+        let alex = SideTrainSource(.demo, onArrival: [.plans])
+        let rig = TrainSides([SideSwitch.alex: alex])
+        await rig.library.refresh()
+        alex.hold(.plans)
+        let refresh = Task { await rig.library.refresh() }
+        #expect(await eventually { alex.count(.plans) == 2 }, "the refresh's read is on its way")
+        alex.unhold(.plans)
+        let copy = MockTrain.upperLower.copy()
+        #expect(await rig.library.savePlan(copy))
+        let plans = PlansViewModel(library: rig.library)
+        #expect(plans.mine.contains { $0.id == copy.id } && alex.count(.plans) == 3, "the read after the save has it")
+        let mine = try #require(rig.library.catalog?.mine)
+        alex.release()
+        await refresh.value
+        #expect(rig.library.catalog?.mine == mine && stored(rig)?.mine == mine, "the refresh's older list isn't written")
+    }
+}
+
 /// F1 round 2, review should-fix 1: each rig remembers its paused plan in a suite of its own, never in
 /// `UserDefaults.standard`, so tests running side by side (the Unit plan's parallel suites) don't see each other's.
 @MainActor
