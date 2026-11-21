@@ -90,3 +90,20 @@ work with an ios-architect note (it is `Persistence/`).
   `savePlan` after a failed re-read (the new plan is missing until the next refresh).
 - **Started:** G1 (`feat/nocturne-gate-g1`) and G2 (`feat/nocturne-gate-g2`), both off e04090d. G3 starts once F1's runs are
   done. G4 starts after G1–G3 are merged into `feat/nocturne-gate`.
+
+## The user's call on headers (2026-11-21)
+**One header everywhere.** Sheet roots get D4's `SheetHeader`: close leading, title centred, commit trailing, pinned. Every
+pushed page gets the `PushedHeader` row: Back leading, title centred (with a subtitle), a trailing circle or an empty slot.
+This includes C's Profile subpages and the import's steps (Back · title · close). Tab roots keep `ScreenHeader`. G2's second
+part builds this on `feat/nocturne-gate-g2` after G1 and G2 are merged (f51a7fa).
+
+## Status (2026-11-21)
+- **G1 and G2 part 1 are merged** into `feat/nocturne-gate` (f51a7fa).
+  - G1: 7 commits; Unit 4,792 passed, 0 failed.
+  - G2: 5 commits; Unit 4,784 passed, 0 failed.
+- **Now:** G2 part 2 (headers, `GaugeNoteLink` → `.ryftLink()`, G1's scan skip list) and G3 (`wt-g3`).
+- **Follow-ups PR:** F1's four commits on `fix/pr6-follow-ups`. 16/16 mutants killed; UISmoke 53/0/1; Release passes.
+  Code review is running. F2 (D6 and Train's online-failure words) becomes its own PR: it changes the consent flow, so
+  it needs a security review.
+- **Found:** `ActivitiesNocturneRuleTests/saveStaysOffUntilTheFormIsValid` fails between 00:00 and 00:30. The form's
+  start is midnight and its end lies in the future. A `test:` fix (inject the clock) goes into the follow-ups PR.
