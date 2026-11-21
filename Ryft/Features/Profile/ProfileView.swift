@@ -61,7 +61,9 @@ struct ProfileView: View {
                             sendsFirst = true
                             let outcome = await model.sendFirstThenLogOut()
                             sendsFirst = false
-                            if case .unsent(let left) = outcome {
+                            // Asked again with what's left; never under a held Log out (D6: `.held`, or a withdrawal
+                            // that began as the wait ended).
+                            if case .unsent(let left) = outcome, !model.withdrawingConsent {
                                 unsentAtLogOut = left
                                 showLogOutConfirm = true
                             }

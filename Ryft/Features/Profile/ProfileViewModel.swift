@@ -154,7 +154,12 @@ final class ProfileViewModel {
     var accountError: String? { auth.errorMessage }
     var accountErrorDetails: String? { auth.errorDetails }
 
-    func logOut() async { await auth.signOut() }
+    /// Logs out, unless a consent withdrawal is on its way (D6, security review S-1): a sign-out would end it unsent. The
+    /// pill is held then too; the model doesn't count on its view ("Log out anyway" in a dialog shown before the hold).
+    func logOut() async {
+        guard !withdrawingConsent else { return }
+        await auth.signOut()
+    }
 
     /// Activities and nights on this iPhone the platform hasn't confirmed, recordings not saved: what logging out
     /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
@@ -185,16 +190,22 @@ final class ProfileViewModel {
         /// Another session by the time the queue was sent (the tapping account's ended, maybe someone else's
         /// began): nobody is logged out.
         case accountChanged
+        /// A consent withdrawal began while the queue went up (D6, security review S-1): nobody is logged out, and the
+        /// confirmation isn't asked again under a held Log out.
+        case held
     }
 
     /// "Send first", then log out once nothing is left (design.md §8.4): the queue goes up, waited for 10 s at most
     /// (it goes on after that). Only the account that tapped it is logged out: if its session ended meanwhile, or
-    /// another account signed in, nothing more happens.
+    /// another account signed in, nothing more happens. Nor while a consent withdrawal is on its way, begun before or
+    /// during the wait (`held`): the log-out would end it unsent.
     func sendFirstThenLogOut() async -> SendFirstOutcome {
         let account = auth.accountID, changes = auth.accountChanges
+        guard !withdrawingConsent else { return .held }
         guard account != nil, sendFirst == .available else { return .unsent(unconfirmedActivities) }
         await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit)
         guard auth.accountID == account, auth.accountChanges == changes else { return .accountChanged }
+        guard !withdrawingConsent else { return .held }
         let left = unconfirmedActivities
         guard left == 0 else { return .unsent(left) }
         await logOut()
@@ -362,6 +373,8 @@ final class ProfileViewModel {
 
     /// The switch. Off is `endDemo()`: whoever turns it off has confirmed already, or has nothing to confirm.
     func setDemoMode(_ on: Bool) async {
+        // Held while a consent withdrawal is on its way (D6, security review S-1): another platform would end it unsent.
+        guard !withdrawingConsent else { return }
         guard on else {
             await endDemo()
             return
@@ -419,6 +432,8 @@ final class ProfileViewModel {
     ///    none of the demo's scoring state (review R7, R16);
     /// 5. the account's first read after the demo, the refresh.
     func endDemo() async {
+        // Held as `setDemoMode` is (D6).
+        guard !withdrawingConsent else { return }
         if let train, !train.discardDemoWorkouts() {
             demoExitError = Self.demoExitFailed
             return
