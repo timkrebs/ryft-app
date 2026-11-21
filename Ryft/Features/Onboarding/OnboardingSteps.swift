@@ -432,11 +432,16 @@ struct CheckboxToggleStyle: ToggleStyle {
 
 /// Birth year → the platform's max-HR estimate, and the sleep need it starts from. Nocturne (PR 6 A §A-9): the wheel in a
 /// card under "Birth year", then, saved, the two values as rows that open Profile's editors; Continue (and Skip) pinned.
+/// From AX1 the wheel is a menu row, "Birth year" with the year or "Choose" (Nocturne gate D9 row 5): a wheel doesn't scale
+/// with the text, and at AX3 the long lead pushed all but its first line under the pinned bar. The row scales, and at AX3 it
+/// starts above the bar (a short scroll shows it whole; at AX5 the lead alone is taller than the screen). Its menu lists
+/// "Choose your birth year", then the years newest first, as the wheel does.
 struct AboutYouView: View {
     let model: OnboardingCoordinator
     @State private var year: Int?
     @State private var editing: BodySetting?
     @Environment(\.appEnvironment) private var env
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var years: [Int] { OnboardingCoordinator.birthYears(now: env.clock.now()) }
     private var isSaved: Bool { model.aboutYouSaved && model.user != nil }
@@ -468,18 +473,21 @@ struct AboutYouView: View {
                     }
                 }
             } else {
-                GroupedCard(Text("Birth year")) {
-                    Picker(selection: $year) {
-                        Text("Choose your birth year").tag(Int?.none)
-                        ForEach(years, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
-                    } label: {
-                        Text("Birth year")
+                if typeSize.isAccessibilitySize {
+                    // The row's title names the card: no group title above it.
+                    GroupedCard {
+                        GroupedRow.menu(Text("Birth year"), value: yearValue, identifier: "aboutYou.year") { yearPicker }
+                            .disabled(model.isWorking)
                     }
-                    .pickerStyle(.wheel)
-                    .frame(height: AboutYouSpec.wheelHeight)
-                    .frame(maxWidth: .infinity)
-                    .disabled(model.isWorking)
-                    .accessibilityIdentifier("aboutYou.year")
+                } else {
+                    GroupedCard(Text("Birth year")) {
+                        yearPicker
+                            .pickerStyle(.wheel)
+                            .frame(height: AboutYouSpec.wheelHeight)
+                            .frame(maxWidth: .infinity)
+                            .disabled(model.isWorking)
+                            .accessibilityIdentifier("aboutYou.year")
+                    }
                 }
                 OnboardingError(model: model)
             }
@@ -502,6 +510,21 @@ struct AboutYouView: View {
         }
         // No past days to rescore yet: the editors offer none.
         .bodySettingSheet($editing, editor: model.bodySettings, rescores: false)
+    }
+
+    /// "Choose your birth year" (no year), then the years newest first: the wheel's items, and the menu row's from AX1.
+    private var yearPicker: some View {
+        Picker(selection: $year) {
+            Text("Choose your birth year").tag(Int?.none)
+            ForEach(years, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
+        } label: {
+            Text("Birth year")
+        }
+    }
+
+    /// The menu row's value: the year as it is (no grouping), or "Choose" while none is chosen.
+    private var yearValue: Text {
+        year.map { Text(verbatim: "\($0)") } ?? Text("Choose")
     }
 }
 
@@ -546,6 +569,11 @@ struct OnboardingStepPreview: View {
 
 #Preview("About you") {
     OnboardingStepPreview(step: .aboutYou).previewEnvironment()
+}
+
+#Preview("About you · AX3") {
+    OnboardingStepPreview(step: .aboutYou).previewEnvironment()
+        .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("About you · saved") {
