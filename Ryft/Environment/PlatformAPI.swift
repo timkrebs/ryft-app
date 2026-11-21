@@ -395,7 +395,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
+    /// Runs before each `DELETE /v1/me/consent` is taken, before its scripted failure: tests hold a withdrawal open with it,
+    /// then let it answer or fail.
+    var beforeRevokeConsent: (@Sendable () async -> Void)?
+
     func revokeConsent() async throws {
+        await beforeRevokeConsent?()
         try enter("revokeConsent")
         lock.withLock {
             accountConsent = nil

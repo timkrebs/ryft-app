@@ -1,3 +1,4 @@
+import Accessibility
 import Foundation
 import Observation
 import UIKit
@@ -240,12 +241,17 @@ final class ProfileViewModel {
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
-    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is.
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is; while a
+    /// withdrawal is on its way, that it is (D6).
     var consentDetail: String? {
         guard isSignedIn else { return nil }
         guard !env.isDemo else {
             return String(localized: "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it.",
                           comment: "Footer under Profile → Privacy with Demo data on while signed in.")
+        }
+        guard !withdrawingConsent else {
+            return String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.",
+                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way.")
         }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
@@ -253,15 +259,38 @@ final class ProfileViewModel {
         return String(localized: "Agreed on \(Fmt.date(c.grantedAt)) · policy \(c.policyVersion)")
     }
 
-    /// From the confirmation until the platform answered, a wait for a step's request included.
+    /// From the confirmation until the platform answered, a wait for a step's request included. Meanwhile the Demo data
+    /// switch and Log out are held (D6, security review N-2): either ends the withdrawal unsent (another platform, or no
+    /// session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, a failure, or an account
+    /// change that ended it unsent.
     var withdrawingConsent: Bool { onboarding?.isWithdrawing ?? false }
     var consentError: String? { onboarding?.errorMessage }
     /// Status and request ID of `consentError`, behind its Details.
     var consentErrorDetails: String? { onboarding?.errorDetails }
 
+    /// Why Demo data and Log out are dimmed while a withdrawal is on its way: the Demo data row's detail, the line under the
+    /// buttons row and Log out's VoiceOver hint, the same sentence in each place.
+    static var withdrawalHoldReason: String {
+        String(localized: "Waiting for your consent withdrawal to finish.",
+               comment: "Profile, a consent withdrawal on its way: why Demo data and Log out are dimmed (either would end it). Their detail, line, hint.")
+    }
+
+    /// What VoiceOver hears when the platform confirmed the withdrawal (a failure announces itself through its message).
+    static var consentWithdrawnAnnouncement: String {
+        String(localized: "Consent withdrawn. Syncing has stopped.",
+               comment: "VoiceOver announcement when the consent withdrawal was confirmed; Profile's consent row changes at the same time.")
+    }
+
+    /// How an announcement reaches VoiceOver; tests record it instead.
+    @ObservationIgnored var announce: @MainActor (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
+
     /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted. Never dropped: it waits for a step's request
-    /// still out, and a failure shows under Privacy (`consentError`).
-    func withdrawConsent() async { await onboarding?.withdrawConsent() }
+    /// still out, and a failure shows under Privacy (`consentError`). Confirmed, VoiceOver is told; a failure or an
+    /// account change that ended it unsent says nothing here.
+    func withdrawConsent() async {
+        guard await onboarding?.withdrawConsent() == true else { return }
+        announce(Self.consentWithdrawnAnnouncement)
+    }
 
     /// The consent screen, again.
     func reviewConsent() { onboarding?.show(.consent) }

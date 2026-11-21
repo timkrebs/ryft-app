@@ -10,6 +10,7 @@ struct ProfileView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showLogOutConfirm = false
     /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
@@ -247,12 +248,18 @@ struct ProfileView: View {
                 .padding(.horizontal, GroupedListSpec.rowInset)
                 .groupedRowHairline()
         case .demoMode:
-            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
-            GroupedRow.toggle(Text("Demo data"), detail: Text("Show a realistic sample history instead of your server."),
+            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run. Held (dimmed, no
+            // tap) while a consent withdrawal is on its way, the reason as its detail, which is part of its label (D6).
+            let held = model.withdrawingConsent
+            GroupedRow.toggle(Text("Demo data"),
+                              detail: held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason)
+                                  : Text("Show a realistic sample history instead of your server."),
                               identifier: id, isOn: demoSwitch)
                 .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                     : Text("Turning it off discards the workouts logged with Demo data.",
                            comment: "Only while such workouts exist"))
+                .disabled(held)
+                .animation(Theme.Motion.respecting(reduceMotion), value: held)
         // Training
         case .jumpToNext:
             GroupedRow.toggle(Text("Advance to the next exercise",
@@ -457,9 +464,12 @@ struct ProfileView: View {
 
     // MARK: the buttons row (§P5-6.1 row 4)
 
+    /// Log out is held while a consent withdrawal is on its way (D6): dimmed, no tap, the reason under the row (8 below it)
+    /// and as its VoiceOver hint; the line itself is hidden from VoiceOver, so the reason is read once.
     @ViewBuilder private func buttons(_ buttons: [ProfileButton]) -> some View {
         if !buttons.isEmpty {
             let stacked = typeSize.isAccessibilitySize
+            let held = model.withdrawingConsent && buttons.contains(.logOut)
             VStack(alignment: .leading, spacing: L.buttonsToMessage) {
                 let layout = stacked ? AnyLayout(VStackLayout(spacing: L.buttonsGap)) : AnyLayout(HStackLayout(spacing: L.buttonsGap))
                 layout {
@@ -479,14 +489,25 @@ struct ProfileView: View {
                             }
                             // As wide as its title plus 22 a side beside Export; full width when the row stacks.
                             .fixedSize(horizontal: !stacked && buttons.count > 1, vertical: false)
+                            .disabled(held)
+                            .accessibilityHint(held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason) : Text(verbatim: ""))
                             .accessibilityIdentifier(button.identifier)
                         }
                     }
+                }
+                if held {
+                    Text(verbatim: ProfileViewModel.withdrawalHoldReason)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityHidden(true)
                 }
                 if let error = model.exportError {
                     InlineMessage(message: error, systemImage: "square.and.arrow.up")
                 }
             }
+            .animation(Theme.Motion.respecting(reduceMotion), value: held)
             .padding(.top, L.buttonsTop)
         }
     }

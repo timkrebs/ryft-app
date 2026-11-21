@@ -1934,6 +1934,9 @@
     "Connect a data source to see trends." : {
       "comment" : "Insights, without a signed-in account or a server: what to do to see trends. An empty state."
     },
+    "Consent withdrawn. Syncing has stopped." : {
+      "comment" : "VoiceOver announcement when the consent withdrawal was confirmed; Profile's consent row changes at the same time."
+    },
     "Continue in RYFT" : {
       "comment" : "Training import I8: close the import so the consent or invite step can show."
     },
@@ -4710,6 +4713,9 @@
       "comment" : "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force."
     },
     "Waiting for you to unlock your iPhone" : {},
+    "Waiting for your consent withdrawal to finish." : {
+      "comment" : "Profile, a consent withdrawal on its way: why Demo data and Log out are dimmed (either would end it). Their detail, line, hint."
+    },
     "Waiting since %@ · usually %lld s" : {
       "comment" : "Sync details → Engine → Scoring: when scoring began and the platform's usual time in seconds."
     },
@@ -4767,6 +4773,9 @@
     },
     "Withdraw consent" : {},
     "Withdraw your consent?" : {},
+    "Withdrawing your consent. Syncing stops once RYFT confirms." : {
+      "comment" : "Profile → Privacy footer while the consent withdrawal request is on its way."
+    },
     "Without heart rate there is no strain for this activity." : {
       "comment" : "Add activity: no strain without heart rate."
     },

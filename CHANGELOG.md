@@ -149,6 +149,8 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- While your consent withdrawal is on its way, Profile holds Demo data and Log out and says why: using either in those
+  seconds could drop the withdrawal without a word. VoiceOver now hears when the withdrawal is confirmed.
 - "Logged session" on a workout opens that session again, also from Today and My Day.
 - The journal sheet closes when its account signs out or you switch Demo data while it's open, instead of dropping
   your answers when you save.
