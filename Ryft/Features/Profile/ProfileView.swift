@@ -248,8 +248,9 @@ struct ProfileView: View {
                 .padding(.horizontal, GroupedListSpec.rowInset)
                 .groupedRowHairline()
         case .demoMode:
-            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run. Held (dimmed, no
-            // tap) while a consent withdrawal is on its way, the reason as its detail, which is part of its label (D6).
+            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run. Held (no tap) while a
+            // consent withdrawal is on its way, the reason as its detail, which is part of its label (D6): the switch alone
+            // dims, the title and the reason stay at full ink so the sentence stays readable.
             let held = model.withdrawingConsent
             GroupedRow.toggle(Text("Demo data"),
                               detail: held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason)
@@ -258,6 +259,7 @@ struct ProfileView: View {
                 .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                     : Text("Turning it off discards the workouts logged with Demo data.",
                            comment: "Only while such workouts exist"))
+                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
                 .disabled(held)
                 .animation(Theme.Motion.respecting(reduceMotion), value: held)
         // Training

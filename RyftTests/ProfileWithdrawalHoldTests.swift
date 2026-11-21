@@ -5,7 +5,8 @@ import UIKit
 
 /// D6 (security review N-2): while a consent withdrawal is on its way, the Demo data switch and Log out would end it unsent,
 /// so Profile holds them: dimmed, no tap, and one sentence says why, as the switch's detail and under the buttons row (Log
-/// out's VoiceOver hint; the line itself is hidden from VoiceOver, so it is read once). Everything else works. Confirmed,
+/// out's VoiceOver hint; the line itself is hidden from VoiceOver, so it is read once). On the Demo data row the switch alone
+/// dims: its title and the reason stay at full ink. Everything else works. Confirmed,
 /// failed or ended unsent by an account change, both are live again; only a confirmation is announced. Hosted, read from the
 /// accessibility tree and the drawn pixels. Synthetic data only (Alex Doe).
 @MainActor
@@ -42,22 +43,28 @@ struct ProfileWithdrawalHoldTests {
         try #require(find(w, id), "\(id) in \(w.nodes().map(\.label))")
     }
 
-    /// Draws the window with the buttons row on screen, `above` points under the window's top, and reads `probe` from it
-    /// (with Log out's frame as drawn): a window over about 2,700 pt draws black (`PagedWindowShot`), so the page is
-    /// scrolled to the row, then back to the top.
-    private func atButtons<T>(_ w: HostedWindow, above: CGFloat = 200,
-                              _ probe: (WindowPixels, CGRect) throws -> T) async throws -> T {
+    /// Draws the window with the node `id` on screen, `above` points under the window's top, and reads `probe` from it
+    /// (with the node's frame as drawn): a window over about 2,700 pt draws black (`PagedWindowShot`), so the page is
+    /// scrolled to the node, then back to the top.
+    private func onScreen<T>(_ w: HostedWindow, _ id: String, above: CGFloat = 200,
+                             _ probe: (WindowPixels, CGRect) throws -> T) async throws -> T {
         let scroll = try #require(w.pageScrollView(), "the page's scroll view")
         // Frames as they are now: the last call scrolled back to the top.
         try await w.settle()
         let top = -scroll.adjustedContentInset.top
         let end = max(top, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
-        let pill = try node(w, Self.logOut).frame
-        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: min(max(top, scroll.contentOffset.y + pill.minY - above), end)),
+        let frame = try node(w, id).frame
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: min(max(top, scroll.contentOffset.y + frame.minY - above), end)),
                                 animated: false)
         try await w.settle()
         defer { scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false) }
-        return try probe(try WindowPixels(w, scale: 2), try node(w, Self.logOut).frame)
+        return try probe(try WindowPixels(w, scale: 2), try node(w, id).frame)
+    }
+
+    /// The buttons row on screen, with Log out's frame.
+    private func atButtons<T>(_ w: HostedWindow, above: CGFloat = 200,
+                              _ probe: (WindowPixels, CGRect) throws -> T) async throws -> T {
+        try await onScreen(w, Self.logOut, above: above, probe)
     }
 
     /// The lit pixels where the line under the buttons row goes, from 8 under Log out (the last pill, side by side or
@@ -70,9 +77,21 @@ struct ProfileWithdrawalHoldTests {
 
     /// The brightest ink of Log out's title, 0…1: `textPrimary` live, about a third of it at 35 %.
     private static func logOutInk(_ pixels: WindowPixels, _ pill: CGRect) -> Double {
-        var brightest = 0.0
-        _ = pixels.count(in: pill.insetBy(dx: 12, dy: 10)) { brightest = max(brightest, $0.r, $0.g, $0.b); return false }
-        return brightest
+        pixels.brightest(in: pill.insetBy(dx: 12, dy: 10))
+    }
+
+    /// The Demo data row as drawn, from its frame (the toggle's, inside the row's inset): the brightest ink of its title,
+    /// of what is under the title (the detail, the reason while held) and of its 51 × 31 track at the trailing end. The
+    /// title is found by its ink (above 0.75: only `textPrimary` at full ink gets there); dimmed, there is none, and the
+    /// detail's band is the whole label. On `surface`: `textPrimary` 0.95 (0.38 at 35 %), the detail and the off track's
+    /// `textTertiary` 0.49 (0.22 at 35 %).
+    private static func demoInk(_ pixels: WindowPixels, _ row: CGRect) -> (title: Double, detail: Double, track: Double) {
+        let size = RyftToggleStyle.trackSize
+        let track = CGRect(x: row.maxX - size.width, y: row.midY - size.height / 2, width: size.width, height: size.height)
+        let label = CGRect(x: row.minX, y: row.minY, width: row.width - size.width - RyftToggleStyle.labelSpacing, height: row.height)
+        let title = pixels.box(in: label) { max($0.r, $0.g, $0.b) > 0.75 }
+        let detail = title.map { CGRect(x: label.minX, y: $0.maxY + 1, width: label.width, height: max(0, label.maxY - $0.maxY - 1)) }
+        return (pixels.brightest(in: label), pixels.brightest(in: detail ?? label), pixels.brightest(in: track))
     }
 
     /// Held: both untappable, the reason in the switch's label and Log out's hint, nothing else reads it out, the line drawn
@@ -227,7 +246,7 @@ struct ProfileWithdrawalHoldTests {
         #expect(await inviting.value == false)
     }
 
-    @Test("Held at the default size and at AX3 (the buttons stacked): the same hold, the line under the last pill",
+    @Test("Held at the default size and at AX3 (the buttons stacked): the same hold, the line under the last pill, Demo data's switch alone dimmed",
           arguments: [false, true])
     func heldAtBothSizes(ax3: Bool) async throws {
         let graph = try await ProfileShotGraph.make("withdrawing")
@@ -241,6 +260,11 @@ struct ProfileWithdrawalHoldTests {
                 let export = try node(w, Self.export).frame, logOut = try node(w, Self.logOut).frame
                 #expect(logOut.minY > export.maxY, "stacked from AX1: Log out under Export")
             }
+            // Demo data: the switch alone dims; the title and the reason stay at full ink (the reason is the point).
+            let ink = try await onScreen(w, Self.demo) { Self.demoInk($0, $1) }
+            #expect(ink.title > 0.8, "Demo data's title at full ink (textPrimary, 0.95): \(ink.title)")
+            #expect(ink.detail > 0.44 && ink.detail < 0.6, "the reason at full ink (the detail's textTertiary, 0.49): \(ink.detail)")
+            #expect(ink.track > 0.1 && ink.track < 0.3, "the switch's track dimmed to 35 % (0.22): \(ink.track)")
             // With `PROFILE_SHOTS_DIR`: one screen around the buttons row, clear of a paged shot's seams (the paged
             // `profile-withdrawing-*` shots can cut through the pill).
             if let dir = ProcessInfo.processInfo.environment["PROFILE_SHOTS_DIR"] {
@@ -253,6 +277,14 @@ struct ProfileWithdrawalHoldTests {
                 }
                 let data = try #require(image.pngData())
                 try data.write(to: URL(fileURLWithPath: "\(dir)/profile-withdrawing-buttons-\(ax3 ? "ax3" : "default").png"))
+                let demoImage = try await onScreen(w, Self.demo, above: 300) { _, row in
+                    UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: max(0, row.minY - 300), width: 390, height: 844),
+                                            format: Self.shotFormat).image { _ in
+                        w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
+                    }
+                }
+                let demoData = try #require(demoImage.pngData())
+                try demoData.write(to: URL(fileURLWithPath: "\(dir)/profile-withdrawing-demo-\(ax3 ? "ax3" : "default").png"))
             }
         }
         await graph.releaseWithdrawal()
