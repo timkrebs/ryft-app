@@ -47,6 +47,24 @@ struct ProfileWithdrawalHoldTests {
         try #require(find(w, id), "\(id) in \(w.nodes().map(\.label))")
     }
 
+    #if DEBUG
+    /// The Developer group's platform overrides, held (true) or not (security review N-1): UIKit's text fields, which
+    /// `nodes()` doesn't list, found by identifier, as XCUI finds them. API key mode is a node.
+    private func expectDeveloperOverrides(_ w: HostedWindow, held: Bool) throws {
+        var fields: [String: UITextField] = [:]
+        func walk(_ view: UIView) {
+            if let field = view as? UITextField, let id = field.accessibilityIdentifier { fields[id] = field }
+            view.subviews.forEach(walk)
+        }
+        walk(w.window)
+        for id in [ProfileRows.devAPIURL, ProfileRows.devIngestURL] {
+            let field = try #require(fields[id], "\(id) in \(fields.keys.sorted())")
+            #expect(field.isEnabled == !held, "\(id) \(held ? "held" : "live")")
+        }
+        #expect(try node(w, ProfileRows.devAPIKeyMode).isEnabled == !held, "API key mode \(held ? "held" : "live")")
+    }
+    #endif
+
     /// Draws the window with the node `id` on screen, `above` points under the window's top, and reads `probe` from it
     /// (with the node's frame as drawn): a window over about 2,700 pt draws black (`PagedWindowShot`), so the page is
     /// scrolled to the node, then back to the top.
@@ -113,6 +131,10 @@ struct ProfileWithdrawalHoldTests {
         let saying = w.nodes().filter { $0.label.contains(reason) || ($0.value ?? "").contains(reason) }
         #expect(saying.map(\.identifier) == [Self.demo], "\(saying.map(\.label))")
         #expect(try node(w, Self.export).isEnabled, "Export still works")
+        #if DEBUG
+        // Security review N-1: the platform overrides and API key mode are held too.
+        try expectDeveloperOverrides(w, held: true)
+        #endif
         // The band ends above the next thing VoiceOver reads under the row (the Developer group in Debug builds). The line
         // is hidden from VoiceOver, so only it can be lit there: without it the band is the live gap (`expectLive`).
         let (lit, ink, pill, depth) = try await atButtons(w) { pixels, pill in
@@ -131,6 +153,9 @@ struct ProfileWithdrawalHoldTests {
         #expect(!(demo.label + (demo.value ?? "")).contains(reason))
         let logOut = try node(w, Self.logOut)
         #expect(logOut.isEnabled && (logOut.hint ?? "").isEmpty, "hint: \(logOut.hint ?? "nil")")
+        #if DEBUG
+        try expectDeveloperOverrides(w, held: false)
+        #endif
         let depth = ProfileLayout.buttonsToDeveloper - ProfileLayout.buttonsToMessage - 1
         let (lit, ink, pill) = try await atButtons(w) { (Self.litUnderButtons($0, $1, depth: depth), Self.logOutInk($0, $1), $1) }
         #expect(lit == 0, "nothing under the buttons row: \(lit) lit under \(pill)")

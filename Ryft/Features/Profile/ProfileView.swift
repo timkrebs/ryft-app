@@ -588,6 +588,9 @@ private struct ProfileDeveloperGroup: View {
     private let apiStatus = APIStatus.shared
 
     var body: some View {
+        // Held as Demo data is (D6, security review N-1): another platform or another credential mid-way would end the
+        // withdrawal unsent, or send it somewhere else.
+        let held = model.withdrawingConsent
         GroupedCard(GroupTitle(Text(verbatim: "Developer"))) {
             GroupedRow.push(Text(verbatim: "Component catalog"), identifier: ProfileRows.devCatalog, route: ProfileRoute.catalog)
             GroupedRow.push(Text(verbatim: "Feature flags"), identifier: ProfileRows.devFlags, route: ProfileRoute.flags)
@@ -595,20 +598,26 @@ private struct ProfileDeveloperGroup: View {
             field("API URL override") {
                 TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                     .keyboardType(.URL)
+                    .accessibilityIdentifier(ProfileRows.devAPIURL)
             }
+            .disabled(held)
             field("Ingest URL override (compose: :8081, needed with an API override)") {
                 TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
                           text: Bindable(settings).devIngestURLOverride)
                     .keyboardType(.URL)
-                    .accessibilityIdentifier("profile.dev.ingestURL")
+                    .accessibilityIdentifier(ProfileRows.devIngestURL)
             }
+            .disabled(held)
             GroupedRow.toggle(Text(verbatim: "API key mode"),
-                              detail: Text(verbatim: "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
-                              isOn: Bindable(settings).apiKeyMode)
+                              detail: Text(verbatim: held ? "Held while your consent withdrawal is on its way."
+                                                          : "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
+                              identifier: ProfileRows.devAPIKeyMode, isOn: Bindable(settings).apiKeyMode)
+                .disabled(held)
             if settings.apiKeyMode {
                 field("API key") {
                     SecureField("Bearer token", text: Bindable(settings).devAPIKey)
                 }
+                .disabled(held)
             }
             GroupedRow.toggle(Text(verbatim: "Show request IDs"), isOn: Bindable(settings).showRequestIDs)
             if settings.showRequestIDs {

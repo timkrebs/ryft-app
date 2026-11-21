@@ -89,6 +89,8 @@ enum ProfileRows {
     static let demoDiscard = "profile.demo.discard", demoKeep = "profile.demo.keep"
     /// The Developer group's push rows (Debug builds).
     static let devCatalog = "dev.catalog", devFlags = "dev.flags"
+    /// The Developer group's platform overrides (text fields) and API key mode, held while a consent withdrawal is on its way.
+    static let devAPIURL = "profile.dev.apiURL", devIngestURL = "profile.dev.ingestURL", devAPIKeyMode = "profile.dev.apiKeyMode"
 
     /// A group's rows in order; empty when the group doesn't show.
     static func rows(_ group: ProfileGroup, _ f: ProfileRowFacts) -> [ProfileRow] {
