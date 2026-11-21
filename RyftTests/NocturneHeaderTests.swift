@@ -203,6 +203,60 @@ struct NocturneHeaderTests {
         }
     }
 
+    /// The window's largest scroll view, a List's collection view included (`pageScrollView` skips those).
+    private static func scrollView(in view: UIView) -> UIScrollView? {
+        var best: UIScrollView?
+        func walk(_ view: UIView) {
+            if let scroll = view as? UIScrollView, scroll.contentSize.height > 0,
+               best.map({ $0.bounds.height < scroll.bounds.height }) ?? true { best = scroll }
+            view.subviews.forEach(walk)
+        }
+        walk(view)
+        return best
+    }
+
+    /// The sheets that pinned their header in the part 2 review (N1): the exercise history from the live workout, Start
+    /// workout, and Reorder (a List). Each: the header's handle, the edge's gap, the sheet, and what stops its session.
+    @MainActor private static func pinnedSheet(_ name: String) -> (handle: String, gap: CGFloat, view: AnyView, stop: () -> Void) {
+        switch name {
+        case "exercise-history":
+            let library = TrainHistoryFixtures.library()
+            let model = ExerciseDetailViewModel(exerciseID: MockTrain.bench.id,
+                                                history: MockTrain.exerciseHistory(for: MockTrain.bench.id, sessions: MockTrain.history),
+                                                library: library, clock: SystemClock(), fresh: true, fetchedAt: nil)
+            return ("sheet.close", PinnedBarSpec.topPadding, AnyView(ExerciseDetailPage(model: model, onClose: {}).environment(library)), {})
+        case "start-workout":
+            return ("sheet.close", StartOptionSpec.headerGap, AnyView(StartWorkoutSheet()), {})
+        default:
+            let controller = SessionSheetsPreview.listDraft()
+            return ("reorder.done", ReorderSheet.topGap, AnyView(ReorderSheet(controller: controller)), { controller.stop() })
+        }
+    }
+
+    @Test("Pinned in review N1 (exercise history, Start workout, Reorder): the header stays, the edge only while content is under it",
+          arguments: ["exercise-history", "start-workout", "reorder"])
+    func reviewPinnedSheets(_ name: String) async throws {
+        let sheet = Self.pinnedSheet(name)
+        defer { sheet.stop() }
+        try await run(false, height: 360, sheet.view) { w in
+            try await w.wait("the header") { w.nodes().contains { $0.identifier == sheet.handle } }
+            try await w.settle()
+            let handle = try node(w, id: sheet.handle)
+            let scroll = try #require(Self.scrollView(in: w.window), "the sheet's scroll view")
+            let top = scroll.convert(scroll.bounds, to: w.window).minY
+            #expect(top >= handle.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5, "the page starts under the header: \(top)")
+            #expect(try !edge(w, top: top, gap: sheet.gap).rule, "no edge at rest")
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            try #require(end > 40, "the page scrolls at this height: \(end)")
+            scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentOffset.y + min(end, 120)), animated: false)
+            try await w.settle()
+            #expect(abs(try node(w, id: sheet.handle).frame.minY - handle.frame.minY) < 0.5, "the header stays put")
+            let scrolled = try edge(w, top: top, gap: sheet.gap)
+            #expect(scrolled.rule, "the rule \(sheet.gap) under the header while the page is under it")
+            #expect(scrolled.inkAbove == 0, "nothing between the header and the rule: \(scrolled.inkAbove) pixels")
+        }
+    }
+
     /// B's form sheets (Add activity): Cancel leading and Save trailing on one row; the title centred between them below AX1,
     /// and from AX1 12 under the row from the inset, across the width, read after the buttons (D4 rule 2, the part 1
     /// validation's m-x3/m-y3: a title squeezed between the circles at AX3).

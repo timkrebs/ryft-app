@@ -117,7 +117,9 @@ private struct ExerciseDetailScreen: View {
 /// The page: the header, the numeral 22 under it with its caption and change, the chart card 22 under that, then "Personal
 /// records" and "Recent sets", 18 apart; a timed or distance exercise leads with its recent sets. A failed read with nothing
 /// cached is the message with Try again alone; the copy on this phone carries "Offline · as of 14:05" under the header.
-/// Pushed, no navigation bar: Back is the header's, the edge swipe still pops.
+/// Pushed, no navigation bar: Back is the header's, the edge swipe still pops, and the header scrolls with the page. In a
+/// sheet (`onClose`, from the live workout) the sheet header is pinned and the page scrolls under it, stopping at the pinned
+/// bar's edge (Nocturne gate D4 rule 5).
 struct ExerciseDetailPage: View {
     let model: ExerciseDetailViewModel
     var numeralStyle: DotNumeral.Style = .dots
@@ -127,9 +129,31 @@ struct ExerciseDetailPage: View {
     @ScaledMetric(relativeTo: .caption2) private var prLabelHeight = ExerciseDetailLayout.prLabelHeight
 
     var body: some View {
+        Group {
+            if let onClose {
+                VStack(spacing: 0) {
+                    SheetHeader(Text(verbatim: model.title), onClose: onClose)
+                        .padding(.horizontal, SheetHeaderSpec.sidePadding)
+                        .padding(.top, SheetHeaderSpec.topInset)
+                    // The page's first block is at least 12 under the header (`offlineGap`), the edge's gap.
+                    page(header: false)
+                        .underPinnedHeader()
+                }
+            } else {
+                page(header: true)
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
+        .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
+    }
+
+    /// The scrolling page, with the pushed header (`header`) at its top or, in a sheet, without one.
+    private func page(header showsHeader: Bool) -> some View {
         ScrollView {
             VStack(spacing: 0) {
-                header
+                if showsHeader { header }
                 if model.failed {
                     // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
                     InlineMessage(message: model.failureText, details: model.failureDetails,
@@ -140,14 +164,9 @@ struct ExerciseDetailPage: View {
                 }
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.top, onClose == nil ? 0 : SheetHeaderSpec.topInset)
             .padding(.bottom, ExerciseDetailLayout.bottomPadding)
         }
         .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .keepsBackSwipe()
-        .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
     }
 
     /// VoiceOver, once, over the outlines while the history loads the first time: the chart's, or the recent sets' when they
@@ -197,13 +216,10 @@ struct ExerciseDetailPage: View {
         .padding(.top, model.lead == .sets ? ExerciseDetailLayout.heroGap : ExerciseDetailLayout.sectionGap)
     }
 
-    @ViewBuilder private var header: some View {
-        if let onClose {
-            SheetHeader(Text(verbatim: model.title), onClose: onClose)
-        } else {
-            PushedHeader(Text(verbatim: model.title), subtitle: model.subtitle.map { Text(verbatim: $0) },
-                         subtitleParts: model.subtitleParts, identifierPrefix: "exerciseDetail")
-        }
+    /// The pushed page's header (Back); a sheet pins its `SheetHeader` above the page (`body`).
+    private var header: some View {
+        PushedHeader(Text(verbatim: model.title), subtitle: model.subtitle.map { Text(verbatim: $0) },
+                     subtitleParts: model.subtitleParts, identifierPrefix: "exerciseDetail")
     }
 
     // MARK: hero
