@@ -283,8 +283,9 @@ struct SessionDetailPage: View {
     var numeralStyle: DotNumeral.Style = .dots
     /// The failed read's status and request ID, behind the failure's Details.
     var failureDetails: String?
-    /// The failure's sentence (`SessionDetailViewModel.failureText`); offline's by default (previews).
-    var failureText = SessionDetailPage.failureText(offline: true, heldBack: false)
+    /// The failure's sentence (`SessionDetailViewModel.failureText`). Required: a default would put offline's words on a
+    /// page that failed online.
+    let failureText: String
     /// The failure's Try again: the session's read.
     var retry: () async -> Void = {}
 
@@ -524,6 +525,9 @@ private struct PressReportingButtonStyle: ButtonStyle {
 
 @MainActor
 enum SessionDetailPreview {
+    /// The failure's sentence offline, the previews' failure (the "failed online" one passes its own).
+    static var offlineFailure: String { SessionDetailPage.failureText(offline: true, heldBack: false) }
+
     /// The latest Upper A as the platform has it: strain 10-ish, its notes, Bench press first.
     static var scored: SessionDetailContent { content(MockTrain.completed) }
 
@@ -559,22 +563,24 @@ enum SessionDetailPreview {
 }
 
 #Preview("Session detail · no strain") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.unscored) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.unscored, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
 #Preview("Session detail · loading") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loading) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loading, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
 #Preview("Session detail · loading, nothing known") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loadingUnknown) }
+    NavigationStack {
+        SessionDetailPage(content: SessionDetailPreview.loadingUnknown, failureText: SessionDetailPreview.offlineFailure)
+    }
         .previewEnvironment()
 }
 
 #Preview("Session detail · failed") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.failed) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.failed, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
@@ -587,7 +593,7 @@ enum SessionDetailPreview {
 }
 
 #Preview("Session detail · AX3") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.scored) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.scored, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
         .environment(\.dynamicTypeSize, .accessibility3)
 }
