@@ -371,7 +371,15 @@ graph of `await`s and a `TaskGroup`:
   - **Pipelined:** the next page is read (and mapped) while the current one uploads,
     never more than one ahead; a page's anchor is committed only after its own upload.
   - **Pages by bytes:** as many records as fit 2 MB of JSON at the bytes per record the
-    stream's last page measured; a `413` halves pages for the rest of the run.
+    stream's last page measured; a `413` halves pages for the rest of the run. Workout pages
+    stay within the platform's 5 000.
+  - **Nothing the platform refuses** (`Sync/SyncScreen.swift`): ingest's `validate()` answers a
+    whole page with `422` for one record, and an anchor can't move past a refused page. So a
+    page goes up without the records it would refuse, compared as they go over the wire (whole
+    seconds): a workout or sleep segment whose end isn't after its start, a sample ending before
+    it starts or without a start, a workout without an id. A too-long `source_bundle_id`, `app_version`
+    or `os_version` goes as nil instead. The anchor moves on, and the dropped records are counted per
+    stream (`StreamProgress.invalid`, by the anchored reads only; "invalid N" in the diagnostics).
   - **Off the main actor:** reads run in the engine or its read-ahead task, JSON encoding
     in a `@concurrent` function, the upload from the engine (`MainThread.assertOff` in
     Debug, and `SyncEngineTests` check it with the mocks).
@@ -383,7 +391,7 @@ graph of `await`s and a `TaskGroup`:
     page. A hold commits no anchor; in demo, `run()` refuses before anything else.
   - **gzip** (`sync.gzip`, off until the platform takes it): the encoded page is gzipped
     off the main actor; a `400` / `415` sends it plain and keeps the run plain.
-- **Signposts** (`Signposts.sync`, `Signposts.launch`): intervals for read, map, encode,
+- **Signposts** (`Signposts.sync`, `Signposts.launch`): intervals for read, map, screen, encode,
   gzip, upload, score-wait and refresh, and the launch from `App.init` to the first
   display refresh after Today's first frame was committed (with or without cached data).
   The same signal for any screen but the splash is the launch barrier optional startup
