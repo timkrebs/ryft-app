@@ -1,8 +1,9 @@
 import Foundation
 
 /// The journal reminder's switch and time, per account and on this iPhone only (`notifications.journal.<account>`,
-/// design.md §4.1): the platform has no field for it. An account that never chose has the default, on at 09:00. The sign-out
-/// wipe removes every account's (`wipe`); Demo data reads and writes none.
+/// design.md §4.1): the platform has no field for it (NT6). An account that never chose has the default, on at 09:00. A
+/// sign-out's wipe removes every account's; a session expiry's keeps the leaving account's, so its "off" survives the next
+/// sign-in (review S-4). Demo data reads and writes none.
 @MainActor
 final class JournalReminderStore {
     static let prefix = "notifications.journal."
@@ -42,9 +43,10 @@ final class JournalReminderStore {
         return true
     }
 
-    /// The sign-out wipe: every account's setting on this iPhone.
-    static func wipe(defaults: UserDefaults) {
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+    /// The wipe: every account's setting on this iPhone but `parking`'s (the account a session expiry parks).
+    static func wipe(defaults: UserDefaults, keeping parking: String? = nil) {
+        let kept = parking.map(key)
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) && key != kept {
             defaults.removeObject(forKey: key)
         }
     }

@@ -54,10 +54,12 @@ private final class ReminderRig {
         let target = self.target
         target.wipesNotifications = wipesNotifications
         auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
-                           wipeLocalData: { _ in
+                           wipeLocalData: { wipe in
                                guard let env = target.env, let notifier = target.notifier else { return true }
                                // The device step, on this graph's centre (the app's passes `UNUserNotificationCenter`).
-                               if target.wipesNotifications { ReminderScheduler.wipe(notifier, defaults: env.defaults) }
+                               if target.wipesNotifications {
+                                   ReminderScheduler.wipe(notifier, defaults: env.defaults, parking: wipe.parking)
+                               }
                                return env.persistence.wipe()
                            },
                            deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
@@ -938,8 +940,9 @@ struct ReminderExpiryTests {
         #expect(rig.notifier.requests.isEmpty && rig.notifier.deliveredIDs.isEmpty)
     }
 
-    @Test("The app's wipe step for notifications: pending, delivered (wake ones too), the owner key, and APNs")
-    func theStep() async throws {
+    @Test("The wipe's notification step, every reason: all of ours, APNs, the owner key; the journal setting but an expiry's account's",
+          arguments: [AuthService.SignOutReason.user, .sessionExpired, .accountDeleted(background: false)])
+    func theStep(_ reason: AuthService.SignOutReason) async throws {
         let notifier = MockNotifier()
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         try await notifier.add(UNNotificationRequest(identifier: "wake.0", content: UNMutableNotificationContent(), trigger: nil))
@@ -947,10 +950,16 @@ struct ReminderExpiryTests {
                                                      trigger: nil))
         notifier.deliver("morning-score-2026-11-22")
         defaults.set(accountA.uuidString, forKey: ReminderScheduler.ownerKey)
+        for account in [accountA, accountB] {
+            defaults.set(Data("{\"on\":false,\"minute\":540}".utf8), forKey: JournalReminderStore.key(account.uuidString))
+        }
         var unregistered = 0
-        AuthService.notificationStep(center: notifier, defaults: defaults, unregister: { unregistered += 1 })
+        AuthService.notificationStep(AuthService.Wipe(reason: reason, account: accountA.uuidString), center: notifier,
+                                     defaults: defaults, unregister: { unregistered += 1 })
         #expect(notifier.requests.isEmpty && notifier.deliveredIDs.isEmpty)
         #expect(defaults.string(forKey: ReminderScheduler.ownerKey) == nil && unregistered == 1)
+        #expect((defaults.data(forKey: JournalReminderStore.key(accountA.uuidString)) != nil) == (reason == .sessionExpired))
+        #expect(defaults.data(forKey: JournalReminderStore.key(accountB.uuidString)) == nil, "another account's goes")
     }
 
     @Test("The push registrar forgets its APNs token with the account: the next send waits for a new one")
@@ -963,5 +972,27 @@ struct ReminderExpiryTests {
         rig.push.forgetAccount()
         await rig.push.send()
         #expect(rig.push.token == nil && rig.api.count("registerPush") == 1)
+    }
+}
+
+// MARK: - round 2, S-4: the journal reminder's "off" through a session expiry
+
+@MainActor
+@Suite("Reminders: the journal reminder's setting through a session expiry")
+struct ReminderJournalSettingTests {
+    @Test("Off, then the session expires: signed in again it's still off; a sign-out clears it")
+    func survivesExpiry() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        let off = JournalReminderSettings(on: false, minute: 9 * 60)
+        #expect(rig.scheduler.journalSettings.set(off))
+        await rig.settle()
+        await rig.auth.signOut(reason: .sessionExpired)
+        rig.client.emit(.signedIn, .preview(id: accountA))
+        #expect(await eventually { rig.auth.accountID == accountA.uuidString })
+        #expect(rig.scheduler.journalSettings.current == off)
+
+        await rig.settle()
+        await rig.auth.signOut()
+        #expect(rig.scheduler.journalSettings.settings(for: accountA.uuidString) == .default)
     }
 }

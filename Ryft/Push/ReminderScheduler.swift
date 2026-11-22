@@ -179,13 +179,14 @@ final class ReminderScheduler {
         answeredDays = []
     }
 
-    /// The sign-out wipe (any reason): every pending and delivered RYFT notification, without an enumeration, and whose
-    /// they were. Never reads `AppEnvironment.live` (ADR 0020): the caller hands the centre in.
-    static func wipe(_ center: NotificationWiping, defaults: UserDefaults) {
+    /// The sign-out wipe (any reason): every pending and delivered RYFT notification, without an enumeration, whose they
+    /// were, and the journal reminder's settings but `parking`'s (a session expiry's account keeps its choice, review S-4).
+    /// Never reads `AppEnvironment.live` (ADR 0020): the caller hands the centre in.
+    static func wipe(_ center: NotificationWiping, defaults: UserDefaults, parking: String? = nil) {
         center.removeAllPendingNotificationRequests()
         center.removeAllDeliveredNotifications()
         defaults.removeObject(forKey: ownerKey)
-        JournalReminderStore.wipe(defaults: defaults)
+        JournalReminderStore.wipe(defaults: defaults, keeping: parking)
     }
 
     /// The journal the plans read (`ScreenModels`): its habits, whether it's live and its answers; a day it finds answered
