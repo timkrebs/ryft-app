@@ -99,8 +99,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let account = PushPresentation.account(in: request.content.userInfo)
         perform { handlers in
             let now = handlers.current()
-            let matches = PushPresentation.accountMatches(isLocal: isLocal, account: account, currentAccount: now.account,
-                                                          isDemo: now.demo)
+            let matches = PushPresentation.accountMatches(category: category, isLocal: isLocal, account: account,
+                                                          currentAccount: now.account, isDemo: now.demo)
             completionHandler(PushPresentation.options(category: category, isLocal: isLocal, accountMatches: matches))
         }
     }
@@ -114,8 +114,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let account = PushPresentation.account(in: content.userInfo)
         perform { handlers in
             let now = handlers.current()
-            let matches = PushPresentation.accountMatches(isLocal: isLocal, account: account, currentAccount: now.account,
-                                                          isDemo: now.demo)
+            let matches = PushPresentation.accountMatches(category: content.categoryIdentifier, isLocal: isLocal,
+                                                          account: account, currentAccount: now.account, isDemo: now.demo)
             switch PushPresentation.route(message: message, category: content.categoryIdentifier, accountMatches: matches) {
             case .todayThenSync:
                 // No URL: Today, and a sync.

@@ -51,19 +51,25 @@ struct PushPresentationTests {
         #expect(PushPresentation.options(category: "BEDTIME", isLocal: true, accountMatches: false) == [])
     }
 
-    @Test("Whose: a local one needs the signed-in account and no Demo data; a server alert without one is shown")
+    @Test("Whose: a local one needs the signed-in account and no Demo data (the wake one, Demo or not); a server alert without one is shown")
     func accounts() {
-        #expect(PushPresentation.accountMatches(isLocal: true, account: "a", currentAccount: "a", isDemo: false))
-        #expect(!PushPresentation.accountMatches(isLocal: true, account: "a", currentAccount: "b", isDemo: false))
-        #expect(!PushPresentation.accountMatches(isLocal: true, account: "a", currentAccount: "a", isDemo: true))
-        #expect(!PushPresentation.accountMatches(isLocal: true, account: nil, currentAccount: "a", isDemo: false),
-                "an earlier build's, without one")
-        #expect(!PushPresentation.accountMatches(isLocal: true, account: "a", currentAccount: nil, isDemo: false))
-        #expect(PushPresentation.accountMatches(isLocal: false, account: nil, currentAccount: "a", isDemo: true),
+        func matches(_ category: String = "JOURNAL_REMINDER", local: Bool = true, account: String?, current: String?,
+                     demo: Bool = false) -> Bool {
+            PushPresentation.accountMatches(category: category, isLocal: local, account: account, currentAccount: current,
+                                            isDemo: demo)
+        }
+        #expect(matches(account: "a", current: "a"))
+        #expect(!matches(account: "a", current: "b"))
+        #expect(!matches(account: "a", current: "a", demo: true))
+        #expect(!matches("BEDTIME", account: "a", current: "a", demo: true), "bedtime's names a sleep need")
+        #expect(matches("WAKE", account: "a", current: "a", demo: true), "the wake one carries nothing: its account decides (N-2)")
+        #expect(!matches("WAKE", account: "a", current: "b", demo: true) && !matches("WAKE", account: "a", current: "b"))
+        #expect(!matches(account: nil, current: "a"), "an earlier build's, without one")
+        #expect(!matches(account: "a", current: nil))
+        #expect(matches("MORNING_SCORE", local: false, account: nil, current: "a", demo: true),
                 "until API.md carries ryft.account (NT1)")
-        #expect(!PushPresentation.accountMatches(isLocal: false, account: "a", currentAccount: "b", isDemo: false),
-                "once it does, the same check")
-        #expect(!PushPresentation.accountMatches(isLocal: false, account: nil, currentAccount: nil, isDemo: false),
+        #expect(!matches("MORNING_SCORE", local: false, account: "a", current: "b"), "once it does, the same check")
+        #expect(!matches("MORNING_SCORE", local: false, account: nil, current: nil),
                 "nobody signed in: an alert that came after the wipe isn't shown")
     }
 
@@ -148,16 +154,21 @@ struct WakeNotificationTests {
         #expect(SystemWakeAlarms.request(index: 1, at: "7", account: "acct-a") == nil)
     }
 
-    @Test("Open on its account: shown with its sound; another account's, or with Demo data on, not shown, and its tap opens Today")
+    @Test("Open on its account, with Demo data on too: shown with its sound; another account's not shown, and its tap opens Today")
     func presents() throws {
         let request = try #require(SystemWakeAlarms.request(index: 2, at: "06:00", account: "acct-a"))
         let account = PushPresentation.account(in: request.content.userInfo)
-        let mine = PushPresentation.accountMatches(isLocal: true, account: account, currentAccount: "acct-a", isDemo: false)
-        #expect(mine && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: mine) == [.banner, .list, .sound])
-        for (current, demo) in [("acct-b", false), ("acct-a", true)] {
-            let matches = PushPresentation.accountMatches(isLocal: true, account: account, currentAccount: current, isDemo: demo)
-            #expect(!matches && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: matches) == [])
+        for demo in [false, true] {
+            let mine = PushPresentation.accountMatches(category: "WAKE", isLocal: true, account: account,
+                                                       currentAccount: "acct-a", isDemo: demo)
+            #expect(mine && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: mine)
+                == [.banner, .list, .sound], "demo \(demo)")
+            let theirs = PushPresentation.accountMatches(category: "WAKE", isLocal: true, account: account,
+                                                         currentAccount: "acct-b", isDemo: demo)
+            #expect(!theirs && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: theirs) == [])
         }
+        let mine = PushPresentation.accountMatches(category: "WAKE", isLocal: true, account: account, currentAccount: "acct-a",
+                                                   isDemo: false)
         let message = PushMessage(userInfo: request.content.userInfo)
         #expect(PushPresentation.route(message: message, category: "WAKE", accountMatches: mine) == .today)
     }

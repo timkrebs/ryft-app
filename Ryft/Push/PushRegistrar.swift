@@ -305,8 +305,8 @@ enum PushCategories {
 
 /// How a notification shows in the foreground and where its tap goes (design.md §7.1–7.2): one pure function for
 /// `willPresent` and `didReceive`. A local request (any trigger but a push's) for another account, or one arriving while
-/// Demo data is shown, isn't presented and its tap opens Today only. Server alerts get the same check once API.md carries
-/// `ryft.account` (NT1).
+/// Demo data is shown (but the wake notification), isn't presented and its tap opens Today only. Server alerts get the
+/// same check once API.md carries `ryft.account` (NT1).
 enum PushPresentation {
     enum Route: Equatable {
         case today
@@ -320,11 +320,15 @@ enum PushPresentation {
         (userInfo["ryft"] as? [String: Any])?["account"] as? String
     }
 
-    static func accountMatches(isLocal: Bool, account: String?, currentAccount: String?, isDemo: Bool) -> Bool {
+    static func accountMatches(category: String, isLocal: Bool, account: String?, currentAccount: String?,
+                               isDemo: Bool) -> Bool {
         // Nobody signed in: nothing here is anyone's (a server alert that arrived after the wipe included).
         guard currentAccount != nil else { return false }
         guard isLocal || account != nil else { return true }
-        return !isDemo && account != nil && account == currentAccount
+        // Demo data hides the account's own, but not the wake notification: it carries no data, and the account's wake
+        // time stays set while Demo data is shown (review N-2).
+        if isDemo, category != PushCategories.wake { return false }
+        return account != nil && account == currentAccount
     }
 
     static func options(category: String, isLocal: Bool, accountMatches: Bool) -> UNNotificationPresentationOptions {
