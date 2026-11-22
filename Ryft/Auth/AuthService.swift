@@ -7,6 +7,7 @@ import CryptoKit
 import Foundation
 import GameplayKit
 import Observation
+import UIKit
 import UserNotifications
 import Auth
 
@@ -988,9 +989,9 @@ final class AuthService {
             // The usage analytics answer is the person's: whoever signs in next is asked, with a new id. Here too, not
             // only in `AppState.wiped`, because a wipe resumed at launch runs before that hook is bound.
             Analytics.forgetAnswer(defaults: .standard)
-            // Every notification of the account's, pending and delivered (its server alerts in Notification Center too),
-            // its wake alarms, and whose they were (design.md §9.1). Never through `AppEnvironment.live` (ADR 0020).
-            ReminderScheduler.wipe(UNUserNotificationCenter.current(), defaults: .standard)
+            // Never through `AppEnvironment.live` (ADR 0020).
+            notificationStep(center: UNUserNotificationCenter.current(), defaults: .standard,
+                             unregister: { UIApplication.shared.unregisterForRemoteNotifications() })
             #if canImport(AlarmKit)
             if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
             #endif
@@ -1007,6 +1008,16 @@ final class AuthService {
             // all of the account's data.
             DataExport.removeFiles()
         })
+    }
+
+    /// The wipe's notification step, for every reason (design.md §9.1): every notification of the account's, pending and
+    /// delivered (its server alerts in Notification Center too, its wake notifications below iOS 26), and whose they were
+    /// (`ReminderScheduler.wipe`); then APNs, so an ended session's server alerts stop reaching this iPhone (review S-2) and
+    /// the next account registers afresh. The accepted registration's record goes with the store. AlarmKit's wake alarms
+    /// go beside it (iOS 26).
+    static func notificationStep(center: NotificationWiping, defaults: UserDefaults, unregister: () -> Void) {
+        ReminderScheduler.wipe(center, defaults: defaults)
+        unregister()
     }
 
     /// A retry (`storeOnly`) leaves the device steps alone, so it doesn't restart the backfill.

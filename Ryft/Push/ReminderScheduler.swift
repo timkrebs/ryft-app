@@ -80,6 +80,12 @@ final class ReminderScheduler {
     }
     /// Passes run (tests, the profiler).
     private(set) var passes = 0
+    /// Whether protected data can be read. Locked, and before the first unlock after a reboot above all, the session may
+    /// only look signed out and the owner key read empty: a pass then takes nothing away for another account or for nobody
+    /// (an ordinary pass goes on, so a locked refresh still plans). Tests replace it.
+    var isProtectedDataAvailable: @MainActor () -> Bool = { UIApplication.shared.isProtectedDataAvailable }
+    /// Notification Center was cleared since the account left: once while signed out, and again at every app active.
+    private var clearedSignedOut = false
 
     init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .current) {
         self.env = env
@@ -294,15 +300,27 @@ final class ReminderScheduler {
             ledger = Dictionary(pending.compactMap(LocalReminder.init).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         }
         guard let account = binding.account else {
-            // Signed out: nothing of ours stays (Demo data shown or not).
+            // Signed out: nothing of ours stays (Demo data shown or not), and Notification Center goes too: an ended
+            // session's server alerts that arrived after its wipe (review S-2). Not while locked: it may only look so.
+            guard isProtectedDataAvailable() else { return }
             removed += tearDown()
+            if !clearedSignedOut || readsDelivered {
+                readsDelivered = false
+                clearedSignedOut = true
+                env.notifier.removeAllDelivered()
+            }
             defaults.removeObject(forKey: Self.ownerKey)
             return
         }
-        if defaults.string(forKey: Self.ownerKey) != account {
-            // Another account's, or nobody knows whose (a kill between a wipe and its removals, a wipe resumed store-only,
-            // a restore): ours go first.
+        clearedSignedOut = false
+        let owner = defaults.string(forKey: Self.ownerKey)
+        if owner != account {
+            // Another account's, or nobody knows whose (a wipe resumed store-only, a restore): ours go first. Another
+            // account's alerts in Notification Center too; with no owner at all (an upgrade, a first launch), only ours.
+            // Not while locked, when the owner key may only read empty.
+            guard isProtectedDataAvailable() else { return }
             removed += tearDown()
+            if owner != nil { env.notifier.removeAllDelivered() }
             defaults.set(account, forKey: Self.ownerKey)
         }
         // Demo data: the account's stay exactly as they are.

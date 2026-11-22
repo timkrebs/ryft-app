@@ -156,6 +156,17 @@ final class PushRegistrar {
         }
     }
 
+    /// In the wipe's turn, for every reason (an account-state forgetter): the token APNs handed over is gone with the
+    /// registration the wipe ended (`AuthService.notificationStep`), so whoever signs in next waits for APNs' next one
+    /// instead of sending this. The accepted record went with the store.
+    func forgetAccount() {
+        token = nil
+        lastError = nil
+        lastResult = nil
+        revision += 1
+        onRecordChanged?()
+    }
+
     /// Before sign-out and account deletion, while the session still authorises
     /// the `DELETE`. A failure is logged and ignored.
     func signOut() async {

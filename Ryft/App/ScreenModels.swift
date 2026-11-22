@@ -81,7 +81,10 @@ final class ScreenModels {
         // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
-        push = PushRegistrar(env: state.env)
+        let push = PushRegistrar(env: state.env)
+        self.push = push
+        // Its APNs token goes with the wipe's APNs registration, whatever the reason (review S-2).
+        state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
         // Its habits and answers decide the journal reminder; a day answered takes it away at once.

@@ -874,3 +874,94 @@ struct ReminderConsentTests {
         #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2, "\(code)")
     }
 }
+
+// MARK: - round 2, S-2: after a session ends
+
+@MainActor
+@Suite("Reminders: Notification Center after a session ends")
+struct ReminderExpiryTests {
+    @Test("Signed out after an expiry: alerts that arrived after the wipe go, once while signed out and at every app active")
+    func signedOut() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        await rig.settle()
+        await rig.auth.signOut(reason: .sessionExpired)
+        rig.notifier.deliver("morning-score-2026-11-23")
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.deliveredIDs.isEmpty && rig.notifier.requests.isEmpty)
+
+        rig.notifier.deliver("record-2026-11-23")
+        let removals = rig.notifier.removals
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.removals == removals, "a pass that changes nothing makes no call")
+        rig.scheduler.reschedule(.appActive)
+        await rig.afterDebounce()
+        #expect(rig.notifier.deliveredIDs.isEmpty)
+    }
+
+    @Test("Another account's owner key: its alerts in Notification Center go with ours; no owner key (an upgrade): they stay")
+    func anotherOwner() async throws {
+        for owner in [accountB.uuidString, nil] {
+            let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+            try await rig.seed([], owner: owner)
+            rig.notifier.deliver("morning-score-2026-11-22")
+            await rig.scheduler.rescheduleNow()
+            #expect(rig.notifier.deliveredIDs.isEmpty == (owner != nil), "\(owner ?? "no owner")")
+            #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountA.uuidString)
+        }
+    }
+
+    @Test("Locked: a session that only looks signed out, or an owner key that only reads empty, takes nothing away; a sync still plans")
+    func locked() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14), wipesNotifications: false)
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        rig.notifier.deliver("morning-score-2026-11-22")
+        rig.scheduler.isProtectedDataAvailable = { false }
+        rig.env.settings.lastSync = rig.clock.now().addingTimeInterval(2 * 3600)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.adds == 4, "the fallback moved with a sync two hours on, locked")
+
+        rig.defaults.set(accountB.uuidString, forKey: ReminderScheduler.ownerKey)
+        let removals = rig.notifier.removals
+        await rig.scheduler.rescheduleNow()
+        await rig.settle()
+        await rig.auth.signOut()
+        rig.scheduler.forget()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.removals == removals && rig.ids(.syncStale).count == 2)
+        #expect(rig.notifier.deliveredIDs.count == 1)
+
+        rig.scheduler.isProtectedDataAvailable = { true }
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.requests.isEmpty && rig.notifier.deliveredIDs.isEmpty)
+    }
+
+    @Test("The app's wipe step for notifications: pending, delivered (wake ones too), the owner key, and APNs")
+    func theStep() async throws {
+        let notifier = MockNotifier()
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        try await notifier.add(UNNotificationRequest(identifier: "wake.0", content: UNMutableNotificationContent(), trigger: nil))
+        try await notifier.add(UNNotificationRequest(identifier: "journal.2026-11-21", content: UNMutableNotificationContent(),
+                                                     trigger: nil))
+        notifier.deliver("morning-score-2026-11-22")
+        defaults.set(accountA.uuidString, forKey: ReminderScheduler.ownerKey)
+        var unregistered = 0
+        AuthService.notificationStep(center: notifier, defaults: defaults, unregister: { unregistered += 1 })
+        #expect(notifier.requests.isEmpty && notifier.deliveredIDs.isEmpty)
+        #expect(defaults.string(forKey: ReminderScheduler.ownerKey) == nil && unregistered == 1)
+    }
+
+    @Test("The push registrar forgets its APNs token with the account: the next send waits for a new one")
+    func theToken() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        await rig.push.didRegister(deviceToken: Data([0x0a, 0x0b]))
+        #expect(rig.api.count("registerPush") == 1 && rig.push.token != nil)
+        rig.env.persistence.removeDocument(key: PushRegistrar.recordKey)
+        rig.push.forgetAccount()
+        await rig.push.send()
+        #expect(rig.push.token == nil && rig.api.count("registerPush") == 1)
+    }
+}
