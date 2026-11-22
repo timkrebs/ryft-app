@@ -132,6 +132,15 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **What API.md says:** `SESSION_SCORED` and `PR` are sent "not during quiet hours". It doesn't say whether an alert is dropped or held until the window ends, while `MORNING_SCORE` explicitly holds.
    - **The app's reading:** dropped, the same as NT1. The Notifications page now says "Workout alerts are skipped".
    - **Request:** please confirm, or tell us they are held. The page's sentence would change.
+5. **NT5 (flag): `notifications.reminders` (P1, operator).**
+   - **What it gates:** the app's two new local reminders, the morning journal reminder and the "not syncing" fallback on the phone. Bedtime & wake's reminder is not gated.
+   - **Default:** off. `GET /v1/config` → `flags` has open keys, and the app's compiled default is off, so nothing changes until the flag exists and is on for an account.
+   - **Request:** create the flag at 0 % with an allow-list, like `train.import` and `analytics.enabled`. The operator raises it once the Notifications page with its switches (N4) has shipped.
+   - **Turning it off later** removes the reminders already scheduled on each phone at its next config read.
+6. **NT6 (later, optional): the journal reminder's setting on the account.**
+   - **Today:** the switch and the time live on the phone, per account. They survive a session expiry, and a sign-out clears them.
+   - **Later:** if users ask for the setting to follow them across devices, `NotificationPrefs` could gain `journal_reminder: {on: bool, minute: int}`.
+   - **Status:** nothing is needed now. This is filed so the shape is agreed before anyone builds it.
 
 ## App Attest (open, 2026-11-19)
 
