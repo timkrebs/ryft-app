@@ -28,7 +28,7 @@ struct AnalyticsDestination: Hashable, Sendable, CustomStringConvertible, Custom
         Mirror(self, children: ["host": host.absoluteString, "project_key": "<redacted>"], displayStyle: .struct)
     }
 
-    /// PostHog's EU cloud, the only host the prompt's "Sent to PostHog, in the EU" holds for. A proxy or another
+    /// PostHog's EU cloud, the only host the onboarding step's "Sent to PostHog, in the EU" holds for. A proxy or another
     /// region needs a new build (and new copy), whatever the config says.
     static let allowedHost = "eu.i.posthog.com"
     private static let keyCharacters = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -131,7 +131,7 @@ final class Analytics {
         if resetOwed { setResetOwed(false) }
     }
 
-    /// The prompt's two buttons (a swipe is `false`) and Profile → Privacy's switch. Off: the queue goes now, and the
+    /// The onboarding step's two buttons ("Not now" is `false`) and Profile → Privacy's switch. Off: the queue goes now, and the
     /// next opt-in starts with a new id.
     func setOptIn(_ on: Bool) {
         if on {
@@ -148,7 +148,8 @@ final class Analytics {
     }
 
     /// Every wipe (sign-out, deletion, a final 401, another account; `AppState.wiped`): the id resets, the queue goes,
-    /// and the answer is forgotten, so whoever signs in next is asked after their own onboarding.
+    /// and the answer is forgotten, so whoever signs in next is asked in their own first run (or, past it, sets it in
+    /// Profile → Privacy).
     func accountLeft() {
         setResetOwed(true)
         stopAndForget()
@@ -163,7 +164,8 @@ final class Analytics {
         defaults.set(true, forKey: resetOwedKey)
     }
 
-    /// The prompt (after the onboarding, once): only where an answer means something.
+    /// The question (the onboarding's own step before Apple Health, on the first run: `OnboardingCoordinator
+    /// .showsAnalyticsStep`): only where an answer means something.
     var showsPrompt: Bool {
         let inputs = currentInputs
         return optIn == nil && inputs.canSend && inputs.available

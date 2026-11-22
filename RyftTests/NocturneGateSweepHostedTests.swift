@@ -5,8 +5,8 @@ import UIKit
 
 /// The Nocturne gate's sweep (G1, docs/work/2026-11-20-nocturne-gate/design.md §5.1) in real windows, read from the accessibility
 /// tree and the pixels (`HostedWindow`, `WindowPixels`): nothing teal on Today's setup and import cards, the push card, the coach
-/// marks and the analytics prompt (default and AX3); the import's current step as the inverse chip; the old teal buttons as
-/// pills; the prompt's equal outline pills, its reading order, pinned below AX1 and inline from AX1; the insight tile's legend
+/// marks and the analytics step (default and AX3); the import's current step as the inverse chip; the old teal buttons as
+/// pills; the step's equal outline pills, its reading order, pinned below AX1 and inline from AX1; the insight tile's legend
 /// colour (D1); the 22 pt card corner (D8). Synthetic data only.
 @MainActor
 @Suite("Nocturne gate G1: the swept screens, hosted", .serialized)
@@ -385,16 +385,19 @@ struct NocturneGateSweepHostedTests {
         }
     }
 
-    // MARK: the analytics prompt (D2)
+    // MARK: the analytics step (D2; decision B)
 
-    @Test("D2: the analytics prompt, presented as its sheet, draws no teal (default and AX3)", arguments: [standard, ax3])
+    /// The usage analytics step as RootView shows it (full screen, decision B), on a test graph: an answer goes nowhere.
+    private static func analyticsStep() -> some View {
+        AnalyticsOptInStepView().environment(\.appEnvironment, AppEnvironment.test())
+    }
+
+    @Test("D2: the analytics step, full screen with its lock-up, draws no teal (default and AX3)", arguments: [standard, ax3])
     func promptDrawsNoTeal(_ s: SizeCase) async throws {
-        let presenter = Theme.background.ignoresSafeArea()
-            .sheet(isPresented: .constant(true)) { AnalyticsOptInSheet { _ in }.presentedRoot() }
-        try await run(s, presenter) { w in
-            try await w.wait("the sheet") { (w.presentedNodes() ?? []).contains { $0.label == "Share usage analytics?" } }
+        try await run(s, Self.analyticsStep()) { w in
+            try await w.wait("the step") { w.nodes().contains { $0.label == "Share usage analytics?" } }
             try await w.settle()
-            let nodes = w.presentedNodes() ?? []
+            let nodes = w.nodes()
             #expect(nodes.contains { $0.identifier == "analytics.share" } && nodes.contains { $0.identifier == "analytics.decline" },
                     "\(nodes.compactMap(\.identifier))")
             #expect(try tealPixels(w) == 0, "teal on the prompt")
@@ -403,11 +406,11 @@ struct NocturneGateSweepHostedTests {
 
     @Test("D2: the prompt's two answers are the same outline pill, the same size, and keep their identifiers")
     func promptAnswersAreEqualOutlines() async throws {
-        try await run(Self.standard, AnalyticsOptInSheet { _ in }) { w in
+        try await run(Self.standard, Self.analyticsStep()) { w in
             try await w.wait("the answers") { w.nodes().contains { $0.identifier == "analytics.decline" } }
             try await w.settle()
             let share = try node(w, id: "analytics.share"), decline = try node(w, id: "analytics.decline")
-            #expect(share.label == "Share usage analytics" && decline.label == "Don't share")
+            #expect(share.label == "Share usage analytics" && decline.label == "Not now")
             #expect(abs(share.frame.width - decline.frame.width) < 0.5 && abs(share.frame.height - decline.frame.height) < 0.5,
                     "\(share.frame.size) vs \(decline.frame.size)")
             #expect(share.frame.height >= PillButton.minHeight - 0.5)
@@ -423,9 +426,9 @@ struct NocturneGateSweepHostedTests {
         }
     }
 
-    @Test("D2: VoiceOver reads the title (a header), the lead, the four points, the footnote, Share, Don't share")
+    @Test("D2: VoiceOver reads the title (a header), the lead, the four points, the footnote, Share, Not now")
     func promptReadingOrder() async throws {
-        try await run(Self.standard, AnalyticsOptInSheet { _ in }) { w in
+        try await run(Self.standard, Self.analyticsStep()) { w in
             try await w.wait("the answers") { w.nodes().contains { $0.identifier == "analytics.decline" } }
             try await w.settle()
             let nodes = w.nodes()
@@ -441,7 +444,7 @@ struct NocturneGateSweepHostedTests {
             }
             let footnote = try index({ $0.label == "Change this any time in Profile → Privacy." }, "the footnote")
             let share = try index({ $0.identifier == "analytics.share" }, "Share")
-            let decline = try index({ $0.identifier == "analytics.decline" }, "Don't share")
+            let decline = try index({ $0.identifier == "analytics.decline" }, "Not now")
             let order = [title, lead] + points + [footnote, share, decline]
             #expect(order == order.sorted() && Set(order).count == order.count, "\(order)")
             #expect(points.last.map { $0 - points[0] } == 3, "one element per point: \(points)")
@@ -452,7 +455,7 @@ struct NocturneGateSweepHostedTests {
     @Test("D2: below AX1 the answers are pinned under the page, both on screen; from AX1 they end the page, reached by scrolling",
           arguments: [standard, ax3])
     func promptAnswersPinnedOrInline(_ s: SizeCase) async throws {
-        try await run(s, AnalyticsOptInSheet { _ in }) { w in
+        try await run(s, Self.analyticsStep()) { w in
             try await w.wait("the answers") { w.nodes().contains { $0.identifier == "analytics.decline" } }
             try await w.settle()
             let limit = Self.height - Self.bottomInset
@@ -491,7 +494,8 @@ struct NocturneGateSweepHostedTests {
 
     private struct ResizablePrompt: View {
         let box: TypeSizeBox
-        var body: some View { AnalyticsOptInSheet { _ in }.dynamicTypeSize(box.size) }
+        @State private var env = AppEnvironment.test()
+        var body: some View { AnalyticsOptInStepView().environment(\.appEnvironment, env).dynamicTypeSize(box.size) }
     }
 
     @Test("D2 (part 1 review nit 5): across AX1 the prompt keeps its page, the same scroll view still scrolled; the answers leave the bar")

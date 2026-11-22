@@ -8041,9 +8041,6 @@
     "Change this any time in Profile → Privacy." : {
       "comment" : "Analytics prompt: the footnote under the points."
     },
-    "Don't share" : {
-      "comment" : "Analytics prompt: the button that declines usage analytics."
-    },
     "No health data, scores, sleep or workout details, names or free text." : {
       "comment" : "Analytics prompt: the second point (what is never sent)."
     },

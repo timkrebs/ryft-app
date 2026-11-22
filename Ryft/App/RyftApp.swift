@@ -458,7 +458,7 @@ struct RyftApp: App {
 }
 
 /// Welcome until there's a session (or demo data); then what onboarding still needs
-/// (invite, consent, about you, Apple Health), then the tabs.
+/// (invite, consent, about you, what you wear, usage analytics, Apple Health, tracker setup), then the tabs.
 struct RootView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(ScreenModels.self) private var screens
@@ -469,8 +469,6 @@ struct RootView: View {
     @Environment(\.launchInterrupt) private var launchInterrupt
     /// The root's cross-fades (splash, Welcome, the steps, the tabs) are `Theme.Motion.quick`, none under Reduce Motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The tabs are on screen: the only place the analytics prompt presents from.
-    @State private var tabsShown = false
 
     var body: some View {
         Group {
@@ -496,19 +494,17 @@ struct RootView: View {
 
     /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
     private var presentsSomething: Bool {
-        presentsBesidesAnalytics || (tabsShown && env.analytics.showsPrompt)
-    }
-
-    /// The other root presentations: the analytics prompt waits for them (`analyticsOptInPrompt(blocked:)`).
-    private var presentsBesidesAnalytics: Bool {
         onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
             || screens.importer.flow != nil || screens.importer.showsUnavailable
     }
 
-    /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode.
+    /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode. Nil under the usage
+    /// analytics step too: the gate is closed while it asks, and after a yes `.health` is a change that fires through the
+    /// open gate (after "Not now" it's dropped there).
     private var analyticsStep: OnboardingStepName? {
         guard !settings.demoMode, auth.state == .signedIn, !onboarding.holdsFirstRun else { return nil }
         if let step = onboarding.flowStep ?? onboarding.sheetStep { return OnboardingStepName(step) }
+        if onboarding.showsAnalyticsStep { return nil }
         if needsHealthIntro { return .health }
         return onboarding.showsTrackerSetup ? .trackerSetup : nil
     }
@@ -542,6 +538,9 @@ struct RootView: View {
                 case .signedIn where onboarding.flowStep != nil:
                     OnboardingFlowView(model: onboarding).transition(.opacity)
                         .onAppear(perform: LaunchSignpost.screenAppeared)
+                // The first run's usage analytics question, on its own, before Apple Health (decision B).
+                case .signedIn where onboarding.showsAnalyticsStep:
+                    AnalyticsOptInStepView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 case .signedIn where needsHealthIntro:
                     HealthPermissionView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 // After Apple Health, once: the chosen trackers' setup (`devices.setup`). The first sync runs.
@@ -555,6 +554,7 @@ struct RootView: View {
         .animation(rootFade, value: settings.demoMode ? .signedIn : auth.state)
         .animation(rootFade, value: needsHealthIntro)
         .animation(rootFade, value: onboarding.flowStep)
+        .animation(rootFade, value: onboarding.showsAnalyticsStep)
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
         // "This is a new RYFT account": once, before the steps.
@@ -591,12 +591,7 @@ struct RootView: View {
         tabBar
             .onAppear { Task { await WorkoutLauncher.tabsAppeared() } }
             .onDisappear { WorkoutLauncher.tabsDisappeared() }
-            .onAppear {
-                tabsShown = true
-                env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab)))
-            }
-            .onDisappear { tabsShown = false }
-            .analyticsOptInPrompt(blocked: presentsBesidesAnalytics)
+            .onAppear { env.analytics.track(.screenViewed(AnalyticsScreen(state.selectedTab))) }
     }
 
     /// E6: a file opened while signed out waits in memory for the sign-in.
@@ -684,7 +679,8 @@ enum DebugScreen: String {
     case syncCheck = "sync-check"
     /// Welcome after a session expiry, with a parked run and night on a preview store (`activities.manual` off).
     case welcomeParked = "welcome-parked"
-    /// The usage analytics prompt, and Profile → Privacy's switch (phase 1 shows neither to anyone).
+    /// The usage analytics onboarding step (`AnalyticsOptInStepView`, an answer goes nowhere), and Profile → Privacy's
+    /// switch.
     case analyticsPrompt = "analytics-prompt", analyticsRow = "analytics-row"
 
     static var requested: DebugScreen? {
@@ -722,7 +718,7 @@ enum DebugScreen: String {
             DebugSyncCheck()
         case .welcomeParked:
             DebugWelcomeParked()
-        case .analyticsPrompt: AnalyticsOptInSheet { _ in }
+        case .analyticsPrompt: AnalyticsStepPreview()
         case .analyticsRow: AnalyticsOptInRowCapture()
         }
     }
