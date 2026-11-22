@@ -956,4 +956,24 @@ struct ConsentAgreeTests {
         #expect(decide(.policyUnknown, .some(.consent)) == .paused)
         #expect(SyncIdleState.held(at: .demo, pendingGate: .some(.consent)) == nil)
     }
+
+    // MARK: Code review N2: the scoring wait's gate
+
+    @Test("N2: the scoring wait reads a status's gate by R2: consent_required at the 204 + 3 s is none, at + 11 s it's one",
+          .timeLimit(.minutes(1)))
+    func theScoringWaitReadsTheGateByR2() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let steps = h.syncSteps()
+        h.api.syncStatusOverride = h.cachedStatus(gate: .consentRequired)
+        h.clock.advance(by: .seconds(3))
+        let early = try await steps.syncStatus(userInitiated: true)
+        #expect(early.gate == .consentRequired && steps.scoringGate(of: early) == nil)
+
+        h.clock.advance(by: .seconds(8))
+        let late = try await steps.syncStatus(userInitiated: true)
+        #expect(steps.scoringGate(of: late) == .consentRequired)
+        #expect(steps.scoringGate(of: h.cachedStatus(gate: .inviteRequired)) == .inviteRequired, "not consent's: as it is")
+    }
 }

@@ -54,6 +54,10 @@ protocol SyncSteps: AnyObject {
     var touchedSoFar: [String] { get }
     /// The latest `GET /v1/me/sync` answer and when it arrived, on this phone's clock.
     var lastStatus: (status: SyncStatus, readAt: Date)? { get }
+    /// The gate `status` reports as the scoring wait counts it, by the status door's rule (R2,
+    /// `ConsentState.statusSpeaksForConsent`; code review N2): a `consent_required` asked for within the platform's cache
+    /// time of this phone's consent `204` may be from before it, and isn't one.
+    func scoringGate(of status: SyncStatus) -> APIErrorCode?
     /// Changes whenever this phone's word is forgotten (an account change, the demo switch): the days a wait gave up
     /// on before (`ScoringSignal.waitedOut`) are forgotten with it.
     var ledgerGeneration: Int { get }
@@ -72,6 +76,8 @@ extension SyncSteps {
     var touchedSoFar: [String] { [] }
     var lastStatus: (status: SyncStatus, readAt: Date)? { nil }
     var ledgerGeneration: Int { 0 }
+    /// Fakes without a consent: the status's own gate.
+    func scoringGate(of status: SyncStatus) -> APIErrorCode? { status.gate }
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -540,7 +546,7 @@ actor SyncCoordinator {
             Signposts.sync.endInterval("pending-check", signpost, "\(status?.pendingDays.count ?? -1) pending")
         }
         try Task.checkCancellation()
-        guard let status, status.gate == nil else { return ([], nil) }
+        guard let status, await steps.scoringGate(of: status) == nil else { return ([], nil) }
         // After the read: the words it answered are gone.
         let listed = Set(status.pendingDays).union(await steps.awaitedDays)
         let generation = await steps.ledgerGeneration
@@ -595,7 +601,8 @@ actor SyncCoordinator {
                     // The ledger decides what this answer may end: an ask that joined a flight asked under the cache
                     // time after the write (a pull's) leaves the word, so its days stay pending (F3's rule).
                     let pending = Set(status.pendingDays).union(await steps.awaitedDays)
-                    await scoring.answer(pending: pending, gated: status.gate != nil)
+                    let gated = await steps.scoringGate(of: status) != nil
+                    await scoring.answer(pending: pending, gated: gated)
                 }
                 delay = min(delay * 2, maximumPollDelay)
             }
@@ -748,6 +755,9 @@ final class LiveSyncSteps: SyncSteps {
     /// The last `upload()` started `SyncService`'s upload: only then is `sync.lastDaysTouched` its days.
     private var startedUpload = false
 
+    /// The last status this door stored, with when its flight was asked for (`scoringGate`).
+    private var asked: (status: SyncStatus, at: Date)?
+
     func upload() async throws -> [String] {
         startedUpload = false
         guard !state.isDemo, state.env.auth.isSignedIn, state.env.settings.isConfigured else { return [] }
@@ -775,7 +785,8 @@ final class LiveSyncSteps: SyncSteps {
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
         let env = state.env, state = state, apiStatus = apiStatus, sync = sync
         let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
-                                             storeAsked: { (status: SyncStatus, asked: Date) in
+                                             storeAsked: { [weak self] (status: SyncStatus, asked: Date) in
+            self?.asked = (status, asked)
             state.syncStatus = status
             if let gate = status.gate, gate != .consentRequired || env.consent.statusSpeaksForConsent(askedAt: asked) {
                 apiStatus.observe([gate], enforced: false)
@@ -853,5 +864,15 @@ final class LiveSyncSteps: SyncSteps {
     var lastStatus: (status: SyncStatus, readAt: Date)? {
         guard let status = state.syncStatus, let read = sync.statusReadAt else { return nil }
         return (status, read)
+    }
+
+    /// The status door's R2 (`syncStatus(userInitiated:)`), for the scoring wait: the status it just read or the last one
+    /// kept. Asked for when this door's flight started; one this door didn't store (onboarding's check passed it on)
+    /// counts from when it arrived (`SyncService.statusReadAt`), which is no earlier.
+    func scoringGate(of status: SyncStatus) -> APIErrorCode? {
+        guard status.gate == .consentRequired else { return status.gate }
+        let at = asked.flatMap { $0.status == status ? $0.at : nil } ?? sync.statusReadAt
+        guard let at else { return status.gate }
+        return state.env.consent.statusSpeaksForConsent(askedAt: at) ? status.gate : nil
     }
 }
