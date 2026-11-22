@@ -376,8 +376,8 @@ final class OnboardingCoordinator {
     /// sign-in, when a gate is reported, and after each step. `changedSince`: the account's answer must have been
     /// asked for after then (a withdrawal's re-check), never one already in flight. While this phone's agreement waits
     /// for RYFT's word (its re-read failed), every check asks: never answered from the last one, and `/v1/me` asked for
-    /// after the agreement.
-    func check(force: Bool = false, changedSince: Date? = nil) async {
+    /// after the agreement. `userInitiated` (Profile's Check with RYFT): its reads don't wait out a `Retry-After`.
+    func check(force: Bool = false, changedSince: Date? = nil, userInitiated: Bool = false) async {
         guard !env.isDemo, env.auth.isSignedIn else {
             phase = .ready
             return
@@ -393,7 +393,7 @@ final class OnboardingCoordinator {
             return
         }
         if phase != .ready { phase = .checking }
-        let answer = await fetchWithTimeout(changedSince: changedSince ?? unsettled?.at)
+        let answer = await fetchWithTimeout(changedSince: changedSince ?? unsettled?.at, userInitiated: userInitiated)
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
         // Written through inside its read (and the time zone's PATCH): the gates below decide from it in this step
@@ -453,23 +453,26 @@ final class OnboardingCoordinator {
     /// The three reads at once, through the read pipeline (joined with the launch's own reads of
     /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
     /// up waiting after `checkTimeout`.
-    private func fetchWithTimeout(changedSince: Date?) async -> Answer {
+    private func fetchWithTimeout(changedSince: Date?, userInitiated: Bool) async -> Answer {
         let api = api, clock = env.clock, reads = env.reads, state = state, consent = consent
         let tz = TimeZone.current.identifier
         let meMode: ReadMode = changedSince.map { .changed(since: $0) } ?? .latest
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
                 // The user is stored inside the read, so it lands even when the timeout wins.
-                async let me = try? reads.run(ReadKey(.me), mode: meMode, storeAsked: { (user: User, asked: Date) in
+                async let me = try? reads.run(ReadKey(.me), mode: meMode, userInitiated: userInitiated,
+                                              storeAsked: { (user: User, asked: Date) in
                     await state.repository.store(fetchedUser: user, askedAt: asked).committed()
                 }) {
                     try await api.me()
                 }
                 // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
-                async let config = try? consent.fetchConfig()
+                async let config = try? consent.fetchConfig(userInitiated: userInitiated)
                 // The same mode: after a withdrawal, a status asked for before it would say no gate. With when its flight
                 // was asked for, without taking over its store (the sync's poll may have started it): R2 decides by it.
-                async let status = try? reads.runAsked(ReadKey(.syncStatus), mode: meMode) { try await api.syncStatus() }
+                async let status = try? reads.runAsked(ReadKey(.syncStatus), mode: meMode, userInitiated: userInitiated) {
+                    try await api.syncStatus()
+                }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz {
@@ -694,6 +697,16 @@ final class OnboardingCoordinator {
     func reconnected() async {
         guard consent.unsettledAgreement != nil else { return }
         await check()
+    }
+
+    /// Profile's Check with RYFT: as coming back online asks (`reconnected()`), asked for by the person, so a `Retry-After`
+    /// window doesn't hold it (code review round 2, 3). True when RYFT's word on the agreement is in (or nothing waits for
+    /// it); false when it didn't come (offline, no answer within `checkTimeout`, a failure).
+    @discardableResult
+    func confirmAgreement() async -> Bool {
+        guard consent.unsettledAgreement != nil else { return true }
+        await check(userInitiated: true)
+        return consent.unsettledAgreement == nil
     }
 
     /// A new Agree is timed from here (nothing signed out or in demo mode).

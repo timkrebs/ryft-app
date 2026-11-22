@@ -869,10 +869,13 @@ struct ConsentAgreeTests {
         try await h.agreedUnsettled()
         let profile = h.profile()
         #expect(profile.consentAwaitsConfirmation && !profile.consentNeedsAttention)
-        #expect(profile.consentText == String(localized: "Given, not confirmed yet"))
-        #expect(profile.consentDetail == String(localized: "You agreed on this iPhone. Syncing starts once RYFT confirms it."))
+        // Given: RYFT recorded it at the 204; only this iPhone waits (security review round 2, N2).
+        #expect(profile.consentText == String(localized: "Given"))
+        #expect(profile.consentDetail
+            == String(localized: "RYFT has recorded your consent. This iPhone starts syncing once it hears back."))
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
             == [.consent, .checkConsent, .withdrawConsent])
+        #expect(profile.canCheckConsent && profile.consentCheckMessage == nil)
 
         let reads = h.api.count("me")
         await profile.checkConsent()
@@ -909,6 +912,7 @@ struct ConsentAgreeTests {
         #expect(await eventually { delete.waiting == 1 })
         #expect(profile.withdrawingConsent, "Demo data and Log out are held")
         #expect(profile.consentDetail == String(localized: "Withdrawing your consent. Nothing syncs while it's on its way."))
+        #expect(!profile.canCheckConsent, "no check while it's on its way")
         delete.release()
         await withdrawing.value
         #expect(h.consent.withdrawnAt != nil && h.consent.agreement == nil)
@@ -1135,6 +1139,76 @@ struct ConsentAgreeTests {
         let status = try #require(h.state.syncStatus)
         #expect(status.gate == .consentRequired && sync.statusReadAt == h.clock.now(), "arrived at + 11 s")
         #expect(steps.scoringGate(of: status) == nil, "asked at + 3 s: it says nothing about consent")
+    }
+
+    // MARK: Review round 2, code 3 and 7: Check with RYFT
+
+    @Test("Code 3: offline, Check with RYFT is dimmed and sends nothing; the footer says when RYFT is asked again",
+          .timeLimit(.minutes(1)))
+    func checkingOffline() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        h.connectivity.update(false)
+        #expect(!profile.canCheckConsent)
+        #expect(profile.consentDetail == String(
+            localized: "RYFT has recorded your consent. This iPhone asks RYFT again once it's back online, then starts syncing."))
+        let reads = h.api.count("me")
+        await profile.checkConsent()
+        #expect(h.api.count("me") == reads && profile.consentCheckMessage == nil, "nothing sent, nothing said")
+
+        h.connectivity.update(true)
+        #expect(profile.canCheckConsent)
+        #expect(profile.consentDetail
+            == String(localized: "RYFT has recorded your consent. This iPhone starts syncing once it hears back."))
+    }
+
+    @Test("Code 3: a check that brings no word says so in one line; one that does clears it", .timeLimit(.minutes(1)))
+    func aCheckWithoutAnAnswerSaysSo() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        h.api.faults["me"] = .init(.offline)
+        await profile.checkConsent()
+        #expect(profile.consentAwaitsConfirmation)
+        #expect(profile.consentCheckMessage == String(localized: "RYFT didn't answer. Try again in a moment."))
+
+        h.api.faults["me"] = nil
+        await profile.checkConsent()
+        #expect(!profile.consentAwaitsConfirmation && profile.consentCheckMessage == nil)
+    }
+
+    @Test("Code 3: Check with RYFT is the person's own read: a Retry-After window holds a reconnect, not the check",
+          .timeLimit(.minutes(1)))
+    func theCheckIsThePersonsOwnRead() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        h.env.reads.seed([.me: ResourceState(retryNotBefore: h.clock.now().addingTimeInterval(300))])
+        let reads = h.api.count("me")
+        await h.onboarding.reconnected()
+        #expect(h.api.count("me") == reads, "held back: \(h.api.calls)")
+        await profile.checkConsent()
+        #expect(h.api.count("me") == reads + 1, "asked: \(h.api.calls)")
+        #expect(!profile.consentAwaitsConfirmation && profile.consentCheckMessage == nil)
+    }
+
+    @Test("Code 7: Withdraw waits while Check with RYFT asks: nothing is sent", .timeLimit(.minutes(1)))
+    func withdrawIsHeldWhileChecking() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        let me = FirstCallsHold()
+        h.api.beforeMe = { await me.wait() }
+
+        let checking = Task { await profile.checkConsent() }
+        #expect(await eventually { me.waiting == 1 && profile.checkingConsent })
+        await profile.withdrawConsent()
+        #expect(h.api.count("revokeConsent") == 0 && !h.onboarding.isWithdrawing, "\(h.api.calls)")
+
+        me.release()
+        await checking.value
+        #expect(!profile.checkingConsent && !profile.consentAwaitsConfirmation)
     }
 
 }

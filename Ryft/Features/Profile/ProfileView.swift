@@ -307,13 +307,15 @@ struct ProfileView: View {
                               busy: model.checkingConsent, identifier: id) {
                 Task { await model.checkConsent() }
             }
-            .disabled(model.checkingConsent || model.withdrawingConsent)
+            // Offline it can't ask: dimmed, and the footer says when it asks again.
+            .disabled(model.checkingConsent || !model.canCheckConsent)
         case .withdrawConsent:
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
             }
-            // Not while Log out runs: its sign-out would end the withdrawal unsent (the model refuses it too).
-            .disabled(model.loggingOut)
+            // Not while Log out runs: its sign-out would end the withdrawal unsent; nor while Check with RYFT asks (the model
+            // refuses both too).
+            .disabled(model.loggingOut || model.checkingConsent)
         case .analytics:
             AnalyticsOptInRow()
         // Account
@@ -389,7 +391,7 @@ struct ProfileView: View {
             return model.syncNotice != nil || model.demoExitError != nil || !model.devices.isEnabled
                 || !model.devices.healthAccessSteps.isEmpty
         case .training: return WorkoutHealthExport.shared.needsAccess || model.showsSessionLayout
-        case .privacy: return model.consentError != nil || model.consentDetail != nil
+        case .privacy: return model.consentError != nil || model.consentCheckMessage != nil || model.consentDetail != nil
         case .account: return !model.isSignedIn || model.accountError != nil
         }
     }
@@ -448,6 +450,9 @@ struct ProfileView: View {
             FooterStack {
                 if let error = model.consentError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
+                }
+                if let unanswered = model.consentCheckMessage {
+                    InlineMessage(message: unanswered, systemImage: "exclamationmark.circle", identifier: "privacy.checkUnanswered")
                 }
                 if let detail = model.consentDetail {
                     GroupFooter(consentFooter(detail))
@@ -714,8 +719,11 @@ private enum ProfilePreview {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
         /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
         case withdrawing
-        /// Agreed on this iPhone, RYFT's word on it never coming: Given, not confirmed yet; Check with RYFT and Withdraw.
+        /// Agreed on this iPhone, RYFT's word on it never coming: Given, the footer on what this iPhone waits for; Check with
+        /// RYFT and Withdraw.
         case consentUnconfirmed
+        /// The same, offline: Check with RYFT dimmed, and the footer says this iPhone asks again once back online.
+        case consentUnconfirmedOffline
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
@@ -728,14 +736,15 @@ private enum ProfilePreview {
         let withdrawing = kind == .withdrawing
         // Never answered while the preview is open; on a clock that stands still, so `SettingsWrite.deadline` never ends it.
         if withdrawing { api.beforeRevokeConsent = { try? await Task.sleep(for: .seconds(86_400)) } }
-        let unconfirmed = kind == .consentUnconfirmed
+        let unconfirmed = kind == .consentUnconfirmed || kind == .consentUnconfirmedOffline
         if unconfirmed { api.beforeMe = { try? await Task.sleep(for: .seconds(86_400)) } }
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
                                  persistence: TrainStore(inMemory: true),
                                  clock: withdrawing ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
-                                 flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
+                                 flags: StaticFlags([.devicesSetup: true]),
+                                 connectivity: .preview(online: kind != .offline && kind != .consentUnconfirmedOffline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
         // The 204 on this iPhone, RYFT's own word on it still out.
@@ -775,7 +784,7 @@ private enum ProfilePreview {
         case .noName:
             return User(id: u.id, name: "", email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, consent: u.consent, birthYear: u.birthYear)
-        case .consentOutdated, .consentUnconfirmed:
+        case .consentOutdated, .consentUnconfirmed, .consentUnconfirmedOffline:
             return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, birthYear: u.birthYear)
         default:
@@ -810,6 +819,7 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
 #Preview("Profile · consent not confirmed yet") { ProfilePreview.page(.consentUnconfirmed) }
 #Preview("Profile · consent not confirmed yet · AX3") { ProfilePreview.page(.consentUnconfirmed, ax3: true) }
+#Preview("Profile · consent not confirmed yet · offline") { ProfilePreview.page(.consentUnconfirmedOffline) }
 #Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
 #Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
 #Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }

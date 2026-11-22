@@ -249,8 +249,9 @@ final class ProfileViewModel {
     }
 
     /// This phone agreed to the policy in force and RYFT's own word on it is still out (`ConsentState.unsettledAgreement`,
-    /// ADR 0025): the consent is given and not confirmed yet, whatever the account cached says (code review S2). Not
-    /// "Not given", and nothing to agree to again: Privacy asks RYFT again instead, and Withdraw is offered.
+    /// ADR 0025): the consent is given (RYFT recorded it at the `204`; only this iPhone's uploads wait), whatever the
+    /// account cached says (code review S2; security review round 2, N2). Not "Not given", and nothing to agree to
+    /// again: Privacy asks RYFT again instead, and Withdraw is offered.
     var consentAwaitsConfirmation: Bool {
         guard showsAccountConsent, let version = onboarding?.policyVersion else { return false }
         return env.consent.unsettledAgreement == version
@@ -264,16 +265,16 @@ final class ProfileViewModel {
             return String(localized: "Not shown",
                           comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
         }
-        if consentAwaitsConfirmation {
-            return String(localized: "Given, not confirmed yet",
-                          comment: "Profile → Privacy → Health-data consent: agreed on this iPhone, RYFT's confirmation still out. Neutral, not a warning.")
-        }
+        // Given: RYFT recorded it at the 204; the footer says what this iPhone still waits for.
+        if consentAwaitsConfirmation { return String(localized: "Given") }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
     /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is; while a
-    /// withdrawal is on its way, that it is (D6).
+    /// withdrawal is on its way, that it is and that nothing syncs meanwhile (D6; security review round 2, S-1); given here
+    /// and not confirmed yet, that RYFT recorded it and this iPhone starts syncing once it hears back, offline that it
+    /// asks again once back online (security review round 2, N2; code review round 2, 3).
     var consentDetail: String? {
         guard isSignedIn else { return nil }
         guard !env.isDemo else {
@@ -285,8 +286,12 @@ final class ProfileViewModel {
                           comment: "Profile → Privacy footer while the consent withdrawal request is on its way: every upload waits meanwhile.")
         }
         if consentAwaitsConfirmation {
-            return String(localized: "You agreed on this iPhone. Syncing starts once RYFT confirms it.",
-                          comment: "Profile → Privacy footer: the consent was given here and RYFT hasn't confirmed it yet (Check with RYFT asks).")
+            guard env.connectivity.isOnline else {
+                return String(localized: "RYFT has recorded your consent. This iPhone asks RYFT again once it's back online, then starts syncing.",
+                              comment: "Profile → Privacy footer, offline: consent given here, RYFT's answer to this iPhone still out.")
+            }
+            return String(localized: "RYFT has recorded your consent. This iPhone starts syncing once it hears back.",
+                          comment: "Profile → Privacy footer: consent given here and recorded by RYFT; this iPhone waits for its answer.")
         }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
@@ -329,25 +334,43 @@ final class ProfileViewModel {
     /// answer recorded, before the re-check: security review N-3); a failure or an account change that ended it unsent
     /// says nothing here.
     func withdrawConsent() async {
-        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. The row is disabled then too.
-        guard !loggingOut else { return }
+        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. Nor while Check with RYFT
+        // asks (code review round 2, 7): its answer, handled after the DELETE, could end the hold early. The row is
+        // disabled then too.
+        guard !loggingOut, !checkingConsent else { return }
         await onboarding?.withdrawConsent(onRecorded: { [self] in announce(Self.consentWithdrawnAnnouncement) })
     }
 
     /// The consent screen, again.
     func reviewConsent() { onboarding?.show(.consent) }
 
-    /// "Check with RYFT" is on its way (its row is busy).
+    /// "Check with RYFT" is on its way (its row is busy, Withdraw consent is dimmed).
     private(set) var checkingConsent = false
 
-    /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again (`/v1/me` asked for after
-    /// the agreement, as coming back online asks). Its answer decides the row: confirmed, "Given"; without the consent,
-    /// "Not given" and Review and agree. Offline nothing is sent, and the row stays as it is.
+    /// The last Check with RYFT brought no word (`consentCheckMessage`).
+    private var consentCheckFailed = false
+
+    /// Check with RYFT can ask: online, and no withdrawal on its way. Offline the row is dimmed and the footer says this
+    /// iPhone asks again once it's back online (code review round 2, 3).
+    var canCheckConsent: Bool { consentAwaitsConfirmation && env.connectivity.isOnline && !withdrawingConsent }
+
+    /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again, as the person's own read
+    /// (`OnboardingCoordinator.confirmAgreement`: `/v1/me` asked for after the agreement, not held by a `Retry-After`).
+    /// Its answer decides the row: confirmed, "Given" without the line; without the consent, "Not given" and Review and
+    /// agree. No word (no answer within the check's 10 s, a failure): one line says so (`consentCheckMessage`).
     func checkConsent() async {
-        guard consentAwaitsConfirmation, !checkingConsent else { return }
+        guard canCheckConsent, !checkingConsent else { return }
         checkingConsent = true
+        consentCheckFailed = false
         defer { checkingConsent = false }
-        await onboarding?.reconnected()
+        consentCheckFailed = !(await onboarding?.confirmAgreement() ?? true)
+    }
+
+    /// Under Privacy after a Check with RYFT that brought no word, while the consent still waits for it.
+    var consentCheckMessage: String? {
+        guard consentCheckFailed, consentAwaitsConfirmation, !checkingConsent else { return nil }
+        return String(localized: "RYFT didn't answer. Try again in a moment.",
+                      comment: "Profile → Privacy, after Check with RYFT: no answer came in time, or the request failed.")
     }
 
     var policyPage: LegalPage { onboarding?.policyPage ?? .privacy }
