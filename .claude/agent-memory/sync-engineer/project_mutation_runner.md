@@ -31,6 +31,13 @@ Leads ask for a mutation check per new test ("break what it guards, see it fail,
   when the log has no "Test run with N tests" line.
 - (2026-11-21) Parameterized tests: the issue lines read `✘ Test f(late:reloadFails:) recorded an issue with 2
   arguments late → .plans, reloadFails → false at …`; match per case to show which arguments a mutant breaks.
+- (2026-11-22) Put the shared-Mac gate (no booted "RYFT CI", 5-minute load < 200, < 3 xcodebuilds) in the runner
+  before each xcodebuild, not once before the script: a 7-mutant run spans CI jobs.
+- (2026-11-22) A mutant that makes a test hang shows as exit 65 with "Time limit was exceeded: 60.000 seconds",
+  "Restarting after unexpected exit…", and then a relaunch's "✔ Test run with N tests passed". It's a kill by the time
+  limit, not by the checks, and the runner's `✘` parser lists nothing. Grep for "Time limit|Restarting". Fix the
+  test's hold, a continuation gate that holds every `wait()` forever, so it stays open after `release()`. Then the
+  mutant's later calls finish and the `#expect`s fail.
 
 **Why:** reviews re-run mutants ([[feedback-tests-pin-decisions]]); doing it by hand for 20+ mutants is slow and
 error-prone. **How to apply:** any round that asks for mutation results.

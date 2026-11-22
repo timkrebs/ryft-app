@@ -18,4 +18,4 @@ Its integration run was fully green (strict build, Unit plan, lint, style), beca
   `xcodebuild -scheme Ryft -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
 - Briefs that add preview-only mocks say "wrap the previews in `#if DEBUG`".
 - A CI Release build (or a lint) belongs in a `ci:` PR.
-- See [[nightly-signing-blocked]]: with the archive already failing for signing, a compile break would hide behind it.
+- Signing works again since 2026-11-17 (see [[nightly-testflight]]), but a Release compile break still only shows at archive time, after the merge.

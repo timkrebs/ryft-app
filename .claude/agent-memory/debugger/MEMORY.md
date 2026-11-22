@@ -4,3 +4,4 @@
 - [CI sim wedged](ci-sim-wedged-unit-hang.md) — Unit hang on reused "RYFT CI" sim (recurs); fix = fresh sim per job + cleanup; leaked XCTestDevices clones
 - [Orbit render flake](orbit-render-flake.md) — ImageRenderer byte/pixel tests flake in host windows; repro = -test-iterations on many sims
 - [Shared MockTrainSource reset](shared-mock-train-source-reset.md) — default MockPlatformAPI() shares Train mock; AppState.reset() in another suite 404s a complete
+- [Consent Agree lag](consent-agree-lag.md) — next screen waits for slowest of 3 re-check reads; /v1/me/sync 10 s server cache; what to measure

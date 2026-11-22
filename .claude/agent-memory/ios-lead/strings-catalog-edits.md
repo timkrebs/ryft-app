@@ -23,3 +23,5 @@ After every strings commit, check two things:
 - at squash-merge time, set the PR body explicitly, so a trailer in a branch commit doesn't land on `main`.
 
 See [[integration-branch]] for merging catalogs across PRs.
+
+**Merge conflicts in the catalog:** resolve them by hand, then compare the result with the three-way union computed from the JSON (base, ours, theirs). Taking one side of a hunk can silently undo the other side's key rename. On 2026-11-22, main's side of a hunk brought back "Waiting since %@ · usually %lld s" with a plain space, where the branch had renamed it to a no-break space. A jq union check found it. The check takes `.strings` from base, ours and theirs (`git show <rev>:…`). The expected result is ours, with every key that theirs changed relative to base set to theirs (or deleted). It must equal the merged file's `.strings`. Recreate the check per session; the scratchpad doesn't persist.

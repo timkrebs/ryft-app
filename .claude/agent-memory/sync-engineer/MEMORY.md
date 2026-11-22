@@ -39,3 +39,4 @@
 - [ReadScheduler weak env](project_read_scheduler_weak_env.md) — scheduler holds env weakly; keep test envs alive or every read is "offline"
 - [state.reset() keeps the store](project_state_reset_keeps_store.md) — reset ≠ wipe in tests; never end a turn to wait (forced hand-back); midnight Activities flake
 - [Test defaults isolation](project_test_defaults_isolation.md) — .standard keys race in parallel suites; inject UserDefaults, a suite per rig; uninstall after mutants
+- [Split ordered commits](project_split_commits_from_ahead_tree.md) — stage script per commit; stash --keep-index builds the index; pop by sha

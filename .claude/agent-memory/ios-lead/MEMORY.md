@@ -3,6 +3,7 @@
 - [CI UI timeouts](ci-ui-timeouts.md) — runner offline (session expired) → launchctl kickstart; tally + steps first; wedged "RYFT CI" sim → delete
 - [Device sessions](device-sessions.md) — user's own iPhone: start only when he says it's free; screenshot only with RYFT in front
 - [Strings catalog edits](strings-catalog-edits.md) — never re-serialise xcstrings; check --stat + semantic diff + trailer of every strings commit
+- [Ruleset: up to date](ruleset-up-to-date.md) — BEHIND blocks merge; update the other PRs right after a merge, while their iOS run is queued
 - [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
 - [swiftc via make](swiftc-via-make.md) — direct swiftc/sips/python refused for agents; wire scripts into Makefile targets
