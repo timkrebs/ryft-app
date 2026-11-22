@@ -76,3 +76,17 @@ Every round-2 item checked is fixed. No upload path runs while the `DELETE` is o
 | N-a | During a withdrawal of an unconfirmed consent, the pause words say "confirm your consent". | **Fix:** `agreementUnsettled: unsettled && !onboarding.isWithdrawing` (and while unresolved). |
 | N-b | After an unanswered withdrawal of an unconfirmed consent, Privacy keeps "RYFT has recorded your consent" even after the late read shows none. | **Fix:** a read showing no consent settles (closing is always safe). |
 | Outside | `PushRegistrar.swift:165` and `TrainCoordinator.swift:650` log `error.localizedDescription` publicly (the server's message for some statuses). | Follow-up, low: into STATUS. |
+
+### code-reviewer: every decided item fixed, one small should-fix
+All of S-1, code 1–9, N1–N3 hold. The developer's six notes are sound.
+
+| # | Finding | Lead decision |
+|---|---|---|
+| S | "Check with RYFT"'s failure line has no Details, and its words are wrong when RYFT did answer (a fast 500, or a 429 over the cap) (`ProfileView.swift:454`, `ProfileViewModel.swift:366-373`). Hard rule 6. | **Fix:** `confirmAgreement()` returns the `.me` failure; pass it as `details:`; use `APIError`'s own sentence for 429 and 503. |
+| 1 | A late no-consent answer leaves the agreement unsettled. | Same as security N-b: **fix**. |
+| 2 | `PauseCause` names confirmation during a withdrawal. | Same as security N-a: **fix**. |
+| 3 | Code 1's gap: when RYFT records the `DELETE` after the re-read, the re-read shows the consent, the sheet is un-deferred, and the next check opens it unasked. No test pins the un-defer. | **Fix:** never un-defer on the `Unanswered` path (Today's action and Privacy still offer the step). Test that `.consent` stays deferred. |
+| 4 | The failure line shows while offline. | **Fix:** guard on `isOnline`. |
+| 5 | Sync details reuses Plans' "Paused" key. | **Fix:** its own keyed string with its own comment. |
+| 6 | The `ScreenModels.swift:81` wiring (`requestedAt`) is untested. | **Fix:** a wiring test. |
+| 7 | ADR 0025 decision 3 needs "except while the agreement is void". | **Fix.** |
