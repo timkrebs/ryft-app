@@ -1780,6 +1780,9 @@
     "Check the target: % 1RM 30–110, RPE 1–10, kg 0–500." : {
       "comment" : "Plan builder: why a target is out of range. The allowed ranges for % 1RM, RPE and kg."
     },
+    "Check with RYFT" : {
+      "comment" : "Profile → Privacy: asks RYFT again whether it has the consent given on this iPhone."
+    },
     "Checked" : {
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: checked, with nothing to count (Other, or an Apple device RYFT can't tell apart)."
     },
@@ -2239,6 +2242,9 @@
       "comment" : "Custom exercise: the name is empty or longer than the platform takes, so nothing was saved."
     },
     "Given" : {},
+    "Given, not confirmed yet" : {
+      "comment" : "Profile → Privacy → Health-data consent: agreed on this iPhone, RYFT's confirmation still out. Neutral, not a warning."
+    },
     "Go to bed at %@" : {
       "comment" : "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for the user's goal. %@: the time, e.g. \"10:06 PM\"."
     },
@@ -2509,6 +2515,9 @@
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {},
     "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
       "comment" : "Training import, step 5: the offline duplicate check."
+    },
+    "It continues by itself once RYFT confirms your consent. Nothing to do here." : {
+      "comment" : "Training import: held at a gate with no step to take (consent given here, RYFT's confirmation out; or the policy not known yet)."
     },
     "It's missing %@. Install the latest version of RYFT." : {
       "comment" : "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names."
@@ -4744,6 +4753,9 @@
       "comment" : "Activity detail: strain pending, heart rate may still arrive."
     },
     "Waiting for last night's sleep" : {},
+    "Waiting for RYFT to confirm your consent" : {
+      "comment" : "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone."
+    },
     "Waiting for the privacy policy" : {
       "comment" : "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force."
     },
@@ -4856,6 +4868,9 @@
     "Yesterday's readiness, until last night is scored." : {},
     "Yesterday, %@" : {
       "comment" : "VoiceOver: Sleep's title value for the night that ended yesterday, the date in full (\"Saturday, November 14\")."
+    },
+    "You agreed on this iPhone. Syncing starts once RYFT confirms it." : {
+      "comment" : "Profile → Privacy footer: the consent was given here and RYFT hasn't confirmed it yet (Check with RYFT asks)."
     },
     "You already added a night for that day." : {
       "comment" : "Add or edit sleep: the wake day already has a night the user added."
