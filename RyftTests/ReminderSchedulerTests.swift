@@ -651,18 +651,22 @@ private extension DateComponents {
     }
 }
 
-/// Holds a call until released (an `add` on its way).
+/// Holds calls until released (an `add` on its way); once released, later calls go straight through, so a pass that
+/// goes on adding finishes and the test's checks (not its time limit) catch it.
 @MainActor
 private final class AddHold {
     private(set) var waiting = 0
+    private var released = false
     private var continuations: [CheckedContinuation<Void, Never>] = []
 
     func wait() async {
         waiting += 1
+        guard !released else { return }
         await withCheckedContinuation { continuations.append($0) }
     }
 
     func release() {
+        released = true
         let all = continuations
         continuations = []
         for c in all { c.resume() }
