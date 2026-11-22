@@ -370,13 +370,16 @@ final class AttestRig {
     let defaults: UserDefaults
     let status = APIStatus()
     var account = AttestRig.a
+    /// The raw `CFBundleVersion` every client of the rig is given (`APIClient(build:)`, AA1).
+    let build: String?
     private(set) var attestor: AppAttestor!
     private(set) var api: APIClient!
 
     /// `served`: this install has seen the challenge route answer `200` (a request without a token waits for one).
     /// The server is scripted as served with `serveAppAttest()` unless `served` is nil.
     init(served: Bool = true, supported: Bool = true, storedKey: StoredAppAttestKey? = nil,
-         scripted: Bool = true) {
+         scripted: Bool = true, build: String? = "20261120.091500") {
+        self.build = build
         server = AttestServer(host: "attest-\(UUID().uuidString.lowercased()).test", events: events)
         service = ScriptedAppAttestService(supported: supported, events: events)
         keys = SpyAppAttestKeys(storedKey)
@@ -403,7 +406,7 @@ final class AttestRig {
         config.protocolClasses = [AttestServerProtocol.self]
         return APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
                          baseURL: URL(string: "https://\(server.host)"), ingestURL: URL(string: "https://\(server.ingestHost)"),
-                         status: status, settings: Settings(defaults: defaults), appAttest: attestor)
+                         status: status, settings: Settings(defaults: defaults), appAttest: attestor, build: build)
     }
 
     @discardableResult

@@ -242,6 +242,135 @@ struct AppAttestRefreshTests {
     }
 }
 
+/// AA1 (D247): `X-RYFT-App-Build` on every request to api and ingest, and never a malformed one.
+@Suite("X-RYFT-App-Build (AA1)", .timeLimit(.minutes(1)))
+@MainActor
+struct AppBuildHeaderTests {
+    static let header = "X-RYFT-App-Build"
+
+    private func bareClient(_ rig: AttestRig) -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AttestServerProtocol.self]
+        return APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                         baseURL: URL(string: "https://\(rig.server.host)"),
+                         ingestURL: URL(string: "https://\(rig.server.ingestHost)"),
+                         status: rig.status, settings: Settings(defaults: rig.defaults), appAttest: nil, build: rig.build)
+    }
+
+    @Test func everyRequestKindCarriesTheBuild() async throws {
+        let rig = AttestRig()
+        let build = try #require(rig.build)
+        _ = try await rig.getMe()                                   // foreground, and the first run's three routes
+        _ = try await rig.postSync()                                // ingest
+        try await APIClient.$runsInBackground.withValue(true) {     // a background session
+            _ = try await rig.postSync()
+            _ = try await rig.getMe()
+        }
+        try await APIClient.$singleAttempt.withValue(true) {        // a scheduled read
+            _ = try await rig.getMe()
+        }
+        _ = try await rig.api.appAttestChallenge()                  // the App Attest routes, called straight
+        _ = try await rig.api.postAppAttestKey(AppAttestKeyPost(keyId: "k", attestation: "a", challenge: "c"))
+        _ = try await rig.api.postAppAttestToken(AppAttestTokenPost(keyId: "k", challenge: "c", assertion: "a"))
+        let push = "DELETE /v1/devices/5f0e8c1a-6c1b-4a4e-9d55-1f1d2f6a3b7c/push"      // routes App Attest exempts
+        let exempt = [push, "DELETE /v1/me", "POST /v1/me/apple-authorization", "DELETE /v1/me/consent",
+                      "POST /v1/feedback"]
+        for route in exempt {
+            let parts = route.split(separator: " ", maxSplits: 1).map(String.init)
+            _ = try await rig.api.exchange(parts[0], path: parts[1], encodedBody: nil)
+        }
+
+        // Every kind was really sent…
+        #expect(rig.server.count(AttestServer.me) == 3 && rig.server.count(AttestServer.sync) == 2)
+        #expect(rig.server.requests(AttestServer.sync).allSatisfy { $0.host == rig.server.ingestHost })
+        for route in AttestServer.appAttestRoutes + exempt { #expect(rig.server.count(route) >= 1, "\(route)") }
+        // …and each one carries the same build.
+        for request in rig.server.requests { #expect(request.header(Self.header) == build, "\(request.key)") }
+    }
+
+    struct Retry: Sendable, CustomTestStringConvertible {
+        let status: Int
+        let first: AttestServer.Reply
+        var testDescription: String { "\(status) then 200" }
+    }
+
+    @Test(arguments: [Retry(status: 401, first: .refusal(401, requestID: "rid-401")),
+                      Retry(status: 403, first: .refusal(403, code: "app_attest_required", requestID: "rid-403")),
+                      Retry(status: 429, first: .refusal(429, retryAfter: 1)),
+                      Retry(status: 503, first: .refusal(503, retryAfter: 1))])
+    func everyAttemptCarriesIt(_ retry: Retry) async throws {
+        let rig = AttestRig()
+        let build = try #require(rig.build)
+        _ = try await rig.getMe()                                   // holds tok-1
+        rig.clock.advance(by: .seconds(61))                         // a refusal may renew now
+        rig.server.reply(AttestServer.me, .ok, retry.first, .ok)    // the warm-up was the first answer
+        _ = try await rig.getMe()
+        let me = rig.server.requests(AttestServer.me)
+        #expect(me.count == 3, "the refused attempt and its retry were both sent")
+        for request in me { #expect(request.header(Self.header) == build) }
+    }
+
+    @Test func aClientWithoutAppAttestAndACallersBaseSendIt() async throws {
+        let rig = AttestRig()
+        let build = try #require(rig.build)
+        let bare = bareClient(rig)
+        _ = try await bare.data("GET", path: "/v1/me", body: Optional<Int>.none)
+        _ = try await bare.exchange("GET", path: "/v1/me", encodedBody: nil,
+                                    base: URL(string: "https://\(rig.server.host)"))
+        #expect(rig.server.requests.count == 2)
+        #expect(rig.server.appAttestRequests == 0)
+        for request in rig.server.requests { #expect(request.header(Self.header) == build) }
+    }
+
+    @Test func aClientWithoutAnExplicitBuildSendsTheBundlesOwn() async throws {
+        let rig = AttestRig()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AttestServerProtocol.self]
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: URL(string: "https://\(rig.server.host)"), status: rig.status,
+                               settings: Settings(defaults: rig.defaults))
+        _ = try await client.data("GET", path: "/v1/me", body: Optional<Int>.none)
+        let sent = try #require(rig.server.requests.first)
+        #expect(sent.header(Self.header) == AppInfo.headerBuild(AppInfo.bundleBuild))
+    }
+
+    struct Build: Sendable, CustomTestStringConvertible {
+        let raw: String?
+        let valid: Bool
+        var testDescription: String { "\(raw.map { "\"\($0)\"" } ?? "nil") (\(valid ? "sent" : "omitted"))" }
+    }
+
+    @Test(arguments: [
+        Build(raw: "1", valid: true), Build(raw: "20261120.091500", valid: true), Build(raw: "1.2.3.4", valid: true),
+        Build(raw: "01.002", valid: true), Build(raw: "12345678.12345678.1234.1", valid: true),
+        Build(raw: String(repeating: "1", count: 24), valid: true),
+        Build(raw: nil, valid: false), Build(raw: "", valid: false), Build(raw: "1.0b3", valid: false),
+        Build(raw: "1.", valid: false), Build(raw: ".1", valid: false), Build(raw: "1..2", valid: false),
+        Build(raw: "1.2.3.4.5", valid: false), Build(raw: "2026112009150012345.12345", valid: false),
+        Build(raw: String(repeating: "1", count: 25), valid: false),
+        Build(raw: " 1", valid: false), Build(raw: "1 ", valid: false), Build(raw: "1\n", valid: false),
+        Build(raw: "١٢", valid: false), Build(raw: "１２", valid: false), Build(raw: "1,2", valid: false),
+        Build(raw: "-1", valid: false), Build(raw: "1+2", valid: false), Build(raw: "v1", valid: false),
+    ])
+    func headerBuildValidation(_ build: Build) {
+        #expect(AppInfo.headerBuild(build.raw) == (build.valid ? build.raw : nil))
+    }
+
+    @Test(arguments: ["1.0b3", "1..2", "1.2.3.4.5", "2026112009150012345.12345", "", nil] as [String?])
+    func aBuildThatFailsThePatternIsOmitted(_ raw: String?) async throws {
+        let rig = AttestRig(build: raw)
+        _ = try await rig.getMe()
+        _ = try await rig.postSync()
+        _ = try await rig.api.appAttestChallenge()
+        #expect(rig.server.requests.count >= 5)                     // the first run's routes, both reads, the write
+        for request in rig.server.requests {
+            #expect(request.header(Self.header) == nil, "\(request.key)")
+        }
+        // Requests still work: only the header is left out.
+        #expect(rig.server.appTokens(AttestServer.me) == ["tok-1"])
+    }
+}
+
 extension Data {
     /// Bytes from a lowercase hex string.
     init(hex: String) {
