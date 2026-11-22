@@ -568,7 +568,9 @@ final class OnboardingCoordinator {
     /// this one is on its way sends nothing (Profile's row is busy). It fails fast (`revokeFailingFast`): Profile holds
     /// Demo data and Log out meanwhile, for seconds, not for a request's 5 minutes. `onRecorded` runs once the platform's
     /// answer is recorded on this phone, before the re-check (Profile's hold ends then, and VoiceOver hears it, security
-    /// review N-3); true is returned only after the re-check.
+    /// review N-3); true is returned only after the re-check. Sent with no answer (`Unanswered`), RYFT is asked what it
+    /// holds: without the consent, the withdrawal arrived and is recorded as an answered one; with it, Profile says it may
+    /// still have arrived (`withdrawalUnansweredMessage`).
     @discardableResult
     func withdrawConsent(onRecorded: @MainActor () -> Void = {}) async -> Bool {
         guard !isWithdrawing else { return false }
@@ -577,7 +579,28 @@ final class OnboardingCoordinator {
         defer { if started == turn { isWithdrawing = false } }
         return await perform(waitsForTurn: true) { sent in
             let change = self.state.repository.userChange()
-            try await self.revokeFailingFast()
+            let sentAt = self.env.clock.now()
+            var reread = false
+            do {
+                try await self.revokeFailingFast()
+            } catch is Unanswered {
+                // A cancelled or unanswered request isn't an unsent one: RYFT may have recorded it. Asked what it holds,
+                // so Privacy shows that (security review round 3, A). The consent sheet waits meanwhile: a withdrawal
+                // that arrived is never asked about again on its own, as below.
+                try self.answered(sent)
+                let wasDeferred = self.deferred.contains(.consent)
+                self.deferred.insert(.consent)
+                await self.check(force: true, changedSince: sentAt)
+                try self.answered(sent)
+                // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal
+                // is idempotent).
+                guard let user = self.state.repository.user(), user.consent == nil else {
+                    if !wasDeferred { self.deferred.remove(.consent) }
+                    throw Unanswered()
+                }
+                // Gone: it arrived. Recorded as an answered one, with the re-read already done.
+                reread = true
+            }
             // A's withdrawal answered after a sign-out: never recorded as B's.
             try self.answered(sent)
             let revokedAt = self.env.clock.now()
@@ -591,22 +614,31 @@ final class OnboardingCoordinator {
             // flight: it may have been answered before the withdrawal.
             self.deferred.insert(.consent)
             onRecorded()
-            await self.check(force: true, changedSince: revokedAt)
-        } message: { _ in nil }
+            if !reread { await self.check(force: true, changedSince: revokedAt) }
+        } message: { $0 is Unanswered ? Self.withdrawalUnansweredMessage : nil }
+    }
+
+    /// A withdrawal sent, with no answer in time, and RYFT still showing the consent when asked again (or not asked).
+    private struct Unanswered: Error {}
+
+    /// Under Withdraw consent when `DELETE /v1/me/consent` went out but no answer came in time: RYFT may have it.
+    nonisolated static var withdrawalUnansweredMessage: String {
+        String(localized: "RYFT didn't answer in time. Your withdrawal may still have arrived; try again to be sure.",
+               comment: "Profile → Privacy, under Withdraw consent: the request went out but no answer came in time (a timeout, the connection lost meanwhile), and RYFT still showed the consent when asked again.")
     }
 
     /// `DELETE /v1/me/consent` as a settings write sends it (`SettingsWrite`, security review S-2). Offline, nothing is
-    /// sent and it fails at once. Online, it is one attempt on the fail-fast session (no waiting for a network, no `429`
-    /// or `503` loop; the `401` refresh stays), with an answer within `SettingsWrite.deadline` or none. No answer in time,
-    /// or the network gone while it was out, reads as a lost connection does on every step ("No connection…", the
-    /// request cancelled). The user tries again: a withdrawal is idempotent. Before, it went on the default session,
-    /// which waits up to 5 minutes for a network.
+    /// sent and it fails at once ("No connection…"). Online, it is one attempt on the fail-fast session (no waiting for a
+    /// network, no `429` or `503` loop; the `401` refresh stays), with an answer within `SettingsWrite.deadline` or none.
+    /// Whatever may have reached RYFT without an answer (`SettingsWriteFailure.noAnswer`: no answer in time, the
+    /// session's own timeout, the network gone while it was out) is `Unanswered`, never "No connection": the caller asks
+    /// RYFT again. Before, it went on the default session, which waits up to 5 minutes for a network.
     private func revokeFailingFast() async throws {
         guard env.connectivity.isOnline else { throw APIError.transport(URLError(.notConnectedToInternet)) }
         do {
             try await SettingsWrite.answer(in: env) { try await self.api.revokeConsent() }
-        } catch is SettingsWrite.NoAnswer {
-            throw APIError.transport(URLError(.timedOut))
+        } catch where !error.isCancellation && SettingsWriteFailure(error) == .noAnswer {
+            throw Unanswered()
         }
     }
 

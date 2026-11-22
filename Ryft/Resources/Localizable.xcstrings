@@ -2891,6 +2891,9 @@
     "RYFT didn't accept that, so nothing changed." : {
       "comment" : "Journal (the day's sheet, Journal settings and Add a habit): RYFT turned the change down (422), so nothing was saved. Trying again won't help."
     },
+    "RYFT didn't answer in time. Your withdrawal may still have arrived; try again to be sure." : {
+      "comment" : "Profile → Privacy, under Withdraw consent: the request went out but no answer came in time (a timeout, the connection lost meanwhile), and RYFT still showed the consent when asked again."
+    },
     "RYFT didn't answer, so the rescore may not have started. Try again in a moment." : {
       "comment" : "Body setting editors and Profile: Rescore the last 90 days, no answer (a timeout, a dropped connection)."
     },

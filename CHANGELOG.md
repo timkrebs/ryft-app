@@ -150,8 +150,9 @@ Store "What's New".
 
 ### Fixed
 - While your consent withdrawal is on its way, Profile holds Demo data and Log out and says why: using either before
-  RYFT confirms it could drop the withdrawal without a word. Offline, or with no answer, the withdrawal now fails within
-  seconds and says so, instead of waiting for a connection. VoiceOver now hears when the withdrawal is confirmed.
+  RYFT confirms it could drop the withdrawal without a word. Offline, the withdrawal now fails at once and says so,
+  instead of waiting for a connection; with no answer in time, Profile asks RYFT again and shows whether it arrived.
+  VoiceOver now hears when the withdrawal is confirmed.
 - Train's History, exercise page and workout detail no longer ask you to go online when a read failed while you were
   online: they say it couldn't be loaded, with Try again.
 - "Logged session" on a workout opens that session again, also from Today and My Day.
