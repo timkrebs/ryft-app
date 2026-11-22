@@ -1561,7 +1561,9 @@ struct SyncDetailsTests {
     }
 
     @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
-        let (_, state, clock) = makeState()
+        // Noon, so the 61 s below can't cross midnight and change the day the status names.
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now) ?? .now
+        let (_, state, clock) = makeState(now: noon)
         let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         #expect(model.scoringText == String(localized: "Nothing waiting") && !model.scoringIsSlow)
