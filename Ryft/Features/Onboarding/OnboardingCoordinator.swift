@@ -47,7 +47,7 @@ final class OnboardingCoordinator {
         var betaAccess = true
         var consentVersion: String?
         /// This phone's consent `204` to this version, RYFT's own word on it still out (`ConsentState.unsettledAgreement`):
-        /// the flow's consent step counts it (`missing`), the upload gate doesn't (`gate`; ADR 0025).
+        /// the flow's consent step counts it (`missing`); the upload gate holds while it's there (`gate`; ADR 0025).
         var agreedVersion: String?
         /// `GET /v1/config` → `privacy_policy_version`, the latest heard of, whatever its age (`ConsentState`);
         /// `nil` when unknown.
@@ -105,15 +105,16 @@ final class OnboardingCoordinator {
     ///   then a fresh policy (`policyUnknown`). Only a fresh policy the consent matches opens it: staleness can only
     ///   hold. The consent is the stored user's, the platform's own word: never this phone's agreement, which only moves
     ///   the flow (ADR 0025).
+    /// - While this phone's agreement waits for RYFT's word (`agreedVersion`), data waits too, whatever the stored user
+    ///   says: a consent cached from before may be one the `204` didn't renew (a refusal it cleared, code review S3).
+    ///   Only a `GET /v1/me` asked for after the `204` and stored opens it (ADR 0025, decision 3).
     nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate? {
         if f.demo { return path == .healthKit ? .demo : nil }
         guard f.recordReadable else { return .policyUnknown }
         if f.inviteBlocked { return .gate(.inviteRequired) }
         if write == .erasure { return nil }
-        guard f.userKnown else { return .gate(.consentRequired) }
-        var platform = f
-        platform.agreedVersion = nil
-        if missing(platform).contains(.consent) { return .gate(.consentRequired) }
+        guard f.userKnown, f.agreedVersion == nil else { return .gate(.consentRequired) }
+        if missing(f).contains(.consent) { return .gate(.consentRequired) }
         guard f.policyFresh else { return .policyUnknown }
         return nil
     }

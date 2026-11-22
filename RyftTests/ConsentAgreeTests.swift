@@ -691,4 +691,38 @@ struct ConsentAgreeTests {
         #expect(await withdrawing.value == false)
         await delete.open()
     }
+
+    // MARK: Code review S3: the gate holds while the agreement is unsettled
+
+    @Test("S3: a consent cached from before and a refusal the 204 clears: nothing goes until RYFT's word asked after the 204",
+          .timeLimit(.minutes(1)))
+    func aCachedConsentWaitsForRyftsWordToo() async throws {
+        let h = H()
+        h.api.accountConsent = Consent(policyVersion: H.version, grantedAt: h.clock.now())
+        await h.onboarding.check()
+        try #require(h.state.repository.user()?.consent?.policyVersion == H.version)
+        // An upload's 403 consent_required, kept: the consent step, over the consent cached from before.
+        h.consent.refused(.consentRequired, at: h.clock.now())
+        try #require(h.onboarding.flowStep == .consent, "\(h.onboarding.missing)")
+        let end = h.clock.now()
+        try #require(h.env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900), end: end)) != nil)
+        let me = FirstCallsHold()
+        h.api.beforeMe = { await me.wait() }
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually { me.waiting == 1 })
+        #expect(h.onboarding.flowStep == .aboutYou)
+        for path in [UploadPath.healthKit, .activities, .train, .trainImport] {
+            #expect(h.onboarding.uploadGate(for: path) == .gate(.consentRequired), "\(path) waits")
+        }
+        await h.env.uploader.flush()
+        #expect(h.api.count("putActivity") == 0, "nothing went: \(h.api.calls)")
+
+        me.release()
+        #expect(await agreeing.value)
+        #expect(h.consent.agreement?.settled == true)
+        #expect(h.onboarding.uploadGate(for: .activities) == nil)
+        await h.env.uploader.flush()
+        #expect(h.api.count("putActivity") == 1, "\(h.api.calls)")
+    }
 }
