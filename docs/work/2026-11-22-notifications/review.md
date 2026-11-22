@@ -46,3 +46,16 @@ Round 1's B-1, S-1, S-3, S-4 and N-1 to N-7 are fixed. Nothing local reaches ano
 | N-3 | Delivered journal and "not syncing" notifications stay after a gate shuts. | **Fix:** with a gate known shut, `removeDelivered` for `sync.stale.1`, `sync.stale.2` and the journal ids for yesterday and today. |
 | N-4 | A parked account's journal setting outlives its parked rows (UserDefaults and backups). | **Fix:** in `accountWillChange` with `to != nil`, drop the journal keys of accounts that aren't current. |
 | Policy | If ryftlab.de/privacy says the push token is deleted at sign-out, an expiry is the exception until NT7. | **Needs the user:** check the policy text. |
+
+### code-reviewer: approve, two small should-fixes
+Every round-1 finding is fixed. All five departures from the brief are sound (the lock guard only where it must be, "not asked yet" counts as not allowed, Notification Center cleared once per signed-out spell, only earlier builds' bedtime kept, the background read fetching iOS's answer itself).
+
+| # | Finding | Lead decision |
+|---|---|---|
+| 1 | Nothing tests the gates on the background journal read (`ReminderScheduler.swift:247-248`). Dropping them would make a journal request on every BG refresh while dark, and the suite would stay green. | **Fix:** one test with three cases (flag known off, flag not known, consent withdrawn), each expecting `api.count("journal") == 0`, plus a mutant. |
+| 2 | S3 can leak for one pass: app active or the offer sets `authorization = nil` while a pass waits on `delivered()`, and the pass resumes with `allowed == nil`, so bedtime adds are tried. | **Fix:** the pass copies `allowed` into a local once, right after reading it. Test. |
+| 3 | `forgetAccount` runs on every Demo switch and sign-in, not only in the wipe's turn; harmless. | **Fix the comment,** and add a wiring test. |
+| 4 | Docs drift: design.md §3.4:194, §3.2:169, §9.1; ADR 0024:48 and Consequences; STATUS:34. | **Fix:** text alignment only, no new decisions. |
+| 5 | "M1–M14 killed": M1–M6 are from round 1. | **Re-run M1–M6 on HEAD** with round 3. |
+| 6–7 | Untested: the unlock retry (through `ConsentState.reload()` → `revision`), the offer's re-read (`:151`), the `clearedSignedOut = false` reset (`:334`). | **Fix:** three small tests. |
+| 8 | Device step: sign out and sign in as another account without relaunching; `didRegister` fires again and a server alert arrives. | **Into STATUS's device steps.** |
