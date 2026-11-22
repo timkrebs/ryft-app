@@ -3,6 +3,132 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Notifications (open, 2026-11-22)
+
+From the notifications plan (`docs/work/2026-11-22-notifications/plan.md`, decision 3; ticket N2). Today only a Train
+session sends a workout alert (`SESSION_SCORED`); a workout the watch recorded, or detected by itself, syncs, is scored
+and tells the user nothing. The app builds its side behind the category and ships its local kinds first, so nothing
+here blocks a release. Written against API.md as of the 2026-11-20 changelog entry.
+
+1. **NT1: a new push category `ACTIVITY_SCORED` (P2).**
+   - **Why.** The brief: RYFT tells the user when a workout was detected and processed, so they can review it, name it or
+     correct its type, never during the workout. The platform is the one that knows when the workout has been synced,
+     de-duplicated and scored (`Workout.strain` filled); the phone can't know the last two, and it computes no scores.
+   - **Screens affected.** Profile → Notifications (one switch under "Training"), the notification's tap (opens the
+     activity page), and the lock screen. Nothing else.
+   - **Where it fits.** One more row in the push-notifications category table, one more `NotificationPrefs` key.
+     Everything below is the platform's to adjust; where a rule is a guess, it says so.
+
+   **When it is sent.** A workout row (`source` not `ryft-session`, no `session_id`) that has just been scored:
+   - **After scoring.** Once scoring has run for its day and the workout has a `strain` (also `0.x`), so the body can name
+     it. A workout that scoring leaves unscored sends nothing, never "strain n/a".
+   - **Hiding and folding are decided first.** Hiding a cross-source duplicate happens when the day is scored (API.md →
+     Duplicate workouts), so the alert waits for it and goes for the **primary** only. A hidden duplicate sends nothing.
+   - **Never while it is going.** Only when `end` is not after the server's now (`outside_window` allows a start up to
+     24 h ahead; a workout with a future `end` waits for it and is dropped if the window below passed). HealthKit writes
+     a workout when it is saved, so in practice the alert follows the end by the sync and scoring delay.
+   - **Not Train's own sessions.** A workout with a `session_id` (a Train session attached to it) or `source`
+     `ryft-session` is covered by `SESSION_SCORED` / `PR`, so it sends no `ACTIVITY_SCORED`. The attach is decided at
+     scoring, which is why this check comes after it.
+   - **Not an import, not a manual or recorded activity.** The user already knows these, and `POST /v1/train/import`
+     already sends no alert. Only a workout that arrived through `POST /v1/sync` (HealthKit, any source: a watch, a
+     Garmin workout written to Apple Health) is eligible. (Once API.md publishes `PUT /v1/activities/{id}`: an
+     activity with `origin` `manual` or `ryft` is never eligible.)
+   - **How many.** Every eligible workout, at most **3 per local day** and account; the fourth and later are dropped,
+     not held. At most one alert per workout ever: a re-score, a changed `strain` or a new `model_version` never sends a
+     second. A same-source copy that replaces an older one (the 120 s fold, a Garmin rewrite under a new UUID) inherits
+     the older copy's "alerted" mark, so the rewrite doesn't alert again. Likewise the primary of a duplicate group that
+     has been alerted for one of its members.
+   - **Minimum.** Duration of at least 10 minutes (a guess; a watch's detection also catches short walks).
+   - **Quiet hours.** `NotificationPrefs.quiet_hours` is respected as for `SESSION_SCORED`: **dropped**, not held.
+     A workout alert is stale after a night (the expiry below), and the workout is in the app when the user looks.
+   - **Within 12 h of its end**, as `SESSION_SCORED`: scoring later than that sends nothing.
+   - **Silent for backfilled history.** The 12 h window already keeps old workouts quiet. In addition, nothing for the
+     workouts of a device's first sync: the pages uploaded while that `device_id` is new, until scoring has finished
+     the days they touched (the cut is the platform's; "the device row is under 1 h old" is the app's guess). A phone
+     that was offline for days uploads workouts older than the window and they stay quiet; one that was offline for
+     hours uploads a workout still within the window, and it **does** alert once scored: it is recent news.
+   - **Push preference.** `categories.ACTIVITY_SCORED`, **default on** (like `SESSION_SCORED`). The same silent
+     `refresh` push after every sync is unchanged and also covers the new workout.
+
+   **Category table row, in the form of the existing one:**
+
+   | Category | Sent when | Title · body keys (arguments) | Opens (`ryft.url`) |
+   | --- | --- | --- | --- |
+   | `ACTIVITY_SCORED` | A workout synced from Apple Health (a watch, or a Health-connected tracker) has its strain (scoring has run, duplicates decided), within 12 h of its end and at least 10 min long. Not a Train session, import or manual activity; not backfilled history; at most 3 a day, one per workout; not during quiet hours (dropped). | `ACTIVITY_SCORED_TITLE` (sport name) or `ACTIVITY_SCORED_TITLE_UNTITLED` (`activity` is `other` or unknown) · `ACTIVITY_SCORED_BODY` (strain, duration) | `https://ryftlab.de/activity/<workout id>` |
+
+   **Keys** (same form as API.md's key table; the app ships `en` only, RYFT has no German localisation, so the `de` column
+   stays the platform's for its own `locale` handling and the app's catalog takes `en`):
+
+   | Key | en | de |
+   | --- | --- | --- |
+   | `ACTIVITY_SCORED_TITLE` | %@ scored | %@ ausgewertet |
+   | `ACTIVITY_SCORED_TITLE_UNTITLED` | Workout scored | Training ausgewertet |
+   | `ACTIVITY_SCORED_BODY` | Strain %1$@ · %2$@ | Belastung %1$@ · %2$@ |
+
+   - **Arguments** (formatted for the registered `locale`, like the other categories): title `%@` the sport's name
+     from `Workout.activity` (`running` → "Run" / "Lauf"); `ACTIVITY_SCORED_TITLE_UNTITLED` when it is `other` or a
+     value the platform has no name for. The user's own title can't be there: it is set after the alert. Body `%1$@`
+     the workout's `strain` to one decimal (`12.8` / `12,8`), `%2$@` its duration (`56 min`, `1 h 12 min` /
+     `56 Min.`, `1 Std. 12 Min.`).
+   - **Lock screen.** The title carries no health value (a sport name only); the strain is in the body, which iOS
+     hides with previews off. The same rule as `SESSION_SCORED`.
+   - **The "detected by your watch" variant** is NT2, optional.
+
+   **Payload**, as the existing example:
+
+   ```json
+   { "aps": { "alert": { "title-loc-key": "ACTIVITY_SCORED_TITLE", "title-loc-args": ["Run"],
+                         "loc-key": "ACTIVITY_SCORED_BODY", "loc-args": ["12.8", "56 min"] },
+              "sound": "default", "category": "ACTIVITY_SCORED", "thread-id": "ACTIVITY_SCORED",
+              "mutable-content": 1 },
+     "ryft": { "category": "ACTIVITY_SCORED", "day": "2026-10-20",
+               "url": "https://ryftlab.de/activity/7d1b6c3e-2c1a-4b8e-9d3a-5a0e4f6b8c12",
+               "account": "<User.id>" } }
+   ```
+
+   - **`ryft.url` path.** `/activity/<id>`, `<id>` the `Workout.id` of the primary (the HealthKit workout UUID,
+     lower case), the id `GET /v1/workouts/{id}` takes. The app's `AppRoute` has no such path yet (it knows
+     `/day/`, `/sleep/`, `/train/…`); it adds `/activity/<uuid>` in its own PR, so the platform needs nothing from the
+     app first. An id the platform later hid or folded still opens (a hidden duplicate answers `200`; a folded same-source copy
+     answers `404`, and the app then shows that workout's day).
+   - **`ryft.day`** the local day the workout starts on, as `MORNING_SCORE`'s (the app refreshes that day when it opens).
+   - **`ryft.account`** the `User.id`, as "Sync and performance" §5 asks for the `refresh` push. Here it matters more:
+     the alert opens a page with health data, and a late alert for account A must not open on account B's phone (a
+     shared iPhone). The app drops an alert whose `account` isn't the signed-in one and treats a missing one as
+     today. Please add it to every alert, not only this category.
+   - **Collapse and expiry.** `apns-collapse-id` `ACTIVITY_SCORED-<workout id>` (52 bytes, under APNs' 64) so a repeat
+     for the same workout replaces an undelivered one; `apns-expiration` at the workout's end plus 12 h; priority 10.
+   - **`NotificationPrefs.categories`** gains `ACTIVITY_SCORED` (`GET /v1/me`, `PATCH /v1/me/notifications` accept it,
+     `422` for it today). The app shows the switch only when the key is in `GET /v1/me`'s `categories`, and
+     never sends it before then, so the platform can ship it whenever it is ready. A phone that doesn't know the key
+     keeps working: `NotificationPrefs.isOn` treats a missing category as on.
+   - **What the app does.** Registers the `ACTIVITY_SCORED` `UNNotificationCategory`, routes the tap to the activity page
+     (`AppRoute.activity(UUID)`), and adds the switch in Profile → Notifications → Training. The Activities draft
+     (R1–R26 above, not in API.md yet) is where naming and changing the type of an Apple Health workout is written;
+     the page is useful for review without it (the workout, strain, heart rate), and gains naming when those endpoints land.
+
+2. **NT2 (optional): tell a watch-detected workout from a started one.**
+   - **The question.** "Detected by your watch. Strain 12.8. Tap to review." is better copy for a workout the user did
+     not start, but the platform can't tell it today. `Workout` carries `activity`, `start`, `end`, `avg_hr`,
+     `max_hr`, `energy_kcal`, `distance_m`, `source`, `source_bundle_id`, nothing about how it began; the app's mapper
+     reads no `HKWorkout.metadata` at all and has no field for it. The platform therefore can't, from what it has.
+   - **What the app can send.** Apple documents `HKMetadataKeyWasUserEntered` (a workout typed in by hand) and
+     `HKMetadataKeyIndoorWorkout`, nothing that marks a watch-detected session. The app will inspect
+     real watch workouts on a device before promising a signal (the workout reminder starts the same workout type the
+     user confirms, so there may be none). **Don't build this until the app reports a key that works.**
+   - **Proposal if it does:** `Workout.detected` (bool?, optional, omitted when unknown) on `POST /v1/sync`, stored
+     and returned on `Workout`; `ACTIVITY_SCORED_BODY_DETECTED` ("Detected by your watch. Strain %@. Tap to review." /
+     "Von deiner Uhr erkannt. Belastung %@. Zum Prüfen öffnen.") used when `detected` is `true`. Ingest rejects unknown
+     fields (`400`), so the field must be accepted before the app sends it; the app then sends it only
+     behind a flag in `GET /v1/config` (like `sync.deletions`).
+   - **Until then:** every alert uses `ACTIVITY_SCORED_BODY`; the page it opens is the review.
+
+3. **NT3 (question): an activity the user recorded in RYFT.** NT1 sends nothing for one (the Activities draft, R1–R26
+   above; `origin` is not HealthKit), because the user just ended it. Please confirm that, and that a workout the app
+   writes to Apple Health for such a recording (if it ever does) doesn't alert a second time as an Apple Health
+   workout: the same workout would arrive under the other `id` and `source`.
+
 ## App Attest (open, 2026-11-19)
 
 From the App Attest client (`docs/work/2026-11-19-app-attest/design.md`, "Contract gaps"; ADR 0023), against API.md's
