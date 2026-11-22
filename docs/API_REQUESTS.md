@@ -143,30 +143,24 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **The app's reading:** dropped, the same as NT1. The Notifications page now says "Workout alerts are skipped".
    - **Request:** please confirm, or tell us they are held. The page's sentence would change.
 
-## App Attest (open, 2026-11-19)
+## App Attest (answered, 2026-11-20)
 
 From the App Attest client (`docs/work/2026-11-19-app-attest/design.md`, "Contract gaps"; ADR 0023), against API.md's
-App Attest section (D245). None blocks the client: each has a fallback below.
+App Attest section (D245). All four answered by D247 (platform PR #227, 2026-11-20); the app side is
+`docs/work/2026-11-20-app-attest-mode/`.
 
-1. **AA1: tell this build from old builds in the `warn` lines.**
-   - D245's stop rule for `on` is zero `missing` lines from app builds for 7 days, and `X-RYFT-Device-ID` only tells an
-     app from a script.
-   - An attesting build still sends without a token sometimes: its first request after a cold start or a sign-in, while
-     the first token is under way.
-   - **Proposal:** the app sends its build as `X-RYFT-App-Build: <CFBundleVersion>` (for example `20261119.091500`) on
-     every request, and the `warn` line records it. It carries nothing personal.
-   - **Until then:** once the challenge route has answered `200` on this install, a request without a token waits up to
-     3 s for the first token. Slow attestations still log `missing`.
-2. **AA2: a mode or "served" signal.** The app learns whether App Attest is live only by probing
-   `POST /v1/app-attest/challenge`.
-   - **Proposal:** `GET /v1/config` → `app_attest` (`"off"`, `"warn"`, `"on"`), or a flag `app_attest.enabled`. Either
-     would double as a kill switch for the client.
-   - **Until then:** after a `404` without a code or a `501`, the app probes again at most every 6 hours, across launches.
-3. **AA3: a floor for `ttl_sec`.** The app renews when under `min(300, ttl_sec / 2)` seconds are left. Please state a
-   minimum (for example 600 s), so a short token can't make renewals back-to-back.
-4. **AA4: no echoed values in error bodies.** Please confirm that the three routes' `error` text never contains the
-   `challenge`, `key_id` or `assertion`. The app keeps them out of its own logs and records, and it shows a refusal's
-   `error` text when it doesn't know the status.
+1. **AA1: tell this build from old builds in the `warn` lines.** Answered: API.md → Conventions → App build. The app
+   sends `X-RYFT-App-Build: <CFBundleVersion>` on every request to both hosts; the server takes
+   `^[0-9]+(\.[0-9]+){0,3}$`, at most 24 characters, ignores anything else and writes it only into its warn line. The app
+   never sends a value that fails the pattern.
+2. **AA2: a mode or "served" signal.** Answered: `GET /v1/config` → `app_attest` (`"off"`, `"warn"`, `"on"`, always
+   present; absent on a server before D247). Under `"off"` the app skips the probe; a `501` or a `404` without a `code`
+   from `POST /v1/app-attest/challenge` stays authoritative in every mode; under `"on"` an app without a token learns it
+   from `403 app_attest_required`.
+3. **AA3: a floor for `ttl_sec`.** Answered: 3600 today, never below 600 (a server test pins it). The app's renewal at
+   `min(300, ttl_sec / 2)` left stays.
+4. **AA4: no echoed values in error bodies.** Answered: the three routes' `error` texts are fixed sentences; none holds
+   the `challenge`, `key_id`, `assertion`, `attestation` or a token, and neither do the server's logs of these routes.
 
 ## Offline-first (open, 2026-11-19)
 

@@ -13,8 +13,9 @@
 // A retry never outlives the account it started for (`APIStatus.epoch`). A cancelled request
 // throws `CancellationError`; a request without an answer is recorded with status 0.
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
-// Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
-// in warn mode) is reported like a refusal's code.
+// Every request carries `X-RYFT-Device-ID` and, when `CFBundleVersion` has the form API.md asks for,
+// `X-RYFT-App-Build` (AA1, D247); `X-RYFT-Gate` on any response (a gate in warn mode) is reported like a
+// refusal's code.
 // Every request but the three App Attest routes carries `X-RYFT-App-Token` once `AppAttestor` has one; a
 // `403 app_attest_required` gets one new token and one more try, next to the 401's (ADR 0023).
 import Foundation
@@ -274,6 +275,8 @@ final class APIClient: RyftDataSource {
     private let status: APIStatus?
     /// The app token's owner (`AppAttestor.live` for `shared`); nil: no header and no App Attest retry (tests).
     private let appAttest: AppAttestor?
+    /// `X-RYFT-App-Build` (AA1): `CFBundleVersion` once it passed `AppInfo.headerBuild`; nil: no header.
+    private let appBuild: String?
 
     /// 503 retries per request before giving up, and the longest wait honoured.
     static let maxUnavailableRetries = 3
@@ -322,11 +325,12 @@ final class APIClient: RyftDataSource {
     /// `session` (tests: a stubbed one) serves background runs too unless `backgroundSession` is given.
     /// `settings` (tests: their own) supplies the hosts `baseURL` / `ingestURL` don't replace, and the device ID.
     /// `appAttest` supplies `X-RYFT-App-Token` (nil: none, as in every test that doesn't give one).
+    /// `build` is the raw `CFBundleVersion` (tests: their own); one that fails `AppInfo.headerBuild` is never sent.
     init(session: URLSession? = nil, backgroundSession: URLSession? = nil,
          tokens: AccessTokenProvider? = nil,
          sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
          baseURL: URL? = nil, ingestURL: URL? = nil, status: APIStatus? = nil, settings: Settings? = nil,
-         appAttest: AppAttestor? = nil) {
+         appAttest: AppAttestor? = nil, build: String? = AppInfo.bundleBuild) {
         self.session = session ?? URLSession(configuration: APIClient.defaultConfiguration)
         self.backgroundSession = backgroundSession ?? session
             ?? URLSession(configuration: APIClient.backgroundConfiguration)
@@ -337,6 +341,7 @@ final class APIClient: RyftDataSource {
         self.sleep = sleep
         self.status = status
         self.appAttest = appAttest
+        self.appBuild = AppInfo.headerBuild(build)
     }
 
     /// Routes the invite gate leaves open (API.md → Errors): the onboarding calls, and the App Attest routes, which
@@ -515,6 +520,8 @@ final class APIClient: RyftDataSource {
         req.setValue(Self.acceptLanguage, forHTTPHeaderField: "Accept-Language")
         // The install's id (as in POST /v1/sync): GET /v1/me derives `account_hint` from it.
         req.setValue(settings.deviceId.uuidString.lowercased(), forHTTPHeaderField: "X-RYFT-Device-ID")
+        // The build (AA1): the platform's App Attest warn line names it. Not a credential, so `base` gets it too.
+        req.setValue(appBuild, forHTTPHeaderField: "X-RYFT-App-Build")
         if let encodedBody {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue(contentEncoding, forHTTPHeaderField: "Content-Encoding")
