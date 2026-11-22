@@ -1252,7 +1252,7 @@ struct ConsentAgreeTests {
         try #require(train.pendingCount > 0 && train.heldAt == .gate(.consentRequired), "held while the DELETE is out")
         let details = h.details(h.sync(), onboarding: h.onboarding)
         details.trainOutbox = train
-        #expect(details.workoutsHeldText == String(localized: "Paused"), "not RYFT's confirmation: nothing waits for it")
+        #expect(details.workoutsHeldText == SyncDetailsModel.workoutsPausedText, "not RYFT's confirmation: nothing waits for it")
 
         delete.release()
         #expect(await withdrawing.value)
@@ -1411,7 +1411,7 @@ struct ConsentAgreeTests {
         let withdrawing = Task { await h.onboarding.withdrawConsent() }
         #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
         #expect(!h.onboarding.awaitsConfirmation)
-        #expect(details.workoutsHeldText == String(localized: "Paused"), "on its way")
+        #expect(details.workoutsHeldText == SyncDetailsModel.workoutsPausedText, "on its way")
         // No answer, and RYFT not heard from since: the agreement is still unsettled, and the pause still names nothing.
         api.beforeMe = { await me.wait() }
         h.clock.advance(by: SettingsWrite.deadline)
@@ -1420,7 +1420,7 @@ struct ConsentAgreeTests {
         #expect(await withdrawing.value == false)
         try #require(h.consent.unsettledAgreement != nil && h.consent.withdrawalUnresolvedSince != nil)
         #expect(!h.onboarding.awaitsConfirmation && !h.consent.awaitsConfirmation, "with or without a coordinator")
-        #expect(details.workoutsHeldText == String(localized: "Paused"), "without an answer")
+        #expect(details.workoutsHeldText == SyncDetailsModel.workoutsPausedText, "without an answer")
         me.release()
         await delete.open()
     }

@@ -779,9 +779,15 @@ final class SyncDetailsModel {
         case .paused? where cause == .confirmation:
             return String(localized: "Waiting for RYFT to confirm your consent",
                           comment: "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone.")
-        case .paused?: return String(localized: "Paused")
+        case .paused?: return Self.workoutsPausedText
         default: return nil
         }
+    }
+
+    /// The workouts' pause with no cause named: its own key, not Plans' "Paused" (code review round 3, 5).
+    static var workoutsPausedText: String {
+        String(localized: "syncdetails.workouts.paused", defaultValue: "Paused",
+               comment: "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).")
     }
 
     /// A count, or "None".
