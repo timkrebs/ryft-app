@@ -52,7 +52,10 @@ final class ReminderScheduler {
 
     private let env: AppEnvironment
     var inputs: ReminderInputs
-    private let calendar: Calendar
+    /// The plans' calendar, read at each use: the app's follows the iPhone's time zone (`.autoupdatingCurrent`), and a
+    /// zone change asks for a pass (review S2), so wall times, "yesterday" and the fallback's window are the new zone's.
+    /// Tests hand theirs in and change its zone between passes.
+    var calendar: Calendar
     /// The journal reminder's switch and time (the page writes it; a change asks for a pass).
     let journalSettings: JournalReminderStore
 
@@ -72,7 +75,7 @@ final class ReminderScheduler {
     /// Journal days whose reminder went at their answer in this process (pending and delivered): never added again.
     private var answeredDays: Set<String> = []
     private var watches: [ObservationWatch] = []
-    private var timeObserver: NSObjectProtocol?
+    private var timeObservers: [NSObjectProtocol] = []
 
     /// Wishes over the budget (Debug asserts; tests count).
     var overBudget: (Int) -> Void = { count in
@@ -87,7 +90,7 @@ final class ReminderScheduler {
     /// Notification Center was cleared since the account left: once while signed out, and again at every app active.
     private var clearedSignedOut = false
 
-    init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .current) {
+    init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .autoupdatingCurrent) {
         self.env = env
         self.inputs = inputs
         self.calendar = calendar
@@ -197,10 +200,10 @@ final class ReminderScheduler {
     }
 
     /// The app's triggers (RyftApp, once; tests that need them): a successful sync, the user's notification preferences,
-    /// `push.enabled`, the journal's habits and whether it's live, an accepted or removed push registration, a time zone or
-    /// clock change, the consent standing, and every newest config (`notifications.reminders` acts at once, as a kill switch must: the hook that
-    /// was there, analytics' gate, still runs first).
-    func watch(journal: JournalStore, push: PushRegistrar) {
+    /// `push.enabled`, the journal's habits and whether it's live, an accepted or removed push registration, a clock or time
+    /// zone change (on `center`: tests post to their own), the consent standing, and every newest config
+    /// (`notifications.reminders` acts at once, as a kill switch must; the hook that was there, analytics' gate, runs first).
+    func watch(journal: JournalStore, push: PushRegistrar, center: NotificationCenter = .default) {
         connect(journal: journal)
         let flagsHook = env.flags.onNewest
         env.flags.onNewest = { [weak self] in
@@ -219,9 +222,10 @@ final class ReminderScheduler {
                 _ = journal?.enabledBehaviors.isEmpty
             }, changed: { [weak self] in self?.reschedule(.journal) }),
         ]
-        timeObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.significantTimeChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reschedule(.timeChange) }
+        timeObservers = [UIApplication.significantTimeChangeNotification, .NSSystemTimeZoneDidChange].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reschedule(.timeChange) }
+            }
         }
     }
 

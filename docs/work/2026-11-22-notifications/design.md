@@ -111,7 +111,7 @@ enum ReminderWish: Equatable { case unknown, these([LocalReminder]) }
 
 @MainActor
 final class ReminderScheduler {
-    init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .current)
+    init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .autoupdatingCurrent)   // review S2
     func reschedule(_ reason: ReminderReason)       // coalesced, debounced 500 ms on env.clock; returns at once
     func rescheduleNow() async                      // one pass now, awaited (the BG refresh's completion)
     func offerBedtime(_ wish: ReminderWish, owner: BedtimePlanner.Owner)   // BedtimePlanner's only write
@@ -121,6 +121,11 @@ final class ReminderScheduler {
     static func wipe(_ center: NotificationWiping)   // sign-out: every pending and delivered request (@MainActor protocol)
 }
 ```
+
+The calendar follows the iPhone's time zone (`.autoupdatingCurrent`, not a launch-time snapshot), and
+`NSSystemTimeZoneDidChange` asks for a pass beside `significantTimeChangeNotification` (review S2): the fallback's wall
+times, the journal's "yesterday" and the daytime window are the new zone's at the next pass, and a request iOS holds as a
+floating time keeps its wall time until then.
 
 `ReminderInputs` reads the owners and never stores a copy: the cached user's `notifications` (`Repository.user()`),
 `JournalReminderSettings` (§4.4), `JournalStore` (habits, `cachedDay`), `Settings.lastSync`, `FlagStore`,

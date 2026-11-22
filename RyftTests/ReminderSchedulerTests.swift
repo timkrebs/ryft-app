@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import Testing
+import UIKit
 import UserNotifications
 @testable import Ryft
 
@@ -107,8 +108,11 @@ private final class ReminderRig {
         for _ in 0..<20 { await Task.yield() }
     }
 
+    /// The rig's own centre for the clock and time-zone notifications: a test posting there reaches only its scheduler.
+    let center = NotificationCenter()
+
     func watch() {
-        scheduler.watch(journal: journal, push: push)
+        scheduler.watch(journal: journal, push: push, center: center)
     }
 
     /// One debounced pass: waits for its timer, moves the clock past it, waits for the pass.
@@ -1043,5 +1047,44 @@ struct ReminderUpgradeTests {
         await rig.scheduler.rescheduleNow()
         #expect(rig.ids(.bedtime).isEmpty && rig.ids(.journal) == ["journal.2026-11-22"])
         #expect(rig.notifier.removals == removals + 1, "another's in one call")
+    }
+}
+
+// MARK: - round 2, S2: the time zone
+
+@MainActor
+@Suite("Reminders: a time-zone change")
+struct ReminderTimeZoneTests {
+    @Test("Berlin to New York between passes: the zone's notification asks for a pass; the fallback's wall times are New York's")
+    func newYork() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.watch()
+        let synced = rig.clock.now()
+        rig.env.settings.lastSync = synced
+        #expect(await eventually { rig.ids(.syncStale).count == 2 })
+        let id = try #require(rig.ids(.syncStale).first)
+        #expect(rig.reminder(id)?.fire == Berlin.wall(2026, 11, 23, 10), "20 hours after 14:00, Berlin's 10:00")
+
+        var newYork = Berlin.calendar
+        newYork.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        rig.scheduler.calendar = newYork
+        rig.center.post(name: .NSSystemTimeZoneDidChange, object: nil)
+        await rig.afterDebounce()
+        let moved = try #require(rig.reminder(id))
+        #expect(moved.fire == DateComponents(year: 2026, month: 11, day: 23, hour: 9, minute: 0),
+                "Berlin's 10:00 is New York's 04:00: the window's start, 09:00 there")
+        let at = try #require(moved.fireDate(in: newYork))
+        #expect(at >= synced.addingTimeInterval(20 * 3600))
+    }
+
+    @Test("The clock's significant change asks for a pass too")
+    func clockChange() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.watch()
+        await rig.scheduler.rescheduleNow()
+        let passes = rig.scheduler.passes
+        rig.center.post(name: UIApplication.significantTimeChangeNotification, object: nil)
+        await rig.afterDebounce()
+        #expect(rig.scheduler.passes > passes)
     }
 }
