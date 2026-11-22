@@ -87,7 +87,9 @@
   opt-out. It was captured while the user was opted in.
 - **The kill switch is as fast as the config refresh**: launch, app active when due, `ttl_sec` (6 h).
 - **Counts are per opt-in, not per person.** Every new id (opt-out, sign-out, opting in again) is a new anonymous
-  user, and its first start sends `Application Installed` again.
+  user. `Application Installed` fires once per install, not per id: the SDK keeps the last version and build in
+  `UserDefaults.standard` (`PHGVersionKey`, `PHGBuildKeyV2`), which our file deletion doesn't touch (no id in them).
+  A new id after that starts with `Application Opened`; `Application Updated` is dropped by the allow-list.
 - **App Store answers change** (`docs/APP_STORE.md`): Product Interaction and Other Usage Data, not linked, not used
   for tracking, purpose Analytics. Still no tracking, no ATT, no tracking domains. The binary contains a crash
   reporter that is never turned on, and its manifest shows up in Xcode's privacy report.
