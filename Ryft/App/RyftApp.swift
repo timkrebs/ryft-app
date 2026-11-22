@@ -557,6 +557,8 @@ struct RootView: View {
         .animation(rootFade, value: onboarding.flowStep)
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
+        // The step on screen, full screen or as the sheet: after Agree and continue, the agree line's `shown`.
+        .onChange(of: onboarding.flowStep ?? onboarding.sheetStep) { _, step in onboarding.stepShown(step) }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },

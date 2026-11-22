@@ -17,7 +17,8 @@ actor AppAttestor {
         stamp: { AuthService.shared.accountID.map { AttestStamp(account: $0, epoch: APIStatus.shared.epoch) } })
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "appattest")
-    /// Intervals `renewal` (one run), `attestKey` and `assertion` (the Secure Enclave's part).
+    /// Intervals `renewal` (one run), `attestKey` and `assertion` (the Secure Enclave's part), and `first-token-wait` (a
+    /// request waiting for the first token).
     static let signposter = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "appattest")
 
     /// A request without a token waits this long for the renewal, once this install has seen the routes served
@@ -122,8 +123,12 @@ actor AppAttestor {
             return issued.token
         }
         guard let id = startRenewal(epoch: epoch, via: client), backoff.servedSeen else { return nil }
+        // Instruments: the wait a request without a token makes (design 2026-11-22 §6.4), and whether one came.
+        let waited = Self.signposter.beginInterval("first-token-wait", id: Self.signposter.makeSignpostID())
         await wait(for: id, upTo: Self.firstTokenWait)
-        return usable(epoch)
+        let token = usable(epoch)
+        Self.signposter.endInterval("first-token-wait", waited, "\(token == nil ? "none" : "token", privacy: .public)")
+        return token
     }
 
     /// After a `403 app_attest_required` on a request that started in `epoch` and sent `refused` (nil: none): a valid

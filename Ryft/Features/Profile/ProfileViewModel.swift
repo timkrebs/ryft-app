@@ -832,6 +832,8 @@ final class SyncDetailsModel {
         lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
         lines.append(env.catalogStore.diagnosticLine)
         if let check = TrackerCheckRecord.forReport(env) { lines.append("sync check: " + check.lines.joined(separator: " · ")) }
+        // The last Agree and continue: durations, statuses and counts only (`AgreeTiming`).
+        if let agree = AgreeTiming.forReport(env) { lines.append(agree.line) }
         lines.append("requests (cancelled since launch: \(cancelledRequests)):")
         for r in requests {
             let duration = r.durationMs.map(String.init) ?? "-"
@@ -2111,7 +2113,7 @@ enum FeedbackPayload {
     static let maxRequests = 20
     /// Every key `diagnostics` may carry.
     static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context", "trackers",
-                                    "sync_check"]
+                                    "sync_check", "agree"]
 
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
     static func length(_ text: String) -> Int { text.unicodeScalars.count }
@@ -2121,7 +2123,7 @@ enum FeedbackPayload {
                      requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState] = [:],
                      sync: FeedbackSync, gates: Set<APIErrorCode>,
                      flags: [String: Bool], trackers: [String]? = nil, syncCheck: [String]? = nil,
-                     context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
+                     agree: String? = nil, context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
         let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
         // Off: nothing is attached but the message (ui.md §5.2).
         guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
@@ -2133,7 +2135,7 @@ enum FeedbackPayload {
                             requestIds: requestIDs(context: context, requests: requests, resources: resources),
                             diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
                                                      gates: gates, flags: flags, trackers: trackers, syncCheck: syncCheck,
-                                                     context: context, locale: about.locale))
+                                                     agree: agree, context: context, locale: about.locale))
     }
 
     /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
@@ -2186,12 +2188,13 @@ enum FeedbackPayload {
     // swiftlint:disable function_parameter_count
     /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale`, with
     /// `devices.setup` on `trackers` (catalog ids, "garmin,oura", never a device's name), after a Check sync
-    /// `sync_check` (`TrackerCheckRecord.lines`: tracker ids and result codes) and, from an error's Details,
-    /// `report_context`. Over 32 KiB the oldest requests go first, then resources and sync.
+    /// `sync_check` (`TrackerCheckRecord.lines`: tracker ids and result codes), after an Agree and continue `agree`
+    /// (`AgreeTiming.text`: durations, statuses and counts) and, from an error's Details, `report_context`. Over 32 KiB
+    /// the oldest requests go first, then resources and sync.
     static func diagnostics(requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState],
                             sync: FeedbackSync, gates: Set<APIErrorCode>, flags: [String: Bool],
-                            trackers: [String]? = nil, syncCheck: [String]? = nil, context: ReportContext?,
-                            locale: String) -> [String: String] {
+                            trackers: [String]? = nil, syncCheck: [String]? = nil, agree: String? = nil,
+                            context: ReportContext?, locale: String) -> [String: String] {
         // swiftlint:enable function_parameter_count
         var base = [
             "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
@@ -2204,6 +2207,7 @@ enum FeedbackPayload {
         }
         if let trackers { base["trackers"] = trackers.isEmpty ? "-" : trackers.joined(separator: ",") }
         if let syncCheck, !syncCheck.isEmpty { base["sync_check"] = syncCheck.joined(separator: "\n") }
+        if let agree { base["agree"] = agree }
         let syncText = syncLines(sync).joined(separator: "\n")
         let resourcesText = resourceLines(resources).joined(separator: "\n")
         func assembled(_ lines: [String]) -> [String: String] {
@@ -2448,7 +2452,8 @@ final class ReportProblemModel {
                              requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
                              sync: includeDiagnostics ? sync() : FeedbackSync(),
                              gates: apiStatus.gates, flags: flagValues, trackers: trackers(),
-                             syncCheck: includeDiagnostics ? syncCheck : nil, context: context, about: .current)
+                             syncCheck: includeDiagnostics ? syncCheck : nil, agree: includeDiagnostics ? agreeLine : nil,
+                             context: context, about: .current)
     }
 
     /// "What's included" lists the trackers only when they go out.
@@ -2457,6 +2462,10 @@ final class ReportProblemModel {
     /// The last Check sync as diagnostics carry it (ids and codes), when there is a recent one: "What's included"
     /// lists it only then.
     var syncCheck: [String]? { TrackerCheckRecord.forReport(env)?.lines }
+
+    /// The last Agree and continue's timings as diagnostics carry them (durations, statuses, counts): "What's included"
+    /// lists them only when there are some.
+    var agreeLine: String? { AgreeTiming.forReport(env)?.text }
 
     private var flagValues: [String: Bool] {
         Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })

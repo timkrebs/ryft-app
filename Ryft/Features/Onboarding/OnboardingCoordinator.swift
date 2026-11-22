@@ -137,6 +137,8 @@ final class OnboardingCoordinator {
     private var turn = 0
     /// Withdrawals waiting for the step's request in flight (`perform(waitsForTurn:)`).
     @ObservationIgnored private var waiting: [CheckedContinuation<Void, Never>] = []
+    /// The Agree being timed for the agree line (`AgreeTiming`), until the next one or another account.
+    @ObservationIgnored private var agreeTimer: AgreeTimer?
     private var lastCheck: Date?
     private var aboutYouDone = false
     /// The birth year is saved; "about you" shows the estimate until Continue.
@@ -458,6 +460,7 @@ final class OnboardingCoordinator {
         }
         self.account = account
         syncStatus = nil
+        agreeTimer = nil
         deferred = []
         lastCheck = nil
         clearError()
@@ -508,8 +511,16 @@ final class OnboardingCoordinator {
     @discardableResult
     func agree(shown: String? = nil) async -> Bool {
         guard let version = policyVersion, shown == nil || shown == version else { return false }
+        // A step's request is out: this tap sends nothing (`perform`), and the agree line counts it.
+        if isWorking {
+            agreeTimer?.busyTap()
+            return false
+        }
+        let timer = startAgreeTimer(session: .standard)
+        let going = flight
         let ok = await perform { sent in
             if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
+                timer?.readsPolicy()
                 // Nil: nothing was sent (offline, a Retry-After window).
                 guard let fresh = try await self.consent.fetchConfig(userInitiated: true) else {
                     throw URLError(.notConnectedToInternet)
@@ -520,13 +531,23 @@ final class OnboardingCoordinator {
                     throw PolicyChangedOnScreen()
                 }
             }
-            try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
+            timer?.sent()
+            do {
+                try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
+                timer?.answered(204, requests: self.apiStatus.requests)
+            } catch {
+                timer?.answered(AgreeTiming.status(of: error), requests: self.apiStatus.requests)
+                throw error
+            }
             try self.answered(sent)
             // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
             self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
+            timer?.stepRecorded()
+            timer?.confirming()
             await self.check(force: true)
+            timer?.committed(self.state.repository.user()?.consent?.policyVersion == version ? "ok" : "none")
         } message: { error in
             let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
             if error is PolicyChangedOnScreen { return updated }
@@ -538,8 +559,26 @@ final class OnboardingCoordinator {
             }
             return updated
         }
+        // The path ended for this account: its line, before the sync it starts.
+        if going == flight { timer?.save(in: env) }
         if ok { await startSync() }
         return ok
+    }
+
+    /// A new Agree is timed from here (nothing signed out or in demo mode).
+    private func startAgreeTimer(session: AgreeTiming.Session) -> AgreeTimer? {
+        guard !env.isDemo, let account = env.auth.accountID else { return nil }
+        let timer = AgreeTimer(env: env, account: account, session: session)
+        agreeTimer = timer
+        return timer
+    }
+
+    /// RootView: the onboarding step on screen changed (`flowStep ?? sheetStep`). After an Agree, the next one (or none:
+    /// the sheet went) is the agree line's `shown` (`Signposts.onboarding` `step-shown`).
+    func stepShown(_ step: Step?) {
+        guard step != .consent, let timer = agreeTimer, timer.shown() else { return }
+        // The path ended before the step showed: its line again, now with `shown`.
+        if timer.isSaved { timer.save(in: env) }
     }
 
     /// `PATCH /v1/me {birth_year}`: the platform answers with its max-HR estimate, which

@@ -1480,6 +1480,10 @@ struct ReportProblemTests {
     /// `TrackerCheckRecord.lines` of a check.
     private static let syncCheck = ["checked 2026-10-21", "garmin needs_fix heart_rate=arrived hrv=not_shared sleep=missing_visible"]
 
+    /// `AgreeTiming.text` of an Agree and continue.
+    private static let agree = "sent +3 · answered +3120 (204; attempts 204/3080) · step +3121 · shown +3380 · "
+        + "confirmed +3530 ok · committed +5000 · session fail_fast · policy_read no · busy_taps 0"
+
     /// Request `i` of a newest-first list (`i == 0` is the newest).
     private func request(_ i: Int, status: Int = 503, path: String = "/v1/days/2026-10-21",
                          id: String? = nil) -> APIStatus.RequestFailure {
@@ -1492,7 +1496,7 @@ struct ReportProblemTests {
         FeedbackPayload.make(message: message, category: .bug, includeDiagnostics: includeDiagnostics,
                              requests: requests, sync: Self.sync, gates: [.consentRequired],
                              flags: ["sync.gzip": false, "push.enabled": true], trackers: ["garmin", "oura"],
-                             syncCheck: Self.syncCheck, context: context, about: about)
+                             syncCheck: Self.syncCheck, agree: Self.agree, context: context, about: about)
     }
 
     private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true, signedIn: Bool = true,
@@ -1533,6 +1537,7 @@ struct ReportProblemTests {
         #expect(d["report_context"] == "Today · 503 · ctx-1")
         #expect(d["requests"] == requests.map(FeedbackPayload.line).joined(separator: "\n"))
         #expect(d["sync_check"] == Self.syncCheck.joined(separator: "\n"))
+        #expect(d["agree"] == Self.agree)
     }
 
     /// Check sync's result goes as tracker ids and codes, with the check's day: never a source's name, a bundle ID
@@ -2175,6 +2180,12 @@ struct ReportProblemTests {
         // A check whose sources carry names and times of day.
         await TrackerCheckModel(env: env, health: MockHealthStore.garminLike(now: env.clock.now(), sleepOff: true),
                                 trackers: ["garmin"]).run()
+        // An Agree and continue timed on this phone (`AgreeTiming`): its line goes as `agree`.
+        var agreed = AgreeTiming(account: try #require(env.auth.accountID), at: env.clock.now(), session: .failFast)
+        (agreed.sent, agreed.answered, agreed.status, agreed.step, agreed.committed) = (3, 3_120, 204, 3_121, 5_000)
+        agreed.attempts = [AgreeTiming.Attempt(status: 204, durationMs: 3_080)]
+        agreed.confirmed = "ok"
+        env.persistence.saveDocument(agreed, key: AgreeTiming.documentKey, at: env.clock.now())
         profile.report.prepare(.preview)
         let post = profile.report.payload()
         let d = try #require(post.diagnostics)
@@ -2194,6 +2205,8 @@ struct ReportProblemTests {
             "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
             "trackers": [/-|[a-z][a-z0-9_]*(?:,[a-z][a-z0-9_]*)*/],
             "sync_check": [/checked \d{4}-\d{2}-\d{2}/, /[a-z_]+ [a-z_]+(?: [a-z0-9_]+=[a-z_]+)+/],
+            // Durations, statuses and counts: no day, no time of day, no ID.
+            "agree": [/sent (?:\+\d+|-) · answered (?:\+\d+|-)(?: \(\d+; attempts (?:-|\d+\/(?:\d+|-)(?:,\d+\/(?:\d+|-))*)\))? · step (?:\+\d+|-) · shown (?:\+\d+|-) · confirmed (?:\+\d+ )?(?:ok|no_consent|none|failed \d+|dropped|-) · committed (?:\+\d+|-) · session (?:fail_fast|default) · policy_read (?:yes|no) · busy_taps \d+/],
         ]
         for (key, value) in d {
             let patterns = try #require(templates[key])
@@ -2212,6 +2225,7 @@ struct ReportProblemTests {
         // Copy diagnostics carries the same codes on one line.
         let copied = profile.syncDetails.diagnostics
         #expect(copied.contains("sync check: checked \(DayFormat.string(from: env.clock.now())) · garmin needs_fix "))
+        #expect(copied.contains("\nagree: sent +3 · answered +3120 (204; attempts 204/3080) · step +3121 · shown - · "))
         #expect(!copied.contains("Connect") && !copied.contains("com.garmin"))
         // The install ID and other IDs in paths stay home: the only UUIDs are request IDs, in their place.
         #expect(!sent.lowercased().contains(install) && !sent.lowercased().contains(workout))
