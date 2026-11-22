@@ -2242,9 +2242,6 @@
       "comment" : "Custom exercise: the name is empty or longer than the platform takes, so nothing was saved."
     },
     "Given" : {},
-    "Given, not confirmed yet" : {
-      "comment" : "Profile → Privacy → Health-data consent: agreed on this iPhone, RYFT's confirmation still out. Neutral, not a warning."
-    },
     "Go to bed at %@" : {
       "comment" : "VoiceOver on Sleep → Bedtime's numeral: tonight's bedtime for the user's goal. %@: the time, e.g. \"10:06 PM\"."
     },
@@ -2517,7 +2514,10 @@
       "comment" : "Training import, step 5: the offline duplicate check."
     },
     "It continues by itself once RYFT confirms your consent. Nothing to do here." : {
-      "comment" : "Training import: held at a gate with no step to take (consent given here, RYFT's confirmation out; or the policy not known yet)."
+      "comment" : "Training import: held at a gate with no step to take: consent given here, RYFT's confirmation still out."
+    },
+    "It continues by itself once the privacy policy has loaded. Nothing to do here." : {
+      "comment" : "Training import: held with no step to take until the privacy policy in force is known."
     },
     "It's missing %@. Install the latest version of RYFT." : {
       "comment" : "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names."
@@ -2911,8 +2911,17 @@
     "RYFT didn't answer, so this may not have saved. Try again in a moment." : {
       "comment" : "Settings (Notifications, the body-setting editors): sent, no answer (a timeout, a lost connection); RYFT is asked again."
     },
+    "RYFT didn't answer. Try again in a moment." : {
+      "comment" : "Profile → Privacy, after Check with RYFT: no answer came in time, or the request failed."
+    },
     "RYFT had a problem saving this, so it's back as it was. Try again in a moment." : {
       "comment" : "Settings (Notifications, the body-setting editors): RYFT answered with a server error (5xx); the value went back."
+    },
+    "RYFT has recorded your consent. This iPhone starts syncing once it hears back." : {
+      "comment" : "Profile → Privacy footer: consent given here and recorded by RYFT; this iPhone waits for its answer."
+    },
+    "RYFT has recorded your consent. This iPhone asks RYFT again once it's back online, then starts syncing." : {
+      "comment" : "Profile → Privacy footer, offline: consent given here, RYFT's answer to this iPhone still out."
     },
     "RYFT hasn't loaded your settings yet, so this shows the default." : {
       "comment" : "Body setting editors, online while the account hasn't loaded yet: the value is the default, Save is off."
@@ -4826,8 +4835,8 @@
     },
     "Withdraw consent" : {},
     "Withdraw your consent?" : {},
-    "Withdrawing your consent. Syncing stops once RYFT confirms." : {
-      "comment" : "Profile → Privacy footer while the consent withdrawal request is on its way."
+    "Withdrawing your consent. Nothing syncs while it's on its way." : {
+      "comment" : "Profile → Privacy footer while the consent withdrawal request is on its way: every upload waits meanwhile."
     },
     "Without heart rate there is no strain for this activity." : {
       "comment" : "Add activity: no strain without heart rate."
@@ -4868,9 +4877,6 @@
     "Yesterday's readiness, until last night is scored." : {},
     "Yesterday, %@" : {
       "comment" : "VoiceOver: Sleep's title value for the night that ended yesterday, the date in full (\"Saturday, November 14\")."
-    },
-    "You agreed on this iPhone. Syncing starts once RYFT confirms it." : {
-      "comment" : "Profile → Privacy footer: the consent was given here and RYFT hasn't confirmed it yet (Check with RYFT asks)."
     },
     "You already added a night for that day." : {
       "comment" : "Add or edit sleep: the wake day already has a night the user added."
