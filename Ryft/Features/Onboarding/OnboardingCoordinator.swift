@@ -582,6 +582,8 @@ final class OnboardingCoordinator {
         }
         let timer = startAgreeTimer(session: .failFast)
         let going = flight
+        // For the failure's sentence: the step it belongs to, at the tap (`tieErrorToConsentStep(wasMissing:)`).
+        let consentWasMissing = missing.contains(.consent)
         var agreedAt: Date?
         // RYFT's word was heard inside `perform`: the POST had no answer, and the re-read showed the consent.
         var heardInside = false
@@ -644,8 +646,11 @@ final class OnboardingCoordinator {
             return updated
         }
         guard ok, let agreedAt, going == flight else {
-            // The path ended for this account: its line.
-            if going == flight { timer?.save(in: env) }
+            // The path ended for this account: its line, and its sentence stays with the consent step.
+            if going == flight {
+                timer?.save(in: env)
+                tieErrorToConsentStep(wasMissing: consentWasMissing)
+            }
             return false
         }
         // RYFT's own word: `/v1/me` only, neither the config nor the status. Not again when the no-answer path heard it.
@@ -759,10 +764,14 @@ final class OnboardingCoordinator {
                 // Its answer settles no agreement (security review round 2, S-1): RYFT may record the DELETE after it.
                 let read = await self.askAgain(since: sentAt, settles: false)
                 try self.answered(sent)
+                let user = read ? self.state.repository.user() : nil
                 // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal
                 // is idempotent).
-                guard read, let user = self.state.repository.user(), user.consent == nil else {
-                    if !wasDeferred { self.deferred.remove(.consent) }
+                guard let user, user.consent == nil else {
+                    // The sheet may ask again only when RYFT answered and still shows the consent. Not read in time,
+                    // the read's late answer may show the withdrawal arrived, and the consent sheet mustn't open over
+                    // Profile on its own (code review round 2, 1).
+                    if user != nil, !wasDeferred { self.deferred.remove(.consent) }
                     throw Unanswered()
                 }
                 // Gone: it arrived. Recorded as an answered one, with the re-read already done.
@@ -856,6 +865,23 @@ final class OnboardingCoordinator {
     func clearError() {
         errorMessage = nil
         errorDetails = nil
+        consentErrorWatch = nil
+    }
+
+    /// Watches the consent step while Agree's failure is on screen (`tieErrorToConsentStep(wasMissing:)`).
+    @ObservationIgnored private var consentErrorWatch: ObservationWatch?
+
+    /// Agree's failure belongs to the consent step: once `.consent` leaves `missing` (RYFT's late answer showed the
+    /// consent, or it was given elsewhere), its sentence goes too, and doesn't stay on About you or Privacy (code review
+    /// round 2, 2). `wasMissing`: the step was missing at the tap. Gone by the failure, it left during the flight: the
+    /// sentence goes at once. A step `missing` never counted (no account known yet) keeps it: nothing left.
+    private func tieErrorToConsentStep(wasMissing: Bool) {
+        guard errorMessage != nil, wasMissing else { return }
+        guard missing.contains(.consent) else { return clearError() }
+        consentErrorWatch = ObservationWatch(read: { [weak self] in _ = self?.missing }, changed: { [weak self] in
+            guard let self, !missing.contains(.consent) else { return }
+            clearError()
+        })
     }
 
     /// The banner's words for a failure the step has none of its own for (PR 6 A §A-7): not reaching the platform says

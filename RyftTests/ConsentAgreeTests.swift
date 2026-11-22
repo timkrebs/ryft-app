@@ -695,6 +695,38 @@ struct ConsentAgreeTests {
         #expect(await eventually { h.state.repository.user()?.consent?.policyVersion == H.version })
         await h.onboarding.check(force: true)
         #expect(h.onboarding.flowStep == .aboutYou, "\(h.onboarding.missing)")
+        // Its sentence belonged to the consent step: gone with it, not on About you (code review round 2, 2).
+        #expect(await eventually(timeout: .seconds(5)) { h.onboarding.errorMessage == nil }, "\(h.onboarding.errorMessage ?? "-")")
+        await post.open()
+    }
+
+    @Test("Code 2: RYFT shows the consent while the POST is out, and Agree ends without an answer: no sentence stays",
+          .timeLimit(.minutes(1)))
+    func aConsentHeardDuringTheFlightLeavesNoSentence() async throws {
+        let h = H()
+        try await h.ready()
+        let post = Gate(), me = FirstCallsHold()
+        let api = h.api
+        api.beforeConsent = { await post.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually { h.onboarding.isWorking && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        // Given elsewhere meanwhile, and heard here: the consent step goes while the POST is out.
+        api.accountConsent = Consent(policyVersion: H.version, grantedAt: .now)
+        await h.onboarding.check(force: true)
+        #expect(!h.onboarding.missing.contains(.consent), "\(h.onboarding.missing)")
+        // No answer; asked again, /v1/me doesn't come in time either: Agree fails with its step already gone.
+        api.beforeMe = { await me.wait() }
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 }, "asked again")
+        #expect(await eventually(timeout: .seconds(10)) {
+            h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+            return !h.onboarding.isWorking
+        }, "the wait ended, the read didn't")
+        #expect(await agreeing.value == false)
+        #expect(h.onboarding.errorMessage == nil, "\(h.onboarding.errorMessage ?? "-")")
+        me.release()
         await post.open()
     }
 
@@ -1010,6 +1042,45 @@ struct ConsentAgreeTests {
         #expect(h.consent.unsettledAgreement == H.version, "the re-read settled nothing")
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.starts.runs == 0)
+        await delete.open()
+    }
+
+    // MARK: Review round 2, code 1 and 2: RYFT's late answer
+
+    @Test("Code 1: a withdrawal that landed without an answer, its /v1/me late: the late answer opens no consent sheet",
+          .timeLimit(.minutes(1)))
+    func aLateWithdrawalAnswerOpensNoSheet() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        h.onboarding.reachedTabs()
+        try #require(!h.onboarding.isFirstRun && h.onboarding.accountHint == nil)
+        let delete = Gate(), me = FirstCallsHold()
+        let api = h.api
+        // RYFT records the withdrawal, and its answer never comes; asked again, its /v1/me is held past the deadline.
+        api.beforeRevokeConsent = {
+            api.accountConsent = nil
+            await delete.wait()
+        }
+        api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await eventually(timeout: .seconds(5)) { !h.onboarding.isWithdrawing }, "the wait ended, the read didn't")
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+
+        me.release()
+        #expect(await withdrawing.value == false)
+        #expect(await eventually { h.state.repository.user().map { $0.consent == nil } ?? false }, "the late answer landed")
+        #expect(h.onboarding.missing.contains(.consent), "\(h.onboarding.missing)")
+        #expect(h.onboarding.sheetStep == nil, "no consent sheet over Profile on its own")
+        // Asked for, it shows (Privacy's Review and agree, Today's action).
+        h.onboarding.show(.consent)
+        #expect(h.onboarding.sheetStep == .consent)
         await delete.open()
     }
 
