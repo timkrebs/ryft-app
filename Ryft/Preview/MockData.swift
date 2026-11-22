@@ -33,16 +33,21 @@ enum MockData {
                                      UserSource(name: "Alex's iPhone", bundleId: "com.apple.health.3F0A",
                                                 kinds: [.steps], lastSeen: .now.addingTimeInterval(-600))])
 
-    /// Oldest first; the last element is today.
-    static let history: [DailyScore] = nights.map(\.score)
+    /// Oldest first; the last element is today (the clock's, so after midnight the window has moved on one day).
+    static var history: [DailyScore] { nights.map(\.score) }
 
     static var todayScore: DailyScore { history[history.count - 1] }
 
-    static var todayDetail: DayDetail { detail(for: .now) }
+    static var todayDetail: DayDetail { todayDetail(asOf: .now) }
 
-    static func detail(for date: Date) -> DayDetail {
+    /// Today's night as the clock `now` has it (the seam the midnight test crosses).
+    static func todayDetail(asOf now: Date) -> DayDetail { detail(for: now, asOf: now) }
+
+    static func detail(for date: Date) -> DayDetail { detail(for: date, asOf: .now) }
+
+    static func detail(for date: Date, asOf now: Date) -> DayDetail {
         let day = DayFormat.string(from: date)
-        guard let night = nights.first(where: { $0.score.day == day }) else {
+        guard let night = nights(asOf: now).first(where: { $0.score.day == day }) else {
             return DayDetail(score: .empty(day: day), sleep: nil, workouts: [])
         }
         var strain = night.strain
@@ -182,10 +187,28 @@ enum MockData {
         let workouts: [Workout]
     }
 
-    private static let nights: [Night] = {
+    /// The 90 nights ending on the day of `now`, built once per calendar day. They were once a `static let`, built at the
+    /// first read: a process alive across midnight then kept yesterday as its "today", and `todayDetail` (read at `.now`)
+    /// found no night, so `todayDetail.workouts[0]` trapped with "Index out of range" at 00:00.
+    private static func nights(asOf now: Date) -> [Night] {
+        let today = Calendar.current.startOfDay(for: now)
+        let key = DayFormat.string(from: today)
+        nightsLock.lock()
+        defer { nightsLock.unlock() }
+        if let built = nightsByDay[key] { return built }
+        let built = makeNights(today: today)
+        nightsByDay[key] = built
+        return built
+    }
+
+    private static var nights: [Night] { nights(asOf: .now) }
+
+    private nonisolated(unsafe) static var nightsByDay: [String: [Night]] = [:]
+    private static let nightsLock = NSLock()
+
+    private static func makeNights(today: Date) -> [Night] {
         var rng = SeededRandom(seed: 42)
         let cal = Calendar.current
-        let today = cal.startOfDay(for: .now)
         // Last 7 days of readiness, shaped like the board's trend line.
         let lastWeek = [72, 66, 75, 70, 79, 76, 84]
         var debt = 0.0
@@ -296,7 +319,7 @@ enum MockData {
                              workouts: workouts(on: date, index: i, isToday: isToday, strain: strain, rng: &rng)))
         }
         return out
-    }()
+    }
 
     /// Five ~90-minute cycles: deep front-loaded, REM growing towards morning,
     /// two short wake-ups. Minutes add up to the night's stage totals exactly (the last cycle takes what the shares
