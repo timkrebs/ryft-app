@@ -2,6 +2,8 @@
 // `APIClient.exchange` asks `token(epoch:via:)` for `X-RYFT-App-Token` before each request and, after a
 // `403 app_attest_required`, `renewed(after:epoch:via:)` for a new one, once. The three App Attest routes go through
 // `exchange` too (bearer, 401, request IDs) but never ask for a token (`APIClient.appAttestRoutes`).
+// The server's mode (`GET /v1/config` → `app_attest`, AA2, D247) comes from `FlagStore` (`configure`): under `off`
+// nothing is probed; `warn`, `on` and absent behave as before (docs/work/2026-11-20-app-attest-mode/design.md).
 // Nothing here logs, records or shows the key ID, the token, a challenge, an attestation or an assertion: log lines
 // carry the step, the status, the `code`, the request ID and the DCError code only.
 import CryptoKit
@@ -40,6 +42,8 @@ actor AppAttestor {
     static let backoffCap: Duration = .seconds(30 * 60)
     /// The backoffs that outlive the process (`Backoff`).
     static let defaultsKey = "appAttest.backoff"
+    /// A cached `off` (the config's `app_attest`, AA2) counts this long after its fetch; then it's absent.
+    static let offTrust: TimeInterval = 24 * 3600
 
     /// `appAttest.backoff`: dates and one flag, nothing that identifies the account or the install.
     struct Backoff: Codable, Equatable, Sendable {
@@ -88,6 +92,19 @@ actor AppAttestor {
     private var liftedNotServed = false
     private var cachedBackoff: Backoff?
 
+    /// The server's mode from the newest config (`FlagStore` publishes it; nil: absent, today's behaviour), when that
+    /// config was fetched, and a count of publications (a refusal's lift of `off` lasts until the next one).
+    private struct Configured: Sendable {
+        var mode: AppAttestMode?
+        var fetchedAt: Date?
+        var revision = 0
+    }
+
+    /// Written on the caller (the main actor) and read here without a hop: `token()` gains no suspension point.
+    private nonisolated let configured = OSAllocatedUnfairLock(initialState: Configured())
+    /// The `revision` a `403 app_attest_required` lifted `off` for: the server is checking, whatever the cache says.
+    private var offLiftedAt: Int?
+
     /// `stamp`: the signed-in account and `APIStatus.epoch` (nil: nobody), read on the main actor. Its epoch is the one
     /// `APIClient` gives `token(epoch:via:)`, so a test's stamp reads the epoch of the client's `APIStatus`.
     init(service: AppAttestService, keys: AppAttestKeyStore, clock: AppClock, defaults: UserDefaults,
@@ -98,6 +115,19 @@ actor AppAttestor {
         self.defaults = defaults
         self.stamp = stamp
     }
+
+    /// The newest config's mode and when it was fetched (`FlagStore`, on every change of the answer it shows or holds;
+    /// nil: absent, as before D247 or for an account with no cached config). Ends a refusal's lift of `off`.
+    nonisolated func configure(_ mode: AppAttestMode?, fetchedAt: Date?) {
+        configured.withLock {
+            $0.mode = mode
+            $0.fetchedAt = fetchedAt
+            $0.revision += 1
+        }
+    }
+
+    /// The mode last configured (tests).
+    nonisolated var configuredMode: AppAttestMode? { configured.withLock { $0.mode } }
 
     /// Requests waiting for the renewal (tests).
     var waiting: Int { waiters.count }
@@ -113,15 +143,16 @@ actor AppAttestor {
     /// The header for a request that started in `epoch`, or nil: it goes without. Starts a renewal when there's no
     /// valid token, and when under `min(300 s, ttl / 2)` are left (the current token still goes out; none goes out
     /// past its expiry). Once this install has seen the routes served, a request without a token waits up to
-    /// `firstTokenWait` for the renewal.
+    /// `firstTokenWait` for the renewal. Under a configured `off` (AA2) nothing starts and nothing waits: a token
+    /// already held still goes out until it expires.
     func token(epoch: Int, via client: APIClient) async -> String? {
         catchUpWipes()
         let now = clock.uptime()
         if let issued, issued.epoch == epoch, now < issued.expiresAt {
-            if now >= issued.renewAt { startRenewal(epoch: epoch, via: client) }
+            if now >= issued.renewAt, !isOff { startRenewal(epoch: epoch, via: client) }
             return issued.token
         }
-        guard let id = startRenewal(epoch: epoch, via: client), backoff.servedSeen else { return nil }
+        guard !isOff, let id = startRenewal(epoch: epoch, via: client), backoff.servedSeen else { return nil }
         await wait(for: id, upTo: Self.firstTokenWait)
         return usable(epoch)
     }
@@ -138,6 +169,12 @@ actor AppAttestor {
         if !liftedNotServed, backoff.notServedUntil != nil {
             liftedNotServed = true
             updateBackoff { $0.notServedUntil = nil }
+        }
+        // A cached `off` is stale (the server went `warn` → `on`): renewals go on until the next published answer.
+        // Set before any suspension, so a request reading `isOff` after this one attests.
+        if let revision = offInForce {
+            offLiftedAt = revision
+            Self.log.notice("App Attest: refused under a cached off; renewing until the next config")
         }
         if let token = usable(epoch), token != refused { return token }
         let id: UUID
@@ -237,6 +274,19 @@ actor AppAttestor {
         guard let until else { return false }
         let left = until.timeIntervalSince(now)
         return left > 0 && left <= longest
+    }
+
+    /// The server said `off`: no challenge, no key, no wait.
+    private var isOff: Bool { offInForce != nil }
+
+    /// The `revision` of a configured `off` still in force, or nil. An `off` counts for `offTrust` after its fetch (a
+    /// fetch dated in the future, or none, doesn't count: the clock was set back), and not once a refusal lifted it.
+    private var offInForce: Int? {
+        let current = configured.withLock { $0 }
+        guard current.mode == .off, let fetchedAt = current.fetchedAt,
+              Self.inForce(fetchedAt.addingTimeInterval(Self.offTrust), now: clock.now(), longest: Self.offTrust),
+              offLiftedAt != current.revision else { return nil }
+        return current.revision
     }
 
     private func markUnsupported() {
