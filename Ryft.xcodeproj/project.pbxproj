@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		34A4094030B36BD80091E2F7 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 34A4093F30B36BD80091E2F7 /* PostHog */; };
 		34FAE7C03086252800C9A7B8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 34FAE7BF3086252800C9A7B8 /* WidgetKit.framework */; };
 		34FAE7C23086252800C9A7B8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 34FAE7C13086252800C9A7B8 /* SwiftUI.framework */; };
 		34FAE7CD3086252900C9A7B8 /* RyftWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 34FAE7BD3086252800C9A7B8 /* RyftWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -130,6 +131,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9DC8D81642CECC8124DD2A48 /* Auth in Frameworks */,
+				34A4094030B36BD80091E2F7 /* PostHog in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +251,7 @@
 			name = Ryft;
 			packageProductDependencies = (
 				0C6748207AA3E748C0330FE6 /* Auth */,
+				34A4093F30B36BD80091E2F7 /* PostHog */,
 			);
 			productName = Ryft;
 			productReference = 4AA48F93ABC4EB8225BD75B8 /* Ryft.app */;
@@ -310,6 +313,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F8194753AF81E028D7A11924 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				34D3469830B31FF600B5514C /* XCRemoteSwiftPackageReference "posthog-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 951CCC6E27AE2ED91A784299 /* Products */;
@@ -850,6 +854,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		34D3469830B31FF600B5514C /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 3.98.2;
+			};
+		};
 		F8194753AF81E028D7A11924 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/supabase/supabase-swift";
@@ -867,6 +879,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F8194753AF81E028D7A11924 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Auth;
+		};
+		34A4093F30B36BD80091E2F7 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 34D3469830B31FF600B5514C /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
