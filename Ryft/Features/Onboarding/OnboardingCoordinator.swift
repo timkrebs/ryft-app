@@ -660,7 +660,9 @@ final class OnboardingCoordinator {
         timer?.committed(word)
         // The path ended for this account: its line, before the sync it starts.
         timer?.save(in: env)
-        if read, uploadGate(for: .healthKit) == nil { await startSync() }
+        // Not while a withdrawal is on its way (security review N-1): RYFT's word may have come before the DELETE's
+        // answer, and the withdrawal is the last word.
+        if read, !isWithdrawing, uploadGate(for: .healthKit) == nil { await startSync() }
         return true
     }
 

@@ -725,4 +725,29 @@ struct ConsentAgreeTests {
         await h.env.uploader.flush()
         #expect(h.api.count("putActivity") == 1, "\(h.api.calls)")
     }
+
+    // MARK: Security review N-1: no first sync while a withdrawal is on its way
+
+    @Test("T9b: RYFT's word comes while a withdrawal is on its way: no first sync", .timeLimit(.minutes(1)))
+    func noFirstSyncDuringAWithdrawal() async throws {
+        let h = H()
+        try await h.ready()
+        let me = FirstCallsHold(), delete = FirstCallsHold()
+        h.api.beforeMe = { await me.wait() }
+        h.api.beforeRevokeConsent = { await delete.wait() }
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually { me.waiting == 1 })
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { delete.waiting == 1 })
+        me.release()
+        #expect(await agreeing.value)
+        #expect(h.consent.agreement?.settled == true, "RYFT's word came first")
+        #expect(h.starts.runs == 0, "no sync while the withdrawal is on its way")
+
+        delete.release()
+        #expect(await withdrawing.value)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.starts.runs == 0)
+    }
 }
