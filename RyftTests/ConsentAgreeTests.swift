@@ -630,4 +630,65 @@ struct ConsentAgreeTests {
         #expect(!line.contains(H.version), "the policy version in \(line)")
         #expect(!line.contains(requestID))
     }
+
+    // MARK: Review round 1, code review S1: asking again has a deadline
+
+    @Test("S1: no answer, and RYFT's /v1/me doesn't come either: within 10 s it says so, and the late answer still lands",
+          .timeLimit(.minutes(1)))
+    func askingAgainAfterNoAnswerHasADeadline() async throws {
+        let h = H()
+        try await h.ready()
+        let post = Gate(), me = FirstCallsHold()
+        let api = h.api
+        // RYFT records the consent, and its answer never comes; asked again, its /v1/me is held too.
+        api.beforeConsent = {
+            api.accountConsent = Consent(policyVersion: H.version, grantedAt: .now)
+            await post.wait()
+        }
+        api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually { h.onboarding.isWorking && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await eventually(timeout: .seconds(5)) { !h.onboarding.isWorking }, "the wait ended, the read didn't")
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.consentUnansweredMessage)
+        #expect(h.onboarding.flowStep == .consent && h.consent.agreement == nil)
+
+        me.release()
+        #expect(await agreeing.value == false)
+        // The read went on in the pipeline: its answer, with the consent, is stored. The next check sees it (the sign-in's
+        // status refusal, kept, goes with RYFT's newer word), and the flow moves on.
+        #expect(await eventually { h.state.repository.user()?.consent?.policyVersion == H.version })
+        await h.onboarding.check(force: true)
+        #expect(h.onboarding.flowStep == .aboutYou, "\(h.onboarding.missing)")
+        await post.open()
+    }
+
+    @Test("S1: a withdrawal with no answer, and RYFT's /v1/me doesn't come either: within 10 s it says so",
+          .timeLimit(.minutes(1)))
+    func askingAgainAfterAnUnansweredWithdrawalHasADeadline() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let delete = Gate(), me = FirstCallsHold()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        h.api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await eventually(timeout: .seconds(5)) { !h.onboarding.isWithdrawing }, "the wait ended, the read didn't")
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        #expect(h.consent.withdrawnAt == nil)
+
+        me.release()
+        #expect(await withdrawing.value == false)
+        await delete.open()
+    }
 }

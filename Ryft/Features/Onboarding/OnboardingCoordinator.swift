@@ -600,7 +600,7 @@ final class OnboardingCoordinator {
                 // `/v1/me` only, still inside `perform` (the failure path only): the step stays busy meanwhile.
                 try self.answered(sent)
                 timer?.confirming()
-                let read = (try? await self.state.repository.readUserBack(since: sentAt)) ?? false
+                let read = await self.askAgain(since: sentAt)
                 try self.answered(sent)
                 guard read, self.state.repository.user()?.consent?.policyVersion == version else {
                     timer?.committed(read ? "no_consent" : "none")
@@ -744,7 +744,7 @@ final class OnboardingCoordinator {
                 try self.answered(sent)
                 let wasDeferred = self.deferred.contains(.consent)
                 self.deferred.insert(.consent)
-                let read = (try? await self.state.repository.readUserBack(since: sentAt)) ?? false
+                let read = await self.askAgain(since: sentAt)
                 try self.answered(sent)
                 // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal
                 // is idempotent).
@@ -775,6 +775,25 @@ final class OnboardingCoordinator {
     /// A consent or a withdrawal sent, with no answer in time (`failingFast`), and RYFT, asked again, not showing it
     /// arrived (or not reached).
     private struct Unanswered: Error {}
+
+    /// RYFT asked what it holds after a consent or a withdrawal went out with no answer (`Unanswered`): one `GET /v1/me`
+    /// asked for at or after `since` (`Repository.readUserBack`), waited for at most `checkTimeout`, as the first run
+    /// waits (code review S1: on its own, the read's three attempts could keep the step busy for over a minute). True
+    /// when that read answered in time. Only the wait ends: the read goes on in the read pipeline, which stores its
+    /// answer inside the flight, so a late one still lands and the next check sees it.
+    private func askAgain(since: Date) async -> Bool {
+        let repository = state.repository, clock = env.clock
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { (try? await repository.readUserBack(since: since)) ?? false }
+            group.addTask {
+                try? await clock.sleep(for: Self.checkTimeout)
+                return nil
+            }
+            let first = await group.next()
+            group.cancelAll()
+            return first.flatMap { $0 } ?? false
+        }
+    }
 
     /// Under Agree and continue when `POST /v1/me/consent` went out but no answer came in time: RYFT may have it.
     nonisolated static var consentUnansweredMessage: String {
