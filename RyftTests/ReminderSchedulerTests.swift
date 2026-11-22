@@ -739,33 +739,54 @@ struct ReminderBedtimeTests {
     }
 }
 
-// MARK: - round 2, B-1: dark behind notifications.reminders
+// MARK: - round 2: a morning with every kind
 
+/// 08:00 today on this iPhone's calendar (the mock journal answers by the real day): the journal live with habits and a
+/// sync just now. `bedtime()` is a wind-down for tomorrow evening.
 @MainActor
-@Suite("Reminders: the journal's and the fallback's behind notifications.reminders")
-struct ReminderFlagTests {
-    private let today = local.startOfDay(for: .now)
-    private func day(_ offset: Int) -> String {
+private enum LiveMorning {
+    static var today: Date { local.startOfDay(for: .now) }
+
+    static func day(_ offset: Int) -> String {
         reminderDay(local.date(byAdding: .day, value: offset, to: today) ?? today, calendar: local)
     }
 
-    /// 08:00 today on this iPhone's calendar (the mock journal answers by the real day), the journal live with habits, a
-    /// sync just now, and the flag as `flag` says: an answer with the key on or off, or (nil) no answer and no override.
-    private func rig(flag: Bool?) async -> ReminderRig {
-        let now = local.date(bySettingHour: 8, minute: 0, second: 0, of: today) ?? today
-        let rig = ReminderRig(at: now, calendar: local)
-        rig.flags.setOverride(.notificationsReminders, nil)
-        if let flag { rig.answer(["notifications.reminders": flag]) }
+    static func rig() async -> ReminderRig {
+        let rig = ReminderRig(at: local.date(bySettingHour: 8, minute: 0, second: 0, of: today) ?? today, calendar: local)
         rig.scheduler.connect(journal: rig.journal)
         await rig.journal.load()
         rig.env.settings.lastSync = rig.clock.now()
         return rig
     }
 
-    private func bedtime() -> LocalReminder {
+    static func bedtime() -> LocalReminder {
         let tomorrow = local.dateComponents([.year, .month, .day], from: local.date(byAdding: .day, value: 1, to: today) ?? today)
         return bedtimeReminder(day(2), fire: DateComponents(year: tomorrow.year, month: tomorrow.month, day: tomorrow.day,
                                                             hour: 22, minute: 10))
+    }
+
+    /// A journal reminder for yesterday, at 09:00 today.
+    static func journalForYesterday() -> LocalReminder {
+        let fire = local.dateComponents([.year, .month, .day], from: today)
+        return journalReminder(day(-1), fire: DateComponents(year: fire.year, month: fire.month, day: fire.day, hour: 9,
+                                                             minute: 0))
+    }
+}
+
+// MARK: - round 2, B-1: dark behind notifications.reminders
+
+@MainActor
+@Suite("Reminders: the journal's and the fallback's behind notifications.reminders")
+struct ReminderFlagTests {
+    private func day(_ offset: Int) -> String { LiveMorning.day(offset) }
+    private func bedtime() -> LocalReminder { LiveMorning.bedtime() }
+
+    /// `LiveMorning`'s, with the flag as `flag` says: an answer with the key on or off, or (nil) no answer and no override.
+    private func rig(flag: Bool?) async -> ReminderRig {
+        let rig = await LiveMorning.rig()
+        rig.flags.setOverride(.notificationsReminders, nil)
+        if let flag { rig.answer(["notifications.reminders": flag]) }
+        return rig
     }
 
     @Test("On: the journal's three mornings and the fallback's two, beside bedtime's")
@@ -791,9 +812,7 @@ struct ReminderFlagTests {
     func unknown() async throws {
         let rig = await rig(flag: nil)
         #expect(rig.flags.known(.notificationsReminders) == nil)
-        let fire = local.dateComponents([.year, .month, .day], from: today)
-        let kept = journalReminder(day(-1), fire: DateComponents(year: fire.year, month: fire.month, day: fire.day,
-                                                                 hour: 9, minute: 0))
+        let kept = LiveMorning.journalForYesterday()
         try await rig.seed([kept], owner: accountA.uuidString)
         let adds = rig.notifier.adds
         await rig.scheduler.rescheduleNow()
@@ -813,5 +832,45 @@ struct ReminderFlagTests {
         await rig.afterDebounce()
         #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty)
         #expect(rig.ids(.bedtime) == ["bedtime.\(day(2))"])
+    }
+}
+
+// MARK: - round 2, S-1: consent
+
+@MainActor
+@Suite("Reminders: the journal's and the fallback's pause while consent is withdrawn or refused")
+struct ReminderConsentTests {
+    @Test("A withdrawal on this iPhone takes them away, bedtime's stays; agreeing again brings them back")
+    func withdrawal() async {
+        let rig = await LiveMorning.rig()
+        rig.watch()
+        await rig.offerBedtime([LiveMorning.bedtime()])
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2)
+
+        rig.env.consent.withdrew(at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty)
+        #expect(rig.ids(.bedtime) == ["bedtime.\(LiveMorning.day(2))"])
+
+        rig.env.consent.consented(to: "2026-11-01", at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2)
+    }
+
+    @Test("A standing refusal at the consent or the invite gate holds them until the platform clears it",
+          arguments: [APIErrorCode.consentRequired, .inviteRequired])
+    func refusal(_ code: APIErrorCode) async {
+        let rig = await LiveMorning.rig()
+        rig.watch()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2)
+
+        rig.env.consent.refused(code, at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty, "\(code)")
+
+        rig.env.consent.cleared(code)
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2, "\(code)")
     }
 }
