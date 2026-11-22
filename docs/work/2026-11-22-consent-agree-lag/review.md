@@ -100,3 +100,31 @@ Shots: `scratchpad/uiv-consent/shots/` (not in the repo). "Given" is neutral gre
 | 2 | The Check row has no trailing glyph next to "Sync now"'s refresh. "Read the policy" wraps mid-link in the withdrawing footer. | **Fix:** the refresh glyph, and a no-break space inside the link text. |
 | — | No VoiceOver hint says why Check is dimmed offline. | **Fix:** an accessibility hint. |
 | — | No preview covers Check busy or failed, or Sync details' Workouts paused for consent (`MockDevicesStates` has `train.gate == nil`). | **Fix:** add the previews (CLAUDE.md: every state gets one). |
+
+## Round 4 (3132f4b..2806fa5, strings 733cdc3)
+
+Final local run on 2806fa5 is green: strict build with 0 warnings, Unit, UISmoke, Release build, lint and style. The catalog lacked two keys; they were added in 733cdc3 by targeted insertion only.
+
+### code-reviewer: every round-3 item fixed, one should-fix
+
+- **Should-fix 1, fixed in round 5:** Check with RYFT's failure, with its request ID, survives an account change and Demo data's reset. It is cleared in `accountChanged(from:)` and the forgetter.
+- **Nit 1, with security nit 2 (fix):** a clock that moves after the cancellation can hold uploads until real time catches up. A marker dated after now is void: any stored `/v1/me` ends it, as `heard` already does for an agreement.
+- **Nit 2 (test):** N-a's import wiring.
+- **Nit 3 (test):** the "never from no account" guard at the first check after a relaunch.
+- **Nit 4 (docs):** ADR 0025 decision 3 and the `ConsentState` comment say "another account or none" (sign-out ends the marker too).
+- **Nit 5 (strings):** the catalog comment of "RYFT didn't answer. Try again in a moment." follows the code's comment.
+- **Nit 6:** left for the follow-up below.
+- **Passed to security (fix):** the app killed while the `DELETE` is out leaves no marker. The marker is written before the `DELETE` leaves and cleared on a `204` (which records `withdrawnAt`) or on a refusal that left the consent as it was. So a relaunch or background wake holds until a `/v1/me` asked after the attempt.
+- **Code 5:** the key can't be pinned by a test, accepted.
+
+### security-privacy-reviewer: S-2 fixed as decided, two should-fixes
+
+- **Should-fix 1 (fix):** a late answer without the consent ends the hold before the user write commits. It now records the withdrawal as `withdrew(at:)` does (`withdrawnAt` in defaults) before the marker goes. The test: a refused user save, then a relaunch, still holds.
+- **Should-fix 2 (decided: option B now, option A as the next ticket):** an answer that still shows the consent ends the hold, and the withdrawal isn't sent again. Main behaves the same, so this is not a regression of this PR.
+  - **In this PR:** when the late re-read still shows the consent, Profile says so plainly. The withdrawal didn't reach RYFT, syncing continues, and the user should try again. It no longer says "may still have arrived".
+  - **Follow-up ticket "a withdrawal RYFT hasn't heard is sent again":** keep the hold while RYFT still shows the consent, and resend the idempotent `DELETE` on check, reconnect and launch. It ends on a `204`, a `/v1/me` without consent, a new Agree, or an account change. It needs an ios-architect note first, because it changes ADR 0025 decision 3. The privacy page should then say that uploads stop on the phone straight away.
+  - **Why B now:** this PR's brief is the Agree lag. A is a new resend mechanism in the consent state machine, and it should get its own design and review rather than a fifth round here.
+- **Nit 1 (fix):** the account wipe removes `consent.withdrawal.unresolved.<account>` using `wipe.account`.
+- **Nit 2:** see code nit 1.
+- **Nit 3 (fix):** a `502` or `504` on the withdrawal's `DELETE` takes the no-answer path (a gateway may answer after the UPDATE committed).
+- **Known, outside S-2:** the journal, habits and body-settings writes don't ask the gate. That is an ADR 0008 scoping question and is already in STATUS.
