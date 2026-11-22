@@ -109,6 +109,7 @@ final class ScreenModels {
         state.forgetsAccountState { [weak insights] in insights?.forget() }
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
+                                     pendingGate: { [onboarding] in onboarding.pendingGate },
                                      showStrain: { [state] in state.selectedTab = .strain },
                                      openRoute: { [state, strain] route in
                                          strain.requestedRoute = route

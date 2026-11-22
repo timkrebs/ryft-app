@@ -66,7 +66,8 @@ Store "What's New".
 
 ### Changed
 - Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once RYFT confirms it; until
-  then Devices & sync says Paused.
+  then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is given and not
+  confirmed yet, with Check with RYFT and Withdraw consent.
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.
 - RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,

@@ -301,6 +301,13 @@ struct ProfileView: View {
             GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward, identifier: id) {
                 model.reviewConsent()
             }
+        case .checkConsent:
+            GroupedRow.action(Text("Check with RYFT",
+                                   comment: "Profile → Privacy: asks RYFT again whether it has the consent given on this iPhone."),
+                              busy: model.checkingConsent, identifier: id) {
+                Task { await model.checkConsent() }
+            }
+            .disabled(model.checkingConsent || model.withdrawingConsent)
         case .withdrawConsent:
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
@@ -557,7 +564,8 @@ extension ProfileRowFacts {
         self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
                   showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
-                  consentIsCurrent: model.consentIsCurrent, showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
+                  consentIsCurrent: model.consentIsCurrent, consentAwaitsConfirmation: model.consentAwaitsConfirmation,
+                  showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
                   hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
     }
 }
@@ -706,6 +714,8 @@ private enum ProfilePreview {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
         /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
         case withdrawing
+        /// Agreed on this iPhone, RYFT's word on it never coming: Given, not confirmed yet; Check with RYFT and Withdraw.
+        case consentUnconfirmed
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
@@ -718,6 +728,8 @@ private enum ProfilePreview {
         let withdrawing = kind == .withdrawing
         // Never answered while the preview is open; on a clock that stands still, so `SettingsWrite.deadline` never ends it.
         if withdrawing { api.beforeRevokeConsent = { try? await Task.sleep(for: .seconds(86_400)) } }
+        let unconfirmed = kind == .consentUnconfirmed
+        if unconfirmed { api.beforeMe = { try? await Task.sleep(for: .seconds(86_400)) } }
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
@@ -726,6 +738,8 @@ private enum ProfilePreview {
                                  flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
+        // The 204 on this iPhone, RYFT's own word on it still out.
+        if unconfirmed { env.consent.consented(to: MockData.policyVersion, at: .now) }
         let state = AppState(env: env)
         state.history = MockData.history
         state.user = user(kind)
@@ -761,7 +775,7 @@ private enum ProfilePreview {
         case .noName:
             return User(id: u.id, name: "", email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, consent: u.consent, birthYear: u.birthYear)
-        case .consentOutdated:
+        case .consentOutdated, .consentUnconfirmed:
             return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, birthYear: u.birthYear)
         default:
@@ -794,6 +808,8 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
+#Preview("Profile · consent not confirmed yet") { ProfilePreview.page(.consentUnconfirmed) }
+#Preview("Profile · consent not confirmed yet · AX3") { ProfilePreview.page(.consentUnconfirmed, ax3: true) }
 #Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
 #Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
 #Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }

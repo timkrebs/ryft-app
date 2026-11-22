@@ -140,7 +140,7 @@ struct ImportResultView: View {
             lead(systemImage: "pause")
             progress(job, paused: true)
             retrying(job, at: at)
-        case .gated:
+        case .gated where model.gateAsksForStep:
             lead(systemImage: "pause")
             progress(job, paused: true)
             InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
@@ -150,6 +150,16 @@ struct ImportResultView: View {
                                           comment: "Training import I8: a consent or invite step holds the upload.")
                               + " " + ImportResultText.keptLimits,
                           identifier: "import.gated", severity: .attention, announces: false)
+        case .gated:
+            // No step to take (just agreed, RYFT's word still out; the policy in force not known yet): calm, and it goes
+            // on by itself, as Devices & sync says "Paused".
+            lead(systemImage: "pause")
+            progress(job, paused: true)
+            InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
+                          systemImage: "pause",
+                          details: job.lastFailure?.details,
+                          caption: ImportResultText.gatedWaiting + " " + ImportResultText.keptLimits,
+                          identifier: "import.gatedWaiting", announces: false)
         case .notAvailable:
             // Calm and final for now: no error styling, no Try again. RYFT asks again when the app opens.
             lead(systemImage: "tray.and.arrow.down")
@@ -369,7 +379,7 @@ struct ImportResultView: View {
         case .paused(.notAvailable)?:
             ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
             discardJob
-        case .paused(.gated)?:
+        case .paused(.gated)? where model.gateAsksForStep:
             // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
             ImportStepButton(title: String(localized: "Continue in RYFT",
                                            comment: "Training import I8: close the import so the consent or invite step can show."),
@@ -377,7 +387,7 @@ struct ImportResultView: View {
                 model.finish(.close)
             }
             discardJob
-        case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
+        case .paused(.offline)?, .paused(.retrying)?, .paused(.gated)?, .paused(.held)?, .paused(.needsAttention)?:
             // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
             // there, quieter, and still asks first.
             ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
@@ -473,6 +483,12 @@ enum ImportResultText {
     }
 
     /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
+    /// A gate's hold no step answers: RYFT's confirmation of the consent given here, or of the policy in force.
+    static var gatedWaiting: String {
+        String(localized: "It continues by itself once RYFT confirms your consent. Nothing to do here.",
+               comment: "Training import: held at a gate with no step to take (consent given here, RYFT's confirmation out; or the policy not known yet).")
+    }
+
     static var keptLimits: String {
         String(localized: "Kept on this iPhone for up to 30\u{00A0}days. Signing out or deleting your account removes it.",
                comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
@@ -575,6 +591,14 @@ enum ImportResultText {
     NavigationStack {
         ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
             MockTrainImport.status(.paused(.gated(.gate(.consentRequired)))))))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Step 6 · waiting for RYFT's confirmation") {
+    NavigationStack {
+        ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
+            MockTrainImport.status(.paused(.gated(.gate(.consentRequired))))), pendingGate: .some(nil)))
     }
     .previewEnvironment()
 }

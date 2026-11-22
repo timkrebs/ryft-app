@@ -52,6 +52,9 @@ final class ImportFlowModel: Identifiable {
         var announce: @MainActor (String) -> Void = { text in
             AccessibilityNotification.Announcement(text).post()
         }
+        /// Onboarding's `pendingGate` (ScreenModels): whether a gate's hold is a step the user can take. Nil without a
+        /// coordinator: the hold's own gate decides.
+        var pendingGate: @MainActor () -> OnboardingCoordinator.Step?? = { nil }
     }
 
     let id = UUID()
@@ -524,6 +527,15 @@ final class ImportFlowModel: Identifiable {
     // MARK: Step 6
 
     var job: ImportJobStatus? { deps.uploader.status }
+
+    /// A gate's hold is I8 (an answer in RYFT, "Continue in RYFT") only when onboarding asks for a step, as Devices & sync
+    /// asks it (`SyncIdleState.held`). Just agreed with RYFT's word still out, or the policy in force not known yet, the
+    /// import waits with nothing to do (code review S2).
+    var gateAsksForStep: Bool {
+        guard case .paused(.gated(let hold))? = job?.phase else { return false }
+        if case .actionNeeded? = SyncIdleState.held(at: hold, pendingGate: deps.pendingGate()) { return true }
+        return false
+    }
 
     func retryRejected() async { await deps.uploader.retryRejected() }
     func importDuplicatesFound() async { await deps.uploader.importDuplicatesFound() }

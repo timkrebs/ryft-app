@@ -62,18 +62,26 @@ enum SyncIdleState: Equatable, Sendable {
     ///   - uploaded: a run that sent everything is on record (`Settings.lastSync`), or demo data (always there).
     static func decide(pausedFor: UploadGate?, pendingGate: OnboardingCoordinator.Step?? = nil, offline: Bool,
                        failed: Bool, backfillDone: Bool, backlog: Bool, uploaded: Bool) -> SyncIdleState {
-        switch pausedFor {
-        case .gate(let code)?:
-            if let asked = pendingGate { return asked.map(SyncIdleState.actionNeeded) ?? .paused }
-            return .actionNeeded(code == .inviteRequired ? .invite : .consent)
-        case .policyUnknown?: return .paused
-        case .demo?, nil: break
-        }
+        if let pausedFor, let held = held(at: pausedFor, pendingGate: pendingGate) { return held }
         if offline { return .offline }
         if failed { return .failed }
         if !backfillDone { return .importNotFinished }
         if backlog { return .moreToSend }
         return uploaded ? .upToDate : .idle
+    }
+
+    /// A hold at `gate`, as Today says it, for every queue a gate holds (the sync, Train's outbox, the training import):
+    /// a step the user can take, or a pause no step answers (code review S2). `pendingGate` as in `decide`: with a
+    /// coordinator, its step decides (this phone agreed and RYFT's word is still out: `.paused`); without one, the
+    /// hold's own gate. A policy not known yet is a pause; demo data's hold is silent (nil).
+    static func held(at gate: UploadGate, pendingGate: OnboardingCoordinator.Step?? = nil) -> SyncIdleState? {
+        switch gate {
+        case .gate(let code):
+            if let asked = pendingGate { return asked.map(SyncIdleState.actionNeeded) ?? .paused }
+            return .actionNeeded(code == .inviteRequired ? .invite : .consent)
+        case .policyUnknown: return .paused
+        case .demo: return nil
+        }
     }
 
     var text: String {

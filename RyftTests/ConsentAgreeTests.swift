@@ -167,6 +167,37 @@ private final class AgreeHarness {
         return (coordinator, starts)
     }
 
+    /// Profile over this graph, with the coordinator, as ScreenModels builds it.
+    func profile() -> ProfileViewModel {
+        let sync = sync()
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync, apiStatus: status), clock: clock)
+        return ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding, apiStatus: status)
+    }
+
+    /// Sync details for `sync`, with the coordinator or without one.
+    func details(_ sync: SyncService, onboarding: OnboardingCoordinator?) -> SyncDetailsModel {
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync, apiStatus: status), clock: clock)
+        return SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: status, onboarding: onboarding)
+    }
+
+    /// Train's outbox for A, its gate the coordinator's, as ScreenModels wires it.
+    func trainOutbox() -> TrainSyncService {
+        let api = api, account = account
+        let train = TrainSyncService(store: persistence, remote: { api }, owner: { account }, debounce: .seconds(3_600),
+                                     monitorsNetwork: false, connectivity: connectivity, defaults: defaults)
+        train.gate = { [onboarding] in onboarding.uploadGate(for: .train, write: $0) }
+        return train
+    }
+
+    /// Agreed, and RYFT's word on it didn't come (its re-read offline): the agreement unsettled, `/v1/me` answering again.
+    func agreedUnsettled() async throws {
+        try await ready()
+        api.faults["me"] = .init(.offline)
+        try #require(await onboarding.agree())
+        api.faults["me"] = nil
+        try #require(consent.unsettledAgreement == Self.version)
+    }
+
     /// A HealthKit page of one heart-rate sample.
     static func page(_ value: Double = 60) -> HealthDelta {
         HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: value, unit: "bpm", source: "W")])
@@ -783,5 +814,97 @@ struct ConsentAgreeTests {
         await h.onboarding.check()
         #expect(h.consent.agreement?.settled == true)
         #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+    }
+
+    // MARK: Code review S2: Privacy, Sync details and the import while the agreement is unsettled
+
+    @Test("S2: Privacy while RYFT's word is out: given, not confirmed yet, neutral; Check with RYFT asks, Withdraw is there",
+          .timeLimit(.minutes(1)))
+    func privacyWhileUnsettled() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        #expect(profile.consentAwaitsConfirmation && !profile.consentNeedsAttention)
+        #expect(profile.consentText == String(localized: "Given, not confirmed yet"))
+        #expect(profile.consentDetail == String(localized: "You agreed on this iPhone. Syncing starts once RYFT confirms it."))
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+            == [.consent, .checkConsent, .withdrawConsent])
+
+        let reads = h.api.count("me")
+        await profile.checkConsent()
+        #expect(h.api.count("me") == reads + 1, "asked again: \(h.api.calls)")
+        #expect(h.onboarding.sheetStep == nil, "nothing opened")
+        #expect(!profile.consentAwaitsConfirmation && profile.consentIsCurrent)
+        #expect(profile.consentText == String(localized: "Given"))
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+            == [.consent, .withdrawConsent])
+    }
+
+    @Test("S2: Check with RYFT, and RYFT doesn't have it: Not given, and Review and agree", .timeLimit(.minutes(1)))
+    func checkingFindsNoConsent() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        h.api.accountConsent = nil
+        let profile = h.profile()
+        await profile.checkConsent()
+        #expect(!profile.consentAwaitsConfirmation && profile.consentNeedsAttention)
+        #expect(profile.consentText == String(localized: "Not given"))
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+            == [.consent, .reviewConsent])
+    }
+
+    @Test("S2: Withdraw from a consent not confirmed yet: held while on its way, then Not given", .timeLimit(.minutes(1)))
+    func withdrawingAnUnconfirmedConsent() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let delete = FirstCallsHold()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        let profile = h.profile()
+
+        let withdrawing = Task { await profile.withdrawConsent() }
+        #expect(await eventually { delete.waiting == 1 })
+        #expect(profile.withdrawingConsent, "Demo data and Log out are held")
+        delete.release()
+        await withdrawing.value
+        #expect(h.consent.withdrawnAt != nil && h.consent.agreement == nil)
+        #expect(!profile.withdrawingConsent && !profile.consentAwaitsConfirmation)
+        #expect(profile.consentText == String(localized: "Not given"))
+    }
+
+    @Test("S4, S2: Sync details while RYFT's word is out: the sync and the workouts wait, Paused, not Action needed",
+          .timeLimit(.minutes(1)))
+    func syncDetailsWhileUnsettled() async throws {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [H.page()]])
+        let h = H(health: health)
+        try await h.agreedUnsettled()
+        let sync = h.sync()
+        _ = try await sync.upload()
+        try #require(sync.pausedFor == .gate(.consentRequired))
+        let train = h.trainOutbox()
+        _ = await train.finish(SessionFactory.empty(in: h.persistence))
+        try #require(train.pendingCount > 0 && train.heldAt == .gate(.consentRequired))
+
+        let details = h.details(sync, onboarding: h.onboarding)
+        details.trainOutbox = train
+        #expect(details.idleState == .paused)
+        #expect(details.workoutsHeldText == String(localized: "Waiting for RYFT to confirm your consent"))
+        let without = h.details(sync, onboarding: nil)
+        without.trainOutbox = train
+        #expect(without.idleState == .actionNeeded(.consent), "no coordinator: the hold's own gate")
+        #expect(without.workoutsHeldText == String(localized: "Action needed: agree to the privacy policy"))
+    }
+
+    @Test("S2: the import's gate pause is I8 only when onboarding asks for a step")
+    func theImportsGatePause() {
+        func flow(_ hold: UploadGate, _ pending: OnboardingCoordinator.Step??) -> ImportFlowModel {
+            ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.status(.paused(.gated(hold)))),
+                                pendingGate: pending)
+        }
+        #expect(!flow(.gate(.consentRequired), .some(nil)).gateAsksForStep, "agreed here, RYFT's word out")
+        #expect(flow(.gate(.consentRequired), .some(.consent)).gateAsksForStep)
+        #expect(flow(.gate(.consentRequired), nil).gateAsksForStep, "no coordinator: the hold's own gate")
+        #expect(!flow(.policyUnknown, .some(.consent)).gateAsksForStep)
+        #expect(!ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.status(.paused(.held))))
+            .gateAsksForStep)
     }
 }

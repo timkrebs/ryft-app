@@ -248,13 +248,25 @@ final class ProfileViewModel {
         showsAccountConsent && (state.user?.hasConsented(to: onboarding?.policyVersion) ?? false)
     }
 
-    /// The consent row's value in `warning`: not given, or to an older policy.
-    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent }
+    /// This phone agreed to the policy in force and RYFT's own word on it is still out (`ConsentState.unsettledAgreement`,
+    /// ADR 0025): the consent is given and not confirmed yet, whatever the account cached says (code review S2). Not
+    /// "Not given", and nothing to agree to again: Privacy asks RYFT again instead, and Withdraw is offered.
+    var consentAwaitsConfirmation: Bool {
+        guard showsAccountConsent, let version = onboarding?.policyVersion else { return false }
+        return env.consent.unsettledAgreement == version
+    }
+
+    /// The consent row's value in `warning`: not given, or to an older policy. Given and not confirmed yet is neutral.
+    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent && !consentAwaitsConfirmation }
 
     var consentText: String {
         guard showsAccountConsent else {
             return String(localized: "Not shown",
                           comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
+        }
+        if consentAwaitsConfirmation {
+            return String(localized: "Given, not confirmed yet",
+                          comment: "Profile → Privacy → Health-data consent: agreed on this iPhone, RYFT's confirmation still out. Neutral, not a warning.")
         }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
@@ -272,6 +284,10 @@ final class ProfileViewModel {
             return String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.",
                           comment: "Profile → Privacy footer while the consent withdrawal request is on its way.")
         }
+        if consentAwaitsConfirmation {
+            return String(localized: "You agreed on this iPhone. Syncing starts once RYFT confirms it.",
+                          comment: "Profile → Privacy footer: the consent was given here and RYFT hasn't confirmed it yet (Check with RYFT asks).")
+        }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
         }
@@ -283,8 +299,11 @@ final class ProfileViewModel {
     /// or no session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, as soon as it is
     /// recorded (the consent gone from the account: `storeConsentWithdrawn`), not after the re-check that follows (security
     /// review N-3); or with a failure, or an account change that ended it unsent. A withdrawal starts only from a current
-    /// consent (`ProfileRows`), so the consent is there until it is recorded.
-    var withdrawingConsent: Bool { (onboarding?.isWithdrawing ?? false) && state.user?.consent != nil }
+    /// consent, or one given here and not confirmed yet (`ProfileRows`), so either is there until it is recorded (the
+    /// withdrawal removes the agreement as it records it).
+    var withdrawingConsent: Bool {
+        (onboarding?.isWithdrawing ?? false) && (state.user?.consent != nil || consentAwaitsConfirmation)
+    }
     var consentError: String? { onboarding?.errorMessage }
     /// Status and request ID of `consentError`, behind its Details.
     var consentErrorDetails: String? { onboarding?.errorDetails }
@@ -317,6 +336,19 @@ final class ProfileViewModel {
 
     /// The consent screen, again.
     func reviewConsent() { onboarding?.show(.consent) }
+
+    /// "Check with RYFT" is on its way (its row is busy).
+    private(set) var checkingConsent = false
+
+    /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again (`/v1/me` asked for after
+    /// the agreement, as coming back online asks). Its answer decides the row: confirmed, "Given"; without the consent,
+    /// "Not given" and Review and agree. Offline nothing is sent, and the row stays as it is.
+    func checkConsent() async {
+        guard consentAwaitsConfirmation, !checkingConsent else { return }
+        checkingConsent = true
+        defer { checkingConsent = false }
+        await onboarding?.reconnected()
+    }
 
     var policyPage: LegalPage { onboarding?.policyPage ?? .privacy }
 
@@ -680,15 +712,20 @@ final class SyncDetailsModel {
     var unsentWorkouts: Int { trainOutbox?.pendingCount ?? 0 }
     var unsentReports: Int { reportsWaiting() }
 
-    /// Why the queued workouts wait, when a gate holds them (Today's words for a gate the user can pass).
+    /// Why the queued workouts wait, when a gate holds them: Today's words for a gate the user can pass, asked of
+    /// onboarding first as the State row does (`SyncIdleState.held`). A hold no step answers says what it waits for
+    /// (code review S2): just agreed, RYFT's confirmation; the policy in force, its answer.
     var workoutsHeldText: String? {
-        guard unsentWorkouts > 0 else { return nil }
-        switch trainOutbox?.heldAt {
-        case .gate(let code)?: return SyncIdleState.actionNeeded(code == .inviteRequired ? .invite : .consent).text
-        case .policyUnknown?:
+        guard unsentWorkouts > 0, let hold = trainOutbox?.heldAt else { return nil }
+        switch SyncIdleState.held(at: hold, pendingGate: onboarding.map { $0.pendingGate }) {
+        case .actionNeeded(let step)?: return SyncIdleState.actionNeeded(step).text
+        case .paused? where hold == .policyUnknown:
             return String(localized: "Waiting for the privacy policy",
                           comment: "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force.")
-        case .demo?, nil: return nil
+        case .paused?:
+            return String(localized: "Waiting for RYFT to confirm your consent",
+                          comment: "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone.")
+        default: return nil
         }
     }
 
