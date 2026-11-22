@@ -667,7 +667,8 @@ final class OnboardingCoordinator {
     }
 
     /// The agree line's `confirmed` after the re-read: RYFT's word as stored (`ok`, `no_consent`), nothing sent (`none`), or
-    /// an answer the store didn't take (`dropped`: a withdrawal meanwhile).
+    /// a re-read that settled nothing (`dropped`: the store didn't take it after a withdrawal or a profile write meanwhile,
+    /// the agreement went with a withdrawal, or the clock was set back since the agreement).
     private func confirmation(of version: String, read: Bool) -> String {
         guard read else { return "none" }
         guard let agreement = consent.agreement, agreement.version == version, agreement.settled else { return "dropped" }

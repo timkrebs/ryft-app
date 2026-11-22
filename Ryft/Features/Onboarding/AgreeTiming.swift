@@ -19,8 +19,10 @@ extension Signposts {
 ///   `503` wait.
 /// - `step`: the consent recorded on this phone; `shown`: the next step on screen (`RootView`), or the sheet gone.
 /// - `confirmed`: RYFT's own word, asked again (`GET /v1/me`): `ok` (consent to the version agreed), `no_consent`,
-///   `none` (nothing was sent), `failed <status>` (`0`: no answer), or `dropped` (the answer wasn't stored: a withdrawal
-///   meanwhile). Its time is when this phone heard it.
+///   `none` (nothing was sent), `failed <status>` (`0`: no answer), or `dropped`: the re-read was dropped, by a change
+///   meanwhile that a `/v1/me` asked for before it mustn't undo (a withdrawal, another account or Demo data, a profile
+///   write such as the time zone's or the birth year's `PATCH`), or it settled nothing (the clock set back since the
+///   agreement). Its time is when this phone heard it.
 /// - `committed`: the re-read returned, its SwiftData commit included.
 /// - `session`: `fail_fast` (one attempt, `SettingsWrite`) or `default`; `policy_read`: the policy was read before the
 ///   POST; `busy_taps`: taps that found a step's request out.
