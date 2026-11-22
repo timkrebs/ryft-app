@@ -41,3 +41,7 @@ never ends. Match on a PID or use `pgrep -f "^gh run download"`.
 steps timed out and no PR could merge. Boot one, run there (`-parallel-testing-enabled NO`, `-only-testing`), shut it
 down, then the next OS. A runner script should `simctl shutdown` its simulator at the end; zsh reads a script once, so
 editing it doesn't change a run already going.
+
+- (2026-11-22, N3 round 2) The gate's "< 3 xcodebuilds" counts my own runs too: a background full Unit run still
+  testing let my next build through, onto the same DerivedData. Before a new build, check that my previous run's log
+  ends in `^exit`. And don't delete `build/*.xcresult` while a run that writes it is going.

@@ -21,6 +21,7 @@
 - [Offline-first rule](offline-first-requirement.md) — user 2026-11-19: everything visible offline; offline data kept + uploaded on reconnect
 - [Fleet memory branch](fleet-memory-branch.md) — memory goes to chore/fleet-memory (PR #125) via a scratch worktree; batch pushes, never the checkout
 - [Shared Mac hygiene](shared-mac-hygiene.md) — parallel leads: fetch + compare trees; recorded PIDs only; git -C; worktrees can vanish, push after merges
+- [Disk budget](disk-budget.md) — df before runs, delete build dirs per run; 2026-11-22 disk full killed Bash; XCTestDevices 51 GB
 - [Release build check](release-build-check.md) — PR CI is Debug only; add a Release build to every integration run
 - [Flagged agent actions](flagged-agent-actions.md) — check remote refs + gh run list + transcript; release.sh (local Release build) tripped "Production Deploy"
 - [Integration run: UI smoke](integration-run-ui-smoke.md) — final local run includes the whole UISmoke plan; grep UI tests for changed labels

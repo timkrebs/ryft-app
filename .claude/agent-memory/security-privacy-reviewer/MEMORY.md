@@ -9,6 +9,10 @@
   push pre-prompt wiring, header .perform routing after SubpageHeader's deletion.
 - [withdrawal-hold.md](withdrawal-hold.md): consent withdrawal lifecycle, Flight/turn, transport timeouts, the D6 hold (F2) and its
   gaps (Send first, offline minutes, auth-driven silent ends).
+- [consent-agree-lag.md](consent-agree-lag.md): ADR 0025 agreement record, gate ignores it, R2 10 s status rule, agree line
+  and APIClient/onboarding signposts; verified paths and the day-segment signpost finding.
+- [local-notifications.md](local-notifications.md): ReminderScheduler (ADR 0024) owner/wipe/in-flight model, placeholders,
+  PushPresentation, the N3 gaps (no off switch pre-N4, withdrawal, expiry push residue, wake foreground).
 - [widget-privacy.md](widget-privacy.md): snapshot contents/protection, WidgetConcealment, gallery, Live Activity
   redaction status, notification placeholders.
 
@@ -43,3 +47,11 @@ Review history:
   have been processed (app says 'No connection…', shows Given; safe direction, idempotent retry); no re-check after NoAnswer.
 - 2026-11-22 F2 round 3 (wt-f2 @ 467db54, #134): 'arrived' path, deferred .consent, Log out busy/withdraw guard all fine; nits:
   'may still have arrived' also for errors that sent nothing (TLS, cannot connect, token SDK); request ID dropped for 408/2xx.
+- 2026-11-22 consent agree lag (wt-dbg fix/consent-agree-lag 9f0d00d..6d3bb2b): 0 B, 1 S (APIClient attempt signposts .public
+  route keeps day strings, every round trip), nits: startSync while a withdrawal's DELETE is out (other order than T9), ADR 0025
+  dec. 3 wording (gate opens at 204 if cached user has V), agreement can't settle when the clock was ahead. Gate/R2/fail-fast sound.
+- 2026-11-22 N3 local notifications (wt-n3 @ 0d9b463): 1 B (merge gate: journal + local fallback default-on with no in-app
+  switch pre-N4), S: fallback after consent withdrawal; expiry leaves push reg, A's alerts survive to B (owner check pending-only);
+  wake.* silenced in foreground; journal off reset by wipes. Nits: signed-out = mismatch for server alerts, authCallback via tap,
+  requestedJournalDay across accounts, BG journal GET when denied, CHANGELOG 'never another account's data' overclaim.
+  Account/in-flight/placeholders/logging/deep-link parsing sound. No plist/entitlement/xcprivacy/APP_STORE change.

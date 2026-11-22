@@ -30,3 +30,21 @@ C3 (failingFast helper shared with the withdrawal; no answer → readUserBack(si
   on the switch, `AgreeTimer.save` checks the account, `startSync` needs `read`): defence in depth, say so.
 - Fixing an earlier local commit: `git commit --fixup=<sha>` + `GIT_EDITOR=true git rebase --autosquash <base>` works
   without -i on git 2.56; check `git rev-parse HEAD^{tree}` equals the tree you expected.
+
+**Round 2 (review fixes S1–S4, S-1, N-1..N-3, N1–N3; 9 commits 0333e50..1ed48f3):**
+- Ask-again deadline: `askAgain(since:)` races `readUserBack` against `checkTimeout` in a task group. A cancelled
+  ReadScheduler waiter only resumes itself (`Outcome.release`): the flight and its store go on.
+- Gate holds while `agreedVersion != nil` (S3). `ConsentState.standingAgreement` voids one with `at > now` (N-3);
+  `pendingAgreement` = standing and unsettled; `agreement` stays the raw record.
+- One rule for gate holds on screen: `SyncIdleState.held(at:pendingGate:)` (sync, Train outbox, import via
+  `ImportFlowModel.Dependencies.pendingGate`, wired in ScreenModels → ImportCoordinator).
+- SyncService is another team's file: the scoring wait's R2 keeps the door's asked time in `LiveSyncSteps.asked`.
+- `TestClock.set(_:)` moves the wall clock without waking sleepers. With it set back, the policy answer (answeredAt at the
+  agreement) is stale → `.policyUnknown`, and `ConsentState.received` drops config answers older than the stored one.
+- `ready()`'s check leaves the mock status' `consent_required` as serverGate: a late /v1/me with the consent needs a
+  forced check before the flow moves on.
+- Staging part of a file: `git apply --cached --unidiff-zero` with skipped -U0 hunks MISPLACES later insertions (put a
+  func inside a property). Use scratchpad `consent/hunks.py stage` (applies hunks bottom-up on `git show :file`, then
+  `git update-index --cacheinfo`), and `swiftc -parse` each commit's files.
+- `sync-strings.py --derived-data <path> --check` when not using build/DerivedData. The Bash tool's shell is zsh:
+  `${PIPESTATUS[0]}` is empty, and `--include=*.swift` must be quoted.

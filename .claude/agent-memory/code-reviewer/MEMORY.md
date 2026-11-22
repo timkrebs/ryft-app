@@ -53,3 +53,5 @@
 - [Action patches of server overviews](review-checks-action-patches.md) — refresh in flight undoes patch, actions out of order, UserDefaults keys across parallel suites, platform SQL as contract
 - [Header moves + deletions](review-checks-header-unification.md) — ids/dismiss paths, pinned vs scrolled headers, edge vs scrollTo(.top) (probed), mock resets, scans
 - [Control holds over a flight](review-checks-control-holds.md) — held button vs running task/re-shown dialog, no-answer as "No connection", stopped TestClock budget, git show only
+- [Flow vs gate splits](review-checks-flow-vs-gate-splits.md) — cached state opens gate early, every consent reader, untested pre-T answers, unbounded re-reads
+- [Notification schedulers](review-checks-notification-schedulers.md) — stored Calendar.current, upgrade owner-key teardown in BG launches, denied retries, unwired cost rigs, wake.* silenced

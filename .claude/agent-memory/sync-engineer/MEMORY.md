@@ -40,3 +40,5 @@
 - [state.reset() keeps the store](project_state_reset_keeps_store.md) — reset ≠ wipe in tests; never end a turn to wait (forced hand-back); midnight Activities flake
 - [Test defaults isolation](project_test_defaults_isolation.md) — .standard keys race in parallel suites; inject UserDefaults, a suite per rig; uninstall after mutants
 - [Split ordered commits](project_split_commits_from_ahead_tree.md) — stage script per commit; stash --keep-index builds the index; pop by sha
+- [MockNotifier authorization](project_mock_notifier_authorization.md) — starts .notDetermined; scheduler adds only when allowed; bedtime tests authorize; run full Unit
+- [Protected data guard](project_protected_data_guard.md) — isProtectedDataAvailable is false whenever locked; guard only destructive branches

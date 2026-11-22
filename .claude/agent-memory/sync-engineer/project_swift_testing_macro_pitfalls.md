@@ -33,3 +33,6 @@ later errors only show on the next build.
 
 **How to apply:** write new Swift Testing files with these forms avoided from the start. Related:
 [[project-dev-machine-disk]] (reuse DerivedData for those rebuilds).
+- (2026-11-22, N3 round 2) A `@Test` display name split as `@Test("first half " + "second half")`: "expect a
+  compile-time constant literal". The name must be one string literal; keep it under the 160-column line limit
+  (`.swiftlint.yml`, `.swiftformat --maxwidth`) by shortening it, and put `arguments:` on its own line.
