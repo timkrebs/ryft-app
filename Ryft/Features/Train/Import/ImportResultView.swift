@@ -151,14 +151,15 @@ struct ImportResultView: View {
                               + " " + ImportResultText.keptLimits,
                           identifier: "import.gated", severity: .attention, announces: false)
         case .gated:
-            // No step to take (just agreed, RYFT's word still out; the policy in force not known yet): calm, and it goes
-            // on by itself, as Devices & sync says "Paused".
+            // No step to take (just agreed, RYFT's word still out; the policy in force not known yet; the account not
+            // known yet): calm, as Devices & sync says "Paused", and named by its cause.
             lead(systemImage: "pause")
             progress(job, paused: true)
             InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
                           systemImage: "pause",
                           details: job.lastFailure?.details,
-                          caption: ImportResultText.gatedWaiting + " " + ImportResultText.keptLimits,
+                          caption: [ImportResultText.gatedWaiting(model.gatedPauseCause ?? .other), ImportResultText.keptLimits]
+                              .compactMap { $0 }.joined(separator: " "),
                           identifier: "import.gatedWaiting", announces: false)
         case .notAvailable:
             // Calm and final for now: no error styling, no Try again. RYFT asks again when the app opens.
@@ -482,13 +483,21 @@ enum ImportResultText {
         ([plan.name] + [plan.weeks.map { String(localized: "\($0)\u{00A0}weeks") }].compactMap { $0 }).joined(separator: " · ")
     }
 
-    /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
-    /// A gate's hold no step answers: RYFT's confirmation of the consent given here, or of the policy in force.
-    static var gatedWaiting: String {
-        String(localized: "It continues by itself once RYFT confirms your consent. Nothing to do here.",
-               comment: "Training import: held at a gate with no step to take (consent given here, RYFT's confirmation out; or the policy not known yet).")
+    /// A gate's hold no step answers, by its cause (`SyncIdleState.PauseCause`, as Sync details names it): RYFT's
+    /// confirmation of the consent given here, or the policy in force. Otherwise nothing is named (nil).
+    static func gatedWaiting(_ cause: SyncIdleState.PauseCause) -> String? {
+        switch cause {
+        case .confirmation:
+            return String(localized: "It continues by itself once RYFT confirms your consent. Nothing to do here.",
+                          comment: "Training import: held at a gate with no step to take: consent given here, RYFT's confirmation still out.")
+        case .policy:
+            return String(localized: "It continues by itself once the privacy policy has loaded. Nothing to do here.",
+                          comment: "Training import: held with no step to take until the privacy policy in force is known.")
+        case .other: return nil
+        }
     }
 
+    /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
     static var keptLimits: String {
         String(localized: "Kept on this iPhone for up to 30\u{00A0}days. Signing out or deleting your account removes it.",
                comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
@@ -598,7 +607,16 @@ enum ImportResultText {
 #Preview("Step 6 · waiting for RYFT's confirmation") {
     NavigationStack {
         ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
-            MockTrainImport.status(.paused(.gated(.gate(.consentRequired))))), pendingGate: .some(nil)))
+            MockTrainImport.status(.paused(.gated(.gate(.consentRequired))))), pendingGate: .some(nil),
+                                                    agreementUnsettled: true))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Step 6 · waiting for the privacy policy") {
+    NavigationStack {
+        ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
+            MockTrainImport.status(.paused(.gated(.policyUnknown)))), pendingGate: .some(nil)))
     }
     .previewEnvironment()
 }

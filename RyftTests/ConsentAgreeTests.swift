@@ -1211,4 +1211,50 @@ struct ConsentAgreeTests {
         #expect(!profile.checkingConsent && !profile.consentAwaitsConfirmation)
     }
 
+    // MARK: Review round 2, security N1, code 6: a pause names its cause
+
+    @Test("N1: a pause names its cause: RYFT's confirmation only while the agreement is unsettled, the policy, else nothing")
+    func aPauseNamesItsCause() {
+        typealias Cause = SyncIdleState.PauseCause
+        #expect(Cause.of(.gate(.consentRequired), agreementUnsettled: true) == .confirmation)
+        #expect(Cause.of(.gate(.consentRequired), agreementUnsettled: false) == .other, "the account not known, a withdrawal")
+        #expect(Cause.of(.gate(.inviteRequired), agreementUnsettled: true) == .other)
+        #expect(Cause.of(.policyUnknown, agreementUnsettled: true) == .policy)
+
+        func flow(_ hold: UploadGate, _ pending: OnboardingCoordinator.Step??, unsettled: Bool) -> ImportFlowModel {
+            ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.status(.paused(.gated(hold)))),
+                                pendingGate: pending, agreementUnsettled: unsettled)
+        }
+        #expect(flow(.gate(.consentRequired), .some(nil), unsettled: true).gatedPauseCause == .confirmation)
+        #expect(flow(.gate(.consentRequired), .some(nil), unsettled: false).gatedPauseCause == .other)
+        #expect(flow(.policyUnknown, .some(nil), unsettled: true).gatedPauseCause == .policy)
+        #expect(flow(.gate(.consentRequired), .some(.consent), unsettled: false).gatedPauseCause == nil, "a step: I8")
+        #expect(ImportResultText.gatedWaiting(.confirmation)
+            == String(localized: "It continues by itself once RYFT confirms your consent. Nothing to do here."))
+        #expect(ImportResultText.gatedWaiting(.policy)
+            == String(localized: "It continues by itself once the privacy policy has loaded. Nothing to do here."))
+        #expect(ImportResultText.gatedWaiting(.other) == nil)
+    }
+
+    @Test("N1, S-1: Sync details during a withdrawal: the workouts wait, Paused, nothing named", .timeLimit(.minutes(1)))
+    func syncDetailsDuringAWithdrawal() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        try #require(h.consent.agreement?.settled == true)
+        let delete = FirstCallsHold()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { delete.waiting == 1 })
+        let train = h.trainOutbox()
+        _ = await train.finish(SessionFactory.empty(in: h.persistence))
+        try #require(train.pendingCount > 0 && train.heldAt == .gate(.consentRequired), "held while the DELETE is out")
+        let details = h.details(h.sync(), onboarding: h.onboarding)
+        details.trainOutbox = train
+        #expect(details.workoutsHeldText == String(localized: "Paused"), "not RYFT's confirmation: nothing waits for it")
+
+        delete.release()
+        #expect(await withdrawing.value)
+    }
 }

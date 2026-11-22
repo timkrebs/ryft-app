@@ -55,6 +55,9 @@ final class ImportFlowModel: Identifiable {
         /// Onboarding's `pendingGate` (ScreenModels): whether a gate's hold is a step the user can take. Nil without a
         /// coordinator: the hold's own gate decides.
         var pendingGate: @MainActor () -> OnboardingCoordinator.Step?? = { nil }
+        /// This phone's consent agreement waits for RYFT's word (`ConsentState.unsettledAgreement`): only then does a
+        /// pause name RYFT's confirmation (`gatedPauseCause`).
+        var agreementUnsettled: @MainActor () -> Bool = { false }
     }
 
     let id = UUID()
@@ -535,6 +538,13 @@ final class ImportFlowModel: Identifiable {
         guard case .paused(.gated(let hold))? = job?.phase else { return false }
         if case .actionNeeded? = SyncIdleState.held(at: hold, pendingGate: deps.pendingGate()) { return true }
         return false
+    }
+
+    /// What a gate's hold no step answers waits for, for its words (`ImportResultText.gatedWaiting`; code review round 2,
+    /// 6): as Sync details names it (`SyncIdleState.PauseCause`). Nil when the hold asks for a step, or isn't a gate's.
+    var gatedPauseCause: SyncIdleState.PauseCause? {
+        guard case .paused(.gated(let hold))? = job?.phase, !gateAsksForStep else { return nil }
+        return .of(hold, agreementUnsettled: deps.agreementUnsettled())
     }
 
     func retryRejected() async { await deps.uploader.retryRejected() }

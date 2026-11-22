@@ -736,18 +736,21 @@ final class SyncDetailsModel {
     var unsentReports: Int { reportsWaiting() }
 
     /// Why the queued workouts wait, when a gate holds them: Today's words for a gate the user can pass, asked of
-    /// onboarding first as the State row does (`SyncIdleState.held`). A hold no step answers says what it waits for
-    /// (code review S2): just agreed, RYFT's confirmation; the policy in force, its answer.
+    /// onboarding first as the State row does (`SyncIdleState.held`). A hold no step answers says what it waits for by
+    /// its cause (code review S2; round 2, 6): RYFT's confirmation only while this phone's agreement is unsettled, the
+    /// policy in force, otherwise only that it's paused.
     var workoutsHeldText: String? {
         guard unsentWorkouts > 0, let hold = trainOutbox?.heldAt else { return nil }
+        let cause = SyncIdleState.PauseCause.of(hold, agreementUnsettled: env.consent.unsettledAgreement != nil)
         switch SyncIdleState.held(at: hold, pendingGate: onboarding.map { $0.pendingGate }) {
         case .actionNeeded(let step)?: return SyncIdleState.actionNeeded(step).text
-        case .paused? where hold == .policyUnknown:
+        case .paused? where cause == .policy:
             return String(localized: "Waiting for the privacy policy",
                           comment: "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force.")
-        case .paused?:
+        case .paused? where cause == .confirmation:
             return String(localized: "Waiting for RYFT to confirm your consent",
                           comment: "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone.")
+        case .paused?: return String(localized: "Paused")
         default: return nil
         }
     }

@@ -84,6 +84,22 @@ enum SyncIdleState: Equatable, Sendable {
         }
     }
 
+    /// What a pause (`held` gave `.paused`) waits for, for the words that name it (security review round 2, N1; code
+    /// review round 2, 6): RYFT's word on the consent given here only while that agreement is unsettled
+    /// (`ConsentState.unsettledAgreement`); the policy in force; otherwise nothing named (the account not known yet, a
+    /// withdrawal on its way, a kept refusal no step answers).
+    enum PauseCause: Equatable, Sendable {
+        case confirmation, policy, other
+
+        static func of(_ gate: UploadGate, agreementUnsettled: Bool) -> PauseCause {
+            switch gate {
+            case .policyUnknown: return .policy
+            case .gate(.consentRequired) where agreementUnsettled: return .confirmation
+            case .gate, .demo: return .other
+            }
+        }
+    }
+
     var text: String {
         switch self {
         // The status line's own words, so Today and Sync details say a hold the same way.

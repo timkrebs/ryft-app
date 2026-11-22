@@ -203,6 +203,7 @@ final class ImportCoordinator {
             account: { env.isDemo ? ImportMappingStore.demoAccount : env.auth.accountID },
             isOnline: { env.connectivity.isOnline })
         deps.pendingGate = pendingGate
+        deps.agreementUnsettled = { env.consent.unsettledAgreement != nil }
         #if DEBUG
         if let names = ImportDemoFiles.requested {
             deps.scriptedFiles = { ImportDemoFiles.load(names, now: env.clock.now()) }
