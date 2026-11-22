@@ -16,7 +16,7 @@ struct PushCategoryPlaceholderTests {
             #expect(text.rangeOfCharacter(from: .decimalDigits) == nil, "\(category.identifier): \(text)")
             #expect(category.actions.isEmpty && !category.options.contains(.hiddenPreviewsShowTitle))
         }
-        #expect(PushCategories.placeholder("BEDTIME") == String(localized: "Bedtime reminder"))
+        #expect(PushCategories.placeholder("BEDTIME") == "Bedtime reminder", "its own key; the Sleep toggle keeps the plain one")
         #expect(PushCategories.placeholder("JOURNAL_REMINDER") == "Journal reminder")
         #expect(PushCategories.placeholder("SYNC_STALE") == "Your data may be behind")
         #expect(PushCategories.placeholder("WAKE") == "Wake-up time")

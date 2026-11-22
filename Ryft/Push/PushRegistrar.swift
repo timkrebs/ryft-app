@@ -295,8 +295,9 @@ enum PushCategories {
         case journalReminder:
             String(localized: "HIDDEN_PREVIEW_JOURNAL_REMINDER", defaultValue: "Journal reminder",
                    comment: "Lock screen with previews hidden: the journal reminder. No habit names.")
-        // Locked with previews hidden: no sleep need or goal on the lock screen.
-        case bedtime: String(localized: "Bedtime reminder")
+        case bedtime:
+            String(localized: "HIDDEN_PREVIEW_BEDTIME", defaultValue: "Bedtime reminder",
+                   comment: "Lock screen with previews hidden: the bedtime reminder. No sleep need or goal.")
         case wake:
             String(localized: "HIDDEN_PREVIEW_WAKE", defaultValue: "Wake-up time",
                    comment: "Lock screen with previews hidden: Bedtime & wake's wake notification (below iOS 26). No time.")
