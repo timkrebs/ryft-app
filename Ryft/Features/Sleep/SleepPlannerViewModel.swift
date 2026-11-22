@@ -862,7 +862,7 @@ final class BedtimePlanner {
     }
 
     private func removeReminders() async {
-        let pending = await env.notifier.pendingIDs().filter { $0.hasPrefix(Self.reminderPrefix) }
+        let pending = await env.notifier.pending().map(\.identifier).filter { $0.hasPrefix(Self.reminderPrefix) }
         env.notifier.removePending(ids: pending)
     }
 
@@ -1407,7 +1407,7 @@ final class SystemWakeAlarms: WakeAlarms {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
         #endif
-        let ours = await notifier.pendingIDs().filter { $0.hasPrefix(BedtimePlanner.wakePrefix) }
+        let ours = await notifier.pending().map(\.identifier).filter { $0.hasPrefix(BedtimePlanner.wakePrefix) }
         notifier.removePending(ids: ours)
     }
 }
