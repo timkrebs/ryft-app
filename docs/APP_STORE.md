@@ -76,7 +76,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | `-O`, dSYMs, Release strip | ok | Release: `SWIFT_OPTIMIZATION_LEVEL = -O`, `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` |
 | `ITSAppUsesNonExemptEncryption = NO`: HTTPS (system TLS) only. SHA-256 is used for the Apple sign-in nonce and nothing is encrypted by the app, which is exempt | ok (fixed) | `Info.plist` |
 | App icon: one 1024 px asset, no alpha, dark and tinted variants | ok | `AppIcon.appiconset` (`sips`: `hasAlpha: no`) |
-| Launch screen matches Welcome (Graphite) | ok (fixed) | `UILaunchScreen.UIColorName = Graphite` |
+| Launch screen matches Welcome (`background`, #0A0C0B) | ok (fixed) | `UILaunchScreen.UIColorName = Background`; `DarkOnlyTests` checks it resolves to `Theme.background` |
 | iPhone only (`TARGETED_DEVICE_FAMILY = 1`), portrait only. On iPad an iPhone-only app runs in compatibility mode, which has no orientation or multitasking requirements, so `UIRequiresFullScreen` doesn't apply | ok / user | build settings. Run once on an iPad (user) |
 | Not offered on Mac (Designed for iPhone) or Vision Pro. HealthKit is missing there, and the app would be useless | ok (fixed) | `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`, `SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO` |
 | Background modes only for what's used: `fetch` (BGAppRefreshTask, background sync) and `processing` (BGProcessingTask, nightly cache compaction on power). HealthKit background delivery is an entitlement (2.5.4) | ok (fixed) | `Info.plist` → `UIBackgroundModes`, `BGTaskSchedulerPermittedIdentifiers`; `Sync/ScheduledWork.swift` |

@@ -930,7 +930,8 @@ private struct CheckRowPreview: View {
     }
 }
 
-/// Setup card for the unconfigured state.
+/// Setup card for the unconfigured state: the mark in ink, the three steps, and "Open Profile" as the primary pill (gate G1,
+/// design.md §1.3: no teal, the pill is the app's one button).
 struct SetupCard: View {
     var action: () -> Void
 
@@ -949,7 +950,7 @@ struct SetupCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 RyftMark()
                     .frame(width: 34, height: 34)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(Theme.textPrimary)
                 Text("Connect RYFT")
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
@@ -966,16 +967,9 @@ struct SetupCard: View {
                     NumberedStep(number: 2, text: "Allow RYFT to read Health data when asked.", total: 3)
                     NumberedStep(number: 3, text: "Check your RYFT server URL in Profile.", total: 3)
                 }
-                Button(action: action) {
-                    Text("Open Profile")
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .buttonStyle(PressableButtonStyle())
-                .padding(.top, 4)
+                PillButton(Text("Open Profile"), action: action)
+                    .accessibilityIdentifier("today.setup.openProfile")
+                    .padding(.top, 4)
             }
         }
     }
@@ -1487,8 +1481,13 @@ struct NumberedStep: View {
     }
 }
 
+#Preview("Setup card · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { SetupCard {} }
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
 #Preview("Sync status line", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: false))
             SyncStatusLineView(line: .reading(.sleep))
@@ -1531,19 +1530,19 @@ struct NumberedStep: View {
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 
-#Preview("Sync status line · de", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("Sync status line · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .uploading(records: 12_400))
             SyncStatusLineView(line: .actionNeeded(.invite)) {}
             SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
         }
     }
-    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Sync status line · stale", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
             SyncStatusLineView(line: .stale(since: PreviewIssue.at(22, 10, daysAgo: 1)),
@@ -1556,7 +1555,7 @@ struct NumberedStep: View {
 }
 
 #Preview("Sync status line · taking longer", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .scoring(night: true), action: {})
             // 5b: scoring past max(60 s, 3 × the estimate). No pulse; the tap opens Sync details.
@@ -1566,11 +1565,10 @@ struct NumberedStep: View {
     }
 }
 
-#Preview("Sync status line · taking longer · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("Sync status line · taking longer · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         SyncStatusLineView(line: .scoringSlow, action: {})
     }
-    .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 
@@ -1610,7 +1608,7 @@ private struct InlineMessageStates: View {
 }
 
 #Preview("Sync status line · stale · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
             // The longest up-to-date line (demo prefix) wraps instead of truncating.
@@ -1645,7 +1643,7 @@ private enum PreviewIssue {
 }
 
 #Preview("Error card", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             RefreshIssueCard(issue: PreviewIssue.make(.busy))
             RefreshIssueCard(issue: PreviewIssue.make(.unreachable))
@@ -1656,11 +1654,10 @@ private enum PreviewIssue {
     }
 }
 
-#Preview("Error card · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("Error card · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         RefreshIssueCard(issue: PreviewIssue.make(.busy))
     }
-    .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
 }
 

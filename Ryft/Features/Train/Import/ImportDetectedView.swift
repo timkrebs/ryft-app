@@ -31,13 +31,13 @@ struct ImportDetectedView: View {
             }
         } bottom: {
             if detection.canContinue || detection.state == .reading || detection.state == .mixedApps {
-                ImportPrimaryButton(title: String(localized: "Continue"),
-                                    isEnabled: detection.canContinue) {
+                ImportStepButton(title: String(localized: "Continue"),
+                                 isEnabled: detection.canContinue) {
                     model.continueFromDetected()
                 }
             } else {
-                ImportPrimaryButton(title: String(localized: "Choose another file", comment: "Training import: pick a different file."),
-                                    identifier: "import.chooseAnother", systemImage: "plus") {
+                ImportStepButton(title: String(localized: "Choose another file", comment: "Training import: pick a different file."),
+                                 identifier: "import.chooseAnother", systemImage: "plus") {
                     model.chooseFiles()
                 }
             }

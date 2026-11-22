@@ -787,7 +787,7 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
   23:12–06:28" (planned nights kept 14 days; a night keeps its plan once its bedtime passed).
 - **Widget**: "Bed by 22:41" from 17:00 the evening before until then, 00:30 too (snapshot field
   `bedtime`), updated with every plan.
-- Screenshots: `docs/screenshots/{tonight,bedtime}-{dark,light}[-de].png`.
+- Screenshots: `docs/screenshots/{tonight,bedtime}-dark.png`.
 - **Simulator / tests only.** On your iPhone: the reminder arriving at bedtime − wind-down; the
   alarm ringing in Silent mode with a Focus on, Stop and Snooze; "Bed by" on the widget in the
   evening; the morning's planned vs actual line.
@@ -814,8 +814,7 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
   refusal (`422`) says the range in the form and the value goes back (details keep the
   request ID). "Use the learned value" / "Use the estimate" go back. Past days keep their
   scores until "Rescore the last 90 days" (offered after a save, and in Profile).
-- Screenshots: `docs/screenshots/{aboutYouSaved,sleepNeed,baselineSleepNeed,profile}-{dark,light}.png`,
-  German `{aboutYouSaved,sleepNeed,baselineSleepNeed}-{dark,light}-de.png`.
+- Screenshots: `docs/screenshots/{aboutYouSaved,sleepNeed,baselineSleepNeed,profile}-dark.png`.
 - **Simulator only.** On your iPhone: onboarding with a fresh account, change the baseline
   from Sleep, check Profile shows "Set by you · learned …".
 
@@ -830,7 +829,7 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
   live mode when it next appears (it applies the waiting answer, `FlagStore.applyPending`), and
   Today's pre-prompt shows once for an account that synced before (tested).
 - The fix for the tester is the flag: `push.enabled` to 100 % (Needs you).
-- Screenshots: `docs/screenshots/notifications-{dark,light}[-de].png` (rolling out).
+- Screenshots: `docs/screenshots/notifications-dark.png` (rolling out).
 
 ## Beta feedback 1: start a workout from anywhere (§3, entry points)
 
@@ -995,8 +994,7 @@ pending gauge) passed.
 - **Fixed on the way:** `Repository.refreshHistory` skipped the 90 days when only today was
   cached (a screen's own load ran first, as the demo's instant answers always do): demo
   mode showed no earlier days.
-- Screenshots: `docs/screenshots/{import,pending,calibrating,watch,strain,syncDetails}-{dark,light}.png`,
-  German `{import,pending}-{dark,light}-de.png` (`SHOT_LANG=de scripts/screenshots.sh …`).
+- Screenshots: `docs/screenshots/{import,pending,calibrating,watch,strain,syncDetails}-dark.png`.
 - Tests: `TodayStatesTests` (which state wins, in which order), `SyncDetailsTests`,
   `SyncEngineImportCountTests`, `RawHealthTests`; UI: `TodayStatesUITests` (import card and
   pending gauge in demo mode, in UISmoke).

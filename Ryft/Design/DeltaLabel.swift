@@ -83,7 +83,7 @@ struct DeltaLabel: View {
     nonisolated static let noBreakSpace = "\u{00A0}"
 
     /// The reference every 7-day change carries.
-    static var sevenDayReference: String { String(localized: "vs 7 d") }
+    static var sevenDayReference: String { String(localized: "vs 7\u{00A0}d") }
 
     /// Flat: under 2 % (`MetricDelta.isFlat`), or a size that rounds to nothing as written ("+0", "+0m").
     static func isFlat(_ d: MetricDelta, spec: MetricSpec) -> Bool {
@@ -125,7 +125,7 @@ struct DeltaLabel: View {
             let magnitude = spec.deltaMagnitude(abs(d.value))
             s = d.value > 0 ? String(localized: "Up \(magnitude)") : String(localized: "Down \(magnitude)")
             if spec.deltaShowsPercent, let p = d.percent {
-                s += ", " + String(localized: "\(Int(abs(p).rounded())) percent")
+                s += ", " + String(localized: "\(Int(abs(p).rounded()))\u{00A0}percent")
             }
         }
         if let reference { s += " " + spokenReference(reference) }
@@ -135,20 +135,20 @@ struct DeltaLabel: View {
     /// "vs 7 d" as VoiceOver says it: "versus 7 days". Another reference is read as written.
     static func spokenReference(_ reference: String) -> String {
         guard reference == sevenDayReference else { return reference }
-        return String(localized: "versus 7 days", comment: "VoiceOver: \"vs 7 d\" after a change, e.g. \"Up 11 versus 7 days\".")
+        return String(localized: "versus 7\u{00A0}days", comment: "VoiceOver: \"vs 7 d\" after a change, e.g. \"Up 11 versus 7 days\".")
     }
 }
 
 #Preview("DeltaLabel", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: "vs 7 d")
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: "vs 7 d")
-            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: "vs 7 d")
-            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: "vs 7 d")
-            DeltaLabel(spec: .strain, delta: MetricDelta(current: 14.2, reference: 11.0), reference: "vs 7 d")
-            DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 468, reference: 443), reference: "vs 7 d")
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.5, reference: 52), reference: "vs 7 d")
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .strain, delta: MetricDelta(current: 14.2, reference: 11.0), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 468, reference: 443), reference: "vs 7\u{00A0}d")
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.5, reference: 52), reference: "vs 7\u{00A0}d")
         }
     }
 }
@@ -157,9 +157,9 @@ struct DeltaLabel: View {
     DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
             let up = MetricDelta(current: 84, reference: 73), down = MetricDelta(current: 66, reference: 73)
-            DeltaLabel(spec: .readiness, delta: up, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+            DeltaLabel(spec: .readiness, delta: up, reference: String(localized: "vs 7\u{00A0}d"), font: .ryft(.label),
                        referenceColor: DeltaLabel.color(up, spec: .readiness))
-            DeltaLabel(spec: .readiness, delta: down, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+            DeltaLabel(spec: .readiness, delta: down, reference: String(localized: "vs 7\u{00A0}d"), font: .ryft(.label),
                        referenceColor: DeltaLabel.color(down, spec: .readiness))
         }
     }
@@ -168,11 +168,11 @@ struct DeltaLabel: View {
 #Preview("DeltaLabel · up, down, flat, none", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
-            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 70, reference: 78), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 70, reference: 78), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7\u{00A0}d"))
             // nil: nothing at all, no gap (the border shows it takes no space).
-            DeltaLabel(spec: .readiness, delta: nil, reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .readiness, delta: nil, reference: String(localized: "vs 7\u{00A0}d"))
                 .border(Theme.separator)
             ChartHeader(spec: .readiness, value: 80, delta: nil)
         }
@@ -182,11 +182,11 @@ struct DeltaLabel: View {
 #Preview("DeltaLabel · AX3", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(alignment: .leading, spacing: 10) {
-            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7\u{00A0}d"))
             ChartHeader(spec: .readiness, value: 80, delta: MetricDelta(current: 80, reference: 79.6))
             ChartHeader(spec: .readiness, value: 80, delta: nil)
             // Stacked (Sleep's range head from AX1): the change, then "vs 7 d", centred.
-            DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 466, reference: 478), reference: String(localized: "vs 7 d"),
+            DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 466, reference: 478), reference: String(localized: "vs 7\u{00A0}d"),
                        stacked: true)
                 .multilineTextAlignment(.center)
                 .frame(width: 362)

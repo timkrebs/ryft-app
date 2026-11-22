@@ -118,7 +118,7 @@ struct BodySettingStepperTests {
         }
         // A no-break space keeps each number with its "h" (50c0b80).
         #expect(BodySetting.sleepBase.rulerLabels == ["4\u{00A0}h", "8\u{00A0}h", "12\u{00A0}h"])
-        #expect(BodySetting.maxHR.rulerLabels == ["100 bpm", "165", "230 bpm"])
+        #expect(BodySetting.maxHR.rulerLabels == ["100\u{00A0}bpm", "165", "230\u{00A0}bpm"])
     }
 
     @Test("Off the grid, the first step goes to the grid line its way: 7:40 → 7:45 up, 7:30 down; 7:52 → 8:00, 7:45")
@@ -132,12 +132,12 @@ struct BodySettingStepperTests {
         #expect(BodySetting.maxHR.stepped(190, direction: 1) == 191 && BodySetting.maxHR.stepped(190, direction: -1) == 189)
     }
 
-    @Test("VoiceOver hears the unit: 8 hours 15 minutes, 185 beats per minute")
+    @Test("VoiceOver hears the unit: 8\u{00A0}hours 15\u{00A0}minutes, 185 beats per minute")
     func spokenUnits() {
         #expect(BodySetting.sleepBase.spoken(495) == "8 hours 15 minutes")
         #expect(BodySetting.sleepBase.numeral(495) == "8:15")
         #expect(BodySetting.maxHR.spoken(185) == "185 beats per minute")
-        #expect(BodySetting.maxHR.text(185) == "185 bpm")
+        #expect(BodySetting.maxHR.text(185) == "185\u{00A0}bpm")
     }
 }
 
@@ -156,7 +156,7 @@ struct BodySettingContentTests {
         #expect(changed.numeral == "7:45" && changed.spoken == "7 hours 45 minutes")
         #expect(changed.source == "Set by you · saved 7:30")
         let hr = BodySettingContent(.maxHR, editor: editor, draft: 185)
-        #expect(hr.source == "Estimated from your age (born 1990) · saved 190 bpm" && hr.canSave)
+        #expect(hr.source == "Estimated from your age (born 1990) · saved 190\u{00A0}bpm" && hr.canSave)
     }
 
     @Test("VoiceOver reads the saved value in words, not as a time of day")
@@ -549,8 +549,8 @@ struct BodySettingsHonestyTests {
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: SyncService.rescoreDelay)
         await again.value
-        #expect(editor.rescored && editor.rescoreStatus == "The last 90 days are rescored with your settings.")
-        #expect(RescoreStatus.look(editor) == .note("The last 90 days are rescored with your settings."))
+        #expect(editor.rescored && editor.rescoreStatus == "The last 90\u{00A0}days are rescored with your settings.")
+        #expect(RescoreStatus.look(editor) == .note("The last 90\u{00A0}days are rescored with your settings."))
         await editor.setSleepBase(480)
         #expect(!editor.rescored, "a new change: the row is back")
     }
@@ -1060,7 +1060,7 @@ struct BodySettingsEditorHostedTests {
             #expect(pill.label == "Save" && !pill.isEnabled)
             #expect(value.value == "7 hours 45 minutes" && editor.sleepBase == 465)
             #expect(node(w, "subpage.close")?.isEnabled == true)
-            #expect(w.nodes().contains { $0.identifier == "bodySettings.rescore" && $0.label == "Rescore the last 90 days" })
+            #expect(w.nodes().contains { $0.identifier == "bodySettings.rescore" && $0.label == "Rescore the last 90\u{00A0}days" })
         }
     }
 
@@ -1119,7 +1119,7 @@ struct BodySettingsEditorHostedTests {
         default: break
         }
         let message = switch kind {
-        case "refused": "RYFT takes a baseline between 4 and 12 hours."
+        case "refused": "RYFT takes a baseline between 4 and 12\u{00A0}hours."
         case "noAnswer": noAnswerWords
         case "serverError": serverErrorWords
         default: offlineWords
@@ -1161,7 +1161,7 @@ struct BodySettingsEditorHostedTests {
             let saved = try #require(w.node(savedWords))
             #expect(saved.frame.maxY <= row.frame.minY && notice.frame.minY >= row.frame.maxY, "\(saved.frame) \(row.frame) \(notice.frame)")
             #expect(w.nodes().contains { $0.label.contains("Request ID rid-rescore") || ($0.value ?? "").contains("rid-rescore") })
-            #expect(row.isEnabled && row.label == "Rescore the last 90 days", "it can be tried again")
+            #expect(row.isEnabled && row.label == "Rescore the last 90\u{00A0}days", "it can be tried again")
         }
     }
 
@@ -1180,12 +1180,12 @@ struct BodySettingsEditorHostedTests {
             // The busy rule: the row keeps its title, its spinner says it runs, and a second tap starts nothing.
             try await w.wait("busy", timeout: hostedWait) { node(w, "bodySettings.rescore")?.value == "In progress" }
             let busy = try #require(node(w, "bodySettings.rescore"))
-            #expect(busy.label == "Rescore the last 90 days", "\(busy.label)")
+            #expect(busy.label == "Rescore the last 90\u{00A0}days", "\(busy.label)")
             busy.activate()
             try await w.settle()
             #expect(api.calls.filter { $0 == "recompute" }.count == 1, "\(api.calls)")
             clock.advance(by: SyncService.rescoreDelay)
-            try await w.wait("rescored", timeout: hostedWait) { w.node("The last 90 days are rescored with your settings.") != nil }
+            try await w.wait("rescored", timeout: hostedWait) { w.node("The last 90\u{00A0}days are rescored with your settings.") != nil }
             try await w.settle()
             #expect(node(w, "bodySettings.rescore")?.isEnabled == false, "nothing new to rescore")
             try stepper(w).increment()

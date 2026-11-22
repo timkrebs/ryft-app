@@ -98,10 +98,10 @@ struct SleepRangeBoardTests {
         #expect(board.look == .loaded)
         #expect(board.clock == Fmt.clock(minutes: average))
         #expect(board.numeralLabel == "Average sleep, \(Fmt.spokenDuration(minutes: average, locale: enUS))")
-        #expect(board.caption == (range.nights >= 7 ? "Average · last 7 nights" : "Average · \(range.nights) nights"))
+        #expect(board.caption == (range.nights >= 7 ? "Average · last 7\u{00A0}nights" : "Average · \(range.nights)\u{00A0}nights"))
         let strip = try #require(board.strip)
         #expect(strip.rowHeight == 14 && strip.showsRowLabels && strip.bedtimes == range.bedtimes)
-        #expect(strip.count == "\(range.bedtimes.count) nights")
+        #expect(strip.count == "\(range.bedtimes.count)\u{00A0}nights")
         #expect(board.tiles.map(\.kind) == [.quality, .consistency])
         #expect(board.nights.map(\.day) == range.days.reversed().map(\.day), "newest first")
     }
@@ -116,19 +116,19 @@ struct SleepRangeBoardTests {
         #expect(week.barRatio == 0.55 && week.window == .week)
     }
 
-    @Test("Fewer nights than the range: \"Average · 4 nights\"")
+    @Test("Fewer nights than the range: \"Average · 4\u{00A0}nights\"")
     func fewerNights() {
-        #expect(SleepRangeBoard.caption(nights: 4, kind: .week) == "Average · 4 nights")
-        #expect(SleepRangeBoard.caption(nights: 7, kind: .week) == "Average · last 7 nights")
-        #expect(SleepRangeBoard.caption(nights: 21, kind: .month) == "Average · 21 nights")
-        #expect(SleepRangeBoard.caption(nights: 30, kind: .month) == "Average · last 30 nights")
+        #expect(SleepRangeBoard.caption(nights: 4, kind: .week) == "Average · 4\u{00A0}nights")
+        #expect(SleepRangeBoard.caption(nights: 7, kind: .week) == "Average · last 7\u{00A0}nights")
+        #expect(SleepRangeBoard.caption(nights: 21, kind: .month) == "Average · 21\u{00A0}nights")
+        #expect(SleepRangeBoard.caption(nights: 30, kind: .month) == "Average · last 30\u{00A0}nights")
         var range = MockData.sleepRange(.week)
         range.days = Array(range.days.suffix(4))
         range.nights = 4
-        #expect(SleepRangeBoard(range: range, kind: .week).caption == "Average · 4 nights")
+        #expect(SleepRangeBoard(range: range, kind: .week).caption == "Average · 4\u{00A0}nights")
     }
 
-    @Test("Consistency: the mean without a unit and the last 7 nights as dots (≥ 60 full, < 60 missed, none no data, the last today)")
+    @Test("Consistency: the mean without a unit and the last 7\u{00A0}nights as dots (≥ 60 full, < 60 missed, none no data, the last today)")
     func theConsistencyDots() throws {
         let range = week(consistency: [80, 50, nil, 60, 59, 90, 70])
         let board = SleepRangeBoard(range: range, kind: .week, locale: enUS)
@@ -136,7 +136,7 @@ struct SleepRangeBoardTests {
         #expect(tile.marks == [.full, .missed, .noData, .full, .missed, .full, .today])
         #expect(tile.value == "72" && tile.unit == nil)
         #expect(tile.spokenValue.hasPrefix("72 out of 100. "), "the scale is said: \(tile.spokenValue)")
-        #expect(tile.spokenValue.contains("4 of the last 7 nights were regular"), "\(tile.spokenValue)")
+        #expect(tile.spokenValue.contains("4 of the last 7\u{00A0}nights were regular"), "\(tile.spokenValue)")
         #expect(tile.spokenValue.contains("the last is the newest night"))
         // Nights the range doesn't have are no data.
         #expect(SleepRangeBoard.consistency(nil, week: [nil, 70]).marks.prefix(6).allSatisfy { $0 == .noData })
@@ -249,13 +249,13 @@ struct SleepRangeBoardTests {
         #expect(board.clock == nil && board.numeralLabel == nil && !board.caption.isEmpty)
     }
 
-    @Test("The 4-night preview's averages are its 4 nights'")
+    @Test("The 4-night preview's averages are its 4\u{00A0}nights'")
     func theFewNightsPreview() throws {
         let nights = Array(MockData.sleepRange(.week).days.suffix(4))
         let totals = nights.compactMap(\.totalMin)
         let mean = Int((Double(totals.reduce(0, +)) / Double(totals.count)).rounded())
         let board = SleepRangePreviewPage(.fewNights).board
-        #expect(board.clock == Fmt.clock(minutes: mean) && board.caption == "Average · 4 nights")
+        #expect(board.clock == Fmt.clock(minutes: mean) && board.caption == "Average · 4\u{00A0}nights")
         #expect(board.strip?.bedtimes.map(\.day).allSatisfy { day in nights.contains { $0.day == day } } == true)
     }
 
@@ -332,7 +332,7 @@ struct SleepBedtimeBoardTests {
         #expect(SleepBedtimeBoard(plan: plan, wake: wake, goal: .peak, locale: enGB).meridiem == nil)
     }
 
-    @Test("The ruler: the needle at the goal's sleep, the zone 90–100 % of the need, \"need 8:01\" in the middle")
+    @Test("The ruler: the needle at the goal's sleep, the zone 90–100\u{00A0}% of the need, \"need 8:01\" in the middle")
     func theRuler() throws {
         let board = SleepBedtimeBoard(plan: plan, wake: wake, goal: .perform, locale: enUS)
         let ruler = try #require(board.ruler)
@@ -340,7 +340,7 @@ struct SleepBedtimeBoardTests {
         #expect(ruler.value == Double(SleepBedtimeBoard.sleepMin(plan, goal: .perform)) / 60)
         let zone = try #require(ruler.zone)
         #expect(abs(zone.lowerBound - 0.9 * need) < 1e-9 && abs(zone.upperBound - need) < 1e-9)
-        #expect(ruler.labels == ["0 h", "need \(Fmt.clock(minutes: plan.needMin))", "10 h"])
+        #expect(ruler.labels == ["0\u{00A0}h", "need \(Fmt.clock(minutes: plan.needMin))", "10\u{00A0}h"])
     }
 
     @Test("Three rows, earliest first, the goal's marker on one")

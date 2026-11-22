@@ -6,8 +6,9 @@ enum JournalSettingsLayout {
     nonisolated static let headerToContent: CGFloat = 22, groupGap: CGFloat = 18
     /// The page's sides and the space under the last group (`SubpageScaffold`'s).
     nonisolated static let sidePadding: CGFloat = 20, bottomPadding: CGFloat = 32
-    /// The card: radius 22; rows at least 46; the hairline inset 16 (`GroupedListSpec`).
-    nonisolated static let cardRadius: CGFloat = 22, rowMinHeight: CGFloat = 46, rowInset: CGFloat = 16
+    /// The card: the card radius, 22 (`Theme.Metrics.neutralTileRadius`); rows at least 46; the hairline inset 16
+    /// (`GroupedListSpec`).
+    nonisolated static let cardRadius = Theme.Metrics.neutralTileRadius, rowMinHeight: CGFloat = 46, rowInset: CGFloat = 16
     /// A habit's trash button: 44 wide and as tall as the row (at least 44), a 14 pt glyph in ink at 55 %; its target
     /// ends 8 before the switch's track (the glyph's centre 30 from it, as the draft), and the name keeps 40 more clear of
     /// it than the switch's own 12.
@@ -90,7 +91,7 @@ struct JournalSettingsView: View {
 
     private var list: some View {
         List {
-            SubpageHeader(Text("Journal")) {
+            PushedHeader(Text("Journal"), identifierPrefix: SubpageSpec.identifierPrefix) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text("Add a habit")) { adding = true }
                     .accessibilityIdentifier("journal.add")
             }
@@ -404,7 +405,7 @@ struct AddBehaviorSheet: View {
                     InlineMessage(message: failure.message, systemImage: "exclamationmark.circle", caption: failure.details)
                         .textSelection(.enabled)
                 }
-                GroupedCard(footer: Text("Up to \(Self.maxName) characters.")) {
+                GroupedCard(footer: Text("Up to \(Self.maxName)\u{00A0}characters.")) {
                     FormField(Text("Name"), isFocused: nameFocused) {
                         TextField(text: $name) { Text("Name") }
                             .focused($nameFocused)

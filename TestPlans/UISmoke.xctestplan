@@ -40,6 +40,8 @@
         "SignedOutUITests\/testConsentAgreeWaitsForTheTick",
         "SignedOutUITests\/testCreateAccountHasItsThreeFields",
         "NocturneTodaySleepUITests",
+        "NocturneGateKeyboardUITests\/testReportDoneAndSendRideTheKeyboard",
+        "NocturneGateKeyboardUITests\/testReportDoneAndSendRideTheKeyboardAtAX3",
         "TabBarUITests\/testEachTabOpensUnderItsLaunchArgument",
         "TabBarUITests\/testReTappingStrainReturnsAPushedWorkoutToTheRoot"
       ],

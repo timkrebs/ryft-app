@@ -36,7 +36,7 @@ struct CreateAccountView: View {
                 }
             }
             .disabled(isBusy)
-            AuthHint(text: Text("At least \(AuthService.minimumPasswordLength) characters."))
+            AuthHint(text: Text("At least \(AuthService.minimumPasswordLength)\u{00A0}characters."))
             if auth.errorMessage != nil {
                 AuthErrorMessage()
                     .padding(.top, AuthScreenSpec.primaryGap)

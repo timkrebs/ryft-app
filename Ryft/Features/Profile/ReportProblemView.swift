@@ -18,6 +18,9 @@ enum ReportProblemLayout {
     nonisolated static let outcomeTop: CGFloat = 34
     nonisolated static let outcomeCircle: CGFloat = 72, outcomeGlyph: CGFloat = 24, outcomeGap: CGFloat = 22
     nonisolated static let headlineSize: CGFloat = 20
+    /// While the message has focus, Done and Send side by side in the pinned bar: 12 apart, equal widths (gate D5). From AX1
+    /// they stack 8 apart (`PinnedBarSpec.spacing`).
+    nonisolated static let barButtonGap: CGFloat = 12
 }
 
 /// Profile → About → Report a problem (ui.md §5; Nocturne, PR 6 C §4.3): the message, what it's about, and diagnostics that
@@ -25,7 +28,10 @@ enum ReportProblemLayout {
 ///
 /// - The frame is `SubpageScaffold`; Send is the pinned primary (the pill's spinner while it goes, the title stays), with
 ///   "Reports are limited to 10 a day." under it. At the accessibility sizes that line (and the caption that says why Send
-///   waits) ends the page instead, so the bar keeps only the pill and the page its room (C §2.9).
+///   waits) ends the page instead, so the bar keeps only the pills and the page its room (C §2.9).
+/// - While the message has focus the bar rides on the keyboard and holds Done beside Send (Nocturne gate D5): the way out of
+///   the multi-line field is a visible pill where the thumb already is, and Send stays one tap away. There is no keyboard
+///   toolbar: its floating Done covered the pinned Send on iOS 26 and later.
 /// - A refusal shows above the form as a notice, with the message kept and "Copy message".
 /// - `sent` and `queued` replace the form and the bar: a ring with a checkmark or a clock, the headline (VoiceOver goes to
 ///   it), Done. Queued says it is saved on this iPhone and goes out once online: it never claims to have been sent.
@@ -34,6 +40,8 @@ struct ReportProblemView: View {
     var context: ReportContext?
     /// "What's included" open from the start (previews).
     var showsIncluded = false
+    /// The message focused from the start, as after a tap on it: the bar's Done beside Send (previews).
+    var startsEditing = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -62,12 +70,6 @@ struct ReportProblemView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !showsOutcome { sendBar }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { editing = false }
-            }
-        }
         .sensoryFeedback(.success, trigger: model.result) { _, new in new == .sent }
         .onAppear {
             guard !prepared else { return }
@@ -76,6 +78,7 @@ struct ReportProblemView: View {
             // No keyboard on arrival: from Details the message is written already, and the keyboard would
             // cover what's attached.
             model.prepare(context)
+            if startsEditing { editing = true }
         }
         .onChange(of: model.includeDiagnostics) { _, on in if !on { includedOpen = false } }
         .analyticsScreen(.reportProblem)
@@ -125,18 +128,46 @@ struct ReportProblemView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Send, pinned: busy while it goes (the pill keeps its size and its title), disabled without a message, over the
-    /// limit and after today's tenth report (the caption then says why; from AX1 at the page's end, with the footnote).
+    /// The pinned bar: Send, and while the message has focus Done (D5). Below AX1 one row, Done leading and Send trailing,
+    /// 12 apart and equal; from AX1 stacked, Send above Done (the primary first, as in every stacked bar). Without focus
+    /// Send alone, full width. The row changes with `Theme.Motion.quick`, at once under Reduce Motion.
     private var sendBar: some View {
         let inBar = !typeSize.isAccessibilitySize
         return PinnedActionBar(caption: inBar ? sendCaption : nil, footnote: inBar ? Self.sendFootnote : nil) {
-            PillButton(Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
-                editing = false
-                await model.send()
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(spacing: PinnedBarSpec.spacing) {
+                        sendButton
+                        if editing { doneButton }
+                    }
+                } else {
+                    HStack(spacing: ReportProblemLayout.barButtonGap) {
+                        if editing { doneButton }
+                        sendButton
+                    }
+                }
             }
-            .disabled(!model.canSend && !model.sending)
-            .accessibilityIdentifier("report.send")
+            .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: editing)
         }
+    }
+
+    /// Send: busy while it goes (the pill keeps its size and its title), disabled without a message, over the limit and
+    /// after today's tenth report (the caption then says why; from AX1 at the page's end, with the footnote). It ends the
+    /// editing first, so the bar is Send alone again while the report goes.
+    private var sendButton: some View {
+        PillButton(Text("Send"), systemImage: PillButton.Icon.send, busy: model.sending) {
+            editing = false
+            await model.send()
+        }
+        .disabled(!model.canSend && !model.sending)
+        .accessibilityIdentifier("report.send")
+    }
+
+    /// Done while the message has focus: closes the keyboard, keeps what's typed. Never disabled: while a report goes the
+    /// field has no focus, so Done isn't there.
+    private var doneButton: some View {
+        PillButton(Text("Done"), style: .secondary) { editing = false }
+            .accessibilityIdentifier("report.done")
     }
 
     /// What stopped the report, with the message kept to copy.
@@ -191,7 +222,7 @@ struct ReportProblemView: View {
 
     private var messageFooter: Text {
         model.isTooLong
-            ? Text("Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private.",
+            ? Text("Too long: a report takes up to 4,000\u{00A0}characters. Please don't type health values you'd rather keep private.",
                    comment: "Report a problem: the message card's footer while the message is over 4,000 characters.")
             : Text("Please don't type health values you'd rather keep private.")
     }
@@ -396,11 +427,13 @@ extension ReportContext {
 /// One state of Report a problem on mock data, pushed as Profile pushes it.
 @MainActor
 private func reportPreview(size: DynamicTypeSize = .large, context: ReportContext? = nil, showsIncluded: Bool = false,
-                           stage: (ReportProblemModel) -> Void = { _ in }) -> some View {
+                           editing: Bool = false, stage: (ReportProblemModel) -> Void = { _ in }) -> some View {
     let state = AppState.preview()
     let model = ReportProblemModel(env: state.env, apiStatus: APIStatus()) { FeedbackSync() }
     stage(model)
-    return NavigationStack { ReportProblemView(model: model, context: context, showsIncluded: showsIncluded) }
+    return NavigationStack {
+        ReportProblemView(model: model, context: context, showsIncluded: showsIncluded, startsEditing: editing)
+    }
         .previewEnvironment(state)
         .toggleStyle(.ryft)
         .dynamicTypeSize(size)
@@ -410,6 +443,7 @@ private let previewMessage = "Today shows 'Updating…' for hours and my Garmin 
 
 #Preview("Report · empty") { reportPreview() }
 #Preview("Report · filled") { reportPreview { $0.stage(message: previewMessage, category: .data, includeDiagnostics: false) } }
+#Preview("Report · typing") { reportPreview(editing: true) { $0.stage(message: previewMessage, category: .data) } }
 #Preview("Report · from Details, what's included") {
     reportPreview(context: .preview, showsIncluded: true) {
         $0.stage(message: previewMessage, category: .data, context: .preview)
@@ -429,5 +463,8 @@ private let previewMessage = "Today shows 'Updating…' for hours and my Garmin 
 #Preview("Report · sent · demo") { reportPreview { $0.stage(result: .sent, demo: true) } }
 #Preview("Report · queued") { reportPreview { $0.stage(result: .queued, waiting: 1) } }
 #Preview("Report · AX3") { reportPreview(size: .accessibility3) { $0.stage(message: previewMessage, category: .data) } }
+#Preview("Report · typing · AX3") {
+    reportPreview(size: .accessibility3, editing: true) { $0.stage(message: previewMessage, category: .data) }
+}
 #Preview("Report · what's included · AX3") { reportPreview(size: .accessibility3, showsIncluded: true) }
 #Preview("Report · queued · AX3") { reportPreview(size: .accessibility3) { $0.stage(result: .queued, waiting: 1) } }

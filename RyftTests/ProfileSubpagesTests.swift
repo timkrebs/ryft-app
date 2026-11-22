@@ -47,8 +47,8 @@ struct ProfileSubpagesRulesTests {
           arguments: ["recovery", "hrv", "sleepPerformance"])
     func impactColours(_ metric: String) {
         let (spec, good): (MetricSpec, Color) = switch metric {
-        case "recovery": (.recovery, Theme.accent)
-        case "hrv": (.hrv, Theme.accent)
+        case "recovery": (.recovery, Theme.recovery)
+        case "hrv": (.hrv, Theme.recovery)
         default: (.sleepPerformance, Theme.metricSleep)
         }
         #expect(BehaviorsSection.color(BehaviorEffect.significantTest(delta: 3), spec: spec) == good)
@@ -431,12 +431,12 @@ struct ProfileSubpagesHostedTests {
 
     @Test("L27: Report a problem draws no teal: Send the light pill, the chosen kind's mark and the diagnostics switch in ink")
     func reportDrawsNoTeal() async throws {
-        let teals = [Theme.teal, Theme.accent, Theme.recovery].map { NocturneTokenTests.resolve($0) }
+        let teals = [Theme.recovery].map { NocturneTokenTests.resolve($0) }
         func isTeal(_ r: Double, _ g: Double, _ b: Double) -> Bool {
             teals.contains { abs($0.r - r) + abs($0.g - g) + abs($0.b - b) < 0.15 }
         }
         // The probe itself: a teal swatch is seen.
-        let swatch = Rectangle().fill(Theme.accent).frame(width: 40, height: 40)
+        let swatch = Rectangle().fill(Theme.recovery).frame(width: 40, height: 40)
             .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
         try await host(AnyView(swatch)) { w in
             try await w.settle()
@@ -855,7 +855,7 @@ struct ProfileSubpagesHostedTests {
         }
     }
 
-    @Test("N1, N6: rate limited, the bar says why Send is off; over 4,000 characters, the footer says it's too long")
+    @Test("N1, N6: rate limited, the bar says why Send is off; over 4,000\u{00A0}characters, the footer says it's too long")
     func reportCaptions() async throws {
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message, category: .data, result: .rateLimited) }) { w in
             try await w.wait("the notice") { w.node("Copy message", exactly: true) != nil }
@@ -867,7 +867,7 @@ struct ProfileSubpagesHostedTests {
         try await host(SubpageShotScreen.report { $0.stage(message: String(repeating: "x", count: 4_001)) }) { w in
             try await w.wait("the form") { has(w, id: "report.count") }
             try await w.settle()
-            #expect(w.node("Too long: a report takes up to 4,000 characters.") != nil)
+            #expect(w.node("Too long: a report takes up to 4,000\u{00A0}characters.") != nil)
         }
         try await host(SubpageShotScreen.report { $0.stage(message: SubpageShotScreen.message) }) { w in
             try await w.wait("the form") { has(w, id: "report.send") }

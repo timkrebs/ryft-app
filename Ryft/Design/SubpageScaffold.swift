@@ -1,7 +1,9 @@
 // The frame of a pushed page and of a sheet's own page (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2; PR 6 A G3,
-// A-2 "Swipe back", §3 `PinnedBar`; C §2.1, §3 row 3): the navigation bar hidden, a 40 pt header (a Back circle, 12, the
-// 26 Light title, 0–2 trailing circle buttons), 22 below it the scrolling content 20 from the sides, and an optional pinned
-// action bar. The interactive back swipe keeps working although the bar is hidden.
+// A-2 "Swipe back", §3 `PinnedBar`; C §2.1, §3 row 3; Nocturne gate D4 and DG-6, docs/work/2026-11-20-nocturne-gate/design.md
+// §2.4): the navigation bar hidden, one of the app's two headers, 22 below it the scrolling content 20 from the sides, and an
+// optional pinned action bar. A pushed page has `PushedHeader`'s row (Back, the title centred, a trailing circle or the empty
+// slot), scrolling with the page; a sheet's root has `SheetHeader` (the close circle leading, the title centred, the trailing
+// slot), pinned above the scroll. The interactive back swipe keeps working although the bar is hidden.
 import SwiftUI
 import UIKit
 
@@ -9,8 +11,6 @@ import UIKit
 enum SubpageSpec {
     /// The header row: 40 high (`ScreenHeaderSpec.height`); it grows only when the title wraps.
     static let headerHeight = ScreenHeaderSpec.height
-    /// Back → title.
-    static let titleGap: CGFloat = 12
     /// Between two trailing circles (circle edge to circle edge).
     static let trailingSpacing: CGFloat = 8
     /// The header → the content (the Strain board's 22).
@@ -23,9 +23,10 @@ enum SubpageSpec {
     static let maxContentWidth: CGFloat = 560
     /// A sheet's page starts 26 below the sheet's top edge: 14 under the grabber (derived, PR 6 B §1.2, C §2.1).
     static let sheetTopInset: CGFloat = 26
-    /// When the title does not fit on the buttons' line (long titles), and always at the accessibility sizes (C §2.9): the
-    /// buttons' row, 12, then the title.
+    /// `PushedHeader` from AX1 (C §2.9): the buttons' row, 12, then the title.
     static let stackedGap: CGFloat = 12
+    /// The header's identifiers: `subpage.back`, `subpage.close`, `subpage.header` (the title of a pushed page).
+    static let identifierPrefix = "subpage"
 }
 
 /// What a header circle does when tapped.
@@ -34,35 +35,47 @@ enum SubpageButtonAction {
     case dismiss
     /// The caller's: a sheet that would discard work asks first ("Discard this import?").
     case perform(() -> Void)
+
+    /// The closure for a header's `onBack` / `onClose`: nil lets the header dismiss through its own environment.
+    var handler: (() -> Void)? {
+        if case .perform(let perform) = self { return perform }
+        return nil
+    }
 }
 
-/// The header's circle buttons.
+/// The header's circle buttons, and so which of the two headers the page has (D4, DG-6).
 enum SubpageNavigation {
-    /// A pushed page: `chevron.left` "Back", leading.
+    /// A pushed page: `PushedHeader`'s row. Back (`chevron.left`) leading, the title centred in `callout`, the trailing circles
+    /// or the empty 40 pt slot; it scrolls with the page, and from AX1 the title goes under the buttons' row.
     case back(SubpageButtonAction = .dismiss)
-    /// A sheet's root: the title leading, `xmark` trailing, labelled "Close" (or the caller's: "Cancel" when it discards).
+    /// A sheet's root: `SheetHeader`, pinned above the scroll. The close circle leading, labelled "Close" (or the caller's:
+    /// "Cancel" when it discards, "Done" when nothing is lost), the title centred, the trailing circles in the trailing slot.
     case close(label: Text? = nil, SubpageButtonAction = .dismiss)
-    /// A step pushed inside a sheet that can be closed from any step (the training import, C §4.14): Back leading and the
-    /// close circle trailing.
+    /// A step pushed inside a sheet that can be closed from any step (D4 rule 6): `PushedHeader`'s row with Back leading and
+    /// the close circle trailing, after the trailing circles; the title stays centred on the row.
     case backAndClose(back: SubpageButtonAction = .dismiss, closeLabel: Text? = nil, close: SubpageButtonAction = .dismiss)
-    /// No circle: a root page with a title only.
+    /// No circle: a stack's root page (a Debug host) with its title centred and the trailing circles, if any.
     case none
 }
 
 /// A subpage: `SubpageScaffold(Text("Display")) { groups }`; a sheet's root: `SubpageScaffold(Text("What do you wear?"),
 /// navigation: .close(), isSheet: true) { … }`. A pinned primary goes under it with `.pinnedBar { PillButton(…) }`.
 ///
-/// - The navigation bar is hidden; the page draws its header as the scroll content's first row (it scrolls with the page).
-/// - Trailing: 0–2 `CircleButton`s, laid out as their 40 pt circles 8 apart (their 44 pt boxes reach 2 past them).
+/// - The navigation bar is hidden; the page draws its own header (`SubpageNavigation` says which).
+/// - Trailing: 0–2 `CircleButton`s or `CircleMenu`s, laid out as their 40 pt circles 8 apart (their 44 pt boxes reach 2
+///   past them). On a sheet's root they are `SheetHeader`'s trailing slot.
 /// - From the header to the content 22; the content 20 from the sides, at most 560 wide, 32 above the bottom.
 /// - The back swipe pops the page (`InteractivePopGesture`), as with the system bar.
 /// - `isSheet`: 26 from the sheet's top edge, the sheet's background is `background` and its grabber shows.
+/// - Identifiers: `subpage.back`, `subpage.close`, and `subpage.header` for a pushed page's title.
 struct SubpageScaffold<Trailing: View, Content: View>: View {
     private let title: Text
     private let navigation: SubpageNavigation
     private let isSheet: Bool
     private let trailing: Trailing
     private let content: Content
+
+    @Environment(\.dismiss) private var dismiss
 
     init(_ title: Text, navigation: SubpageNavigation = .back(), isSheet: Bool = false,
          @ViewBuilder trailing: () -> Trailing, @ViewBuilder content: () -> Content) {
@@ -74,25 +87,91 @@ struct SubpageScaffold<Trailing: View, Content: View>: View {
     }
 
     var body: some View {
+        page
+            .background(Theme.background.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .keepsBackSwipe()
+            .modifier(SheetPresentation(isSheet: isSheet))
+    }
+
+    @ViewBuilder private var page: some View {
+        if case .close(let label, let action) = navigation {
+            // A sheet's root (D4): the header stays put while the page scrolls under it, so Close is always in reach.
+            VStack(spacing: 0) {
+                SheetHeader(title, closeLabel: label, onClose: action.handler) { sheetTrailing }
+                    .closeIdentifier("\(SubpageSpec.identifierPrefix).close")
+                    .frame(maxWidth: SubpageSpec.maxContentWidth)
+                    .padding(.horizontal, SubpageSpec.sidePadding)
+                    .padding(.top, isSheet ? SubpageSpec.sheetTopInset : 0)
+                    .frame(maxWidth: .infinity)
+                scroll(topInset: 0) { EmptyView() }
+                    .underPinnedHeader()
+            }
+        } else {
+            scroll(topInset: isSheet ? SubpageSpec.sheetTopInset : 0) { pageHeader }
+        }
+    }
+
+    /// The content in its column, under `header` (a pushed page's, which scrolls with it).
+    private func scroll<Header: View>(topInset: CGFloat, @ViewBuilder header: () -> Header) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                SubpageHeader(title, navigation: navigation) { trailing }
+                header()
                 content
                     .padding(.top, SubpageSpec.contentGap)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(maxWidth: SubpageSpec.maxContentWidth)
             .padding(.horizontal, SubpageSpec.sidePadding)
-            .padding(.top, isSheet ? SubpageSpec.sheetTopInset : 0)
+            .padding(.top, topInset)
             .padding(.bottom, SubpageSpec.bottomPadding)
             .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .keepsBackSwipe()
-        .modifier(SheetPresentation(isSheet: isSheet))
+    }
+
+    /// A pushed page's header (DG-6): `PushedHeader`'s row; a root without circles, the title centred.
+    @ViewBuilder private var pageHeader: some View {
+        switch navigation {
+        case .back(let back):
+            PushedHeader(title, identifierPrefix: SubpageSpec.identifierPrefix, onBack: back.handler) { trailingSlot(close: nil) }
+        case .backAndClose(let back, let label, let close):
+            PushedHeader(title, identifierPrefix: SubpageSpec.identifierPrefix, onBack: back.handler) {
+                trailingSlot(close: (label ?? CircleButton.closeLabel, close))
+            }
+        case .none:
+            SheetHeader(title) { sheetTrailing }
+                .closeHidden()
+        case .close:
+            EmptyView()
+        }
+    }
+
+    /// `PushedHeader`'s trailing slot: the caller's circles, then the close circle; with neither, the empty 40 pt slot that
+    /// keeps the title centred.
+    @ViewBuilder private func trailingSlot(close: (label: Text, action: SubpageButtonAction)?) -> some View {
+        if close == nil && Trailing.self == EmptyView.self {
+            PushedHeaderEmptySlot()
+        } else {
+            HStack(spacing: SubpageSpec.trailingSpacing - 2 * ScreenHeaderSpec.buttonOverhang) {
+                trailing
+                if let close {
+                    CircleButton(systemImage: "xmark", accessibilityLabel: close.label) {
+                        if let handler = close.action.handler { handler() } else { dismiss() }
+                    }
+                    .accessibilityIdentifier("\(SubpageSpec.identifierPrefix).close")
+                }
+            }
+        }
+    }
+
+    /// `SheetHeader`'s trailing slot: the caller's circles laid out as their 40 pt circles, or nothing.
+    @ViewBuilder private var sheetTrailing: some View {
+        if Trailing.self != EmptyView.self {
+            HStack(spacing: SubpageSpec.trailingSpacing - 2 * ScreenHeaderSpec.buttonOverhang) { trailing }
+                .headerEdgeButton()
+        }
     }
 }
 
@@ -115,128 +194,6 @@ private struct SheetPresentation: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-// MARK: - header
-
-/// The subpage header on its own (a page that is not a `SubpageScaffold`, such as a form that manages its keyboard): Back,
-/// 12, the title (26 Light, header trait), the trailing circles and the close circle at the end. When the title does not fit
-/// on the buttons' line, and at every accessibility size however short it is, it goes under them and wraps (C §2.9); it
-/// never truncates. VoiceOver reads it in visual order.
-struct SubpageHeader<Trailing: View>: View {
-    private let title: Text
-    private let navigation: SubpageNavigation
-    private let trailing: Trailing
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    init(_ title: Text, navigation: SubpageNavigation = .back(), @ViewBuilder trailing: () -> Trailing) {
-        self.title = title
-        self.navigation = navigation
-        self.trailing = trailing()
-    }
-
-    var body: some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                stacked
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    row
-                    stacked
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    /// Everything on one 40 pt line, the title on one line.
-    private var row: some View {
-        HStack(alignment: .center, spacing: 0) {
-            if let back = backAction {
-                backButton(back)
-                    .padding(.trailing, SubpageSpec.titleGap)
-            }
-            ScreenHeaderTitle(text: title)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: ScreenHeaderSpec.minGap)
-            trailingButtons
-        }
-        .frame(minHeight: SubpageSpec.headerHeight)
-    }
-
-    /// The buttons' line, then the title under it, wrapping.
-    private var stacked: some View {
-        VStack(alignment: .leading, spacing: SubpageSpec.stackedGap) {
-            if hasButtons {
-                HStack(spacing: 0) {
-                    if let back = backAction { backButton(back) }
-                    Spacer(minLength: ScreenHeaderSpec.minGap)
-                    trailingButtons
-                }
-                .frame(minHeight: SubpageSpec.headerHeight)
-            }
-            ScreenHeaderTitle(text: title)
-                .frame(maxWidth: .infinity, minHeight: hasButtons ? nil : SubpageSpec.headerHeight, alignment: .leading)
-        }
-    }
-
-    private var hasButtons: Bool {
-        if case .none = navigation { return Trailing.self != EmptyView.self }
-        return true
-    }
-
-    private var backAction: SubpageButtonAction? {
-        switch navigation {
-        case .back(let action): return action
-        case .backAndClose(let action, _, _): return action
-        case .close, .none: return nil
-        }
-    }
-
-    private var close: (label: Text, action: SubpageButtonAction)? {
-        switch navigation {
-        case .close(let label, let action): return (label ?? Self.closeLabel, action)
-        case .backAndClose(_, let label, let action): return (label ?? Self.closeLabel, action)
-        case .back, .none: return nil
-        }
-    }
-
-    /// The trailing circles and the close circle, as 40 pt circles 8 apart, the last one's edge on the inset.
-    private var trailingButtons: some View {
-        HStack(spacing: SubpageSpec.trailingSpacing - 2 * ScreenHeaderSpec.buttonOverhang) {
-            trailing
-            if let close {
-                CircleButton(systemImage: "xmark", accessibilityLabel: close.label) { run(close.action) }
-                    .accessibilityIdentifier("subpage.close")
-            }
-        }
-        .padding(-ScreenHeaderSpec.buttonOverhang)
-    }
-
-    private func backButton(_ action: SubpageButtonAction) -> some View {
-        CircleButton(systemImage: "chevron.left", accessibilityLabel: Self.backLabel) { run(action) }
-            .padding(-ScreenHeaderSpec.buttonOverhang)
-            .accessibilityIdentifier("subpage.back")
-    }
-
-    private func run(_ action: SubpageButtonAction) {
-        switch action {
-        case .dismiss: dismiss()
-        case .perform(let perform): perform()
-        }
-    }
-
-    static var backLabel: Text { Text("Back", comment: "VoiceOver label of the circle button that goes back to the page before.") }
-    static var closeLabel: Text { Text("Close") }
-}
-
-extension SubpageHeader where Trailing == EmptyView {
-    init(_ title: Text, navigation: SubpageNavigation = .back()) {
-        self.init(title, navigation: navigation) { EmptyView() }
     }
 }
 
@@ -308,6 +265,46 @@ extension View {
     func pinnedBar<Bar: View>(caption: Text? = nil, footnote: Text? = nil, @ViewBuilder _ content: () -> Bar) -> some View {
         let bar = PinnedActionBar(caption: caption, footnote: footnote, content: content)
         return safeAreaInset(edge: .bottom, spacing: 0) { bar }
+    }
+}
+
+/// The edge of a pinned header (Nocturne gate D4 rule 5): `PinnedActionBar`'s, turned over. While content has scrolled under
+/// the header, the page stops `gap` below it (the bar's 12) on the screen colour, at a 1 pt `separator` rule; at rest nothing
+/// shows. `SubpageScaffold`'s sheets, `SheetFrame`, the import's sheet roots and the sheets that pin their own `SheetHeader`
+/// put it on the scroll view under the header.
+private struct PinnedHeaderEdge: ViewModifier {
+    let gap: CGFloat
+    @State private var contentUnder = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 0.5
+            } action: { _, under in
+                contentUnder = under
+            }
+            .overlay(alignment: .top) {
+                if contentUnder {
+                    Theme.background
+                        .frame(height: max(gap, Theme.Metrics.hairline))
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Theme.separator)
+                                .frame(height: Theme.Metrics.hairline)
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+extension View {
+    /// On the scroll view under a pinned `SheetHeader` (`PinnedHeaderEdge`): content scrolled under the header stops `gap`
+    /// below it at the pinned bar's rule. `gap` no more than the content's own top gap at rest (8 for the journal's strip),
+    /// so the first scroll hides nothing at once.
+    func underPinnedHeader(gap: CGFloat = PinnedBarSpec.topPadding) -> some View {
+        modifier(PinnedHeaderEdge(gap: gap))
     }
 }
 
@@ -525,6 +522,15 @@ private struct SubpagePreviewList: View {
     .preferredColorScheme(.dark)
 }
 
+#Preview("SubpageScaffold · back and close") {
+    NavigationStack {
+        SubpageScaffold(Text(verbatim: "Match exercises"), navigation: .backAndClose()) {
+            SubpagePreviewList()
+        }
+    }
+    .preferredColorScheme(.dark)
+}
+
 #Preview("SubpageScaffold · AX3") {
     NavigationStack {
         SubpageScaffold(Text(verbatim: "Report a problem")) {
@@ -533,6 +539,14 @@ private struct SubpagePreviewList: View {
         .pinnedBar(caption: Text(verbatim: "Write a message first.")) {
             PillButton(Text(verbatim: "Send"), systemImage: PillButton.Icon.send) {}
         }
+    }
+    .preferredColorScheme(.dark)
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("SubpageScaffold · sheet root · AX3") {
+    SubpageScaffold(Text(verbatim: "Sleep need"), navigation: .close(), isSheet: true) {
+        SubpagePreviewList()
     }
     .preferredColorScheme(.dark)
     .environment(\.dynamicTypeSize, .accessibility3)

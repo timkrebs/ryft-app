@@ -41,7 +41,7 @@ struct DevicesSyncNocturneTests {
         #expect(Set(kinds.map(\.symbol)).count == kinds.count)
         #expect(CheckRow.Kind.ok.color == Theme.textPrimary)
         #expect(CheckRow.Kind.fix.color == Theme.warning)
-        #expect(!kinds.contains { $0.color == Theme.accent || $0.color == Theme.recovery })
+        #expect(!kinds.contains { $0.color == Theme.recovery })
     }
 
     @Test("Spec 15: the pages' sources name no teal (L27: teal is recovery only)")
@@ -220,7 +220,9 @@ struct DevicesSyncNocturneTests {
             let title = try #require(nodes.first { $0.label == "Your trackers" })
             let edit = try #require(nodes.first { $0.identifier == "devices.edit" })
             #expect(edit.frame.minY >= title.frame.maxY - 1, "Edit under the title: \(edit.frame) \(title.frame)")
-            #expect(edit.frame.height >= 44 && edit.frame.width >= 44)
+            // Half a point of slack: under the pushed header's AX3 title the link sits on a fractional origin (213.67), where
+            // its 44 pt box measures 43.99999999999997.
+            #expect(edit.frame.height >= 44 - 0.5 && edit.frame.width >= 44 - 0.5, "\(edit.frame)")
             for node in nodes where node.frame.width > 0 {
                 #expect(node.frame.minX >= -0.5 && node.frame.maxX <= 390.5, "\(node.label) \(node.frame)")
             }

@@ -110,14 +110,14 @@ import UIKit
         }
     }
 
-    /// The calibration's filled segments are `Theme.accent` on their track (`ink` at 16 %) and on the background.
+    /// The calibration's filled segments are `Theme.recovery` on their track (`ink` at 16 %) and on the background.
     @Test func filledCalibrationSegmentsReachThreeToOneOnTrackAndBackground() {
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let accent = resolve(OrbitGaugePalette.assets.calibration, style)
             #expect(ratio(accent, tracks(style).outer) >= 3, "\(name) filled segment on its track")
             #expect(ratio(accent, resolve(Theme.background, style)) >= 3, "\(name) filled segment on the background")
-            // The palette's calibration colour is the accent the other tests measure.
-            #expect(ratio(accent, resolve(Theme.accent, style)) < 1.001)
+            // The palette's calibration colour is the recovery teal the other tests measure.
+            #expect(ratio(accent, resolve(Theme.recovery, style)) < 1.001)
         }
     }
 
@@ -137,7 +137,7 @@ import UIKit
             let t = tracks(style)
             // title, colour, on the background, over its track, the track and its name.
             let cases: [(String, Color, Double, Double, RGBA, String)] = [
-                ("recovery", Theme.accent, 4.38, 4.16, t.middle, "7 % ring"),
+                ("recovery", Theme.recovery, 4.38, 4.16, t.middle, "7 % ring"),
                 ("sleep", Theme.metricSleep, 3.11, 2.98, t.middle, "7 % ring"),
                 ("strain", Theme.metricStrain, 2.80, 2.34, t.outer, "16 % ticks"),
             ]

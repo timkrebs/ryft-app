@@ -85,7 +85,7 @@ import UIKit
     /// Which of the three colours the pixel is nearest to: the filled teal, the ring's track (the outer one unless
     /// given), the background.
     private func ink(_ p: RGB, style: UIUserInterfaceStyle, track: RGB? = nil) -> Ink {
-        let options: [(Ink, RGB)] = [(.filled, rgb(Theme.accent, style)), (.track, track ?? outerTrack(style)),
+        let options: [(Ink, RGB)] = [(.filled, rgb(Theme.recovery, style)), (.track, track ?? outerTrack(style)),
                                       (.background, rgb(Theme.background, style))]
         return options.min { distance($0.1, p) < distance($1.1, p) }!.0
     }
@@ -204,7 +204,7 @@ import UIKit
                 #expect(distance(pending.pixel(at), scored.pixel(at)) > 0.04, "and visibly dimmer: \(label)")
                 // The recovery arc (71 %) at 9 o'clock is drawn too.
                 let rAt = scored.onOrbit(88, degrees: -90)
-                let recovery = rgb(Theme.accent, style)
+                let recovery = rgb(Theme.recovery, style)
                 #expect(distance(pending.pixel(rAt), blend(recovery, track, OrbitGaugeMarks.pendingOpacity)) < 0.06,
                         "recovery: \(label)")
             }

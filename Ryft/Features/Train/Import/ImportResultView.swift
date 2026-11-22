@@ -208,7 +208,7 @@ struct ImportResultView: View {
                           details: job.lastFailure?.details,
                           retry: { await model.deps.uploader.tryAgain() },
                           caption: (seconds.map { $0 > 0
-                              ? String(localized: "Trying again in \($0) seconds", comment: "Training import I5: a Retry-After countdown.")
+                              ? String(localized: "Trying again in \($0)\u{00A0}seconds", comment: "Training import I5: a Retry-After countdown.")
                               : String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
                                        comment: "Training import I5.") }
                               ?? String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
@@ -350,14 +350,14 @@ struct ImportResultView: View {
         switch job?.phase {
         case .finished?:
             if let job, job.hasRejected {
-                ImportPrimaryButton(title: String(localized: "Retry \(job.rejected.count)", comment: "Training import I4: send the failed items again."),
-                                    identifier: "import.retryRejected", systemImage: PillButton.Icon.retry) {
+                ImportStepButton(title: String(localized: "Retry \(job.rejected.count)", comment: "Training import I4: send the failed items again."),
+                                 identifier: "import.retryRejected", systemImage: PillButton.Icon.retry) {
                     Task { await model.retryRejected() }
                 }
                 ImportSecondaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
             } else {
-                ImportPrimaryButton(title: String(localized: "Open history", comment: "Training import I3."),
-                                    identifier: "import.openHistory") {
+                ImportStepButton(title: String(localized: "Open history", comment: "Training import I3."),
+                                 identifier: "import.openHistory") {
                     model.openHistory()
                 }
                 if let job, job.plans.done > 0 {
@@ -367,23 +367,23 @@ struct ImportResultView: View {
                 }
             }
         case .paused(.notAvailable)?:
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
             discardJob
         case .paused(.gated)?:
             // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
-            ImportPrimaryButton(title: String(localized: "Continue in RYFT",
-                                              comment: "Training import I8: close the import so the consent or invite step can show."),
-                                identifier: "import.continueInApp") {
+            ImportStepButton(title: String(localized: "Continue in RYFT",
+                                           comment: "Training import I8: close the import so the consent or invite step can show."),
+                             identifier: "import.continueInApp") {
                 model.finish(.close)
             }
             discardJob
         case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
             // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
             // there, quieter, and still asks first.
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
             discardJob
         case .paused(.waitingForAccount)?:
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
         default:
             EmptyView()
         }
@@ -455,25 +455,26 @@ enum ImportResultText {
         let what = parts.count > 1
             ? String(localized: "\(first) and \(parts[1])", comment: "Training import: two counts, e.g. 1 plan and 12 workouts.")
             : first
-        var sentence = String(localized: "Imported \(what)", comment: "Training import I3: the result, e.g. Imported 1 plan and 12 workouts.")
         let failed = job.sessions.rejected + job.sessions.blocked
         if failed > 0 {
-            sentence += " · " + String(localized: "\(failed) workouts not imported", comment: "Training import I4.")
-        } else if job.skipped.skippedSets > 0 {
-            sentence += " · " + String(localized: "\(job.skipped.skippedSets) sets skipped (no weight or reps)",
-                                       comment: "Training import I3: sets that weren't imported.")
+            return String(localized: "Imported \(what) · \(failed) workouts not imported",
+                          comment: "Training import I4: the result, then how many workouts weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 workouts not imported.")
         }
-        return sentence
+        if job.skipped.skippedSets > 0 {
+            return String(localized: "Imported \(what) · \(job.skipped.skippedSets)\u{00A0}sets skipped (no weight or reps)",
+                          comment: "Training import I3: the result, then the sets that weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps).")
+        }
+        return String(localized: "Imported \(what)", comment: "Training import I3: the result, e.g. Imported 1 plan and 12 workouts.")
     }
 
     /// "Upper/Lower · 6 weeks".
     static func plan(_ plan: ImportPlanSummary) -> String {
-        ([plan.name] + [plan.weeks.map { String(localized: "\($0) weeks") }].compactMap { $0 }).joined(separator: " · ")
+        ([plan.name] + [plan.weeks.map { String(localized: "\($0)\u{00A0}weeks") }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
     static var keptLimits: String {
-        String(localized: "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it.",
+        String(localized: "Kept on this iPhone for up to 30\u{00A0}days. Signing out or deleting your account removes it.",
                comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
     }
 
@@ -481,7 +482,7 @@ enum ImportResultText {
     static func progressValue(_ job: ImportJobStatus) -> String {
         let percent = Int((job.progress * 100).rounded())
         let workouts = String(localized: "\(job.sessions.done) of \(job.sessions.total) workouts", comment: "Training import I2: progress.")
-        return String(localized: "\(percent) percent, \(workouts)", comment: "Training import, VoiceOver: the progress value.")
+        return String(localized: "\(percent)\u{00A0}percent, \(workouts)", comment: "Training import, VoiceOver: the progress value.")
     }
 
     /// A refused item's reason in plain words.

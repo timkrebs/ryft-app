@@ -67,7 +67,7 @@ struct StrainZoneTickTests {
         #expect(zones.rows.map(\.value) == ["6", "14", "27", "24", "11"])
         #expect(zones.rows.map(\.label) == ["Z5 · Max", "Z4 · Threshold", "Z3 · Tempo", "Z2 · Aerobic", "Z1 · Easy"])
         let z3 = try #require(zones.rows.first { $0.zone == 3 })
-        #expect(z3.spoken == "Zone 3, tempo, 70 to 80\u{00A0}percent of heart-rate reserve, 27 minutes")
+        #expect(z3.spoken == "Zone 3, tempo, 70 to 80\u{00A0}percent of heart-rate reserve, 27\u{00A0}minutes")
         let z5 = try #require(zones.rows.first { $0.zone == 5 })
         #expect(z5.spoken.contains("90\u{00A0}percent or more"))
         #expect(zones.head.replacingOccurrences(of: "\u{00A0}", with: " ") == "82 min · TRIMP 112")
@@ -174,7 +174,7 @@ struct StrainScreenDecisionTests {
                                   DailyScore(day: key(0), strain: 13)]).0
         #expect(two.strainDelta == MetricDelta(current: 13, reference: 10), "two prior days show one")
         #expect(two.board.hero.delta == two.strainDelta)
-        #expect(two.board.hero.numeralValue.contains("versus 7 days"))
+        #expect(two.board.hero.numeralValue.contains("versus 7\u{00A0}days"))
         let none = model(history: [DailyScore(day: key(-7), strain: 10), DailyScore(day: key(0), strain: 13)]).0
         #expect(none.strainDelta == nil && none.board.hero.delta == nil, "only a day outside the window")
     }
@@ -492,7 +492,7 @@ struct WorkoutBoardTests {
         #expect(board.when(locale: gb).hasSuffix(" · \(from)–\(to)"))
         #expect(board.spokenWhen(locale: gb).hasSuffix(", \(from) to \(to)"))
         #expect(board.sourceText == "Recorded by Garmin Connect")
-        #expect(board.averageText == "avg 148 bpm")
+        #expect(board.averageText == "avg 148\u{00A0}bpm")
     }
 
     /// The draft's curve, 104…159 bpm around an average of 148: ticks 120 / 150 / 180, the top tick inside the domain; 15-minute
@@ -518,6 +518,6 @@ struct WorkoutBoardTests {
         #expect(plot.peak.bpm == 159)
         #expect(plot.peakText == "peak 159")
         #expect(plot.spokenValue == "Average 148 beats per minute, peak 159")
-        #expect(HeartRatePlot(points: points, average: nil)?.spokenValue == "Peak 159 bpm")
+        #expect(HeartRatePlot(points: points, average: nil)?.spokenValue == "Peak 159\u{00A0}bpm")
     }
 }

@@ -105,7 +105,7 @@
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>Graphite</string>
+		<string>Background</string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

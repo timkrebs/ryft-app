@@ -18,8 +18,8 @@ enum ProfileLayout {
     nonisolated static let groupGap: CGFloat = 18
     /// A group's title to its card (`GroupedListSpec.titleGap`).
     nonisolated static let titleToCard: CGFloat = 8
-    /// The card (`GroupedCard`): radius 22, rows at least 46 high.
-    nonisolated static let cardRadius: CGFloat = 22, rowMinHeight: CGFloat = 46
+    /// The card (`GroupedCard`): the card radius, 22 (`Theme.Metrics.neutralTileRadius`); rows at least 46 high.
+    nonisolated static let cardRadius = Theme.Metrics.neutralTileRadius, rowMinHeight: CGFloat = 46
     /// The last group to the buttons row, and the buttons row (or its message) to the Developer group (Debug builds).
     nonisolated static let buttonsTop: CGFloat = 18, buttonsToDeveloper: CGFloat = 18
     /// The buttons row: two pills 52 high (`PillButton.minHeight`), 12 apart; Log out is as wide as its title plus 22 a

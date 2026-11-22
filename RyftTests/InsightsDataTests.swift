@@ -131,7 +131,7 @@ struct InsightsDataTests {
         let six = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 66])
         let short = Self.make(.hrv, series: six, monthly: six)
         #expect(short.band == nil)
-        #expect(short.note == String(localized: "Usual range needs 7 days of data"))
+        #expect(short.note == String(localized: "Usual range needs 7\u{00A0}days of data"))
     }
 
     @Test("Spec 29: \"Usual range needs…\" only with the 30-day series loaded; without it, the metric's own note")
@@ -262,10 +262,10 @@ struct InsightsDataTests {
     func spoken() {
         let s = Self.series(.readiness, [60, 70, 60, 70, 60, 70, 60, 70, 78])
         let card = Self.make(.readiness, series: s, monthly: s)
-        #expect(card.chartLabel == String(localized: "\(String(localized: "Readiness")) over \(30) days"))
+        #expect(card.chartLabel == String(localized: "\(String(localized: "Readiness")) over \(30)\u{00A0}days"))
         #expect(card.chartEnding == TrendLine.spoken(.above))
         #expect(card.spokenValue.hasPrefix("78"))
-        #expect(card.spokenValue.contains(String(localized: "versus 7 days")))
+        #expect(card.spokenValue.contains(String(localized: "versus 7\u{00A0}days")))
         #expect(card.spokenValue.contains(String(localized: "Shaded: your usual range")))
         #expect(card.spokenValue.hasSuffix(TrendLine.spoken(.above)))
         // Without a band, the sentence ends at the value.
@@ -503,4 +503,60 @@ private final class ScriptedTrends: RyftDataSource, @unchecked Sendable {
     func insights() async throws -> [Insight] { try await MockDataSource.shared.insights() }
     func recompute(from: Date, to: Date) async throws {}
     func deleteMe() async throws -> AccountDeleted { try await MockDataSource.shared.deleteMe() }
+}
+
+/// PR 6's R4 re-checks, follow-up F1 item 4: the range Insights loaded is the side's. After a sign-out, another account or
+/// the Demo data switch (the account-state forgetters `ScreenModels` registers) the next side's cards with nothing cached
+/// show their outlines until its own load, not "Not loaded"; a load of the side that ended marks nothing. Synthetic data.
+@MainActor
+@Suite("F1 item 4: Insights' loaded range goes with the side", .serialized)
+struct InsightsSidesTests {
+    /// The app's models over `ScriptedTrends` (readiness has values), with the forgetters connected as in the app.
+    private static func screens() -> (ScreenModels, AppState, ScriptedTrends) {
+        let clock = TestClock()
+        let source = ScriptedTrends(today: clock.now(), values: [.readiness: [0: 70, 1: 72]])
+        let env = AppEnvironment.test(api: MockPlatformAPI(screens: source), clock: clock)
+        env.reads.budget = RequestBudget(clock: clock, maxInFlight: 64, maxStarts: .max)
+        let state = AppState(env: env)
+        return (sidesScreens(state, TrainSides([SideSwitch.alex: SideTrainSource(.demo)])), state, source)
+    }
+
+    /// Strain's read fails, so nothing is cached for it: "Not loaded" once the side's load ended. After the switch (the
+    /// test keeps the store; a real switch's wipe or the demo store leaves every card with nothing cached), the card shows
+    /// its outlines until the next side's own load.
+    @Test func theSwitchForgetsTheLoadedRange() async {
+        let (screens, state, source) = Self.screens()
+        source.failing = [.strain]
+        let vm = screens.insights
+        await vm.load()
+        #expect(vm.loadedRange == .month && !vm.trendsPending)
+        #expect(vm.card(.readiness).isLoaded, "the side's own, loaded")
+        let before = vm.card(.strain)
+        #expect(!before.isPending && before.note == String(localized: "Not loaded"), "nothing cached, the load over")
+        state.reset()
+        #expect(vm.loadedRange == nil && vm.trendsPending && !vm.isLoadingTrends)
+        let after = vm.card(.strain)
+        #expect(after.isPending && after.note == nil, "its outlines, not \(after.note ?? "nil")")
+        withExtendedLifetime(screens) {}
+    }
+
+    /// The side's load is out (its 30-day reads held) when the switch comes: when it ends, it marks no range for the next
+    /// side, nor ends a loading that isn't its own.
+    @Test(.timeLimit(.minutes(1)))
+    func aLoadOutAcrossTheSwitchMarksNothing() async throws {
+        let (screens, state, source) = Self.screens()
+        let vm = screens.insights
+        let hold = RequestHold()
+        source.holds = [.month: hold]
+        defer { hold.release() }
+        let load = Task { await vm.load() }
+        try #require(await eventually { hold.waiting > 0 }, "the 30-day reads are held")
+        state.reset()
+        #expect(vm.loadedRange == nil && !vm.isLoadingTrends)
+        hold.release()
+        await load.value
+        #expect(vm.loadedRange == nil, "the side that ended's load marks no range")
+        #expect(!vm.isLoadingTrends && vm.trendsPending)
+        withExtendedLifetime(screens) {}
+    }
 }

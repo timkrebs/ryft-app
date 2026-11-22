@@ -1,102 +1,60 @@
 import SwiftUI
 
-/// "Share usage analytics?" (analytics ui.md): once, over the tabs, after the onboarding. Two equal
-/// buttons; a swipe down is "Don't share". Any answer holds until sign-out; Profile → Privacy changes it.
+/// "Share usage analytics?" (analytics ui.md; Nocturne: the gate's D2, docs/work/2026-11-20-nocturne-gate/design.md §2.2): once,
+/// over the tabs, after the onboarding. The Consent step's sibling: an `OnboardingScreen` sheet (the title, the lead), one card of
+/// four titled `OnboardingPoint`s, the footnote, and two equal outline pills, no primary, no symbol, nothing teal. Pinned below the
+/// accessibility sizes, so both answers are always on screen; from AX1 they end the page (a bar of two wrapped pills would cover
+/// most of it). A swipe down is "Don't share". Any answer holds until sign-out; Profile → Privacy changes it.
 struct AnalyticsOptInSheet: View {
     /// `true`: share. The sheet's presenter records it (`Analytics.setOptIn`).
     let answer: (Bool) -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        AnalyticsPromptFrame(symbol: "chart.bar",
-                             title: "Share usage analytics?",
-                             text: "This is separate from your health-data consent. It stays off unless you say yes.") {
-            VStack(alignment: .leading, spacing: 14) {
-                ConsentPoint(symbol: "square.grid.2x2",
-                             text: "Which screens and features are used, onboarding progress, and errors shown, with their status codes.",
-                             symbolColor: Theme.textSecondary)
-                ConsentPoint(symbol: "heart.slash",
-                             text: "No health data, scores, sleep or workout details, names or free text.",
-                             symbolColor: Theme.textSecondary)
-                ConsentPoint(symbol: "number",
-                             text: "A random ID for this install. Never your account or email.",
-                             symbolColor: Theme.textSecondary)
-                ConsentPoint(symbol: "hand.raised",
-                             text: "Not used for tracking or ads. Sent to PostHog, in the EU.",
-                             symbolColor: Theme.textSecondary)
+        let inline = typeSize.isAccessibilitySize
+        // One page whatever the size, the answers placed by a conditional: a text-size change across AX1 moves them and
+        // keeps the page (and its scroll position). Two branches would be two views, and the page would start again.
+        page(answersInline: inline)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !inline { PinnedActionBar { answers } }
+            }
+    }
+
+    private func page(answersInline: Bool) -> some View {
+        OnboardingScreen(title: Text("Share usage analytics?"),
+                         lead: Text("This is separate from your health-data consent. It stays off unless you say yes."),
+                         showsLockup: false) {
+            GroupedCard {
+                OnboardingPoint(symbol: "square.grid.2x2", title: "What is counted",
+                                text: "Which screens and features are used, onboarding progress, and errors shown, with their status codes.")
+                OnboardingPoint(symbol: "heart.slash", title: "What is not",
+                                text: "No health data, scores, sleep or workout details, names or free text.")
+                OnboardingPoint(symbol: "number", title: "Your ID",
+                                text: "A random ID for this install. Never your account or email.")
+                OnboardingPoint(symbol: "hand.raised", title: "Where it goes",
+                                text: "Not used for tracking or ads. Sent to PostHog, in the EU.")
             }
             Text("Change this any time in Profile → Privacy.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            VStack(spacing: 10) {
-                PrimaryButton(title: "Share usage analytics", style: .secondary) { answer(true) }
-                    .accessibilityIdentifier("analytics.share")
-                PrimaryButton(title: "Don't share", style: .secondary) { answer(false) }
-                    .accessibilityIdentifier("analytics.decline")
+                .padding(.top, OnboardingSpec.actionGap)
+            if answersInline {
+                answers
+                    .padding(.top, OnboardingSpec.primaryGap)
             }
         }
     }
-}
 
-/// The prompt's page as it was drawn before PR 6 A restyled `OnboardingScreen` (the accent symbol, the title, the text,
-/// then the content, 20 pt apart). The prompt keeps that look until the gate PR gives it its Nocturne one.
-private struct AnalyticsPromptFrame<Content: View>: View {
-    let symbol: String
-    let title: LocalizedStringKey
-    let text: LocalizedStringKey
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: symbol)
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.top, 36)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.ryft(.title))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Text(text)
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                content()
-            }
-            .padding(.horizontal, Theme.Metrics.screenPadding + 4)
-            .padding(.bottom, 24)
-            .frame(maxWidth: 480, alignment: .leading)
-            .frame(maxWidth: .infinity)
+    /// Share, then Don't share: the same outline pill, the same size, `PinnedBarSpec.spacing` apart. A consent is not a funnel.
+    private var answers: some View {
+        VStack(spacing: PinnedBarSpec.spacing) {
+            PillButton(Text("Share usage analytics"), style: .secondary) { answer(true) }
+                .accessibilityIdentifier("analytics.share")
+            PillButton(Text("Don't share"), style: .secondary) { answer(false) }
+                .accessibilityIdentifier("analytics.decline")
         }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Theme.background.ignoresSafeArea())
-    }
-}
-
-/// One point of the prompt's summary: a symbol, an optional headline, the text. The consent step's points are
-/// `OnboardingPoint` since PR 6 A; this one stays as the prompt had it until the gate PR.
-struct ConsentPoint: View {
-    let symbol: String
-    var title: LocalizedStringKey?
-    let text: LocalizedStringKey
-    /// The symbol's colour (the prompt passes `Theme.textSecondary`: the accent is for its own symbol only).
-    var symbolColor: Color = Theme.accent
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(symbolColor)
-                .frame(width: 28)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                if let title { Text(title).font(.ryft(.headline)).foregroundStyle(Theme.textPrimary) }
-                Text(text).font(.ryft(.callout)).foregroundStyle(title == nil ? Theme.textPrimary : Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -139,19 +97,22 @@ private struct AnalyticsOptInPrompt: ViewModifier {
     }
 }
 
-#Preview("Analytics prompt · dark") {
-    AnalyticsOptInSheet { _ in }
-        .preferredColorScheme(.dark)
+/// The prompt as it is shown: a sheet over the tabs.
+private struct AnalyticsPromptPreview: View {
+    var typeSize: DynamicTypeSize = .large
+
+    var body: some View {
+        Theme.background
+            .ignoresSafeArea()
+            .sheet(isPresented: .constant(true)) {
+                AnalyticsOptInSheet { _ in }
+                    .dynamicTypeSize(typeSize)
+                    .presentedRoot()
+            }
+            .preferredColorScheme(.dark)
+    }
 }
 
-#Preview("Analytics prompt · AX5") {
-    AnalyticsOptInSheet { _ in }
-        .dynamicTypeSize(.accessibility5)
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Analytics prompt · AX3") {
-    AnalyticsOptInSheet { _ in }
-        .dynamicTypeSize(.accessibility3)
-        .preferredColorScheme(.dark)
-}
+#Preview("Analytics prompt") { AnalyticsPromptPreview() }
+#Preview("Analytics prompt · AX3") { AnalyticsPromptPreview(typeSize: .accessibility3) }
+#Preview("Analytics prompt · AX5") { AnalyticsPromptPreview(typeSize: .accessibility5) }

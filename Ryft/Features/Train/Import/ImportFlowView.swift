@@ -75,11 +75,13 @@ enum ImportLayout {
     static let leadCircle: CGFloat = 44, leadGap: CGFloat = 12, leadSize: CGFloat = 20
 }
 
-/// A step's frame (ui.md §2, §10; PR 6 C §4.14): the subpage's header without a bar (the step's title at 26 Light; Back on
-/// steps 2 to 5; a Close circle on every step but the Back-only ones), the step rule 20 below it, the content 20 below the
-/// rule (560 pt at most, centred), and the pinned bar: one primary pill, a caption above it that says why it's off, a
-/// footnote under it. Close on steps 1 to 5 is `cancel()` (which asks first from step 2, N1); on step 6 it is `close()`.
-/// Steps 2 to 5 keep the back swipe; step 6 has no way back (the import has started).
+/// A step's frame (ui.md §2, §10; PR 6 C §4.14; Nocturne gate D4 rule 6): a header without a bar, the step rule 20 below it,
+/// the content 20 below the rule (560 pt at most, centred), and the pinned bar: one primary pill, a caption above it that
+/// says why it's off, a footnote under it. The header: on steps 2 to 5 `PushedHeader`'s row (Back leading, the step's
+/// title centred, Close trailing), scrolling with the step; on step 1, the cover's root, and step 6, which has no way back,
+/// the sheet header (Close leading, the title centred), pinned above the scroll. Close on steps 1 to 5 is `cancel()` (which
+/// asks first from step 2, N1); on step 6 it is `close()`. Steps 2 to 5 keep the back swipe; step 6 has no way back (the
+/// import has started).
 struct ImportStepScaffold<Content: View, Bottom: View>: View {
     let model: ImportFlowModel
     let step: ImportFlowModel.Step
@@ -89,46 +91,74 @@ struct ImportStepScaffold<Content: View, Bottom: View>: View {
     @ViewBuilder var bottom: () -> Bottom
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                SubpageHeader(Text(verbatim: step.title), navigation: navigation) { closeButton }
-                StepRule(step: step.rawValue, count: ImportFlowModel.stepCount)
-                    .padding(.top, ImportLayout.ruleGap)
-                VStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
-                    content()
+        page
+            .background(Theme.background.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            // Step 6 has no way back: the subpages' keeper refuses a back swipe on a page that hides its Back button.
+            .navigationBarBackButtonHidden(step == .result)
+            .modifier(ImportBackSwipe(allowed: step != .result))
+            .modifier(ImportPinnedBar(shows: showsBar, bar: bottom))
+    }
+
+    /// Steps 1 and 6 are sheet roots (D4): the header stays put while the step scrolls under it, as `SubpageScaffold`'s, so
+    /// Close is always in reach. Steps 2 to 5 are pushed pages: their row scrolls with the step, as every pushed page's.
+    @ViewBuilder private var page: some View {
+        switch step {
+        case .pick, .result:
+            VStack(spacing: 0) {
+                column {
+                    SheetHeader(Text(verbatim: step.title), onClose: close)
+                        .closeIdentifier(closeIdentifier)
                 }
-                .padding(.top, ImportLayout.contentGap)
+                scroll { EmptyView() }
+                    .underPinnedHeader()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxWidth: SubpageSpec.maxContentWidth)
-            .padding(.horizontal, SubpageSpec.sidePadding)
+        case .detected, .choose, .map, .preview:
+            scroll {
+                PushedHeader(Text(verbatim: step.title), identifierPrefix: SubpageSpec.identifierPrefix) {
+                    CircleButton(systemImage: "xmark", accessibilityLabel: CircleButton.closeLabel, action: close)
+                        .accessibilityIdentifier(closeIdentifier)
+                }
+            }
+        }
+    }
+
+    /// The step rule and the content under `header` (a pushed page's, which scrolls with them), in the page's column.
+    private func scroll<Header: View>(@ViewBuilder header: () -> Header) -> some View {
+        ScrollView {
+            column {
+                VStack(alignment: .leading, spacing: 0) {
+                    header()
+                    StepRule(step: step.rawValue, count: ImportFlowModel.stepCount)
+                        .padding(.top, ImportLayout.ruleGap)
+                    VStack(alignment: .leading, spacing: ImportLayout.blockSpacing) {
+                        content()
+                    }
+                    .padding(.top, ImportLayout.contentGap)
+                }
+            }
             .padding(.bottom, SubpageSpec.bottomPadding)
-            .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        // Step 6 has no way back: the subpages' keeper refuses a back swipe on a page that hides its Back button.
-        .navigationBarBackButtonHidden(step == .result)
-        .modifier(ImportBackSwipe(allowed: step != .result))
-        .modifier(ImportPinnedBar(shows: showsBar, bar: bottom))
     }
 
-    private var navigation: SubpageNavigation {
-        switch step {
-        case .pick, .result: .none
-        case .detected, .choose, .map, .preview: .back()
-        }
+    /// The subpage's column: 560 at most, centred, 20 from the sides.
+    private func column<Inner: View>(@ViewBuilder _ inner: () -> Inner) -> some View {
+        inner()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: SubpageSpec.maxContentWidth)
+            .padding(.horizontal, SubpageSpec.sidePadding)
+            .frame(maxWidth: .infinity)
     }
 
-    private var closeButton: some View {
-        CircleButton(systemImage: "xmark", accessibilityLabel: Text("Close")) {
-            // Step 6: the import continues; a finished result without refused items counts as seen.
-            if step == .result { model.close() } else { model.cancel() }
-        }
-        .accessibilityIdentifier(step == .result ? "import.close" : "import.cancel")
+    /// Step 6: the import continues; a finished result without refused items counts as seen. Before it: cancel, which asks
+    /// first from step 2.
+    private func close() {
+        if step == .result { model.close() } else { model.cancel() }
     }
+
+    private var closeIdentifier: String { step == .result ? "import.close" : "import.cancel" }
 }
 
 /// The pinned bar, or none.
@@ -192,7 +222,7 @@ private struct ImportBackSwipe: ViewModifier {
 
 /// A step's primary action: the pinned pill (`PillButton`, `.primary`), full width, growing with Dynamic Type. Off, it dims
 /// (the caption above says why); busy, a spinner takes the glyph's place.
-struct ImportPrimaryButton: View {
+struct ImportStepButton: View {
     let title: String
     var identifier = "import.continue"
     var isEnabled = true

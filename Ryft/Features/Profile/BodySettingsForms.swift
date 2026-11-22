@@ -115,7 +115,7 @@ extension BodySetting {
     func text(_ value: Int) -> String {
         switch self {
         case .sleepBase: return Fmt.clock(minutes: value)
-        case .maxHR: return String(localized: "\(value) bpm")
+        case .maxHR: return String(localized: "\(value)\u{00A0}bpm")
         }
     }
 
@@ -138,8 +138,8 @@ extension BodySetting {
                     String(localized: "12\u{00A0}h", comment: "Baseline sleep need editor: the ruler's end, twelve hours.")]
         case .maxHR:
             let r = BodySettingsEditor.maxHRRange
-            return [String(localized: "\(r.lowerBound) bpm"), "\((r.lowerBound + r.upperBound) / 2)",
-                    String(localized: "\(r.upperBound) bpm")]
+            return [String(localized: "\(r.lowerBound)\u{00A0}bpm"), "\((r.lowerBound + r.upperBound) / 2)",
+                    String(localized: "\(r.upperBound)\u{00A0}bpm")]
         }
     }
 
@@ -434,7 +434,7 @@ private struct BodySettingPage: View {
             VStack(alignment: .leading, spacing: BodySettingsLayout.noticeGap) {
                 GroupedCard {
                     // Busy keeps the title: the row's spinner and VoiceOver's "In progress" say it runs.
-                    GroupedRow.action(Text("Rescore the last 90 days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
+                    GroupedRow.action(Text("Rescore the last 90\u{00A0}days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
                                       identifier: "bodySettings.rescore") {
                         Task { await editor.rescore() }
                     }

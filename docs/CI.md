@@ -67,7 +67,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   | Plan | Runs | Settings |
   | --- | --- | --- |
   | `Unit` | PRs, `main` | `RyftTests` without `PerformanceTests`; parallel, random order, 60 s per test, coverage of the `Ryft` target only |
-  | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them `JumpToNextUITests` and four of `FocusedSessionUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 25 minutes. Green runs took 11–13 minutes in mid-November 2026, and one timed out at 15 with every test so far passing, because the runner is the Mac the agents build on. Still, a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
+  | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them `JumpToNextUITests`, four of `FocusedSessionUITests` and the two of `NocturneGateKeyboardUITests` that keep Report a problem's bar above a real keyboard, about 40 s, which no hosted test can show (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 25 minutes. Green runs took 11–13 minutes in mid-November 2026, and one timed out at 15 with every test so far passing, because the runner is the Mac the agents build on. Still, a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
   | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
 
   - Swift Testing parallelism is capped at 4 tests in flight (`Unit` and `Full`,

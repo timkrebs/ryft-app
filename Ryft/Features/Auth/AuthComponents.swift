@@ -51,9 +51,9 @@ enum AuthField: Hashable {
     case name, email, password
 }
 
-/// The frame of a signed-out form: the subpage header ("Back" circle, the 26 Light title, the back swipe kept), the lead in
-/// 16 pt `textSecondary` 12 below it, then the form 24 below that, 20 from the sides, scrolling, the keyboard dismissed
-/// by a drag. A sheet (Set new password) passes `.close(…)` and `isSheet`.
+/// The frame of a signed-out form: the subpage header (the pushed pages' row: "Back" circle, the title centred, the back
+/// swipe kept), the lead in 16 pt `textSecondary` 12 below it, then the form 24 below that, 20 from the sides, scrolling,
+/// the keyboard dismissed by a drag. A sheet (Set new password) passes `.close(…)` and `isSheet`: the sheet header, pinned.
 struct AuthScreen<Content: View>: View {
     private let title: Text
     private let lead: Text?

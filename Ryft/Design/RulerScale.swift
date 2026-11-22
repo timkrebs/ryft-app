@@ -58,8 +58,8 @@ struct RulerScale: View {
 
     /// Volt: the needle is one of the signal's five marks (brief §1).
     static let needleColor = Theme.signal
-    /// The smallest gap between two labels before they no longer fit on one line: at large sizes the row then falls
-    /// back to lines of labels joined by " · " before the labels run together (`RulerLabels`).
+    /// The smallest gap between two labels before they no longer fit on one line: the row then falls back before the
+    /// labels run together (`RulerLabels`: below AX1 to lines of labels joined by " · ", from AX1 to fewer labels).
     static let labelMinGap: CGFloat = 16
     /// What stays clear under the labels when they grow past the caller's gap (AX sizes): the next block is at
     /// `max(box + gap, labels' bottom + 8)`.
@@ -142,7 +142,7 @@ struct RulerScale: View {
     }
 
     /// The labels on one line, first leading and last trailing; when they do not fit (large text), lines of whole
-    /// labels (`RulerLabels`).
+    /// labels below AX1 and fewer labels from AX1 (`RulerLabels`).
     private var labelRow: some View {
         RulerLabels(labels: labels)
             .font(.ryft(.axis))
@@ -232,6 +232,17 @@ struct RulerScale: View {
         return (1...count).flatMap { lines(from: 0, into: $0) }
     }
 
+    /// From AX1, the label sets `RulerLabels` tries on one line, in order (Nocturne gate D9 row 4): all of them; the two
+    /// ends; the first alone. By priority, the ends first; the interior labels come only all together, so a ruler never
+    /// shows one band word without its neighbours ("0 · moderate · 100" would read as if low and high were not there).
+    nonisolated static func accessibilityLabelSets(_ labels: [String]) -> [[String]] {
+        guard let first = labels.first, let last = labels.last else { return [] }
+        var sets = [labels]
+        if labels.count > 2 { sets.append([first, last]) }
+        if labels.count > 1 { sets.append([first]) }
+        return sets
+    }
+
     /// The needle's place as a fraction of the width, clamped to 0…1.
     nonisolated static func needleFraction(value: Double?, range: ClosedRange<Double>) -> Double? {
         let lo = range.lowerBound, hi = range.upperBound
@@ -240,11 +251,19 @@ struct RulerScale: View {
     }
 }
 
-/// A ruler's labels (D): on one line, first leading and last trailing, at least `RulerScale.labelMinGap` apart; when
-/// they don't fit (large text), the fewest lines of whole labels with " · " between them, the earlier lines the fuller
-/// (`RulerScale.labelLines`), so no line starts or ends with a separator ("0 · low · moderate", "high · 100", never
-/// "· high · 100"); when a label doesn't fit on a line of its own either, one label per line, wrapping. The caller sets
-/// the font and ink.
+/// A ruler's labels (D): on one line, first leading and last trailing, at least `RulerScale.labelMinGap` apart. When
+/// they don't fit:
+/// - Below AX1, the fewest lines of whole labels with " · " between them, the earlier lines the fuller
+///   (`RulerScale.labelLines`), so no line starts or ends with a separator ("0 · low · moderate", "high · 100", never
+///   "· high · 100"); when a label doesn't fit on a line of its own either, one label per line, wrapping.
+/// - From AX1 (Nocturne gate D9 row 4), by priority: the two end labels, each under its end tick (first leading, last
+///   trailing), and the interior labels only while all of them keep the 16 pt gap on the one line
+///   (`RulerScale.accessibilityLabelSets`). A label that doesn't fit is dropped, never joined with "·" and never set
+///   flush left away from its tick: at AX3 Today's "0 · low · moderate · high · 100" reads "0 … 100". Nothing is lost:
+///   the band word is in the numeral's caption and in the ruler's VoiceOver value (the ruler is one element and ignores
+///   its labels). When not even the first label fits, none shows.
+///
+/// The caller sets the font and ink.
 ///
 /// Limits (N4): the candidates are every way to cut the labels into runs, 2^(n − 1) of them, which `ViewThatFits`
 /// measures in turn: fine for the rulers' 2 to 5 labels (16 at most), not for long lists, so it asserts 6 or fewer.
@@ -253,6 +272,8 @@ struct RulerScale: View {
 struct RulerLabels: View {
     let labels: [String]
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     init(labels: [String]) {
         // 2^(n − 1) candidates, each measured by `ViewThatFits`: 6 labels is 32; more would make every layout pass slow.
         assert(labels.count <= 6, "RulerLabels tries every cut of the labels into lines: keep a ruler to 6 or fewer")
@@ -260,13 +281,33 @@ struct RulerLabels: View {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) {
-                ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
-                    if index > 0 { Spacer(minLength: RulerScale.labelMinGap) }
-                    Text(verbatim: label).lineLimit(1).fixedSize()
+        if typeSize.isAccessibilitySize {
+            ViewThatFits(in: .horizontal) {
+                ForEach(Array(RulerScale.accessibilityLabelSets(labels).enumerated()), id: \.offset) { _, set in
+                    Self.line(set)
                 }
+                // Always fits: the ruler keeps its box, and VoiceOver its value.
+                Color.clear.frame(width: 0, height: 0)
             }
+        } else {
+            standardLayout
+        }
+    }
+
+    /// The labels on one line, spread edge to edge, at least `RulerScale.labelMinGap` apart.
+    private static func line(_ labels: [String]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                if index > 0 { Spacer(minLength: RulerScale.labelMinGap) }
+                Text(verbatim: label).lineLimit(1).fixedSize()
+            }
+        }
+    }
+
+    /// Below AX1: one line, else lines of whole labels joined by " · ", else one label per line.
+    private var standardLayout: some View {
+        ViewThatFits(in: .horizontal) {
+            Self.line(labels)
             ForEach(Array(RulerScale.labelLines(count: labels.count).enumerated()), id: \.offset) { _, lines in
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(lines, id: \.lowerBound) { line in
@@ -361,9 +402,9 @@ private struct RulerNeedle: Shape {
                        accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("84, high, on a scale from 0 to 100"))
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
-                       tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
+                       tickCount: RulerScale.Ticks.sleep, labels: ["0\u{00A0}h", "need 8:18", "10\u{00A0}h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
             RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
@@ -389,7 +430,10 @@ private struct RulerNeedle: Shape {
     }
 }
 
-#Preview("RulerScale · AX3", traits: .sizeThatFitsLayout) {
+/// The three screens' rulers at an accessibility size: from AX1 the labels that don't fit on one line are dropped, ends last
+/// (at AX3 Today's reads "0 … 100", Sleep's and Strain's keep all three; at AX5 every ruler shows its ends).
+@MainActor
+private func rulersAtSize(_ size: DynamicTypeSize) -> some View {
     DarkPreview {
         VStack(alignment: .leading, spacing: 24) {
             RulerScale(range: 0...100, value: 84, zone: 67...100, tickCount: RulerScale.Ticks.today,
@@ -399,8 +443,16 @@ private struct RulerNeedle: Shape {
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
+            RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
+                       tickCount: RulerScale.Ticks.strain, labels: StrainHero.rulerLabels,
+                       accessibilityLabel: Text("Strain scale"),
+                       accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
         }
     }
-    .environment(\.dynamicTypeSize, .accessibility3)
+    .environment(\.dynamicTypeSize, size)
 }
+
+#Preview("RulerScale · AX3", traits: .sizeThatFitsLayout) { rulersAtSize(.accessibility3) }
+
+#Preview("RulerScale · AX5", traits: .sizeThatFitsLayout) { rulersAtSize(.accessibility5) }

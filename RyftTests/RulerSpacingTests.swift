@@ -105,8 +105,9 @@ struct RulerSpacingTests {
     }
 }
 
-/// D: at large text the labels go on lines of whole labels ("0 · low · moderate", "high · 100"), never a joined line
-/// wrapped between a label and its separator ("· high · 100").
+/// D: at large text below AX1 the labels go on lines of whole labels ("0 · low · moderate", "high · 100"), never a joined
+/// line wrapped between a label and its separator ("· high · 100"). From AX1 labels are dropped instead (gate D9 row 4,
+/// `NocturneGateAXHostedTests`): here only that what shows is whole labels, in order.
 @MainActor
 @Suite(.serialized) struct RulerLabelLinesTests {
     @Test func theLinesAreTriedFewestFirstTheEarlierLinesFuller() {
@@ -129,7 +130,7 @@ struct RulerSpacingTests {
     }
 
     /// The board's label sets: Today's readiness, Sleep's need, Strain's target.
-    static let labelSets = [["0", "low", "moderate", "high", "100"], ["0 h", "need 8:18", "10 h"], ["0", "target 10–14", "21"]]
+    static let labelSets = [["0", "low", "moderate", "high", "100"], ["0\u{00A0}h", "need 8:18", "10\u{00A0}h"], ["0", "target 10–14", "21"]]
 
     /// One line of the labels' font at `typeSize`.
     private func lineHeight(_ typeSize: DynamicTypeSize) -> CGFloat {
@@ -160,7 +161,12 @@ struct RulerSpacingTests {
                 let box = try #require(frames.byName["row"])
                 let nodes = w.nodes().sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
                 let where_ = "\(labels) at \(width), \(c.typeSize): \(nodes.map { "'\($0.label)' \($0.frame)" })"
-                #expect(nodes.map(\.label).joined(separator: " · ") == labels.joined(separator: " · "), "all, in order: \(where_)")
+                if c.typeSize.isAccessibilitySize {
+                    let shown = nodes.map(\.label)
+                    #expect(RulerScale.accessibilityLabelSets(labels).contains(shown), "all, or the ends, in order: \(where_)")
+                } else {
+                    #expect(nodes.map(\.label).joined(separator: " · ") == labels.joined(separator: " · "), "all, in order: \(where_)")
+                }
                 for node in nodes {
                     let text = node.label.trimmingCharacters(in: .whitespaces)
                     #expect(!text.hasPrefix("·") && !text.hasSuffix("·"), "'\(node.label)' starts or ends with a separator: \(where_)")

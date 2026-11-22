@@ -344,9 +344,9 @@ struct SetRow: View {
         let reps = Self.spokenReps(set.reps, ghost: ghost.reps, stored: storedValue), kg = set.weightKg ?? ghost.kg
         var values: String?
         switch (reps, kg) {
-        case let (r?, k?): values = String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms")
-        case let (r?, nil): values = String(localized: "\(r) reps")
-        case let (nil, k?): values = String(localized: "\(Fmt.kgNumber(k)) kilograms")
+        case let (r?, k?): values = String(localized: "\(r)\u{00A0}reps at \(Fmt.kgNumber(k))\u{00A0}kilograms")
+        case let (r?, nil): values = String(localized: "\(r)\u{00A0}reps")
+        case let (nil, k?): values = String(localized: "\(Fmt.kgNumber(k))\u{00A0}kilograms")
         default: break
         }
         // Focused's ghost looks real, so it says what it is.

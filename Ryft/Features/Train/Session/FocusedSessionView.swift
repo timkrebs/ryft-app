@@ -138,13 +138,10 @@ struct FocusedSessionView: View {
         }
     }
 
+    /// List's line (`SessionOfflineLine`), on the table's sides.
     private var offlineBanner: some View {
-        Label("Offline — every set is saved on this phone and syncs later.", systemImage: "wifi.slash")
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+        SessionOfflineLine()
             .padding(.horizontal, columns.padding)
-            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
     }
 
     private var pager: some View {

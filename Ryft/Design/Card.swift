@@ -4,9 +4,6 @@ import UIKit
 /// The card's numbers (Nocturne, docs/work/2026-11-16-nocturne/build-plan.md §2): the grouped card's radius, 22, and 16
 /// inside, so a `Card` and a `GroupedCard` on one page have the same corners and the same text inset.
 enum CardSpec {
-    // TODO(T6.0, lead): set `Theme.Metrics.cardRadius` to 22 and `cardPadding` to 16 and point these at them; the screens
-    // that read the two tokens directly (InsightCard, CoachMarks, Today's tiles, the exercise pages, Add activity) still
-    // draw 18 / 18 until then.
     static let radius = Theme.Metrics.neutralTileRadius
     static let padding: CGFloat = 16
 }
@@ -282,7 +279,7 @@ struct CapabilityRow: View {
     DarkPreview {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
+                CardHeader(title: "Trends", trailing: "7\u{00A0}days", showsChevron: true)
                 StatRow(title: "Bedtime", value: "22:50")
                 StatRow(title: "Sleep debt", value: "25m", detail: "Need 8h 06m", valueColor: Theme.warning)
             }

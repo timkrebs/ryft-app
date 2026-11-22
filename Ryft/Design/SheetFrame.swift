@@ -79,6 +79,7 @@ struct SheetFrame<Trailing: View, Pinned: View, Content: View>: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
+            .underPinnedHeader(gap: min(PinnedBarSpec.topPadding, insets.top))
         }
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)

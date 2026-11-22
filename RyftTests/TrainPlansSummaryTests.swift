@@ -19,8 +19,8 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func theBannerSaysWhatIsRunning() {
-        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23\u{00A0}min · 6 sets done")
-        #expect(WorkoutInProgressBanner.spoken(title: "Upper A", minutes: 23, sets: 6) == "Upper A, 23 minutes, 6 sets done")
+        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23\u{00A0}min · 6\u{00A0}sets done")
+        #expect(WorkoutInProgressBanner.spoken(title: "Upper A", minutes: 23, sets: 6) == "Upper A, 23 minutes, 6\u{00A0}sets done")
         let start = Date(timeIntervalSince1970: 1_000_000)
         #expect(WorkoutInProgressBanner.minutes(since: start, now: start.addingTimeInterval(23 * 60 + 59)) == 23)
         #expect(WorkoutInProgressBanner.minutes(since: start, now: start.addingTimeInterval(-120)) == 0, "a clock moved back")
@@ -157,12 +157,12 @@ struct TrainPlansSummaryTests {
         let summary = PlanSummary(MockTrain.upperLower)
         let active = PlanRowContent(summary, status: .active)
         #expect(active.row.filledDisc && active.row.systemImage == "checkmark" && !active.row.showsValue)
-        #expect(active.row.spoken.hasPrefix("Upper/Lower 4×, Active, Hypertrophy, 4 days a week"), "\(active.row.spoken)")
+        #expect(active.row.spoken.hasPrefix("Upper/Lower 4×, Active, Hypertrophy, 4\u{00A0}days a week"), "\(active.row.spoken)")
         let paused = PlanRowContent(summary, status: .paused)
         #expect(!paused.row.filledDisc && paused.row.spoken.contains("Paused"))
         let other = PlanRowContent(PlanSummary(MockTrain.fullBody), status: nil)
         #expect(!other.row.filledDisc && other.row.systemImage == "list.bullet.rectangle")
-        #expect(other.row.spoken == "Full Body 3×, Strength, 3 days a week, 12 weeks")
+        #expect(other.row.spoken == "Full Body 3×, Strength, 3\u{00A0}days a week, 12\u{00A0}weeks")
         #expect(other.row.meta == MockTrain.fullBody.summaryText)
     }
 
@@ -184,29 +184,37 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func theViewModelBuildsTheTileFromTheLibrary() {
-        TrainShotFixtures.withPausedPlan(nil) {
-            let active = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog()))
-            #expect(active.tile?.state == .active)
-            #expect(active.tile?.nextText == "Next: Upper A" && active.tile?.weekText == "Week 6")
-            #expect(active.builtinRows.first { $0.id == MockTrain.upperLower.id }?.row.filledDisc == true)
-            #expect(active.hasCatalog && !active.isLoading && !active.isOffline)
+        let active = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog()))
+        #expect(active.tile?.state == .active)
+        #expect(active.tile?.nextText == "Next: Upper A" && active.tile?.weekText == "Week 6")
+        #expect(active.builtinRows.first { $0.id == MockTrain.upperLower.id }?.row.filledDisc == true)
+        #expect(active.hasCatalog && !active.isLoading && !active.isOffline)
 
-            let none = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false, mine: false)))
-            #expect(none.tile == nil && none.mineRows.isEmpty)
-        }
+        let none = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false, mine: false)))
+        #expect(none.tile == nil && none.mineRows.isEmpty)
     }
 
     /// The real paused path: no enrolment in the catalog, the plan remembered on this iPhone. "Paused", the name, "Resume
     /// continues where you stopped." and nothing else.
     @Test func thePausedPlanAsThePlatformReportsIt() {
-        TrainShotFixtures.withPausedPlan(MockTrain.upperLower.id) {
-            let model = PlansViewModel(library: TrainShotFixtures.library(MockTrain.catalog(enrolled: false)))
-            let tile = model.tile
-            #expect(tile?.state == .paused && tile?.name == MockTrain.upperLower.name)
-            #expect(tile?.weekText == nil && tile?.nextText == "Resume continues where you stopped.")
-            let row = model.builtinRows.first { $0.id == MockTrain.upperLower.id }
-            #expect(row?.row.filledDisc == false && row?.row.spoken.contains("Paused") == true)
-        }
+        let library = TrainShotFixtures.library(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)
+        let model = PlansViewModel(library: library)
+        let tile = model.tile
+        #expect(tile?.state == .paused && tile?.name == MockTrain.upperLower.name)
+        #expect(tile?.weekText == nil && tile?.nextText == "Resume continues where you stopped.")
+        let row = model.builtinRows.first { $0.id == MockTrain.upperLower.id }
+        #expect(row?.row.filledDisc == false && row?.row.spoken.contains("Paused") == true)
+    }
+
+    /// Each test's library remembers its own paused plan (F1 round 2): one test's paused plan isn't another's, whichever
+    /// runs alongside it, so none of them saves and restores `UserDefaults.standard`.
+    @Test func aPausedPlanIsTheLibrarysOwn() {
+        let paused = TrainShotFixtures.library(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)
+        let other = TrainShotFixtures.library(MockTrain.catalog(enrolled: false))
+        #expect(paused.pausedPlanID == MockTrain.upperLower.id)
+        #expect(other.pausedPlanID == nil && PlansViewModel(library: other).tile == nil, "no Resume of another test's plan")
+        let built = TrainLibrary.testing(store: TrainStore(inMemory: true), remote: { MockTrainSource.shared }, restore: false)
+        #expect(built.pausedPlanID == nil)
     }
 
     /// Nothing cached: outlines only while a load runs (or before the first); offline (the reads send nothing) a line, not
@@ -228,7 +236,11 @@ struct TrainPlansSummaryTests {
         let model = PlanDetailViewModel(planID: MockTrain.fullBody.id, library: library)
         #expect(model.failure == nil, "loading: the outlines")
         await model.load()
-        #expect(model.plan == nil && model.failure != nil && model.failure == library.error)
+        let offline = URLError(.notConnectedToInternet)
+        #expect(model.plan == nil && model.failure == offline.localizedDescription, "\(model.failure ?? "nil")")
+        #expect(model.failureDetails == offline.diagnosticDetails)
+        // The page's own failure (F1 item 1): not the Plans page's message.
+        #expect(library.error == nil && library.errorDetails == nil)
     }
 
     @Test func anExercisesNotesAreRead() throws {
@@ -242,12 +254,12 @@ struct TrainPlansSummaryTests {
     @Test func aPlansSpokenLines() throws {
         let squat = try #require(MockTrain.fullBody.days.first?.exercises.first)
         let spoken = PlanSpeech.exercise(squat, locale: english)
-        #expect(spoken.hasPrefix("\(squat.exercise.name), \(squat.sets) sets of "), "\(spoken)")
+        #expect(spoken.hasPrefix("\(squat.exercise.name), \(squat.sets)\u{00A0}sets of "), "\(spoken)")
         #expect(spoken.contains("rest "), "\(spoken)")
         #expect(PlanSpeech.restDuration(180, locale: english) == "3 minutes")
         #expect(PlanSpeech.restDuration(90, locale: english).contains("30 seconds"))
         #expect(PlanSpeech.day("Day A", minutes: 55) == "Day A, about 55 minutes")
-        #expect(PlanSpeech.summary(goal: .strength, daysPerWeek: 3, weeks: 12) == "Strength, 3 days a week, 12 weeks")
+        #expect(PlanSpeech.summary(goal: .strength, daysPerWeek: 3, weeks: 12) == "Strength, 3\u{00A0}days a week, 12\u{00A0}weeks")
         var kg = squat
         kg.targetKind = .kg
         kg.targetValue = 100
@@ -322,7 +334,7 @@ struct TrainPlansSummaryHostedTests {
             try await w.settle()
             let banner = try #require(w.nodes().first { $0.identifier == "train.resume" })
             #expect(banner.label == "Workout in progress")
-            #expect(banner.value == "Upper A, 23 minutes, 6 sets done" || banner.value == "Upper A, 24 minutes, 6 sets done",
+            #expect(banner.value == "Upper A, 23 minutes, 6\u{00A0}sets done" || banner.value == "Upper A, 24 minutes, 6\u{00A0}sets done",
                     "\(banner.value ?? "")")
             #expect(banner.hint == "Opens the workout")
             #expect(banner.traits.contains(.button))
@@ -395,10 +407,8 @@ struct TrainPlansSummaryHostedTests {
     }
 
     @Test func aPausedPlanIsAnOutlineWithResume() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(MockTrain.upperLower.id)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
-                                   TrainShotFixtures.plans(MockTrain.catalog(enrolled: false))) { w in
+                                   TrainShotFixtures.plans(MockTrain.catalog(enrolled: false), paused: MockTrain.upperLower.id)) { w in
             try await w.settle()
             let found = ids(w)
             #expect(found.contains("plans.resume") && !found.contains("plans.pause"), "\(found.sorted())")
@@ -414,8 +424,6 @@ struct TrainPlansSummaryHostedTests {
     }
 
     @Test func theActivePlanGlows() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
                                    TrainShotFixtures.plans(MockTrain.catalog())) { w in
             try await w.settle()
@@ -426,13 +434,11 @@ struct TrainPlansSummaryHostedTests {
             #expect(tile.label == "Upper/Lower 4×, Active, Week 6, Next: Upper A")
             let pixel = try #require(w.pixel(at: CGPoint(x: tile.frame.minX - 8, y: tile.frame.midY)))
             #expect(pixel.b - pixel.r > 0.08, "strain blue at the tile's edge: \(pixel)")
-            #expect(w.node("Full Body 3×, Strength, 3 days a week, 12 weeks", exactly: true) != nil)
+            #expect(w.node("Full Body 3×, Strength, 3\u{00A0}days a week, 12\u{00A0}weeks", exactly: true) != nil)
         }
     }
 
     @Test func withoutPlansOfYourOwnTheSentenceShows() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0,
                                    TrainShotFixtures.plans(MockTrain.catalog(enrolled: false, mine: false))) { w in
             try await w.settle()
@@ -444,8 +450,6 @@ struct TrainPlansSummaryHostedTests {
 
     /// Offline with nothing cached: the calm line with Try again, no outlines, and no sentence about plans of your own.
     @Test func offlineWithoutPlansSaysSo() async throws {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { TrainShotFixtures.setPausedPlan(previous) }
         try await HostedWindow.run(width: Self.width, height: 900, bottomInset: 0, TrainShotFixtures.offlinePlans()) { w in
             try await w.wait("the offline line") { w.node("Plans appear once you're online.", exactly: true) != nil }
             let found = ids(w)
@@ -471,7 +475,7 @@ struct TrainPlansSummaryHostedTests {
             try await w.settle()
             let header = try #require(w.nodes().first { $0.identifier == "plan.header" })
             #expect(header.label == MockTrain.fullBody.name)
-            #expect(header.value == "Strength, 3 days a week, 12 weeks", "\(header.value ?? "")")
+            #expect(header.value == "Strength, 3\u{00A0}days a week, 12\u{00A0}weeks", "\(header.value ?? "")")
             let squat = try #require(MockTrain.fullBody.days.first?.exercises.first)
             #expect(w.node(PlanSpeech.exercise(squat), exactly: true) != nil, "one element per exercise")
             #expect(ids(w).contains("plan.copy") && !ids(w).contains("plan.delete"), "built-in: Copy and edit, no Delete")

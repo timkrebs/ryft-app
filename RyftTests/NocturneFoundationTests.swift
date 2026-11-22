@@ -15,9 +15,9 @@ struct NocturneFoundationTests {
 
     // MARK: specs
 
-    @Test("The subpage frame: a 40 pt header, Back 12 from the title, 22 to the content, 20 at the sides, sheets 26 down")
+    @Test("The subpage frame: a 40 pt header, 22 to the content, 20 at the sides, sheets 26 down, the `subpage` identifiers")
     func subpageNumbers() {
-        #expect(SubpageSpec.headerHeight == 40 && SubpageSpec.titleGap == 12 && SubpageSpec.contentGap == 22)
+        #expect(SubpageSpec.headerHeight == 40 && SubpageSpec.contentGap == 22 && SubpageSpec.identifierPrefix == "subpage")
         #expect(SubpageSpec.sidePadding == 20 && SubpageSpec.bottomPadding == 32 && SubpageSpec.maxContentWidth == 560)
         #expect(SubpageSpec.sheetTopInset == 26 && SubpageSpec.trailingSpacing == 8 && SubpageSpec.stackedGap == 12)
         #expect(PinnedBarSpec.topPadding == 12 && PinnedBarSpec.sidePadding == 20 && PinnedBarSpec.bottomPadding == 12)
@@ -131,7 +131,7 @@ struct NocturneFoundationTests {
     @Test("Arrived, 'Arrives', a neutral banner and the step badge are ink: no teal left in the restyled parts")
     func noTeal() {
         let ink = Tokens.resolve(Theme.textPrimary)
-        let teal = Tokens.resolve(Theme.accent)
+        let teal = Tokens.resolve(Theme.recovery)
         for (name, colour) in [("CheckRow.ok", CheckRow.Kind.ok.color), ("CapabilityState.yes", CapabilityState.yes.tint),
                                ("InlineMessage.neutral", InlineMessage.Severity.neutral.glyphColor)] {
             let c = Tokens.resolve(colour)

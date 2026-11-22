@@ -46,9 +46,9 @@ enum SleepMath {
         guard let deviation else { return String(localized: "Not enough nights yet to judge consistency.") }
         let m = Int(deviation.rounded())
         switch deviation {
-        case ..<30: return String(localized: "Very consistent — bedtime varies by about \(m) min.")
-        case ..<60: return String(localized: "Fairly consistent — bedtime varies by about \(m) min.")
-        default: return String(localized: "Irregular — bedtime varies by about \(m) min. A steadier rhythm helps recovery.")
+        case ..<30: return String(localized: "Very consistent — bedtime varies by about \(m)\u{00A0}min.")
+        case ..<60: return String(localized: "Fairly consistent — bedtime varies by about \(m)\u{00A0}min.")
+        default: return String(localized: "Irregular — bedtime varies by about \(m)\u{00A0}min. A steadier rhythm helps recovery.")
         }
     }
 }

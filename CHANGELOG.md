@@ -111,6 +111,15 @@ Store "What's New".
 - At the largest text sizes, a page's title sits on its own line under Back, and summaries list one part per line.
   The rest bar in a workout shows its time and Skip; ±15 s are in the rest timer it opens.
 - With Reduce Motion on, Train and the journal change without animation.
+- One header on every page: a sheet has Close on the left and its title centred; a page you open from Profile, Train or
+  My Day has Back on the left and its title centred.
+- No teal outside recovery: Today's setup, import and sync-hint cards and the notification question are in the new
+  look, and an insight takes its metric's colour.
+- Report a problem: Done sits beside Send above the keyboard. At larger text sizes rulers keep their ends, About you
+  offers your birth year as a menu, and the journal's days stay readable.
+- At the largest text sizes a sheet's title sits on its own line under Close (and Save), as a page's does under Back.
+  Text scrolled under a sheet's header stops at a thin rule below it, and the first import's steps wrap instead of
+  being cut off.
 - Today and Sleep: a failed load says what happened in plain words and offers the step that helps (Sign in, Try again,
   or none when the app is too old).
 - RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
@@ -149,6 +158,19 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
+  and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
+  room (the first tip's title sat under the status bar).
+- Importing from another training app: the list of warnings reads "The rest imports normally, and 2 notes." (it said
+  "normally. and 2 notes").
+- While your consent withdrawal is on its way, Profile holds Demo data and Log out and says why: using either before
+  RYFT confirms it could drop the withdrawal without a word. Offline, the withdrawal now fails at once and says so,
+  instead of waiting for a connection; with no answer in time, Profile asks RYFT again and shows whether it arrived.
+  VoiceOver now hears when the withdrawal is confirmed.
+- Log out shows it's working while it signs you out, and Withdraw consent waits until it's done: a withdrawal started
+  then could be dropped by the sign-out.
+- Train's History, exercise page and workout detail no longer ask you to go online when a read failed while you were
+  online: they say it couldn't be loaded, with Try again.
 - "Logged session" on a workout opens that session again, also from Today and My Day.
 - The journal sheet closes when its account signs out or you switch Demo data while it's open, instead of dropping
   your answers when you save.

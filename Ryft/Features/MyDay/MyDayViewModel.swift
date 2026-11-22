@@ -19,7 +19,10 @@ final class MyDayViewModel {
     private(set) var failed: Set<String> = []
     /// A failed day's own status and request ID for Details, kept with the day (code review N5): the read record is one
     /// per resource, so another day's failure (or success) since would answer for it.
-    private var failedDetails: [String: String] = [:]
+    private(set) var failedDetails: [String: String] = [:]
+    /// Bumped by `forget()` only (Strain's pattern): a load writes its day's failure only while no side has ended since it
+    /// began. Not by `load`: the card's day and the full screen's load side by side, and neither ends the other.
+    @ObservationIgnored private var generation = 0
     /// The tracker catalog was parsed off the main actor (`load`): rows name trackers by it from then on, and by
     /// HealthKit's raw source names before (ui.md §2.3), so Today's first frame never parses it.
     private(set) var namesTrackers = false
@@ -81,8 +84,10 @@ final class MyDayViewModel {
     }
 
     /// The side that ended (sign-out, another account, the Demo data switch): its failed days and their request IDs go
-    /// (`ScreenModels` registers it with the account-state forgetters).
+    /// (`ScreenModels` registers it with the account-state forgetters), and a load still out writes none of them: its late
+    /// failure would show on the next side's first Today frame as the card failed, with the previous side's Details.
     func forget() {
+        generation += 1
         failed = []
         failedDetails = [:]
     }
@@ -208,12 +213,15 @@ final class MyDayViewModel {
         let day = calendar.startOfDay(for: day)
         let key = DayFormat.string(from: day)
         let mode: ReadMode = force ? .latest : .ifStale
+        let mine = generation
         failed.remove(key)
         failedDetails[key] = nil
         async let detail = loadDetail(day, mode: mode, userInitiated: force)
         async let activities = loadActivities(key, mode: mode, userInitiated: force)
         let read = await detail
         let activitiesFailure = await activities
+        // The side that asked has ended (`forget`): nothing of its read is the next side's.
+        guard mine == generation else { return }
         // Failed, or held back with nothing cached (offline it is `.offline` whatever this says). Its Details: the day's
         // own failure, else the one that holds its reads back, else the activities' own failure.
         if read.missing, state.cachedDayDetail(for: day) == nil {

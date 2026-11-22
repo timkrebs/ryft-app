@@ -14,7 +14,7 @@ struct ImportChooseView: View {
             }
         } bottom: {
             if let reason = blockReason { ImportBarCaption(text: reason) }
-            ImportPrimaryButton(title: String(localized: "Continue"), isEnabled: model.selectionBlock == nil) {
+            ImportStepButton(title: String(localized: "Continue"), isEnabled: model.selectionBlock == nil) {
                 model.continueFromChoose()
             }
         }
@@ -69,7 +69,7 @@ struct ImportChooseView: View {
                                         comment: "Training import, step 3: after Replace with the file's version."))
         case let .tooManyDays(days):
             ImportCardNote(systemImage: "exclamationmark.circle",
-                           text: String(localized: "This plan has \(days) days. RYFT plans have at most 7.",
+                           text: String(localized: "This plan has \(days)\u{00A0}days. RYFT plans have at most 7.",
                                         comment: "Training import, step 3: why a plan can't be imported."),
                            attention: true)
         }
@@ -161,15 +161,15 @@ enum ImportChooseText {
     /// "Upper/Lower · 6 weeks · 2 days".
     static func planSubtitle(_ plan: ImportedPlan, includeName: Bool) -> String {
         var parts: [String] = includeName ? [plan.name] : []
-        if let weeks = plan.weeks { parts.append(String(localized: "\(weeks) weeks")) }
-        parts.append(String(localized: "\(plan.days.count) days", comment: "Training import: a count of plan days."))
+        if let weeks = plan.weeks { parts.append(String(localized: "\(weeks)\u{00A0}weeks")) }
+        parts.append(String(localized: "\(plan.days.count)\u{00A0}days", comment: "Training import: a count of plan days."))
         return parts.joined(separator: " · ")
     }
 
     /// "10 workouts · 31 sets".
     static func counts(workouts: Int, sets: Int) -> String {
         [String(localized: "\(workouts) workouts", comment: "Training import: a count of workouts."),
-         String(localized: "\(sets) sets", comment: "Training import: a count of sets.")].joined(separator: " · ")
+         String(localized: "\(sets)\u{00A0}sets", comment: "Training import: a count of sets.")].joined(separator: " · ")
     }
 
     /// "10 workouts from 2 Mar to 27 Apr 2026", or "0 workouts in this range".

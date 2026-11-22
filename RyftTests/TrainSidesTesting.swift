@@ -3,7 +3,9 @@ import Foundation
 
 /// One side's platform for the PR 6 R4T tests (the account's, another account's or demo data's): `MockTrainSource`'s
 /// answers from `start`. The calls in `holding` wait at a gate until `release()`; a call with a `failures` entry throws it
-/// once past the gate. Counts the calls that reached it, by kind.
+/// once past the gate. Counts the calls that reached it, by kind. A call answers what this side reports once past the gate;
+/// one in `onArrival` (`plans`, `today`) what it reported when the call arrived: an answer already on its way while an action
+/// changes the enrolment.
 final class SideTrainSource: TrainDataSource, @unchecked Sendable {
     enum Call: Hashable, CaseIterable {
         case exercises, plans, today, plan, sessions, session, history, enroll, pause, delete
@@ -12,13 +14,15 @@ final class SideTrainSource: TrainDataSource, @unchecked Sendable {
     private let base: MockTrainSource
     private let lock = NSLock()
     private var held: Set<Call>
+    private let onArrival: Set<Call>
     private var waiting: [CheckedContinuation<Void, Never>] = []
     private var counts: [Call: Int] = [:]
     private var thrown: [Call: Error] = [:]
 
-    init(_ start: MockTrainSource.Start = .demo, holding: Set<Call> = []) {
+    init(_ start: MockTrainSource.Start = .demo, holding: Set<Call> = [], onArrival: Set<Call> = []) {
         base = MockTrainSource(start: start)
         held = holding
+        self.onArrival = onArrival
     }
 
     /// Thrown by `call` once past its gate; nil: it answers.
@@ -28,6 +32,8 @@ final class SideTrainSource: TrainDataSource, @unchecked Sendable {
 
     /// Holds `call` again from now on (calls already past the gate go on).
     func hold(_ call: Call) { lock.withLock { _ = held.insert(call) } }
+    /// Later `call`s go on at once; those waiting at the gate stay there until `release()`.
+    func unhold(_ call: Call) { lock.withLock { _ = held.remove(call) } }
 
     /// Opens every gate: the calls waiting go on, and later ones don't wait.
     func release() {
@@ -44,6 +50,17 @@ final class SideTrainSource: TrainDataSource, @unchecked Sendable {
     func todayNow() async throws -> PlanToday? { try await base.planToday() }
     /// Enrols this side in `plan` before a test starts (not counted).
     func enrollNow(_ plan: UUID) async throws { _ = try await base.enroll(planID: plan) }
+
+    /// `call` past its gate, answered by `read`: then, or when the call arrived (`onArrival`).
+    private func answer<T>(_ call: Call, _ read: () async throws -> T) async throws -> T {
+        guard onArrival.contains(call) else {
+            try await pass(call)
+            return try await read()
+        }
+        let early = try await read()
+        try await pass(call)
+        return early
+    }
 
     private func pass(_ call: Call) async throws {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -68,8 +85,7 @@ final class SideTrainSource: TrainDataSource, @unchecked Sendable {
         return try await base.exerciseHistory(id: id)
     }
     func plans() async throws -> PlansOverview {
-        try await pass(.plans)
-        return try await base.plans()
+        try await answer(.plans) { try await base.plans() }
     }
     func plan(id: UUID) async throws -> Plan {
         try await pass(.plan)
@@ -89,8 +105,7 @@ final class SideTrainSource: TrainDataSource, @unchecked Sendable {
         try await base.pauseEnrollment()
     }
     func planToday() async throws -> PlanToday? {
-        try await pass(.today)
-        return try await base.planToday()
+        try await answer(.today) { try await base.planToday() }
     }
     func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
         try await pass(.sessions)
@@ -131,11 +146,12 @@ final class SideSwitch: @unchecked Sendable {
 }
 
 /// A library and its outbox on one in-memory store, answered by the side `sides` has switched to; `reads`: the app's read
-/// pipeline (`env.reads`), or none.
+/// pipeline (`env.reads`), or none. The paused plan's id is kept in `defaults`, the rig's own suite.
 @MainActor
 struct TrainSides {
     let sides: SideSwitch
     let store = TrainStore(inMemory: true)
+    let defaults = UserDefaults.isolated()
     let outbox: TrainSyncService
     let library: TrainLibrary
 
@@ -145,7 +161,7 @@ struct TrainSides {
         let outbox = TrainSyncService(store: store, remote: { sides.source }, owner: { sides.owner }, monitorsNetwork: false)
         outbox.gate = { _ in nil }
         self.outbox = outbox
-        library = TrainLibrary(store: store, remote: { sides.source }, outbox: { outbox }, restore: false)
+        library = TrainLibrary(store: store, remote: { sides.source }, outbox: { outbox }, restore: false, defaults: defaults)
         library.reads = reads
     }
 

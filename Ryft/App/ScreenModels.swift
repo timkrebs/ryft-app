@@ -105,6 +105,8 @@ final class ScreenModels {
         // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
+        // So is the range Insights loaded: the next side's cards wait for their own read (outlines).
+        state.forgetsAccountState { [weak insights] in insights?.forget() }
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
                                      showStrain: { [state] in state.selectedTab = .strain },

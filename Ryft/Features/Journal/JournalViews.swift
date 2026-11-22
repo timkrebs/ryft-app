@@ -18,6 +18,18 @@ enum JournalLayout {
     nonisolated static let chipWidth: CGFloat = 48, chipHeight: CGFloat = 56, chipRadius: CGFloat = 16
     nonisolated static let chipSpacing: CGFloat = 8, chipInset: CGFloat = 6, chipLineGap: CGFloat = 2
     nonisolated static let chipDaySize: CGFloat = 17
+    /// From AX1 (Nocturne gate D9 row 6): 10 inside on every side (`chipInsets(for:)`), and the words stop growing at AX3,
+    /// as the header pills' do; the large content viewer shows the day.
+    nonisolated static let chipInsetLarge: CGFloat = 10
+    nonisolated static let chipMaxTypeSize = DynamicTypeSize.accessibility3
+
+    /// Inside a day chip: 6 at the sides below AX1 (the 56 pt minimum centres the words); from AX1, where the words make
+    /// the chip taller than 56, 10 on every side, so the words never touch its edge.
+    nonisolated static func chipInsets(for typeSize: DynamicTypeSize) -> EdgeInsets {
+        typeSize.isAccessibilitySize
+            ? EdgeInsets(top: chipInsetLarge, leading: chipInsetLarge, bottom: chipInsetLarge, trailing: chipInsetLarge)
+            : EdgeInsets(top: 0, leading: chipInset, bottom: 0, trailing: chipInset)
+    }
     /// A day that can't change any more: its rows at 55 % (the switches keep their look; `.disabled` would draw them off).
     nonisolated static let readOnlyOpacity = 0.55
     /// The habits' counts: 1 to 50 (`JournalSheetModel.Row.count`).
@@ -328,6 +340,7 @@ struct JournalSheetBody: View {
                 .padding(.bottom, JournalLayout.bottomPadding)
             }
             .scrollIndicators(.hidden)
+            .underPinnedHeader(gap: JournalLayout.headerToStrip)
         }
         .background(Theme.background.ignoresSafeArea())
     }
@@ -495,55 +508,69 @@ private struct JournalHabitRow: View {
 /// selected day is filled with ink and its words are the ground's; the others are `surface` with ink. Today isn't in it: the
 /// journal is for days gone by, so nothing marks "now". VoiceOver: each chip "Monday, November 16", selected; the strip is a
 /// container.
+///
+/// At every size the strip scrolls sideways (14 days is a natural scroll, and yesterday stays one tap away; Nocturne gate D9
+/// row 6). From AX1 each chip keeps 10 pt inside on every side and the words stop growing at AX3, so at AX5 "Mon" no longer
+/// touches its edge and yesterday plus three more days show; a long press shows the day in the large content viewer.
 struct JournalDateStrip: View {
     let days: [String]
     let selected: String
     let select: (String) -> Void
-
-    @Environment(\.locale) private var locale
-    @ScaledMetric(relativeTo: .headline) private var daySize: CGFloat = JournalLayout.chipDaySize
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: JournalLayout.chipSpacing) {
                     ForEach(days, id: \.self) { day in
-                        chip(day).id(day)
+                        Chip(day: day, isSelected: day == selected) { select(day) }
+                            .id(day)
                     }
                 }
             }
             .scrollIndicators(.hidden)
             .onAppear { proxy.scrollTo(selected) }
         }
+        // Capped here, so the chips' scaled number (`daySize`) stops with their words.
+        .dynamicTypeSize(...JournalLayout.chipMaxTypeSize)
         .accessibilityElement(children: .contain)
     }
 
-    private func chip(_ day: String) -> some View {
-        let date = DayFormat.date(from: day) ?? .now
-        let isSelected = day == selected
-        return Button {
-            select(day)
-        } label: {
-            VStack(spacing: JournalLayout.chipLineGap) {
-                Text(verbatim: date.formatted(.dateTime.weekday(.abbreviated).locale(locale)))
-                    .font(.ryft(.caption))
-                Text(verbatim: date.formatted(.dateTime.day().locale(locale)))
-                    .font(.ryftNumber(size: daySize))
+    /// One day: the weekday over the day's number, at least 48 × 56; 6 inside at the sides below AX1, 10 on every side from
+    /// AX1.
+    private struct Chip: View {
+        let day: String
+        let isSelected: Bool
+        let select: () -> Void
+
+        @Environment(\.locale) private var locale
+        @Environment(\.dynamicTypeSize) private var typeSize
+        @ScaledMetric(relativeTo: .headline) private var daySize: CGFloat = JournalLayout.chipDaySize
+
+        var body: some View {
+            let date = DayFormat.date(from: day) ?? .now
+            Button(action: select) {
+                VStack(spacing: JournalLayout.chipLineGap) {
+                    Text(verbatim: date.formatted(.dateTime.weekday(.abbreviated).locale(locale)))
+                        .font(.ryft(.caption))
+                    Text(verbatim: date.formatted(.dateTime.day().locale(locale)))
+                        .font(.ryftNumber(size: daySize))
+                }
+                .foregroundStyle(isSelected ? Theme.background : Theme.textPrimary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(JournalLayout.chipInsets(for: typeSize))
+                .frame(minWidth: JournalLayout.chipWidth, minHeight: JournalLayout.chipHeight)
+                .background(isSelected ? Theme.textPrimary : Theme.surface,
+                            in: RoundedRectangle(cornerRadius: JournalLayout.chipRadius, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: JournalLayout.chipRadius, style: .continuous))
             }
-            .foregroundStyle(isSelected ? Theme.background : Theme.textPrimary)
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, JournalLayout.chipInset)
-            .frame(minWidth: JournalLayout.chipWidth, minHeight: JournalLayout.chipHeight)
-            .background(isSelected ? Theme.textPrimary : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: JournalLayout.chipRadius, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: JournalLayout.chipRadius, style: .continuous))
+            .buttonStyle(.plain)
+            // `DateStrip`'s pattern: the button stays the element (and its action), its words replaced.
+            .accessibilityLabel(Text(verbatim: date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale))))
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityShowsLargeContentViewer()
+            .accessibilityIdentifier("journal.day.\(day)")
         }
-        .buttonStyle(.plain)
-        // `DateStrip`'s pattern: the button stays the element (and its action), its words replaced.
-        .accessibilityLabel(Text(verbatim: date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale))))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("journal.day.\(day)")
     }
 }
 
@@ -672,6 +699,12 @@ func journalPreviewStore(_ state: AppState, behaviors: [Behavior] = MockJournal.
 #Preview("Journal sheet · AX3") {
     JournalSheetBody(content: MockJournalStates.content(.answered)).toggleStyle(.ryft).previewEnvironment()
         .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// The strip at AX5: its words stop at AX3, 10 inside every chip.
+#Preview("Journal sheet · AX5") {
+    JournalSheetBody(content: MockJournalStates.content(.answered)).toggleStyle(.ryft).previewEnvironment()
+        .environment(\.dynamicTypeSize, .accessibility5)
 }
 
 #Preview("Journal sheet · live") {

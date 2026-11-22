@@ -420,10 +420,11 @@ struct SleepScheduleView: View {
         }
     }
 
-    /// A day's wake time as a time chip (the system's compact picker over it); from AX1 under its title.
+    /// A day's wake time as a time chip (the system's compact picker over it); from AX1 under its title. Its title is a row's
+    /// (`textPrimary`), as the switch above it.
     private func timeRow(_ title: Text, index: Int,
                          set: @escaping (inout SleepSchedule, String) -> Void) -> some View {
-        ValueChipRow(title) {
+        ValueChipRow(title, role: .row) {
             ValueChip(title, date: Binding(get: { SleepSchedule.date(draft.wake[index], on: .now) },
                                            set: { date in editor.edit { set(&$0, SleepPlannerViewModel.hhmm(date)) } }),
                       displayedComponents: .hourAndMinute)
@@ -478,14 +479,14 @@ struct SleepScheduleView: View {
     }
 
     /// "30 min".
-    private static func minutes(_ value: Int) -> String { String(localized: "\(value) min") }
+    private static func minutes(_ value: Int) -> String { String(localized: "\(value)\u{00A0}min") }
 
     // MARK: reminder, alarm
 
     private var reminder: some View {
         GroupedCard(Text("Bedtime reminder")) {
             GroupedRow.toggle(Text("Remind me to wind down"),
-                              detail: Text("A notification \(draft.windDownMin) min before tonight's bedtime. It moves with your day."),
+                              detail: Text("A notification \(draft.windDownMin)\u{00A0}min before tonight's bedtime. It moves with your day."),
                               identifier: "schedule.reminder",
                               isOn: Binding(get: { draft.reminderOn }, set: { on in
                                   Task {

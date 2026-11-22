@@ -229,8 +229,6 @@ struct TrainActionSidesTests {
     /// Alex pauses; the answer comes after Alex signed out and Sam signed in: Sam's Plans shows no paused plan, and Resume
     /// has nothing of Alex's to enrol him in.
     @Test func aLatePauseAfterAWipeWritesNothing() async {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.demo, holding: [.pause])
         let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.sam: SideTrainSource(.empty)])
         await rig.library.refresh()
@@ -243,7 +241,7 @@ struct TrainActionSidesTests {
         alex.release()
         #expect(await pause.value == false)
         #expect(rig.library.pausedPlanID == nil && !rig.library.isPaused, "no paused plan of Alex's on Sam's Plans")
-        #expect(UserDefaults.standard.string(forKey: "train.pausedPlanID") == nil)
+        #expect(rig.defaults.string(forKey: "train.pausedPlanID") == nil, "nor remembered")
         #expect(rig.library.catalog == nil, "nor Alex's plans read again")
     }
 
@@ -454,7 +452,7 @@ struct TrainHeldBackTests {
                                                                 reads: offlineEnv.reads).library)
         await offline.load()
         withExtendedLifetime(offlineEnv) {}
-        #expect(offline.failed && offline.failureText == TrainHistoryRows.failureText)
+        #expect(offline.failed && offline.failureText == TrainHistoryRows.offlineFailureText)
     }
 
     /// Plans with nothing cached: not "Plans appear once you're online.", but the busy failure with the hold's Details; Try
@@ -614,8 +612,6 @@ struct TrainOtherPathsSidesTests {
 
     /// An action answered for Alex; the plans it reads again come after the Demo data switch: not written.
     @Test func thePlansReadAgainAfterAnActionStayOnItsSide() async {
-        let previous = TrainShotFixtures.setPausedPlan(nil)
-        defer { _ = TrainShotFixtures.setPausedPlan(previous) }
         let alex = SideTrainSource(.empty, holding: [.plans])
         let rig = TrainSides([SideSwitch.alex: alex, SideSwitch.demo: SideTrainSource(.demo)])
         let enroll = Task { await rig.library.enroll(in: MockTrain.fullBody) }

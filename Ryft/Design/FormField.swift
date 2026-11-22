@@ -225,18 +225,32 @@ struct ValueChipGroup<Content: View>: View {
     }
 }
 
-/// A grouped card's row of chips (B §1.3, S9: Start, End, Went to bed): the label leading in `callout` `textSecondary`, the
-/// chips trailing, while the label keeps its line beside them (so it never breaks inside a word); otherwise, and always
-/// from AX1, the label goes above and the chips under it at the leading edge, one under the other if they don't fit. 56 high
-/// (a field row); the row draws its hairline in a `GroupedCard`. VoiceOver reads the label, then each chip.
+/// What a `ValueChipRow`'s label is among the rows around it, so its ink matches theirs (Nocturne gate D9 row 1).
+enum ValueChipRole {
+    /// A field's caption, `textSecondary` as `FormField`'s (Add activity, Add sleep, the journal's Time): the default.
+    case field
+    /// A row's title, `textPrimary` as a `GroupedRow`'s, for a row among `GroupedRow`s (Notifications' From and Until,
+    /// Bedtime & wake's days).
+    case row
+
+    var ink: Color { self == .row ? Theme.textPrimary : Theme.textSecondary }
+}
+
+/// A grouped card's row of chips (B §1.3, S9: Start, End, Went to bed): the label leading in `callout`, the chips trailing,
+/// while the label keeps its line beside them (so it never breaks inside a word); otherwise, and always from AX1, the label
+/// goes above and the chips under it at the leading edge, one under the other if they don't fit. 56 high (a field row); the
+/// row draws its hairline in a `GroupedCard`. VoiceOver reads the label, then each chip. The label's ink follows its
+/// neighbours (`role`, Nocturne gate D9 row 1).
 struct ValueChipRow<Chips: View>: View {
     private let label: Text
+    private let role: ValueChipRole
     private let chips: Chips
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(_ label: Text, @ViewBuilder chips: () -> Chips) {
+    init(_ label: Text, role: ValueChipRole = .field, @ViewBuilder chips: () -> Chips) {
         self.label = label
+        self.role = role
         self.chips = chips()
     }
 
@@ -267,7 +281,7 @@ struct ValueChipRow<Chips: View>: View {
     private var styledLabel: some View {
         label
             .font(.ryft(.callout))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(role.ink)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -325,6 +339,9 @@ private struct FormFieldPreviewBoard: View {
                 ValueChipRow(Text(verbatim: "Start")) {
                     ValueChip(Text(verbatim: "Start date"), date: $start, displayedComponents: .date)
                     ValueChip(Text(verbatim: "Start time"), date: $start, displayedComponents: .hourAndMinute)
+                }
+                ValueChipRow(Text(verbatim: "From"), role: .row) {
+                    ValueChip(Text(verbatim: "From"), date: $start, displayedComponents: .hourAndMinute)
                 }
                 GroupedRow.custom(Text(verbatim: "Rest")) {
                     Menu { Button { } label: { Text(verbatim: "2:00") } } label: { ValueChip(Text(verbatim: "3:00")) }

@@ -44,7 +44,7 @@ struct SetNewPasswordView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("newPassword.saved")
             } else {
-                AuthHint(text: Text("At least \(AuthService.minimumPasswordLength) characters."))
+                AuthHint(text: Text("At least \(AuthService.minimumPasswordLength)\u{00A0}characters."))
             }
             if auth.errorMessage != nil {
                 AuthErrorMessage()

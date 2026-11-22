@@ -129,11 +129,11 @@ struct OrbitGaugeTodayMappingTests {
 
     @Test func theSpokenValueFollowsTheCaption() {
         let v = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
-        #expect(OrbitGauge.spokenValue(v).hasPrefix("71, High. Recovery 71 percent"))
+        #expect(OrbitGauge.spokenValue(v).hasPrefix("71, High. Recovery 71\u{00A0}percent"))
         // Where a calibration note takes the band word's line (S2, N1), VoiceOver doesn't read it either.
-        #expect(OrbitGauge.spokenValue(v, showsBand: false).hasPrefix("71. Recovery 71 percent"))
+        #expect(OrbitGauge.spokenValue(v, showsBand: false).hasPrefix("71. Recovery 71\u{00A0}percent"))
         let up = MetricDelta(current: 71, reference: 67)
-        #expect(OrbitGauge.spokenValue(v, delta: up).hasPrefix("71, High, Up 4 versus 7 days. Recovery"))
+        #expect(OrbitGauge.spokenValue(v, delta: up).hasPrefix("71, High, Up 4 versus 7\u{00A0}days. Recovery"))
     }
 }
 

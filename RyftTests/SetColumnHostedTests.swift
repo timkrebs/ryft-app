@@ -22,24 +22,24 @@ struct SetColumnHostedTests {
             let start = try #require(header(w), "the header is a named element")
             #expect(start.value == "Estimated 1RM")
             #expect(start.traits.contains(.button))
-            #expect(firstRow(w).contains("estimated one-rep max 100 kilograms"))
-            #expect(lastTime(w).contains("10 reps at 75 kilograms, estimated one-rep max 100 kilograms"))
+            #expect(firstRow(w).contains("estimated one-rep max 100\u{00A0}kilograms"))
+            #expect(lastTime(w).contains("10\u{00A0}reps at 75\u{00A0}kilograms, estimated one-rep max 100\u{00A0}kilograms"))
 
             #expect(start.activate())
             try await w.wait("10RM on the header") { header(w)?.value == "Estimated 10RM" }
-            try await w.wait("10RM on the row") { firstRow(w).contains("estimated ten-rep max 75 kilograms") }
-            try await w.wait("10RM on last time") { lastTime(w).contains("10 reps at 75 kilograms, estimated ten-rep max 75 kilograms") }
+            try await w.wait("10RM on the row") { firstRow(w).contains("estimated ten-rep max 75\u{00A0}kilograms") }
+            try await w.wait("10RM on last time") { lastTime(w).contains("10\u{00A0}reps at 75\u{00A0}kilograms, estimated ten-rep max 75\u{00A0}kilograms") }
             #expect(c.settings.setColumn == .tenRM)
 
             try #require(header(w)).activate()
             try await w.wait("RPE on the header") { header(w)?.value == "RPE" }
-            try await w.wait("RPE on last time") { lastTime(w).contains("10 reps at 75 kilograms, RPE 8") }
+            try await w.wait("RPE on last time") { lastTime(w).contains("10\u{00A0}reps at 75\u{00A0}kilograms, RPE 8") }
             #expect(!lastTime(w).contains("estimated") && !firstRow(w).contains("estimated"))
             #expect(c.settings.setColumn == .rpe)
 
             try #require(header(w)).activate()
             try await w.wait("round to E1RM") { header(w)?.value == "Estimated 1RM" }
-            try await w.wait("last time comes round") { lastTime(w).contains("estimated one-rep max 100 kilograms") }
+            try await w.wait("last time comes round") { lastTime(w).contains("estimated one-rep max 100\u{00A0}kilograms") }
         }
     }
 

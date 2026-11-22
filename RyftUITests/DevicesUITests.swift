@@ -23,6 +23,11 @@ final class DevicesUITests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
+    /// A pushed page's title: `PushedHeader`'s one header element (`subpage.header`), by its label.
+    private func header(_ app: XCUIApplication, _ title: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "subpage.header").matching(NSPredicate(format: "label == %@", title)).firstMatch
+    }
+
     /// Scrolls until `tile` sits above the pinned bar (`bar` is its top button): a tile under the bar still
     /// reports itself hittable, and a tap there lands on the bar.
     private func reveal(_ tile: XCUIElement, above bar: XCUIElement, in app: XCUIApplication) {
@@ -109,8 +114,9 @@ final class DevicesUITests: XCTestCase {
 
         garmin.tap()
         XCTAssertTrue(element(app, "tracker.card.garmin").waitForExistence(timeout: 5), "Garmin's card, pushed")
-        // The subpage frame (Nocturne): its own header, Back and the card's title, no navigation bar.
-        XCTAssertTrue(app.buttons["subpage.back"].exists && app.staticTexts["Garmin"].firstMatch.exists)
+        // The subpage frame (Nocturne): its own header, Back and the card's title (the pushed header's one element), no
+        // navigation bar.
+        XCTAssertTrue(app.buttons["subpage.back"].exists && header(app, "Garmin").exists)
     }
 
     /// Profile → Data's first row with `devices.setup` on (demo data's config): Devices & sync.
@@ -128,7 +134,7 @@ final class DevicesUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices & sync row")
         row.tap()
         XCTAssertTrue(app.buttons["subpage.back"].waitForExistence(timeout: 5), "the subpage frame's Back")
-        XCTAssertTrue(app.staticTexts["Devices & sync"].exists, "its title")
+        XCTAssertTrue(header(app, "Devices & sync").exists, "its title")
         XCTAssertTrue(app.buttons["devices.row.apple_watch"].exists, "demo data wears an Apple Watch")
     }
 }

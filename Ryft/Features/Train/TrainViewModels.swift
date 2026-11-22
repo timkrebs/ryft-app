@@ -124,7 +124,7 @@ final class TrainHistoryViewModel {
     /// The subtitle's parts, as drawn one per line from AX1 (`PartsLine`); nil while there are none.
     var subtitleParts: [String]? {
         guard !sessions.isEmpty else { return nil }
-        let window = String(localized: "last 90 days",
+        let window = String(localized: "last 90\u{00A0}days",
                             comment: "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\").")
         return [String(localized: "\(sessions.count) workouts"), window]
     }
@@ -153,8 +153,9 @@ final class TrainHistoryViewModel {
         loaded = true
     }
 
-    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
-    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : TrainHistoryRows.failureText }
+    /// The failure's sentence, with nothing cached: offline, "when you're online"; held back online, RYFT is busy; failed
+    /// online, try again (`TrainReadFailure`).
+    var failureText: String { TrainHistoryRows.failureText(offline: offline, heldBack: heldBack) }
 }
 
 /// One exercise: e1RM over the last 90 days, records, recent sets.
@@ -334,8 +335,9 @@ final class ExerciseDetailViewModel {
         loaded = true
     }
 
-    /// The failure's sentence, with nothing cached: held back online, RYFT is busy (no "when you're online").
-    var failureText: String { heldBack ? RefreshIssue.Reason.busy.message : ExerciseDetailPage.failureText }
+    /// The failure's sentence, with nothing cached: offline, "when you're online"; held back online, RYFT is busy; failed
+    /// online, try again (`TrainReadFailure`).
+    var failureText: String { ExerciseDetailPage.failureText(offline: offline, heldBack: heldBack) }
 }
 
 /// Built-in templates, the user's plans and the current (active or paused) enrolment.

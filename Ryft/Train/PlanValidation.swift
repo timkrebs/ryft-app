@@ -21,13 +21,13 @@ enum PlanIssue: Hashable, Identifiable {
         switch self {
         case .missingName: return String(localized: "Give the plan a name.")
         case .daysPerWeek: return String(localized: "Days per week must be 1 to 7.")
-        case .weeks: return String(localized: "A plan runs 1 to 52 weeks, or repeats.")
+        case .weeks: return String(localized: "A plan runs 1 to 52\u{00A0}weeks, or repeats.")
         case .noDays: return String(localized: "Add at least one training day.")
         case .emptyDay: return String(localized: "Every day needs at least one exercise.")
         case .sets: return String(localized: "Sets must be 1 to 20.")
         case .reps: return String(localized: "Reps must be 1 to 100, and the minimum can't exceed the maximum.")
         case .target: return String(localized: "Check the target: %\u{00A0}1RM 30–110, RPE 1–10, kg 0–500.")
-        case .rest: return String(localized: "Rest must be 0 to 15 minutes.")
+        case .rest: return String(localized: "Rest must be 0 to 15\u{00A0}minutes.")
         case .lonelySuperset: return String(localized: "A superset needs at least two exercises.")
         }
     }

@@ -501,8 +501,8 @@ struct TodayStatesTests {
     }
 
     @Test func pendingNightSaysWhenToExpectIt() {
-        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 20).detail == String(localized: "Usually ready within 20 s."))
-        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 150).detail == String(localized: "Usually ready within 3 min."))
+        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 20).detail == String(localized: "Usually ready within 20\u{00A0}s."))
+        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 150).detail == String(localized: "Usually ready within 3\u{00A0}min."))
         #expect(PendingNight(waitingForSleep: false).detail == String(localized: "Usually ready within a minute."))
     }
 
@@ -823,7 +823,7 @@ struct TodayNightAndScoringTests {
         // Scoring in time: the shipped words.
         let onTime = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-10) })
         #expect(onTime.pendingTitle == String(localized: "Scoring your night…"))
-        #expect(onTime.pendingDetail == String(localized: "Usually ready within 20 s.") && !onTime.pendingIsStatic)
+        #expect(onTime.pendingDetail == String(localized: "Usually ready within 20\u{00A0}s.") && !onTime.pendingIsStatic)
         // Slow: no promise, no breathing.
         let slow = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-120) })
         #expect(slow.pendingTitle == String(localized: "Still scoring your night"))
@@ -1574,7 +1574,7 @@ struct SyncDetailsTests {
                                       today: TodayState(day: DayFormat.string(from: start), state: .pending, scoredAt: nil,
                                                         modelVersion: "2026.10.1"),
                                       pendingDays: [DayFormat.string(from: start)], expectedWithinSec: 20, resyncRequestedAt: nil)
-        #expect(model.scoringText == String(localized: "Waiting since \(Fmt.time(start)) · usually \(20) s"))
+        #expect(model.scoringText == String(localized: "Waiting since \(Fmt.time(start)) · usually \(20)\u{00A0}s"))
         #expect(!model.scoringIsSlow)
         clock.advance(by: .seconds(61))
         #expect(!model.scoringIsSlow) // not before a read after the threshold
@@ -1682,7 +1682,7 @@ struct SleepViewModelTests {
         vm.mode = .week
         await vm.load()
         #expect(vm.range?.range == SleepRangeKind.week.rawValue)
-        #expect(vm.subtitle == String(localized: "Last 7 nights"))
+        #expect(vm.subtitle == String(localized: "Last 7\u{00A0}nights"))
         #expect(!vm.canStepBack)
     }
 
@@ -1971,7 +1971,7 @@ struct TrainQuickStartTests {
 
     @Test func theNextSetSaysWhatToLift() {
         #expect(SessionController.target(reps: 5, kg: 80) == "5 × \(Fmt.kg(80))")
-        #expect(SessionController.target(reps: 8, kg: nil) == String(localized: "8 reps"))
+        #expect(SessionController.target(reps: 8, kg: nil) == String(localized: "8\u{00A0}reps"))
         #expect(SessionController.target(reps: nil, kg: 20) == Fmt.kg(20))
         #expect(SessionController.target(reps: nil, kg: nil) == nil)
     }
@@ -2592,7 +2592,7 @@ struct ProfilePrivacyTests {
         #expect(api.mePatches.last?.maxHr == 184 && state.user?.maxHr == 184)
         api.failNext = APIError.http(422, "max_hr out of range")
         #expect(!(await body.setMaxHR(229)))
-        #expect(body.error == String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm."))
+        #expect(body.error == String(localized: "RYFT takes a maximum heart rate between 100 and 230\u{00A0}bpm."))
         #expect(body.maxHR == 184)
     }
 }

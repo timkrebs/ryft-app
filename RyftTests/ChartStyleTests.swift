@@ -49,7 +49,7 @@ struct ChartStyleTests {
         #expect(d.percent == 20)
         // No-break spaces hold the arrow to the number and the number to its unit (it wraps only after "·").
         #expect(DeltaLabel.text(d, spec: .hrv) == "▲\u{00A0}+10\u{00A0}ms · +20\u{00A0}%")
-        #expect(DeltaLabel.color(d, spec: .hrv) == Theme.accent)
+        #expect(DeltaLabel.color(d, spec: .hrv) == Theme.recovery)
         #expect(DeltaLabel.color(d, spec: .rhr) == Theme.alert)
     }
 
@@ -77,11 +77,11 @@ struct ChartStyleTests {
         #expect(!DeltaLabel.isFlat(MetricDelta(current: 0.36, reference: 0.3), spec: .strain))
     }
 
-    /// N4 (T5.3 review): VoiceOver hears "vs 7 d" as "versus 7 days"; another reference as written.
+    /// N4 (T5.3 review): VoiceOver hears "vs 7 d" as "versus 7\u{00A0}days"; another reference as written.
     @Test func theSevenDayReferenceIsSpokenInFull() {
         let up = MetricDelta(current: 84, reference: 78)
-        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: String(localized: "vs 7 d"))
-                == "\(String(localized: "Up \("6")")) \(String(localized: "versus 7 days"))")
+        #expect(DeltaLabel.spoken(up, spec: .readiness, reference: String(localized: "vs 7\u{00A0}d"))
+                == "\(String(localized: "Up \("6")")) \(String(localized: "versus 7\u{00A0}days"))")
         #expect(DeltaLabel.spoken(up, spec: .readiness, reference: "vs baseline").hasSuffix(" vs baseline"))
     }
 
@@ -108,7 +108,7 @@ struct ChartStyleTests {
         #expect(DeltaLabel.text(delta, spec: .readiness) == String(localized: "Steady"))
         #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
         #expect(DeltaLabel.color(delta, spec: .readiness) == Theme.textSecondary)
-        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change versus 7 days")
+        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7\u{00A0}d") == "No change versus 7\u{00A0}days")
         // A real change keeps its arrow and sign.
         #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲\u{00A0}+"))
     }

@@ -3,8 +3,8 @@ import Testing
 import UIKit
 @testable import Ryft
 
-/// T6.0's pieces in a real window, read from the accessibility tree (`HostedWindow`): the subpage header (Back, the title's
-/// header trait, the 40 pt row, the stacked title at AX3, the back swipe kept with the bar hidden, the pinned bar never
+/// T6.0's pieces in a real window, read from the accessibility tree (`HostedWindow`): the subpage header (Back, the centred
+/// title's header trait, the 40 pt row, the stacked title at AX3, the back swipe kept with the bar hidden, the pinned bar never
 /// covering the last row), the sheet header (centred title, reading order), the field (one element, the focus bar), the
 /// steppers (one adjustable element each, the ends), the banner (44 pt buttons, stacking, retrying, the plain action,
 /// `readsAsOne`), the selectable tile's trait, the legend mark hidden.
@@ -78,7 +78,7 @@ struct NocturneFoundationHostedTests {
         return find(w.host)
     }
 
-    @Test("The header: Back (44 pt, 'Back') 12 from the 26 pt title, which is a header; 22 to the content; no system bar")
+    @Test("The header (DG-6): Back (44 pt, 'Back') leading, the title centred, a header; 22 to the content; no system bar")
     func subpageHeader() async throws {
         let page = Stack(pushed: true) { SubpageScaffold(Text(verbatim: "Display")) { Rows(count: 1) } }
         try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, page) { w in
@@ -87,11 +87,10 @@ struct NocturneFoundationHostedTests {
             let back = try node(w, "Back")
             let title = try node(w, "Display")
             #expect(back.traits.contains(.button) && back.frame.width >= 44 && back.frame.height >= 44, "\(back.frame)")
-            #expect(back.identifier == "subpage.back")
+            #expect(back.identifier == "subpage.back" && title.identifier == "subpage.header")
             #expect(title.traits.contains(.header), "the title is a header")
             #expect(abs(back.frame.minX - (20 - ScreenHeaderSpec.buttonOverhang)) < 1, "the circle's edge on the inset: \(back.frame)")
-            let gap = title.frame.minX - (back.frame.maxX - ScreenHeaderSpec.buttonOverhang)
-            #expect(gap >= 11 && gap <= 13, "Back → title is 12: \(gap)")
+            #expect(abs(title.frame.midX - 195) < 1, "the title centred on the row: \(title.frame)")
             #expect(abs(title.frame.midY - back.frame.midY) < 1.5, "one row")
             let group = try node(w, "Group 1")
             let headerBottom = back.frame.midY + SubpageSpec.headerHeight / 2
@@ -166,25 +165,45 @@ struct NocturneFoundationHostedTests {
         }
     }
 
+    /// Back and close (D4 rule 6): Back leading, the title centred, the close circle trailing, after the caller's circle.
     @Test("Custom actions: Back and the close circle run the caller's, the close circle says 'Close' or the caller's word")
     func headerActions() async throws {
         let log = Log()
-        let header = VStack {
-            SubpageHeader(Text(verbatim: "Import"), navigation: .backAndClose(back: .perform { log.events.append("back") },
-                                                                             closeLabel: Text(verbatim: "Cancel"),
-                                                                             close: .perform { log.events.append("close") }))
-            SubpageHeader(Text(verbatim: "What do you wear?"), navigation: .close(label: nil, .perform { log.events.append("x") }))
+        let pushed = Stack(pushed: true) {
+            SubpageScaffold(Text(verbatim: "Import"),
+                            navigation: .backAndClose(back: .perform { log.events.append("back") }, closeLabel: Text(verbatim: "Cancel"),
+                                                      close: .perform { log.events.append("close") })) {
+                CircleButton(systemImage: "ellipsis", accessibilityLabel: Text(verbatim: "More")) { log.events.append("more") }
+            } content: {
+                Rows(count: 1)
+            }
         }
-        try await host(header) { w in
+        try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, pushed) { w in
+            try await w.wait("the pushed page") { w.node("Import", exactly: true) != nil }
             try await w.settle()
-            #expect(try node(w, "Back").activate())
-            #expect(try node(w, "Cancel").activate())
-            #expect(try node(w, "Close").activate())
-            try await w.wait("the taps") { log.events.count == 3 }
-            #expect(log.events == ["back", "close", "x"])
+            let back = try node(w, "Back"), title = try node(w, "Import"), more = try node(w, "More"), cancel = try node(w, "Cancel")
+            #expect(cancel.identifier == "subpage.close")
+            #expect(abs(back.frame.minX - 18) < 1 && abs(cancel.frame.maxX - 372) < 1, "\(back.frame) \(cancel.frame)")
+            #expect(abs(cancel.frame.minX - more.frame.maxX - (SubpageSpec.trailingSpacing - 4)) < 1,
+                    "8 between the circles: \(more.frame) \(cancel.frame)")
+            #expect(abs(title.frame.midX - 195) < 1, "the title centred whatever the slots hold: \(title.frame)")
+            #expect(back.activate() && cancel.activate())
+            try await w.wait("the taps") { log.events.count == 2 }
+            #expect(log.events == ["back", "close"])
             let order = w.nodes().map(\.label)
-            let import_ = try #require(order.firstIndex(of: "Import")), cancel = try #require(order.firstIndex(of: "Cancel"))
-            #expect(import_ < cancel, "the title before the trailing close: \(order)")
+            let at = { (label: String) in order.firstIndex(of: label) ?? .max }
+            #expect(at("Back") < at("Import") && at("Import") < at("More") && at("More") < at("Cancel"), "\(order)")
+        }
+        let sheet = SubpageScaffold(Text(verbatim: "What do you wear?"), navigation: .close(label: nil, .perform { log.events.append("x") }),
+                                    isSheet: true) { Rows(count: 1) }
+        try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, sheet) { w in
+            try await w.wait("the sheet's page") { w.node("Close", exactly: true) != nil }
+            try await w.settle()
+            let close = try node(w, "Close")
+            #expect(close.identifier == "subpage.close")
+            #expect(close.activate())
+            try await w.wait("the tap") { log.events.count == 3 }
+            #expect(log.events == ["back", "close", "x"])
         }
     }
 
@@ -237,7 +256,7 @@ struct NocturneFoundationHostedTests {
         }
     }
 
-    @Test("With nothing trailing the title is still centred; a slot too wide at AX3 puts the title under the buttons, whole")
+    @Test("With nothing trailing the title is still centred; at AX3 the title goes under the buttons from the inset, whole")
     func sheetHeaderEdges() async throws {
         try await host(SheetHeader(Text(verbatim: "Start workout")).padding(.top, 26)) { w in
             try await w.settle()
@@ -251,8 +270,9 @@ struct NocturneFoundationHostedTests {
             try await w.settle()
             let title = try node(w, "Add sleep"), close = try node(w, "Close")
             #expect(title.frame.minY >= close.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5, "under the buttons")
-            #expect(title.frame.width > 120 && title.frame.minX >= 20 - 0.5 && title.frame.maxX <= 370 + 0.5, "\(title.frame)")
-            #expect(abs(title.frame.midX - 195) < 1, "centred")
+            #expect(title.frame.minX >= 20 - 0.5 && title.frame.maxX <= 370 + 0.5, "\(title.frame)")
+            // From AX1 as PushedHeader (D4 rule 2): from the leading inset, not centred.
+            #expect(abs(title.frame.minX - 20) < 1, "from the inset: \(title.frame)")
         }
     }
 

@@ -32,7 +32,7 @@ struct SessionDetailContent: Equatable {
         case loaded
         /// Waiting for it: the exercises are outlines.
         case loading
-        /// It couldn't be read (offline, not cached): the message and Try again in the exercises' place.
+        /// It couldn't be read (not cached): the message and Try again in the exercises' place.
         case failed
     }
 
@@ -100,8 +100,8 @@ struct SessionDetailContent: Equatable {
                 spoken.append(Fmt.spokenDuration(minutes: minutes, locale: locale))
             }
             if let sets {
-                shown.append(String(localized: "\(sets) sets"))
-                spoken.append(String(localized: "\(sets) sets"))
+                shown.append(String(localized: "\(sets)\u{00A0}sets"))
+                spoken.append(String(localized: "\(sets)\u{00A0}sets"))
             }
             subtitleParts = shown
             spokenSubtitle = spoken.joined(separator: ", ")
@@ -159,9 +159,9 @@ struct SessionDetailContent: Equatable {
     /// "5 reps at 80 kilograms", "8 reps", "80 kilograms"; a timed set "45 seconds", a distance "3.1 miles, 25 minutes".
     static func spoken(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         switch (s.reps, s.weightKg) {
-        case let (r?, kg?): return String(localized: "\(r) reps at \(Fmt.kgNumber(kg, locale: locale)) kilograms")
-        case let (r?, nil): return String(localized: "\(r) reps")
-        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg, locale: locale)) kilograms")
+        case let (r?, kg?): return String(localized: "\(r)\u{00A0}reps at \(Fmt.kgNumber(kg, locale: locale))\u{00A0}kilograms")
+        case let (r?, nil): return String(localized: "\(r)\u{00A0}reps")
+        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg, locale: locale))\u{00A0}kilograms")
         default:
             let time = s.durationSec.map { spokenDuration(seconds: $0, locale: locale) }
             if let m = s.distanceM, m > 0 {
@@ -201,6 +201,8 @@ final class SessionDetailViewModel {
     private(set) var failureDetails: String?
     /// The last read was held back by a `Retry-After`, online (`TrainRead.heldBack`): RYFT is busy, not "when you're online".
     private(set) var heldBack = false
+    /// The last read found the iPhone offline (`TrainRead.offline`); not when it was held back or failed online.
+    private(set) var offline = false
     /// The list's summary of it, read once, at the first paint (`summary`).
     @ObservationIgnored private var summaryRead: SessionSummary??
 
@@ -237,8 +239,13 @@ final class SessionDetailViewModel {
         session = read.value ?? session
         failureDetails = session == nil ? read.failure : nil
         heldBack = read.heldBack
+        offline = read.offline
         loaded = true
     }
+
+    /// The failure's sentence, with nothing read: offline, "when you're online"; held back online, RYFT is busy; failed
+    /// online, try again (`TrainReadFailure`).
+    var failureText: String { SessionDetailPage.failureText(offline: offline, heldBack: heldBack) }
 }
 
 /// A finished session (PR 6 B §7.2, `b-14`): Back, its title over "Fri, Nov 13 · 55 min · 17 sets"; the strain numeral and
@@ -261,7 +268,7 @@ private struct SessionDetailScreen: View {
     var body: some View {
         SessionDetailPage(content: model.content(locale: locale), key: model.sessionID.uuidString,
                           numeralStyle: env.settings.heroNumerals.style, failureDetails: model.failureDetails,
-                          heldBack: model.heldBack, retry: { await model.load(userInitiated: true) })
+                          failureText: model.failureText, retry: { await model.load(userInitiated: true) })
             .task(id: env.connectivity.isOnline) { await model.load() }
     }
 }
@@ -276,8 +283,9 @@ struct SessionDetailPage: View {
     var numeralStyle: DotNumeral.Style = .dots
     /// The failed read's status and request ID, behind the failure's Details.
     var failureDetails: String?
-    /// The read was held back by a `Retry-After`, online: the failure says RYFT is busy (code review N4).
-    var heldBack = false
+    /// The failure's sentence (`SessionDetailViewModel.failureText`). Required: a default would put offline's words on a
+    /// page that failed online.
+    let failureText: String
     /// The failure's Try again: the session's read.
     var retry: () async -> Void = {}
 
@@ -310,9 +318,8 @@ struct SessionDetailPage: View {
                     case .loading:
                         placeholders
                     case .failed:
-                        InlineMessage(message: heldBack ? RefreshIssue.Reason.busy.message
-                                          : String(localized: "This workout couldn't be loaded. Try again when you're online."),
-                                      details: failureDetails, retry: retry, identifier: "sessionDetail.failure")
+                        InlineMessage(message: failureText, details: failureDetails, retry: retry,
+                                      identifier: "sessionDetail.failure")
                     }
                 }
                 .padding(.top, SessionDetailLayout.spacing)
@@ -325,6 +332,23 @@ struct SessionDetailPage: View {
         .toolbar(.hidden, for: .navigationBar)
         .keepsBackSwipe()
         .navigationDestination(item: $shownExercise) { ExerciseDetailView(exerciseID: $0) }
+    }
+
+    /// A failed read with nothing cached, the iPhone offline.
+    static var offlineFailureText: String {
+        String(localized: "This workout couldn't be loaded. Try again when you're online.",
+               comment: "The session detail: the platform couldn't be reached and the session isn't on this iPhone.")
+    }
+
+    /// A failed read with nothing cached while online (RYFT answered with an error, or not in time).
+    static var onlineFailureText: String {
+        String(localized: "This workout couldn't be loaded. Try again.",
+               comment: "The session detail: the read failed online and the session isn't cached. Try again and Details are under it.")
+    }
+
+    /// The failed state's sentence (`TrainReadFailure`).
+    static func failureText(offline: Bool, heldBack: Bool) -> String {
+        TrainReadFailure.text(offline: offline, heldBack: heldBack, whenOffline: offlineFailureText, whenFailed: onlineFailureText)
     }
 
     /// The title over "Fri, Nov 13 · 55 min · 17 sets"; with nothing known yet, an outline where the title goes (VoiceOver
@@ -501,6 +525,9 @@ private struct PressReportingButtonStyle: ButtonStyle {
 
 @MainActor
 enum SessionDetailPreview {
+    /// The failure's sentence offline, the previews' failure (the "failed online" one passes its own).
+    static var offlineFailure: String { SessionDetailPage.failureText(offline: true, heldBack: false) }
+
     /// The latest Upper A as the platform has it: strain 10-ish, its notes, Bench press first.
     static var scored: SessionDetailContent { content(MockTrain.completed) }
 
@@ -518,7 +545,7 @@ enum SessionDetailPreview {
         SessionDetailContent(summary: nil, session: nil, loaded: false, locale: Locale(identifier: "en_US"))
     }
 
-    /// Offline, not cached, no summary either.
+    /// Not read, not cached, no summary either.
     static var failed: SessionDetailContent {
         SessionDetailContent(summary: nil, session: nil, loaded: true, locale: Locale(identifier: "en_US"))
     }
@@ -536,27 +563,37 @@ enum SessionDetailPreview {
 }
 
 #Preview("Session detail · no strain") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.unscored) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.unscored, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
 #Preview("Session detail · loading") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loading) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loading, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
 #Preview("Session detail · loading, nothing known") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.loadingUnknown) }
+    NavigationStack {
+        SessionDetailPage(content: SessionDetailPreview.loadingUnknown, failureText: SessionDetailPreview.offlineFailure)
+    }
         .previewEnvironment()
 }
 
 #Preview("Session detail · failed") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.failed) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.failed, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
 }
 
+#Preview("Session detail · failed online") {
+    NavigationStack {
+        SessionDetailPage(content: SessionDetailPreview.failed,
+                          failureText: SessionDetailPage.failureText(offline: false, heldBack: false))
+    }
+    .previewEnvironment()
+}
+
 #Preview("Session detail · AX3") {
-    NavigationStack { SessionDetailPage(content: SessionDetailPreview.scored) }
+    NavigationStack { SessionDetailPage(content: SessionDetailPreview.scored, failureText: SessionDetailPreview.offlineFailure) }
         .previewEnvironment()
         .environment(\.dynamicTypeSize, .accessibility3)
 }

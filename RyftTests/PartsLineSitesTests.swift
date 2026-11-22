@@ -92,8 +92,8 @@ struct PartsLineSitesTests {
         #expect(unchanged.source == "Default · add your birth year for an estimate")
         #expect(unchanged.spokenSource == unchanged.source)
         let changed = BodySettingContent(.maxHR, editor: editor, draft: 191)
-        #expect(changed.sourceParts == ["Default", "add your birth year for an estimate", "saved 190 bpm"])
-        #expect(changed.source == "Default · add your birth year for an estimate · saved 190 bpm")
+        #expect(changed.sourceParts == ["Default", "add your birth year for an estimate", "saved 190\u{00A0}bpm"])
+        #expect(changed.source == "Default · add your birth year for an estimate · saved 190\u{00A0}bpm")
         #expect(changed.spokenSource == "Default · add your birth year for an estimate, saved 190 beats per minute")
 
         let manual = self.editor(MockSleepNeedStates.user(sleepBaseMin: 450, sleepBaseSource: .manual))

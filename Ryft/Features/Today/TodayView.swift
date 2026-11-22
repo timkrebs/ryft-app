@@ -277,7 +277,7 @@ struct TodayView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if let delta = day.readinessDelta {
-                DeltaLabel(spec: .readiness, delta: delta, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+                DeltaLabel(spec: .readiness, delta: delta, reference: String(localized: "vs 7\u{00A0}d"), font: .ryft(.label),
                            referenceColor: DeltaLabel.color(delta, spec: .readiness))
             }
         }
@@ -666,7 +666,7 @@ struct ImportCard: View {
                 HStack(spacing: 10) {
                     RyftMark()
                         .frame(width: 22, height: 22)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.textPrimary)
                     Text("Setting up RYFT")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
@@ -674,13 +674,13 @@ struct ImportCard: View {
                 }
                 steps
                 VStack(spacing: 8) {
-                    row("Sleep", value: String(localized: "\(progress.nights) nights"))
+                    row("Sleep", value: String(localized: "\(progress.nights)\u{00A0}nights"))
                     row("Heart rate", value: String(localized: "\(progress.heartRateReadings.formatted()) readings"))
                     row("Workouts", value: progress.workouts.formatted())
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     ProgressView(value: progress.fraction)
-                        .tint(Theme.accent)
+                        .tint(Theme.textPrimary)
                         .accessibilityHidden(true)
                     Text(progress.coverageText)
                         .font(.ryft(.caption))
@@ -698,12 +698,7 @@ struct ImportCard: View {
                             .font(.ryft(.callout))
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 12) {
-                            Button(action: enablePush) { Text("Allow") }
-                                .buttonStyle(TealButtonStyle(prominent: true))
-                            Button(action: dismissPush) { Text("Not now") }
-                                .buttonStyle(TealButtonStyle(prominent: false))
-                        }
+                        PushAskButtons(identifier: "today.importCard.push", enable: enablePush, dismiss: dismissPush)
                     }
                     .accessibilityElement(children: .contain)
                 }
@@ -711,25 +706,24 @@ struct ImportCard: View {
         }
     }
 
-    /// Reading Apple Health → Uploading → Scoring, the current one lit.
+    /// Reading Apple Health → Uploading → Scoring, the current one lit: the inverse chip (`background` ink on a `textPrimary`
+    /// capsule, accent map class F), the ones done in `textSecondary`, the ones to come in `textTertiary`. One line while it
+    /// fits; then the chips wrap onto the next lines, each followed by its chevron, and a chip wider than the card wraps its
+    /// words: never truncated or shrunk (from AX1 they don't fit; part 1's validation found "Readin…" and "Uploa…").
     private var steps: some View {
-        HStack(spacing: 6) {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
             ForEach(ImportProgress.Step.allCases, id: \.self) { step in
-                if step != .reading {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.textTertiary)
-                        .accessibilityHidden(true)
+                HStack(spacing: 6) {
+                    ImportStepChip(title: step.title, isCurrent: step == progress.step,
+                                   ink: step == progress.step ? Theme.background
+                                       : step < progress.step ? Theme.textSecondary : Theme.textTertiary)
+                    if step != ImportProgress.Step.allCases.last {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                            .accessibilityHidden(true)
+                    }
                 }
-                Text(step.title)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(step == progress.step ? Theme.onAccent
-                                     : step < progress.step ? Theme.textSecondary : Theme.textTertiary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(step == progress.step ? Theme.accent : .clear, in: Capsule())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -750,6 +744,37 @@ struct ImportCard: View {
     }
 }
 
+/// One step of the import card: its name in caption, 8 by 4 inside; the current one on a `textPrimary` fill. The fill is a
+/// capsule on one line; a name that wraps (AX4 and up, "Reading Apple Health") keeps the capsule's end radius, so its lines
+/// stay inside the fill.
+private struct ImportStepChip: View {
+    let title: String
+    let isCurrent: Bool
+    let ink: Color
+
+    /// Half a one-line chip at the default size (caption's line and 4 above and below); it scales with the text.
+    @ScaledMetric(relativeTo: .caption) private var endRadius: CGFloat = 12
+
+    var body: some View {
+        Text(title)
+            .font(.ryft(.caption))
+            .foregroundStyle(ink)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isCurrent ? Theme.textPrimary : .clear, in: ChipShape(maxRadius: endRadius))
+    }
+}
+
+/// A capsule on one line; taller than `2 * maxRadius` (a wrapped name), a rounded rectangle with the one-line capsule's ends.
+private struct ChipShape: Shape {
+    let maxRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(cornerRadius: min(rect.height / 2, maxRadius), style: .continuous).path(in: rect)
+    }
+}
+
 /// The import going on after the first score: one slim row under the header.
 struct ImportRow: View {
     let progress: ImportProgress
@@ -760,13 +785,13 @@ struct ImportRow: View {
                 Text("Importing your history")
                     .foregroundStyle(Theme.textSecondary)
                 Spacer()
-                Text("\(progress.coveredDays) of \(ImportProgress.windowDays) days")
+                Text("\(progress.coveredDays) of \(ImportProgress.windowDays)\u{00A0}days")
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)
             }
             .font(.ryft(.caption))
             ProgressView(value: progress.fraction)
-                .tint(Theme.accent)
+                .tint(Theme.textPrimary)
         }
         .padding(.horizontal, 4)
         .accessibilityElement(children: .ignore)
@@ -900,11 +925,11 @@ struct WatchSyncHintCard: View {
             }
             Spacer(minLength: 0)
         }
-        // `Card`'s surface (design.md §D3.2): no hairline, the surface is the edge.
-        .padding(Theme.Metrics.cardPadding)
+        // `Card`'s surface, radius and inset (design.md §D3.2; the gate's D8: 22 and 16): no hairline, the surface is the edge.
+        .padding(CardSpec.padding)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
     }
 
     /// What VoiceOver reads when the card is a button: the sentence with its age (static text), then the action.
@@ -1114,6 +1139,25 @@ private struct TodayHandOffPreview: View {
                                                   isApp: true))
         }
     }
+}
+
+/// The mock import's progress at `step`.
+private func importProgressPreview(at step: ImportProgress.Step) -> ImportProgress {
+    var progress = TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now)))
+    progress.step = step
+    return progress
+}
+
+/// The import card's steps at each phase, at AX5: the chips wrap onto lines and a long name onto two, never cut.
+#Preview("Import card · steps · AX5", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(spacing: 16) {
+            ForEach(ImportProgress.Step.allCases, id: \.self) { step in
+                ImportCard(progress: importProgressPreview(at: step))
+            }
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility5)
 }
 
 // MARK: the night that hasn't reached Apple Health, and slow scoring (ui.md §6, previews 12–14)

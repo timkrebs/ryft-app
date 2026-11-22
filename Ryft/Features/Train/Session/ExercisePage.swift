@@ -592,9 +592,9 @@ struct LastTimeCard: View {
     private static func spokenValues(_ set: SessionSet) -> String {
         if let stored = SetStoredValue(reps: set.reps, durationSec: set.durationSec, distanceM: set.distanceM) { return stored.spoken }
         switch (set.reps, set.weightKg) {
-        case let (r?, k?): return String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms")
-        case let (r?, nil): return String(localized: "\(r) reps")
-        case let (nil, k?): return String(localized: "\(Fmt.kgNumber(k)) kilograms")
+        case let (r?, k?): return String(localized: "\(r)\u{00A0}reps at \(Fmt.kgNumber(k))\u{00A0}kilograms")
+        case let (r?, nil): return String(localized: "\(r)\u{00A0}reps")
+        case let (nil, k?): return String(localized: "\(Fmt.kgNumber(k))\u{00A0}kilograms")
         default: return Fmt.placeholder
         }
     }

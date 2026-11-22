@@ -27,14 +27,10 @@ struct DebugComponentCatalog: View {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     section("Nocturne · gauge") { OrbitGaugePreviewBoard() }
                     section("Nocturne · launch") { LaunchCatalogEntry() }
-                    section("MetricGauge") { gauges }
                     section("RangeBar") { rangeBars }
                     section("DeltaLabel") { deltas }
                     section("TrendChart") { trends }
-                    section("ZoneBar") { zones }
                     section("Sleep") { sleep }
-                    section("MetricTile") { tiles }
-                    section("ScoreRing") { rings }
                     section("Cards and rows") { cards }
                     section("Messages") { messages }
                     section("Buttons and pickers") { buttons }
@@ -86,23 +82,6 @@ struct DebugComponentCatalog: View {
 
     // MARK: sections
 
-    private var gauges: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            MetricGauge(spec: .readiness, value: 84, size: .large, delta: MetricDelta(current: 84, reference: 76),
-                        title: String(localized: "Overall readiness"), showsMark: true)
-            HStack(alignment: .top, spacing: 12) {
-                MetricGauge(spec: .strain, value: 12.4, size: .medium, target: 11...14,
-                            delta: MetricDelta(current: 12.4, reference: 10))
-                MetricGauge(spec: .recovery, value: 28, size: .medium, delta: MetricDelta(current: 28, reference: 61))
-            }
-            HStack(spacing: 12) {
-                MetricGauge(spec: .recovery, value: 55, size: .small)
-                MetricGauge(spec: .strain, value: 19.2, size: .small)
-                MetricGauge(spec: .readiness, value: nil, size: .small)
-            }
-        }
-    }
-
     private var rangeBars: some View {
         VStack(spacing: 16) {
             RangeBar(spec: .hrv, value: 58, range: 41...66, typical: 48...56, baseline: 53)
@@ -114,9 +93,9 @@ struct DebugComponentCatalog: View {
 
     private var deltas: some View {
         VStack(alignment: .leading, spacing: 8) {
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: String(localized: "vs 7\u{00A0}d"))
             DeltaLabel(spec: .strain, delta: MetricDelta(current: 14, reference: 11))
             DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 468, reference: 443))
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.4, reference: 52))
@@ -135,14 +114,6 @@ struct DebugComponentCatalog: View {
         }
     }
 
-    private var zones: some View {
-        VStack(spacing: 18) {
-            ZoneBar(minutes: [31, 25, 16, 6, 2])
-            ZoneBar(minutes: [3, 41, 18, 2, 0])
-            ZoneBar(minutes: nil)
-        }
-    }
-
     @ViewBuilder
     private var sleep: some View {
         if let night = MockData.todayDetail.sleep {
@@ -155,40 +126,17 @@ struct DebugComponentCatalog: View {
         }
     }
 
-    private var tiles: some View {
-        HStack(spacing: 10) {
-            MetricTile(title: "Sleep", value: "7h 48m", systemImage: "moon.fill", tint: Theme.metricSleep, action: {})
-            MetricTile(title: "Recovery", value: "82%", systemImage: "heart", tint: Theme.band(forScore: 82),
-                       caption: String(localized: "High"), action: {})
-            MetricTile(title: "Strain", value: Fmt.placeholder, systemImage: "bolt.fill", tint: Theme.metricStrain)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var rings: some View {
-        HStack(spacing: 16) {
-            ScoreRing(progress: 0.6, size: 36, lineWidth: 3, color: Theme.metricStrain,
-                      accessibilityLabel: Text("Strain"), accessibilityValue: Text("12")) {
-                Text(verbatim: "12").font(.ryftNumber(size: 11)).foregroundStyle(Theme.textPrimary)
-            }
-            ScoreRing(progress: nil, size: 36, lineWidth: 3,
-                      accessibilityLabel: Text("Strain"), accessibilityValue: Text("No data")) {
-                Text(Fmt.placeholder).font(.ryftNumber(size: 11)).foregroundStyle(Theme.textSecondary)
-            }
-        }
-    }
-
     private var cards: some View {
         VStack(spacing: 12) {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
-                    CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
+                    CardHeader(title: "Trends", trailing: "7\u{00A0}days", showsChevron: true)
                     StatRow(title: "Bedtime", value: "22:58")
                     StatRow(title: "Sleep debt", value: "1h 05m", valueColor: Theme.warning)
                     StatRow(title: "Timezone", value: "Europe/Berlin", detail: "Phone: Europe/Lisbon")
                 }
             }
-            ChartHeader(spec: .hrv, value: 58, delta: MetricDelta(current: 58, reference: 53), window: String(localized: "30 d"))
+            ChartHeader(spec: .hrv, value: 58, delta: MetricDelta(current: 58, reference: 53), window: String(localized: "30\u{00A0}d"))
             ScrubReadout(value: "58 ms", date: "Mon, 13 Oct", delta: "+5 ms vs baseline")
             SetupCard {}
         }
@@ -209,12 +157,6 @@ struct DebugComponentCatalog: View {
 
     private var buttons: some View {
         VStack(spacing: 12) {
-            PrimaryButton(title: "Continue") {}
-            PrimaryButton(title: "Log out", style: .secondary) {}
-            PrimaryButton(title: "Delete account", style: .destructive) {}
-            PrimaryButton(title: "Sync now", style: .secondary, busy: true) {}
-            Button("Start") {}.buttonStyle(TealButtonStyle())
-            Button("New plan") {}.buttonStyle(TealButtonStyle(prominent: false))
             CatalogPicker()
         }
     }
@@ -275,7 +217,7 @@ struct DebugComponentCatalog: View {
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
             RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),

@@ -69,7 +69,8 @@ import Testing
         #expect(m.outerRadius - m.dotRadius > m.innerRadius + m.dotRadius)
     }
 
-    @Test func sizesKeepMetricGaugeFrames() {
+    /// The dial sizes the screens were laid out for, plus 6 pt a side for the ticks.
+    @Test func sizesKeepTheirDialFrames() {
         #expect(OrbitGauge.Size.small.frame == 84)
         #expect(OrbitGauge.Size.medium.frame == 124)
         #expect(OrbitGauge.Size.large.frame == 172)
@@ -87,7 +88,7 @@ import Testing
     @Test func spokenValueNamesEveryScore() {
         let s = OrbitGauge.spokenValue(.previewScored)
         // The simulator's region decides the decimal separator: 9.6 or 9,6.
-        #expect(s.hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, Strain 9"))
+        #expect(s.hasPrefix("71, High. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9"))
         #expect(s.hasSuffix(" of 21"))
         let missing = OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6))
         #expect(missing.contains("Sleep, not scored"))

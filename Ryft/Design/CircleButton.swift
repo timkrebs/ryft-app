@@ -41,14 +41,32 @@ struct CircleButton: View {
 }
 
 private struct CircleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.modifier(CircleButtonLook(isPressed: configuration.isPressed))
+    }
+}
+
+extension CircleButton {
+    /// A header's Back circle (`PushedHeader`): "Back".
+    static var backLabel: Text { Text("Back", comment: "VoiceOver label of the circle button that goes back to the page before.") }
+    /// A header's close circle (`SheetHeader`, `SubpageScaffold`'s `.backAndClose`) unless the caller says otherwise: "Close".
+    static var closeLabel: Text { Text("Close") }
+}
+
+/// The circle's look, in one place: `CircleButton`'s style and `CircleMenu` (a `Menu`, which can't be a `CircleButton`) both
+/// draw it. The 40 pt circle with its 1 pt `textPrimary` ring at 16 % in the 44 pt box, all of it the hit area; the icon in
+/// `textPrimary`, 35 % when disabled. `isPressed` fills the circle at 8 %; a menu passes nothing and shows the system's
+/// highlight instead.
+struct CircleButtonLook: ViewModifier {
+    var isPressed = false
     @Environment(\.isEnabled) private var isEnabled
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+    func body(content: Content) -> some View {
+        content
             .foregroundStyle(Theme.textPrimary.opacity(isEnabled ? 1 : CircleButton.disabledIconOpacity))
             .frame(width: CircleButton.diameter, height: CircleButton.diameter)
             .background {
-                Circle().fill(Theme.textPrimary.opacity(configuration.isPressed ? CircleButton.pressedFillOpacity : 0))
+                Circle().fill(Theme.textPrimary.opacity(isPressed ? CircleButton.pressedFillOpacity : 0))
             }
             .overlay {
                 Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)

@@ -113,8 +113,8 @@ struct SetColumnTests {
     // MARK: VoiceOver
 
     @Test func theEstimatesAreSpokenWithTheirKind() {
-        #expect(SetColumn.e1rm.spoken(weightKg: 75, reps: 10, rpe: nil) == "estimated one-rep max 100 kilograms")
-        #expect(SetColumn.tenRM.spoken(weightKg: 75, reps: 10, rpe: nil) == "estimated ten-rep max 75 kilograms")
+        #expect(SetColumn.e1rm.spoken(weightKg: 75, reps: 10, rpe: nil) == "estimated one-rep max 100\u{00A0}kilograms")
+        #expect(SetColumn.tenRM.spoken(weightKg: 75, reps: 10, rpe: nil) == "estimated ten-rep max 75\u{00A0}kilograms")
         #expect(SetColumn.rpe.spoken(weightKg: 75, reps: 10, rpe: 8) == "RPE 8")
         #expect(SetColumn.rpe.spoken(weightKg: 75, reps: 10, rpe: nil) == nil)
     }
@@ -458,9 +458,9 @@ struct SessionColumnTests {
         let r = rig()
         let set = r.x.orderedSets[0] // 5 × 80, typed
         r.settings.setColumn = .e1rm
-        #expect(r.controller.columnSpoken(of: set, in: r.x) == "estimated one-rep max \(Fmt.kgNumber(93.5)) kilograms")
+        #expect(r.controller.columnSpoken(of: set, in: r.x) == "estimated one-rep max \(Fmt.kgNumber(93.5))\u{00A0}kilograms")
         r.settings.setColumn = .tenRM
-        #expect(r.controller.columnSpoken(of: set, in: r.x) == "estimated ten-rep max 70 kilograms")
+        #expect(r.controller.columnSpoken(of: set, in: r.x) == "estimated ten-rep max 70\u{00A0}kilograms")
     }
 
     @Test func aRowHasNothingToAddInRPE() {
@@ -499,11 +499,11 @@ struct SessionColumnTests {
 
     @Test func theCardSpeaksTheColumn() {
         let e1rm = card(lastTime, .e1rm).spoken
-        #expect(e1rm.contains("10 reps at 75 kilograms, estimated one-rep max 100 kilograms"))
-        #expect(e1rm.contains("6 reps at 80 kilograms, estimated one-rep max 96 kilograms"))
-        #expect(card(lastTime, .tenRM).spoken.contains("estimated ten-rep max 72 kilograms"))
+        #expect(e1rm.contains("10\u{00A0}reps at 75\u{00A0}kilograms, estimated one-rep max 100\u{00A0}kilograms"))
+        #expect(e1rm.contains("6\u{00A0}reps at 80\u{00A0}kilograms, estimated one-rep max 96\u{00A0}kilograms"))
+        #expect(card(lastTime, .tenRM).spoken.contains("estimated ten-rep max 72\u{00A0}kilograms"))
         let rpe = card(lastTime, .rpe).spoken
-        #expect(rpe.contains("10 reps at 75 kilograms, RPE 8") && !rpe.contains("estimated"))
+        #expect(rpe.contains("10\u{00A0}reps at 75\u{00A0}kilograms, RPE 8") && !rpe.contains("estimated"))
     }
 
     @Test func theCardFollowsTheExercisesColumnOnThePage() {

@@ -85,7 +85,7 @@ struct NocturneTrainPrimitivesHostedTests {
         }
     }
 
-    /// R2 V1 S1 (C §2.9, as `SubpageHeader`): at the accessibility sizes the title isn't squeezed between the circles.
+    /// R2 V1 S1 (C §2.9): at the accessibility sizes the title isn't squeezed between the circles.
     @Test("Pushed header at AX3: Back and the trailing circle on the first line, the title under them from the inset, whole")
     func pushedHeaderAX3() async throws {
         let header = PushedHeader(Text(verbatim: "Upper/Lower 4× (copy)"), subtitle: Text(verbatim: "Hypertrophy · 4 days/week")) {

@@ -40,15 +40,37 @@ enum TrainHistoryRows {
                                        valueCaption: loadCaption)
     }
 
-    /// A failed read with nothing cached.
-    static var failureText: String {
+    /// A failed read with nothing cached, the iPhone offline.
+    static var offlineFailureText: String {
         String(localized: "Your workouts couldn't be loaded. Try again when you're online.",
                comment: "History: the platform couldn't be reached and nothing is cached (as the session detail's message).")
+    }
+
+    /// A failed read with nothing cached while online (RYFT answered with an error, or not in time).
+    static var onlineFailureText: String {
+        String(localized: "Your workouts couldn't be loaded. Try again.",
+               comment: "History: the read failed online and nothing is cached. Try again and Details are under it.")
+    }
+
+    /// The failed state's sentence (`TrainReadFailure`).
+    static func failureText(offline: Bool, heldBack: Bool) -> String {
+        TrainReadFailure.text(offline: offline, heldBack: heldBack, whenOffline: offlineFailureText, whenFailed: onlineFailureText)
     }
 
     /// The word under a row's load.
     static var loadCaption: String {
         String(localized: "load", comment: "History: under a session's muscular load at the right of its row (\"85.0\" over \"load\").")
+    }
+}
+
+/// Which sentence a Train page's failed read says with nothing cached (History, the exercise page, the session detail):
+/// offline (`TrainRead.offline`: nothing could be sent, or the connection was lost), the page's "Try again when you're
+/// online"; held back online by a `Retry-After`, RYFT is busy (code review N4); failed online (an error answer, no answer in
+/// time, a binding that ended), the page's "Try again", since going online won't help. Held back is always online.
+enum TrainReadFailure {
+    static func text(offline: Bool, heldBack: Bool, whenOffline: String, whenFailed: String) -> String {
+        if heldBack { return RefreshIssue.Reason.busy.message }
+        return offline ? whenOffline : whenFailed
     }
 }
 
@@ -252,7 +274,7 @@ private struct HistoryWeekHeader: View {
 enum SetText {
     /// "100 kg × 5", "× 8", "45 s".
     static func short(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
-        if let d = s.durationSec, s.reps == nil { return String(localized: "\(d) s") }
+        if let d = s.durationSec, s.reps == nil { return String(localized: "\(d)\u{00A0}s") }
         switch (s.weightKg, s.reps) {
         case let (kg?, r?): return "\(Fmt.kg(kg, locale: locale)) × \(r)"
         case let (nil, r?): return "× \(r)"
@@ -325,6 +347,14 @@ enum TrainHistoryPreview {
 #Preview("History · failed") {
     NavigationStack {
         TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary, sessions: [], fresh: false))
+    }
+    .previewEnvironment()
+}
+
+#Preview("History · failed online") {
+    NavigationStack {
+        TrainHistoryPage(model: TrainHistoryViewModel(library: TrainHistoryPreview.emptyLibrary, sessions: [], fresh: false,
+                                                      offline: false))
     }
     .previewEnvironment()
 }

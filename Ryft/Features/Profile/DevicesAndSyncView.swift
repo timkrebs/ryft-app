@@ -174,7 +174,7 @@ struct DevicesAndSyncView: View {
     }
 
     private func seenFooter(_ freshness: SourcesFreshness) -> Text {
-        let footer = Text("Apps and devices that sent data to RYFT in the last 30 days.")
+        let footer = Text("Apps and devices that sent data to RYFT in the last 30\u{00A0}days.")
         guard case .stale(let loaded) = freshness else { return footer }
         return footer + Text(verbatim: " ") + Text(verbatim: model.lastLoadedText(loaded))
     }
