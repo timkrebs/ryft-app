@@ -9,7 +9,7 @@ API key, no settings.
 | Today | Sleep | Strain | Insights | Profile |
 |---|---|---|---|---|
 | ![Today](docs/screenshots/today-dark.png) | ![Sleep](docs/screenshots/sleep-dark.png) | ![Strain](docs/screenshots/strain-dark.png) | ![Insights](docs/screenshots/insights-dark.png) | ![Profile](docs/screenshots/profile-dark.png) |
-| ![Calibrating](docs/screenshots/calibrating-dark.png) | ![Sleep week](docs/screenshots/sleep-week-dark.png) | ![Workout](docs/screenshots/workout-dark.png) | ![Tonight](docs/screenshots/tonight-dark.png) | ![Setup](docs/screenshots/setup-dark.png) |
+| ![Calibrating](docs/screenshots/calibrating-dark.png) | ![Sleep need](docs/screenshots/sleepNeed-dark.png) | ![Bedtime](docs/screenshots/bedtime-dark.png) | ![Tonight](docs/screenshots/tonight-dark.png) | ![Notifications](docs/screenshots/notifications-dark.png) |
 
 Screenshots come from the simulator with the built-in mock data (`scripts/screenshots.sh`).
 
@@ -202,8 +202,9 @@ sessions. Completing a workout returns a demo load, strain and PRs.
 sets → kill → resume → finish) runs on the `RyftUITests` scheme. It finds the app by bundle
 ID; to use `XCUIApplication()`, set the target's *Target Application* to Ryft in Xcode.
 
-`scripts/screenshots.sh ["iPhone 17 Pro"]` builds the app, launches each tab in both
-colour schemes and writes PNGs to `docs/screenshots/`.
+`scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario …]` builds the app, launches
+each tab (or Debug screen, or Today scenario) in demo mode, dark and in English, and writes PNGs
+to `docs/screenshots/`.
 
 ### Against a local platform (compose, `AUTH_MODE=apikey`)
 

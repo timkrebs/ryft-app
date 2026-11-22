@@ -143,8 +143,8 @@ final class AddSleepModel: Identifiable {
         switch issue {
         case .wakeInFuture: return String(localized: "Waking up can't be in the future.", comment: "Add sleep: the wake time is later than now.")
         case .wakeBeforeBed: return String(localized: "Waking up must be after going to bed.", comment: "Add sleep: wake before bed.")
-        case .length: return String(localized: "Sleep can be 1 to 16 hours.")
-        case .tooFarBack: return String(localized: "You can add sleep for the last 14 days.", comment: "Add sleep: the night is too far back.")
+        case .length: return String(localized: "Sleep can be 1 to 16\u{00A0}hours.")
+        case .tooFarBack: return String(localized: "You can add sleep for the last 14\u{00A0}days.", comment: "Add sleep: the night is too far back.")
         case .nightAdded:
             return String(localized: "You already added a night for that day.",
                           comment: "Add or edit sleep: the wake day already has a night the user added.")

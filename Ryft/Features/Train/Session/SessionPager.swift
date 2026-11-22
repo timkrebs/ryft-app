@@ -52,11 +52,7 @@ private struct SessionPagerPreview: View {
     }
 }
 
-#Preview("Pager · dark") {
+#Preview("Pager") {
     SessionPagerPreview().previewEnvironment()
-}
-
-#Preview("Pager · light") {
-    SessionPagerPreview().previewEnvironment(scheme: .light)
 }
 #endif

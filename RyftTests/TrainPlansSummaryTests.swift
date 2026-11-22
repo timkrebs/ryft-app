@@ -19,8 +19,8 @@ struct TrainPlansSummaryTests {
     }
 
     @Test func theBannerSaysWhatIsRunning() {
-        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23\u{00A0}min · 6 sets done")
-        #expect(WorkoutInProgressBanner.spoken(title: "Upper A", minutes: 23, sets: 6) == "Upper A, 23 minutes, 6 sets done")
+        #expect(WorkoutInProgressBanner.meta(title: "Upper A", minutes: 23, sets: 6) == "Upper A · 23\u{00A0}min · 6\u{00A0}sets done")
+        #expect(WorkoutInProgressBanner.spoken(title: "Upper A", minutes: 23, sets: 6) == "Upper A, 23 minutes, 6\u{00A0}sets done")
         let start = Date(timeIntervalSince1970: 1_000_000)
         #expect(WorkoutInProgressBanner.minutes(since: start, now: start.addingTimeInterval(23 * 60 + 59)) == 23)
         #expect(WorkoutInProgressBanner.minutes(since: start, now: start.addingTimeInterval(-120)) == 0, "a clock moved back")
@@ -157,12 +157,12 @@ struct TrainPlansSummaryTests {
         let summary = PlanSummary(MockTrain.upperLower)
         let active = PlanRowContent(summary, status: .active)
         #expect(active.row.filledDisc && active.row.systemImage == "checkmark" && !active.row.showsValue)
-        #expect(active.row.spoken.hasPrefix("Upper/Lower 4×, Active, Hypertrophy, 4 days a week"), "\(active.row.spoken)")
+        #expect(active.row.spoken.hasPrefix("Upper/Lower 4×, Active, Hypertrophy, 4\u{00A0}days a week"), "\(active.row.spoken)")
         let paused = PlanRowContent(summary, status: .paused)
         #expect(!paused.row.filledDisc && paused.row.spoken.contains("Paused"))
         let other = PlanRowContent(PlanSummary(MockTrain.fullBody), status: nil)
         #expect(!other.row.filledDisc && other.row.systemImage == "list.bullet.rectangle")
-        #expect(other.row.spoken == "Full Body 3×, Strength, 3 days a week, 12 weeks")
+        #expect(other.row.spoken == "Full Body 3×, Strength, 3\u{00A0}days a week, 12\u{00A0}weeks")
         #expect(other.row.meta == MockTrain.fullBody.summaryText)
     }
 
@@ -254,12 +254,12 @@ struct TrainPlansSummaryTests {
     @Test func aPlansSpokenLines() throws {
         let squat = try #require(MockTrain.fullBody.days.first?.exercises.first)
         let spoken = PlanSpeech.exercise(squat, locale: english)
-        #expect(spoken.hasPrefix("\(squat.exercise.name), \(squat.sets) sets of "), "\(spoken)")
+        #expect(spoken.hasPrefix("\(squat.exercise.name), \(squat.sets)\u{00A0}sets of "), "\(spoken)")
         #expect(spoken.contains("rest "), "\(spoken)")
         #expect(PlanSpeech.restDuration(180, locale: english) == "3 minutes")
         #expect(PlanSpeech.restDuration(90, locale: english).contains("30 seconds"))
         #expect(PlanSpeech.day("Day A", minutes: 55) == "Day A, about 55 minutes")
-        #expect(PlanSpeech.summary(goal: .strength, daysPerWeek: 3, weeks: 12) == "Strength, 3 days a week, 12 weeks")
+        #expect(PlanSpeech.summary(goal: .strength, daysPerWeek: 3, weeks: 12) == "Strength, 3\u{00A0}days a week, 12\u{00A0}weeks")
         var kg = squat
         kg.targetKind = .kg
         kg.targetValue = 100
@@ -334,7 +334,7 @@ struct TrainPlansSummaryHostedTests {
             try await w.settle()
             let banner = try #require(w.nodes().first { $0.identifier == "train.resume" })
             #expect(banner.label == "Workout in progress")
-            #expect(banner.value == "Upper A, 23 minutes, 6 sets done" || banner.value == "Upper A, 24 minutes, 6 sets done",
+            #expect(banner.value == "Upper A, 23 minutes, 6\u{00A0}sets done" || banner.value == "Upper A, 24 minutes, 6\u{00A0}sets done",
                     "\(banner.value ?? "")")
             #expect(banner.hint == "Opens the workout")
             #expect(banner.traits.contains(.button))
@@ -434,7 +434,7 @@ struct TrainPlansSummaryHostedTests {
             #expect(tile.label == "Upper/Lower 4×, Active, Week 6, Next: Upper A")
             let pixel = try #require(w.pixel(at: CGPoint(x: tile.frame.minX - 8, y: tile.frame.midY)))
             #expect(pixel.b - pixel.r > 0.08, "strain blue at the tile's edge: \(pixel)")
-            #expect(w.node("Full Body 3×, Strength, 3 days a week, 12 weeks", exactly: true) != nil)
+            #expect(w.node("Full Body 3×, Strength, 3\u{00A0}days a week, 12\u{00A0}weeks", exactly: true) != nil)
         }
     }
 
@@ -475,7 +475,7 @@ struct TrainPlansSummaryHostedTests {
             try await w.settle()
             let header = try #require(w.nodes().first { $0.identifier == "plan.header" })
             #expect(header.label == MockTrain.fullBody.name)
-            #expect(header.value == "Strength, 3 days a week, 12 weeks", "\(header.value ?? "")")
+            #expect(header.value == "Strength, 3\u{00A0}days a week, 12\u{00A0}weeks", "\(header.value ?? "")")
             let squat = try #require(MockTrain.fullBody.days.first?.exercises.first)
             #expect(w.node(PlanSpeech.exercise(squat), exactly: true) != nil, "one element per exercise")
             #expect(ids(w).contains("plan.copy") && !ids(w).contains("plan.delete"), "built-in: Copy and edit, no Delete")

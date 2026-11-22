@@ -107,6 +107,12 @@
   - Renaming `Accent` would touch both catalogs, `Shared/` and the checker, with nothing visible to show for it.
   - "One accent per screen" and "recovery" are the same teal, so callers of `accent` keep working. PRs 2–5 write the legend as
     `recovery`, `metricSleep`, `metricStrain`.
+- **Amended 2026-11-21 (Nocturne gate part 2, G4): the legacy names are now removed.** `Accent`, `Teal`, `OnAccent`, `Graphite`,
+  `Mist`, `Slate`, `Sage` and the four `Stage*` sets are deleted from both catalogs, with `Theme.teal`, `accent`, `onAccent`,
+  `zones`, the stage colours, `graphite`, `slate`, `sage` and `mist`; `scripts/check-accent-use.py` rule 1a fails on their names in
+  `Ryft/`, `Shared/` and `RyftWidgets/`. The recovery teal is its own `Recovery` set (since #127), `UILaunchScreen` names
+  `Background`, and `AccentColor` (`#F2F1EC`, ink) is the global accent (`docs/work/2026-11-20-nocturne-gate/design.md` §1.10).
+  What follows is the decision as first taken.
 - **Legacy names are remapped, not removed.**
   - `Graphite`, `Mist`, `Slate` and `Teal` carry the Nocturne values of `background`, `textPrimary`, `surface` and `accent`.
   - `Sage` keeps its value, and `AccentSecondary` keeps its dark one.

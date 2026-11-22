@@ -92,11 +92,11 @@ struct NocturneTodaySleepA11yTests {
     func theLabelRowIsNotRead() async throws {
         try await today { w in
             let labels = w.nodes().map(\.label)
-            // (The Trends card further down says "Up 11 versus 7 days" inside its own label; the row under the gauge would lead with it.)
+            // (The Trends card further down says "Up 11 versus 7\u{00A0}days" inside its own label; the row under the gauge would lead with it.)
             #expect(!labels.contains { $0.hasPrefix("Readiness ·") || $0.hasPrefix("Up 11") || $0.hasPrefix("▲") || $0 == "vs 7 d" },
                     "\(labels)")
             let gauge = try node(w, "today.readinessGauge")
-            #expect(gauge.value?.hasPrefix("84, High, Up 11 versus 7 days. Recovery 82 percent, Sleep 94 percent, Strain 12") == true,
+            #expect(gauge.value?.hasPrefix("84, High, Up 11 versus 7\u{00A0}days. Recovery 82\u{00A0}percent, Sleep 94\u{00A0}percent, Strain 12") == true,
                     "\(gauge.value ?? "nil")")
         }
     }
@@ -168,9 +168,9 @@ struct NocturneTodaySleepA11yTests {
     func theTilesSpeakTheirSeries() async throws {
         try await today { w in
             let recovery = try node(w, "today.tile.recovery").value
-            #expect(recovery == "82 percent, High. HRV 66 milliseconds, lowest 51 and highest 66 over the last 7 days")
+            #expect(recovery == "82\u{00A0}percent, High. HRV 66\u{00A0}milliseconds, lowest 51 and highest 66 over the last 7\u{00A0}days")
             let sleep = try #require(try node(w, "today.tile.sleep").value)
-            #expect(sleep.hasPrefix("7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last is the night shown"), "\(sleep)")
+            #expect(sleep.hasPrefix("7 hours 48 minutes. Slept enough on 4 of the last 7\u{00A0}nights; the last is the night shown"), "\(sleep)")
             let strain = try #require(try node(w, "today.tile.strain").value)
             #expect(strain.contains("Moderate strain, on a scale from 0 to 21. The moderate range is 10 to 14."), "\(strain)")
         }
@@ -303,7 +303,7 @@ struct NocturneTodaySleepA11yTests {
                 { $0.identifier == "sleep.header.next" },
                 { $0.identifier == "sleep.mode" || $0.label == "Day" || $0.label == "Day ▾" },
                 { $0.identifier == "sleep.numeral" },
-                { $0.label == "94 percent of your need" },
+                { $0.label == "94\u{00A0}percent of your need" },
                 { $0.identifier == "sleep.ruler" },
                 { $0.identifier == "sleep.hypnogram" },
                 { $0.identifier == "sleep.tile.consistency" },
@@ -397,20 +397,20 @@ struct NocturneTodaySleepA11yTests {
         try await sleep(.latest) { w in
             let numeral = try node(w, "sleep.numeral")
             #expect(numeral.label == "7 hours 48 minutes asleep")
-            #expect(w.nodes().contains { $0.label == "94 percent of your need" })
+            #expect(w.nodes().contains { $0.label == "94\u{00A0}percent of your need" })
             let ruler = try node(w, "sleep.ruler")
             #expect(ruler.label == "Sleep duration scale")
-            #expect(ruler.value == "7 hours 48 minutes, on a scale from 0 to 10 hours. Your need is 8 hours 18 minutes.")
+            #expect(ruler.value == "7 hours 48 minutes, on a scale from 0 to 10\u{00A0}hours. Your need is 8 hours 18 minutes.")
             let hypnogram = try node(w, "sleep.hypnogram")
             #expect(hypnogram.label.hasPrefix("Hypnogram, ") && hypnogram.label.contains(" to "), "\(hypnogram.label)")
             #expect(hypnogram.value == "Deep 1 hour 35 minutes, REM 1 hour 45 minutes, Light 4 hours 28 minutes, Awake 22 minutes")
             let (debt, efficiency, restorative) = try (node(w, "sleep.tile.debt"), node(w, "sleep.tile.efficiency"),
                                                        node(w, "sleep.tile.restorative"))
             #expect(debt.value == "30 minutes, down 42 minutes from the night before")
-            #expect(efficiency.value == "95 percent")
-            #expect(restorative.value == "3 hours 20 minutes of deep and REM sleep, 100 percent of the target")
+            #expect(efficiency.value == "95\u{00A0}percent")
+            #expect(restorative.value == "3 hours 20 minutes of deep and REM sleep, 100\u{00A0}percent of the target")
             let consistency = try #require(try node(w, "sleep.tile.consistency").value)
-            #expect(consistency.hasPrefix("86 percent. 5 of the last 7 nights were regular, 1 was not, 1 night has no data;"), "\(consistency)")
+            #expect(consistency.hasPrefix("86\u{00A0}percent. 5 of the last 7\u{00A0}nights were regular, 1 was not, 1\u{00A0}night has no data;"), "\(consistency)")
             #expect(consistency.hasSuffix("the last is the night shown"), "\(consistency)")
         }
     }

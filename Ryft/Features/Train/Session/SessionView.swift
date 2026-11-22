@@ -187,7 +187,7 @@ struct SessionView: View {
         .confirmationDialog("Finish workout?", isPresented: $confirmFinish, titleVisibility: .visible) {
             Button("Finish workout") { Task { await finish() } }
         } message: {
-            Text("\(controller.session.completedSetCount) sets checked off. Empty rows are dropped.")
+            Text("\(controller.session.completedSetCount)\u{00A0}sets checked off. Empty rows are dropped.")
         }
         .confirmationDialog("Discard this workout?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard workout", role: .destructive) { coordinator.discard(controller) }

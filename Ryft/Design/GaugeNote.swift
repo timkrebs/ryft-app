@@ -38,8 +38,8 @@ struct GaugeNote: View {
 }
 
 /// The way to a fix under a `GaugeNote` (design.md §7 rev. 2 §5): "How to set up Garmin Connect ›", the app's link
-/// (`.ryftLink()`: `callout` in `InlineLink.ink`, underlined; Nocturne gate accent map, class X), centred and wrapping, at
-/// least 44 pt tall, its own VoiceOver button. It opens a sheet; nothing on it moves.
+/// (`.ryftLink()`: `callout` in `InlineLink.ink`, the words underlined, not the chevron; Nocturne gate accent map, class X),
+/// centred and wrapping, at least 44 pt tall, its own VoiceOver button. It opens a sheet; nothing on it moves.
 struct GaugeNoteLink: View {
     let title: String
     let action: () -> Void
@@ -50,8 +50,10 @@ struct GaugeNoteLink: View {
 
     var body: some View {
         Button(action: action) {
-            // One text, so the chevron follows the last word when the title wraps (German at AX3).
-            (Text(title) + Text(verbatim: "\u{00A0}") + Text(Image(systemName: "chevron.right")).font(.ryft(.caption)))
+            // One text, so the chevron follows the last word when the title wraps (at AX3). `.ryftLink()` underlines
+            // every run; the space and the chevron opt out, so the line is under the words only.
+            (Text(title) + Text(verbatim: "\u{00A0}").underline(false)
+                + Text(Image(systemName: "chevron.right")).font(.ryft(.caption)).underline(false))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)

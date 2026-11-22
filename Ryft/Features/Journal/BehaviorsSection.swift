@@ -31,7 +31,7 @@ enum ImpactFormat {
 
     /// "Last 90 days · computed 06:45".
     static func footer(_ impacts: BehaviorImpacts) -> String {
-        String(localized: "Last \(impacts.windowDays) days · computed \(Fmt.time(impacts.computedAt))")
+        String(localized: "Last \(impacts.windowDays)\u{00A0}days · computed \(Fmt.time(impacts.computedAt))")
     }
 }
 
@@ -140,13 +140,13 @@ struct BehaviorsSection: View {
                 if let hrv = impact.hrvPct {
                     effectRow(hrv, spec: .hrv, unit: String(localized: "% HRV"))
                 } else {
-                    Text("HRV needs 5 nights with and 5 without it.")
+                    Text("HRV needs 5\u{00A0}nights with and 5 without it.")
                         .font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
                 }
                 if let sleep = impact.sleepPerformance {
                     effectRow(sleep, spec: .sleepPerformance, unit: String(localized: "sleep performance"))
                 } else {
-                    Text("Sleep performance needs 5 nights with and 5 without it.")
+                    Text("Sleep performance needs 5\u{00A0}nights with and 5 without it.")
                         .font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
                 }
             }

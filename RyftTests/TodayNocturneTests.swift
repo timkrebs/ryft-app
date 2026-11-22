@@ -341,7 +341,7 @@ struct TodayNocturneTests {
         #expect(pending.hrvWeek == [57, 56, 55, 54, 53, 52, 51])
         // The VoiceOver sentence: the shown day's value and the week's range.
         let tile = TodayTilesContent(vm.content)
-        #expect(tile.hrvSentence == "HRV 66 milliseconds, lowest 51 and highest 66 over the last 7 days")
+        #expect(tile.hrvSentence == "HRV 66\u{00A0}milliseconds, lowest 51 and highest 66 over the last 7\u{00A0}days")
         #expect(TodayTilesContent(model(today: scored(84, hrv: nil), history: history(), status: .scored).content)
             .hrvSentence == nil)
     }
@@ -367,12 +367,12 @@ struct TodayNocturneTests {
         #expect(vm.sleepNights == [.missed, .missed, .missed, .missed, .missed, .missed, .today])
         let week = vm.content.sleepWeek
         #expect(week.nights.count == 7 && week.enoughCount == 1 && week.unknownCount == 0)
-        #expect(week.summary == "Slept enough on 1 of the last 7 nights; the last is the night shown")
+        #expect(week.summary == "Slept enough on 1 of the last 7\u{00A0}nights; the last is the night shown")
         // Enough, unknown and a gap.
         let mixed = TodaySleepWeek(nights: [.enough, .unknown, .short, .enough, .unknown, .enough, .short])
         #expect(mixed.marks == [.full, .noData, .missed, .full, .noData, .full, .today])
         #expect(mixed.enoughCount == 3 && mixed.unknownCount == 2)
-        #expect(mixed.summary == String(localized: "Slept enough on \(3) of the last 7 nights; the last is the night shown; \(2) nights have no data"))
+        #expect(mixed.summary == String(localized: "Slept enough on \(3) of the last 7\u{00A0}nights; the last is the night shown; \(2)\u{00A0}nights have no data"))
         var gap = history()
         gap.removeAll { $0.day == dayKey(-2) }
         let withGap = model(today: scored(84), history: gap, status: .scored).sleepNights
@@ -407,14 +407,14 @@ struct TodayNocturneTests {
         let a = TodayTilesContent(model(today: scored(84), history: history(), status: .scored).content)
         #expect(a.recoveryCaption == MetricSpec.scoreBand(82).label && a.caption == nil && !a.isEarlierDay)
         #expect(a.strainLabel == "Strain")
-        #expect(a.recoverySpoken.hasPrefix("82 percent, High"))
+        #expect(a.recoverySpoken.hasPrefix("82\u{00A0}percent, High"))
         #expect(a.sleepText == "7:48" && a.sleepSpoken.hasPrefix(Fmt.spokenDuration(minutes: 468) + ". Slept enough on"))
         // Pending with a previous day: yesterday's tiles, the same caption on all three, said not dimmed.
         let c = TodayTilesContent(model(today: try placeholder(), history: history(), status: .pending).content)
         let yesterday = String(localized: "Yesterday")
         #expect(c.isEarlierDay && c.recoveryCaption == yesterday && c.caption == yesterday)
         #expect(c.strainLabel == "Strain · \(yesterday)" && c.sleepText == "7:10" && c.recoveryText == "75")
-        #expect(c.recoverySpoken.hasPrefix("75 percent, \(yesterday), not today's score"))
+        #expect(c.recoverySpoken.hasPrefix("75\u{00A0}percent, \(yesterday), not today's score"))
         #expect(c.strainSpoken == "\(Fmt.strain(0.9)), \(yesterday), not today's score")
         // Calibrating (a short history): "calibrating" on all three; Recovery's "–" beside the baselines counter.
         let calibrating = String(localized: "today.tile.calibrating", defaultValue: "calibrating")

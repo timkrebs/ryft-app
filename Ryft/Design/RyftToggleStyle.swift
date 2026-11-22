@@ -9,7 +9,8 @@ import SwiftUI
 /// - Off: a 1.5 pt `textTertiary` outline on the ground and a 25 pt `textTertiary` knob at the leading end (4.54:1; the
 ///   system's filled grey off track would be 2.5:1).
 /// - The knob is inset 3 and slides in 250 ms; under Reduce Motion it moves without an animation.
-/// - Disabled dims the row to 35 %.
+/// - Disabled dims the row to 35 %. With `dimsLabel: false` only the track dims, and the label stays at full ink: a held
+///   switch whose label says why it is held (Profile's Demo data while a consent withdrawal is on its way, D6).
 ///
 /// It stays a `Toggle` for VoiceOver, Voice Control and Switch Control: the row's accessibility is a system switch's
 /// (the label, the on/off value, the toggle trait), not hand-made traits. The label keeps the caller's font and colour.
@@ -25,8 +26,11 @@ struct RyftToggleStyle: ToggleStyle {
     /// Between the label and the track (`Theme.Metrics.itemSpacing`).
     static let labelSpacing = Theme.Metrics.itemSpacing
 
+    /// Disabled, the whole row dims (every toggle); false, the track alone, so a label that names the reason stays readable.
+    var dimsLabel = true
+
     func makeBody(configuration: Configuration) -> some View {
-        RyftToggleRow(configuration: configuration)
+        RyftToggleRow(configuration: configuration, dimsLabel: dimsLabel)
     }
 }
 
@@ -37,6 +41,7 @@ extension ToggleStyle where Self == RyftToggleStyle {
 
 private struct RyftToggleRow: View {
     let configuration: ToggleStyleConfiguration
+    let dimsLabel: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -48,13 +53,14 @@ private struct RyftToggleRow: View {
                 configuration.label
                     .frame(maxWidth: .infinity, alignment: .leading)
                 RyftToggleTrack(isOn: configuration.isOn)
+                    .opacity(isEnabled || dimsLabel ? 1 : RyftToggleStyle.disabledOpacity)
                     .animation(Theme.Motion.respecting(reduceMotion), value: configuration.isOn)
             }
             .frame(minHeight: RyftToggleStyle.minRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(RyftToggleButtonStyle())
-        .opacity(isEnabled ? 1 : RyftToggleStyle.disabledOpacity)
+        .opacity(isEnabled || !dimsLabel ? 1 : RyftToggleStyle.disabledOpacity)
         // A system switch stands in for the row in the accessibility tree; `.switch` so it never draws (or resolves) this
         // style again.
         .accessibilityRepresentation {
@@ -106,6 +112,15 @@ private struct RyftTogglePreviewBoard: View {
                 .disabled(true)
             Toggle(isOn: .constant(false)) { Text(verbatim: "Disabled, off").font(.ryft(.body)).foregroundStyle(Theme.textPrimary) }
                 .disabled(true)
+            // A held switch whose label says why: the track alone dims.
+            Toggle(isOn: .constant(false)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "Held, off").font(.ryft(.body)).foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: "Waiting for something to finish.").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                }
+            }
+            .toggleStyle(RyftToggleStyle(dimsLabel: false))
+            .disabled(true)
             // In a row on `surface`, as a grouped list's toggle row.
             VStack(alignment: .leading, spacing: 0) {
                 Toggle(isOn: $reminder) {

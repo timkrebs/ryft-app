@@ -334,7 +334,7 @@ enum ImportPreviewSummary {
         if totals.plans > 0 { parts.append(String(localized: "\(totals.plans) plans", comment: "Training import: a count of plans.")) }
         if totals.sessions > 0 {
             parts.append(String(localized: "\(totals.sessions) workouts", comment: "Training import: a count of workouts."))
-            parts.append(String(localized: "\(totals.sets) sets", comment: "Training import: a count of sets."))
+            parts.append(String(localized: "\(totals.sets)\u{00A0}sets", comment: "Training import: a count of sets."))
         }
         if totals.volumeKg > 0 { parts.append(Fmt.volume(totals.volumeKg)) }
         return parts.joined(separator: " · ")
@@ -344,7 +344,7 @@ enum ImportPreviewSummary {
     static func subline(_ totals: ImportTotals, duplicatesChecked: Bool) -> String? {
         var parts: [String] = []
         if totals.skippedSets > 0 {
-            parts.append(String(localized: "\(totals.skippedSets) sets skipped", comment: "Training import, step 5: sets with no weight or reps."))
+            parts.append(String(localized: "\(totals.skippedSets)\u{00A0}sets skipped", comment: "Training import, step 5: sets with no weight or reps."))
         }
         if duplicatesChecked, totals.duplicatesOff > 0 {
             parts.append(String(localized: "\(totals.duplicatesOff) workouts look like ones you already logged",
@@ -372,8 +372,8 @@ enum ImportPreviewSummary {
     /// "6 weeks · 2 days/week".
     static func planSummary(_ plan: Plan) -> String {
         var parts: [String] = []
-        if let weeks = plan.weeks { parts.append(String(localized: "\(weeks) weeks")) }
-        parts.append(String(localized: "\(plan.daysPerWeek) days/week"))
+        if let weeks = plan.weeks { parts.append(String(localized: "\(weeks)\u{00A0}weeks")) }
+        parts.append(String(localized: "\(plan.daysPerWeek)\u{00A0}days/week"))
         return parts.joined(separator: " · ")
     }
 

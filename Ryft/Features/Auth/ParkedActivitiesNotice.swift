@@ -29,7 +29,7 @@ struct ParkedActivitiesNotice: View {
     /// "… Log in by 24 November to send them." (or "within 30 days" without a date).
     static func message(_ parked: Parked) -> String {
         guard let until = parked.until else {
-            return String(localized: "\(parked.count) activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them.",
+            return String(localized: "\(parked.count) activities or nights you added haven't reached RYFT yet. Log in within 30\u{00A0}days to send them.",
                           comment: "Welcome after a session expiry: how many unsent activities and nights wait on the phone.")
         }
         let date = until.formatted(.dateTime.day().month(.wide))

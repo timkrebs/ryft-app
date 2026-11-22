@@ -131,7 +131,7 @@ struct InsightsDataTests {
         let six = Self.series(.hrv, [60, 70, 60, 70, 60, 70, 66])
         let short = Self.make(.hrv, series: six, monthly: six)
         #expect(short.band == nil)
-        #expect(short.note == String(localized: "Usual range needs 7 days of data"))
+        #expect(short.note == String(localized: "Usual range needs 7\u{00A0}days of data"))
     }
 
     @Test("Spec 29: \"Usual range needs…\" only with the 30-day series loaded; without it, the metric's own note")
@@ -262,10 +262,10 @@ struct InsightsDataTests {
     func spoken() {
         let s = Self.series(.readiness, [60, 70, 60, 70, 60, 70, 60, 70, 78])
         let card = Self.make(.readiness, series: s, monthly: s)
-        #expect(card.chartLabel == String(localized: "\(String(localized: "Readiness")) over \(30) days"))
+        #expect(card.chartLabel == String(localized: "\(String(localized: "Readiness")) over \(30)\u{00A0}days"))
         #expect(card.chartEnding == TrendLine.spoken(.above))
         #expect(card.spokenValue.hasPrefix("78"))
-        #expect(card.spokenValue.contains(String(localized: "versus 7 days")))
+        #expect(card.spokenValue.contains(String(localized: "versus 7\u{00A0}days")))
         #expect(card.spokenValue.contains(String(localized: "Shaded: your usual range")))
         #expect(card.spokenValue.hasSuffix(TrendLine.spoken(.above)))
         // Without a band, the sentence ends at the value.

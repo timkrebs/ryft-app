@@ -147,7 +147,7 @@ struct TrainHistoryTests {
         let content = SessionDetailContent(summary: SessionSummary(s), session: s, loaded: true, locale: english) { _ in "Bench press" }
         #expect(content.state == .loaded && content.title == "Upper A")
         #expect(plain(content.subtitle) == "Fri, Nov 13 · 55 min · 2 sets", "working sets only")
-        #expect(content.spokenSubtitle == "Friday, November 13, 55 minutes, 2 sets")
+        #expect(content.spokenSubtitle == "Friday, November 13, 55 minutes, 2\u{00A0}sets")
         #expect(content.hero.strain == 10.4 && content.hero.numeral != nil)
         #expect(content.tiles.map(\.id) == ["volume", "load"], "strain is the hero, not a tile")
         #expect(content.tiles[0].value == "7,500" && content.tiles[0].unit == "kg" && content.tiles[1].value == "85.0")
@@ -155,8 +155,8 @@ struct TrainHistoryTests {
         #expect(content.exercises.first?.name == "Bench press")
         #expect(lines.map(\.position) == ["W", "2", "3"], "the warm-up drawn W, the position counting it")
         #expect(lines[0].spokenPosition == "Set 1 of 3, warm-up" && lines[1].spokenPosition == "Set 2 of 3")
-        #expect(lines[1].text == "80 kg × 5" && lines[1].rpe == "RPE 8.5" && lines[2].rpe == nil)
-        #expect(lines[1].spokenValue == "5 reps at 80 kilograms, RPE 8.5")
+        #expect(lines[1].text == "80\u{00A0}kg × 5" && lines[1].rpe == "RPE 8.5" && lines[2].rpe == nil)
+        #expect(lines[1].spokenValue == "5\u{00A0}reps at 80\u{00A0}kilograms, RPE 8.5")
     }
 
     @Test func anUnscoredSessionLeavesTheNumeralUnlit() {
@@ -216,7 +216,7 @@ struct TrainHistoryTests {
         #expect(plain(E1RMChange.text(11.6, locale: english)) == "▲ 11.6 kg" && E1RMChange.color(11.6) == Theme.metricStrain)
         #expect(plain(E1RMChange.text(-1.5, locale: english)) == "▼ 1.5 kg" && E1RMChange.color(-1.5) == Theme.textSecondary, "no red")
         #expect(E1RMChange.text(0.04, locale: english) == String(localized: "Steady") && E1RMChange.color(0.04) == Theme.textSecondary)
-        #expect(E1RMChange.spoken(11.6, locale: english) == "Up 11.6 kg" && E1RMChange.spoken(-1.5, locale: english) == "Down 1.5 kg")
+        #expect(E1RMChange.spoken(11.6, locale: english) == "Up 11.6\u{00A0}kg" && E1RMChange.spoken(-1.5, locale: english) == "Down 1.5\u{00A0}kg")
         #expect(plain(E1RMChange.overWindow(E1RMChange.text(11.6, locale: english))) == "▲ 11.6 kg in 90 days")
     }
 
@@ -281,8 +281,8 @@ struct TrainHistoryTests {
         let content = SessionDetailContent(summary: SessionSummary(s), session: s, loaded: true, locale: german) { _ in "Bench press" }
         #expect(content.tiles[0].value == "7.500" && content.tiles[1].value == "85,0")
         let lines = try #require(content.exercises.first?.sets)
-        #expect(lines[1].rpe == "RPE 8,5" && lines[1].spokenValue == "5 reps at 80 kilograms, RPE 8,5")
-        #expect(plain(E1RMChange.text(11.6, locale: german)) == "▲ 11,6 kg" && E1RMChange.spoken(-1.5, locale: german) == "Down 1,5 kg")
+        #expect(lines[1].rpe == "RPE 8,5" && lines[1].spokenValue == "5\u{00A0}reps at 80\u{00A0}kilograms, RPE 8,5")
+        #expect(plain(E1RMChange.text(11.6, locale: german)) == "▲ 11,6 kg" && E1RMChange.spoken(-1.5, locale: german) == "Down 1,5\u{00A0}kg")
         let recent = ExerciseDetailViewModel.RecentRow(id: 0, date: "", sets: "", spokenSets: "", best: 93.33, locale: german)
         #expect(recent.bestText == "93,3" && plain(recent.bestSpoken) == "e1RM 93,3 kg")
     }
@@ -414,7 +414,10 @@ struct TrainHistoryTests {
     /// title's outline goes where the title will be, from the leading inset under Back: it was centred over the whole stacked
     /// header, between Back's line and the title's.
     @Test func theLoadingTitlesOutlineSitsUnderBackAtAX3() async throws {
-        let view = NavigationStack { SessionDetailPage(content: SessionDetailContent(summary: nil, session: nil, loaded: false)) }
+        let view = NavigationStack {
+            SessionDetailPage(content: SessionDetailContent(summary: nil, session: nil, loaded: false),
+                              failureText: SessionDetailPage.failureText(offline: false, heldBack: false))
+        }
         try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, typeSize: .accessibility3,
                                    category: .accessibilityExtraLarge, view) { w in
             try await w.wait("the header") { ids(w).contains("sessionDetail.header") }
@@ -446,10 +449,10 @@ struct TrainHistoryTests {
             let header = try #require(nodes.first { $0.label == MockTrain.bench.name && $0.traits.contains(.header) })
             let hero = try #require(nodes.first { $0.identifier == "exerciseDetail.numeral" })
             #expect(hero.label == String(localized: "Estimated 1RM"))
-            #expect((hero.value ?? "").contains("kilograms") && (hero.value ?? "").contains("in 90 days"), "\(hero.value ?? "")")
+            #expect((hero.value ?? "").contains("kilograms") && (hero.value ?? "").contains("in 90\u{00A0}days"), "\(hero.value ?? "")")
             #expect(hero.frame.minY - header.frame.maxY >= ExerciseDetailLayout.heroGap - 1)
             let chart = try #require(nodes.first { $0.identifier == "exerciseDetail.chart" })
-            #expect(chart.label == "Estimated one-rep max, last 90 days")
+            #expect(chart.label == "Estimated one-rep max, last 90\u{00A0}days")
             #expect(abs(chart.frame.height - ExerciseDetailLayout.chartHeight) < 1, "\(chart.frame)")
             #expect(nodes.contains { $0.label == String(localized: "Personal records") && $0.traits.contains(.header) })
             #expect(nodes.contains { $0.label == String(localized: "Recent sets") && $0.traits.contains(.header) })

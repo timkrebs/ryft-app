@@ -79,3 +79,23 @@ RYFT's own words apply: Readiness, Recovery, Sleep, Strain, journal. No other we
 - **Q6:** the Demo switch freezes the account's reminders and a tap opens Today. Accepted, because the demo is short-lived and pausing adds states for no user value.
 - **Q7:** the journal reminder follows the account across devices later, if asked; nothing requested now.
 - **Drift found by N0:** `ARCHITECTURE.md` §4 and §7 are fixed in N3's PR.
+
+## Lead decisions on N1 (2026-11-22)
+- **ui.md accepted.** It includes these changes to design.md §1:
+  - K1 is "Morning score";
+  - K6 has a short value plus a detail line;
+  - permission belongs to the page, independent of the flag;
+  - rolling out is shown per row.
+- **Call 1, the Today line:** ships with the Devices & sync hint. If beta diagnostics never show it, it goes.
+- **Call 2:** K4's row becomes "Strength session scored". K3 makes "Workout scored" ambiguous; Train's sessions are strength sessions.
+- **Call 3:** NT1's untitled title is "Activity scored", so it isn't `SESSION_SCORED`'s. NT1 also asks for a no-break space in the duration. Both are edited in `docs/API_REQUESTS.md`.
+- **Journal notifications already delivered:** each app-active pass removes delivered `journal.*` whose asked day isn't yesterday (N3).
+- **The new default-on journal reminder** gets a CHANGELOG line. The first one explains itself, and there is no in-app announcement.
+- **Fixed hours** ("between 09:00 and 21:00") are formatted by the locale, like every other time on the page. The localization-editor checks this in N4.
+- **Copy review (localization-editor):** accepted. The drafts in `shots/` predate it; where they differ, `ui.md` wins.
+- **ui.md call 4, `MORNING_SCORE_TITLE` "Recovery 82%":**
+  - It stays for now. No category sets `.hiddenPreviewsShowTitle`, so with previews hidden iOS shows only the placeholder "Your morning score is ready".
+  - The "no value in a title" rule binds RYFT's own and new kinds.
+  - Moving the score to the body is a possible later contract change, not a blocker.
+- **ui.md call 5:** workout alerts (K3–K5) are dropped during quiet hours, as NT1 says and as `SESSION_SCORED`'s "not during quiet hours" reads. NT4 in `docs/API_REQUESTS.md` asks the platform to confirm it for `SESSION_SCORED` and `PR`.
+- **ui.md call 6:** the journal body stays the journal card's own sentence.

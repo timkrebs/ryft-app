@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import Ryft
@@ -206,6 +207,24 @@ struct PushMessageTests {
         #expect(NotificationRing.bandColor(34) != NotificationRing.bandColor(33))
         let dir = FileManager.default.temporaryDirectory
         #expect(NotificationRing.attachment(for: try userInfo("push_alert"), directory: dir) != nil)
+    }
+
+    /// The extension can't read the asset catalog, so the ring spells its colours out: each must be the app's token (the
+    /// pre-Nocturne Graphite, Slate and Teal stayed there after the gate deleted them).
+    @MainActor @Test func theRingsColoursAreTheAppsTokens() {
+        let pairs: [(String, UIColor, Color)] = [
+            ("background", NotificationRing.background, Theme.background),
+            ("track", NotificationRing.track, Theme.surfaceRaised),
+            ("ink", NotificationRing.ink, Theme.textPrimary),
+            ("high band", NotificationRing.bandColor(80), Theme.band(forScore: 80)),
+            ("moderate band", NotificationRing.bandColor(50), Theme.band(forScore: 50)),
+            ("low band", NotificationRing.bandColor(10), Theme.band(forScore: 10)),
+        ]
+        for (name, ring, token) in pairs {
+            let drawn = NocturneTokenTests.resolve(Color(uiColor: ring)), app = NocturneTokenTests.resolve(token)
+            #expect(NocturneTokenTests.matches(drawn, app),
+                    "\(name): the ring's \(NocturneTokenTests.describe(drawn)), the app's \(NocturneTokenTests.describe(app))")
+        }
     }
 
     @Test func categoriesIncludeTheLocalBedtimeReminder() {

@@ -16,7 +16,7 @@ struct AllSetsDoneCard: View {
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
                         .accessibilityAddTraits(.isHeader)
-                    Text("\(exercises) exercises · \(sets) sets",
+                    Text("\(exercises) exercises · \(sets)\u{00A0}sets",
                          comment: "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets.")
                         .font(.ryft(.caption))
                         .monospacedDigit()

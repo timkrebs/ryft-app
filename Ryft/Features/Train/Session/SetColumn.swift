@@ -72,12 +72,12 @@ enum SetColumn: String, CaseIterable, Sendable {
             return rpe.map { String(localized: "RPE \(Fmt.kgNumber($0))") }
         case .e1rm:
             return estimate(weightKg: weightKg, reps: reps).map {
-                String(localized: "estimated one-rep max \(Fmt.kgNumber($0)) kilograms",
+                String(localized: "estimated one-rep max \(Fmt.kgNumber($0))\u{00A0}kilograms",
                        comment: "VoiceOver: a set's estimate in a workout, e.g. estimated one-rep max 100 kilograms.")
             }
         case .tenRM:
             return estimate(weightKg: weightKg, reps: reps).map {
-                String(localized: "estimated ten-rep max \(Fmt.kgNumber($0)) kilograms",
+                String(localized: "estimated ten-rep max \(Fmt.kgNumber($0))\u{00A0}kilograms",
                        comment: "VoiceOver: a set's estimate in a workout, e.g. estimated ten-rep max 75 kilograms.")
             }
         }

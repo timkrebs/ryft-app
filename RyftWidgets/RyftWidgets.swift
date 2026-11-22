@@ -10,34 +10,27 @@ import WidgetKit
 /// same values as the app's Nocturne tokens (ADR 0016); `scripts/check-shared-types.py` compares each with the app colorset
 /// of its name. The widget, like the app, is dark-only.
 enum Brand {
-    /// `Theme.graphite`, the screen.
-    static let graphite = Color(red: 0x0A / 255, green: 0x0C / 255, blue: 0x0B / 255)
-    /// `Theme.slate`, the neutral tile.
-    static let slate = Color(red: 0x12 / 255, green: 0x15 / 255, blue: 0x14 / 255)
-    /// `Theme.mist`, the ink.
-    static let mist = Color(red: 0xF2 / 255, green: 0xF1 / 255, blue: 0xEC / 255)
+    /// `Theme.background`, the screen (and the widget's background).
+    static let background = Color(red: 0x0A / 255, green: 0x0C / 255, blue: 0x0B / 255)
+    /// `Theme.textPrimary`, the ink: text on the widget's background.
+    static let textPrimary = Color(red: 0xF2 / 255, green: 0xF1 / 255, blue: 0xEC / 255)
     /// `Theme.signal`, Volt, as the extension draws it itself: the running rest's dot and bar only (D6B-11, L27;
     /// `WidgetNocturneTests` scans for it). The orbit's readiness marker is Volt too, from the shared palette's `Signal`.
     static let signal = Color(red: 0xD8 / 255, green: 0xFF / 255, blue: 0x4F / 255)
     static let deepLink = URL(string: "ryft://train/session")
-
-    /// Text on the widget's background.
-    static let ink = mist
-    /// The widget's background.
-    static let background = graphite
 }
 
 extension WidgetInk {
-    /// `Brand.mist` at the ladder's strength.
-    var colour: Color { Brand.mist.opacity(opacity) }
+    /// `Brand.textPrimary` at the ladder's strength.
+    var colour: Color { Brand.textPrimary.opacity(opacity) }
 }
 
 struct RestTimerLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RestTimerAttributes.self) { context in
             WorkoutLockScreen(workout: WorkoutShown(context))
-                .activityBackgroundTint(Brand.graphite)
-                .activitySystemActionForegroundColor(Brand.mist)
+                .activityBackgroundTint(Brand.background)
+                .activitySystemActionForegroundColor(Brand.textPrimary)
                 .widgetURL(Brand.deepLink)
         } dynamicIsland: { context in
             let workout = WorkoutShown(context)
@@ -53,7 +46,7 @@ struct RestTimerLiveActivity: Widget {
                 WorkoutGlyph(workout: workout)
             }
             .widgetURL(Brand.deepLink)
-            .keylineTint(Brand.mist.opacity(WorkoutActivityLook.keylineOpacity))
+            .keylineTint(Brand.textPrimary.opacity(WorkoutActivityLook.keylineOpacity))
         }
     }
 }
@@ -139,7 +132,7 @@ struct WorkoutLockScreen: View {
         .padding(WorkoutActivityLook.padding)
         .dynamicTypeSize(...WorkoutActivityLook.largestType)
         // Also painted here: the tint alone isn't applied in every presentation.
-        .background(Brand.graphite)
+        .background(Brand.background)
         .accessibilityElement(children: .combine)
     }
 
@@ -284,14 +277,14 @@ struct RestTimerBar: View {
 }
 
 /// "Open" goes to the live session in the app: the light pill (F24, D6C-10), the widget's `PillButton(.primary)` at the
-/// activity's scale: 32 high, ink fill, graphite 14 Medium.
+/// activity's scale: 32 high, ink fill, 14 Medium in the background colour.
 struct OpenPill: View {
     var body: some View {
         if let url = Brand.deepLink {
             Link(destination: url) {
                 Text("Open")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Brand.graphite)
+                    .foregroundStyle(Brand.background)
                     .lineLimit(1)
                     .padding(.horizontal, 16)
                     .frame(height: WorkoutActivityLook.openPill)

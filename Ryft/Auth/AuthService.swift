@@ -1125,7 +1125,7 @@ enum AuthMessage {
         case .emailNotConfirmed:
             return String(localized: "Confirm your email first: open the link we sent you.")
         case .weakPassword:
-            return String(localized: "Choose a stronger password with at least \(AuthService.minimumPasswordLength) characters.")
+            return String(localized: "Choose a stronger password with at least \(AuthService.minimumPasswordLength)\u{00A0}characters.")
         case .samePassword:
             return String(localized: "Choose a password you haven't used before.")
         case .userAlreadyExists, .emailExists:

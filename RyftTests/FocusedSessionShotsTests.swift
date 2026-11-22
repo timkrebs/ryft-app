@@ -113,30 +113,25 @@ struct FocusedSessionShotsTests {
         }
     }
 
+    /// One shot, dark (the app is dark-only, ADR 0016). The name keeps its `-dark-` so the files read as before.
     struct Shot: Sendable, CustomTestStringConvertible {
         let screen: Screen
         let size: Size
-        let dark: Bool
         var text: TextSize = .standard
 
-        var name: String { "\(screen.rawValue)-\(size.rawValue)-\(dark ? "dark" : "light")-\(text.rawValue)" }
+        var name: String { "\(screen.rawValue)-\(size.rawValue)-dark-\(text.rawValue)" }
         /// The fourth column's screens are taller, so last time's card is in the picture with the table above it.
         var frame: CGRect { screen.column == nil ? size.frame : size.frame.insetBy(dx: 0, dy: -150).offsetBy(dx: 0, dy: 150) }
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the ones text size changes at the larger sizes: the main one, the
-    /// fourth column, RPE's line, the warm-ups, the done header, the pill beside the keypad and the rest sheet, with the
-    /// table's two sizes in light too.
+    /// Every screen at both widths, and the ones text size changes at the larger sizes: the main one, the fourth column,
+    /// RPE's line, the warm-ups, the done header, the pill beside the keypad and the rest sheet.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
-        Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
+        Size.allCases.map { Shot(screen: screen, size: $0) }
     } + Size.allCases.flatMap { size in
         [Screen.midSession, .columnE1RM, .columnRPE, .warmupsOpen, .allDone, .restRunning, .restKeypad, .restSheetChanged].flatMap { screen in
-            [TextSize.xl, .ax1, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
-        }
-    } + Size.allCases.flatMap { size in
-        [Screen.columnRPE, .warmupsOpen].flatMap { screen in
-            [TextSize.ax1, .ax3].map { Shot(screen: screen, size: size, dark: false, text: $0) }
+            [TextSize.xl, .ax1, .ax3].map { Shot(screen: screen, size: size, text: $0) }
         }
     }
 
@@ -177,7 +172,7 @@ struct FocusedSessionShotsTests {
                 // A sheet is a host of its own: the traits below stop at this one.
                 Self.sheet(shot.screen, of: controller).dynamicTypeSize(shot.text.dynamicType)
             }
-            .previewEnvironment(scheme: shot.dark ? .dark : .light)
+            .previewEnvironment()
             .environment(\.dynamicTypeSize, shot.text.dynamicType)
         let host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = shot.text.category
@@ -186,7 +181,7 @@ struct FocusedSessionShotsTests {
         let window = UIWindow(windowScene: scene)
         window.frame = frame
         window.windowLevel = .alert + 1
-        window.overrideUserInterfaceStyle = shot.dark ? .dark : .light
+        window.overrideUserInterfaceStyle = .dark
         window.rootViewController = host
         window.isHidden = false
         defer {

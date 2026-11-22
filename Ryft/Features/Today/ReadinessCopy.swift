@@ -48,7 +48,7 @@ enum ReadinessCopy {
                 return String(localized: "No readiness yet today. It appears once last night has synced.")
             }
             // Singular/plural forms live in Localizable.xcstrings.
-            return String(localized: "Learning your baseline — \(nightsToGo) nights to go.")
+            return String(localized: "Learning your baseline — \(nightsToGo)\u{00A0}nights to go.")
         case nil: return String(localized: "Your scores appear after the first synced night.")
         }
     }

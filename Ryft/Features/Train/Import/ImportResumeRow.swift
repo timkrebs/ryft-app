@@ -122,9 +122,8 @@ enum ImportResumeText {
         case .paused:
             String(localized: "Import paused · waiting for a connection", comment: "Training import: the resume row.")
         case .finished where status.hasRejected:
-            String(localized: "Import needs attention", comment: "Training import: the resume row.") + " · "
-                + String(localized: "\(status.sessions.rejected + status.sessions.blocked) workouts not imported",
-                         comment: "Training import I4.")
+            String(localized: "Import needs attention · \(status.sessions.rejected + status.sessions.blocked) workouts not imported",
+                   comment: "Training import: the resume row when a finished import has workouts that weren't imported. One line, with a count.")
         case .finished:
             String(localized: "Import finished: \(status.sessions.done) workouts", comment: "Training import: a finished import not opened yet.")
         }

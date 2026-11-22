@@ -31,7 +31,7 @@ struct ImportSessionDetailSheet: View {
                     }
                     if preview.skippedSetCount > 0 {
                         VStack(alignment: .leading, spacing: GroupedListSpec.detailGap) {
-                            Text("\(preview.skippedSetCount) sets skipped",
+                            Text("\(preview.skippedSetCount)\u{00A0}sets skipped",
                                  comment: "Training import, step 5: sets with no weight or reps.")
                                 .font(.ryft(.callout))
                                 .monospacedDigit()

@@ -88,7 +88,7 @@ import Testing
     @Test func spokenValueNamesEveryScore() {
         let s = OrbitGauge.spokenValue(.previewScored)
         // The simulator's region decides the decimal separator: 9.6 or 9,6.
-        #expect(s.hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, Strain 9"))
+        #expect(s.hasPrefix("71, High. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9"))
         #expect(s.hasSuffix(" of 21"))
         let missing = OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6))
         #expect(missing.contains("Sleep, not scored"))

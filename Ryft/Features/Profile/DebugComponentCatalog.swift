@@ -93,9 +93,9 @@ struct DebugComponentCatalog: View {
 
     private var deltas: some View {
         VStack(alignment: .leading, spacing: 8) {
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: String(localized: "vs 7 d"))
-            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 56, reference: 52), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .hrv, delta: MetricDelta(current: 47, reference: 52), reference: String(localized: "vs 7\u{00A0}d"))
+            DeltaLabel(spec: .rhr, delta: MetricDelta(current: 47, reference: 50), reference: String(localized: "vs 7\u{00A0}d"))
             DeltaLabel(spec: .strain, delta: MetricDelta(current: 14, reference: 11))
             DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 468, reference: 443))
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.4, reference: 52))
@@ -130,13 +130,13 @@ struct DebugComponentCatalog: View {
         VStack(spacing: 12) {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
-                    CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
+                    CardHeader(title: "Trends", trailing: "7\u{00A0}days", showsChevron: true)
                     StatRow(title: "Bedtime", value: "22:58")
                     StatRow(title: "Sleep debt", value: "1h 05m", valueColor: Theme.warning)
                     StatRow(title: "Timezone", value: "Europe/Berlin", detail: "Phone: Europe/Lisbon")
                 }
             }
-            ChartHeader(spec: .hrv, value: 58, delta: MetricDelta(current: 58, reference: 53), window: String(localized: "30 d"))
+            ChartHeader(spec: .hrv, value: 58, delta: MetricDelta(current: 58, reference: 53), window: String(localized: "30\u{00A0}d"))
             ScrubReadout(value: "58 ms", date: "Mon, 13 Oct", delta: "+5 ms vs baseline")
             SetupCard {}
         }
@@ -217,7 +217,7 @@ struct DebugComponentCatalog: View {
             RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
-                       accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
+                       accessibilityValue: Text("7\u{00A0}hours 48\u{00A0}minutes, need 8\u{00A0}hours 18\u{00A0}minutes, on a scale from 0 to 10\u{00A0}hours"))
             RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),

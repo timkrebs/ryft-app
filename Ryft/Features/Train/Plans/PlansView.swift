@@ -22,8 +22,8 @@ private func planSummaryText(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> S
 
 /// The summary's parts: the plan page's header draws them one per line from AX1 (`PartsLine`).
 private func planSummaryParts(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> [String] {
-    let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
-    return [goal.title, String(localized: "\(daysPerWeek) days/week"), length]
+    let length = weeks.map { String(localized: "\($0)\u{00A0}weeks") } ?? String(localized: "repeating")
+    return [goal.title, String(localized: "\(daysPerWeek)\u{00A0}days/week"), length]
 }
 
 extension PlanSummary {
@@ -515,7 +515,7 @@ private struct PlanDetailScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                Text(verbatim: String(localized: "~\(minutes) min"))
+                Text(verbatim: String(localized: "~\(minutes)\u{00A0}min"))
                     .font(.ryft(.caption))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)

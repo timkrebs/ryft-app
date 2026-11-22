@@ -63,14 +63,14 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    | Key | en | de |
    | --- | --- | --- |
    | `ACTIVITY_SCORED_TITLE` | %@ scored | %@ ausgewertet |
-   | `ACTIVITY_SCORED_TITLE_UNTITLED` | Workout scored | Training ausgewertet |
+   | `ACTIVITY_SCORED_TITLE_UNTITLED` | Activity scored | Aktivität ausgewertet |
    | `ACTIVITY_SCORED_BODY` | Strain %1$@ · %2$@ | Belastung %1$@ · %2$@ |
 
    - **Arguments** (formatted for the registered `locale`, like the other categories): title `%@` the sport's name
      from `Workout.activity` (`running` → "Run" / "Lauf"); `ACTIVITY_SCORED_TITLE_UNTITLED` when it is `other` or a
      value the platform has no name for. The user's own title can't be there: it is set after the alert. Body `%1$@`
      the workout's `strain` to one decimal (`12.8` / `12,8`), `%2$@` its duration (`56 min`, `1 h 12 min` /
-     `56 Min.`, `1 Std. 12 Min.`).
+     `56 Min.`, `1 Std. 12 Min.`), with a no-break space (U+00A0) between each number and its unit, as the app's catalog does. "Activity scored", not "Workout scored", when there is no sport name: the latter is `SESSION_SCORED`'s, and the two would look the same on the lock screen.
    - **Lock screen.** The title carries no health value (a sport name only); the strain is in the body, which iOS
      hides with previews off. The same rule as `SESSION_SCORED`.
    - **The "detected by your watch" variant** is NT2, optional.
@@ -128,6 +128,10 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    above; `origin` is not HealthKit), because the user just ended it. Please confirm that, and that a workout the app
    writes to Apple Health for such a recording (if it ever does) doesn't alert a second time as an Apple Health
    workout: the same workout would arrive under the other `id` and `source`.
+4. **NT4 (question): workout alerts during quiet hours.**
+   - **What API.md says:** `SESSION_SCORED` and `PR` are sent "not during quiet hours". It doesn't say whether an alert is dropped or held until the window ends, while `MORNING_SCORE` explicitly holds.
+   - **The app's reading:** dropped, the same as NT1. The Notifications page now says "Workout alerts are skipped".
+   - **Request:** please confirm, or tell us they are held. The page's sentence would change.
 
 ## App Attest (open, 2026-11-19)
 

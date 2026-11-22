@@ -8,13 +8,13 @@ extension Tag {
     @Tag static var screenshots: Self
 }
 
-/// One language takes about 30 s (50 windows, one at a time), too long for the Unit plan: only `make ui-shots` turns
+/// One language takes about 20 s (34 windows, one at a time), too long for the Unit plan: only `make ui-shots` turns
 /// it on (`xcodebuild` forwards `TEST_RUNNER_RYFT_SCREENSHOTS=1` into the test process). At file scope: the suite's
 /// own trait can't name a member of the suite (a circular macro reference).
 private let importScreenshotsEnabled = ProcessInfo.processInfo.environment["RYFT_SCREENSHOTS"] == "1"
 
-/// Renders the training import's screens from the preview mocks and attaches a PNG per screen, state, appearance and
-/// text size to the test results, for a human to read (ui.md §12). The only assertion is that a render exists and has a
+/// Renders the training import's screens from the preview mocks and attaches a PNG per screen, state and text size
+/// (dark, the one appearance) to the test results, for a human to read (ui.md §12). The only assertion is that a render exists and has a
 /// size: there are no reference images. `scripts/ui-shots.sh` runs it once per language on a simulator set to that
 /// language; the language in each name is the localization the app's strings resolve to (`String(localized:)` follows
 /// the process, not `\.locale`). Serialized: each shot owns the app's window scene while it renders.
@@ -42,44 +42,44 @@ struct ImportScreenshotTests {
         var isModal: Bool { self == .unavailable || self == .discardImport || self == .discardSaved }
 
         @MainActor
-        func view(scheme: ColorScheme) -> AnyView {
+        func view() -> AnyView {
             switch self {
             case .pick:
-                return AnyView(NavigationStack { ImportPickView(model: ImportMockData.flow(.pick)) }.previewEnvironment(scheme: scheme))
+                return AnyView(NavigationStack { ImportPickView(model: ImportMockData.flow(.pick)) }.previewEnvironment())
             case .detected:
                 return AnyView(NavigationStack { ImportDetectedView(model: ImportMockData.flow(.detected)) }
-                    .previewEnvironment(scheme: scheme))
+                    .previewEnvironment())
             case .choose:
-                return AnyView(NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose)) }.previewEnvironment(scheme: scheme))
+                return AnyView(NavigationStack { ImportChooseView(model: ImportMockData.flow(.choose)) }.previewEnvironment())
             case .map:
-                return AnyView(NavigationStack { ImportMapView(model: ImportMockData.flow(.map)) }.previewEnvironment(scheme: scheme))
+                return AnyView(NavigationStack { ImportMapView(model: ImportMockData.flow(.map)) }.previewEnvironment())
             case .preview:
-                return AnyView(NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow()) }.previewEnvironment(scheme: scheme))
-            case .uploading: return result(MockTrainImport.uploading, scheme)
-            case .paused: return result(MockTrainImport.retrying, scheme)
-            case .attention: return result(MockTrainImport.status(.paused(.needsAttention), rejected: 3), scheme)
-            case .saved: return result(MockTrainImport.savedOnPhone, scheme)
-            case .done: return result(MockTrainImport.done, scheme)
-            case .rejections: return result(MockTrainImport.mixedRejections, scheme)
+                return AnyView(NavigationStack { ImportPreviewView(model: ImportMockData.previewFlow()) }.previewEnvironment())
+            case .uploading: return result(MockTrainImport.uploading)
+            case .paused: return result(MockTrainImport.retrying)
+            case .attention: return result(MockTrainImport.status(.paused(.needsAttention), rejected: 3))
+            case .saved: return result(MockTrainImport.savedOnPhone)
+            case .done: return result(MockTrainImport.done)
+            case .rejections: return result(MockTrainImport.mixedRejections)
             case .unavailable:
-                return AnyView(Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }.preferredColorScheme(scheme))
+                return AnyView(Color.clear.sheet(isPresented: .constant(true)) { ImportUnavailableSheet() }.preferredColorScheme(.dark))
             case .discardImport:
                 // N1: Cancel on a middle step asks first.
                 let flow = ImportMockData.flow(.detected) { $0.confirmsDiscard = true }
-                return AnyView(ImportFlowView(model: flow).previewEnvironment(scheme: scheme))
+                return AnyView(ImportFlowView(model: flow).previewEnvironment())
             case .discardSaved:
                 // S2: a saved import can be discarded after a confirmation.
                 let flow = ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.savedOnPhone)) {
                     $0.confirmsDiscardJob = true
                 }
-                return AnyView(NavigationStack { ImportResultView(model: flow) }.previewEnvironment(scheme: scheme))
+                return AnyView(NavigationStack { ImportResultView(model: flow) }.previewEnvironment())
             }
         }
 
         @MainActor
-        private func result(_ status: ImportJobStatus, _ scheme: ColorScheme) -> AnyView {
+        private func result(_ status: ImportJobStatus) -> AnyView {
             let flow = ImportMockData.flow(.result, uploader: ImportMockData.uploader(status))
-            return AnyView(NavigationStack { ImportResultView(model: flow) }.previewEnvironment(scheme: scheme))
+            return AnyView(NavigationStack { ImportResultView(model: flow) }.previewEnvironment())
         }
     }
 
@@ -114,29 +114,22 @@ struct ImportScreenshotTests {
         }
     }
 
+    /// One shot, dark (the app is dark-only, ADR 0016). The name keeps its `-dark-` so the files read as before.
     struct Shot: Sendable, CustomTestStringConvertible {
         let screen: Screen
-        let dark: Bool
         let size: TextSize
 
-        var scheme: ColorScheme { dark ? .dark : .light }
-        var testDescription: String { "\(screen.rawValue) \(dark ? "dark" : "light") \(size.rawValue)" }
+        var testDescription: String { "\(screen.rawValue) \(size.rawValue)" }
 
-        func name(language: String) -> String { "\(screen.rawValue)-\(language)-\(dark ? "dark" : "light")-\(size.rawValue)" }
+        func name(language: String) -> String { "\(screen.rawValue)-\(language)-dark-\(size.rawValue)" }
     }
 
-    /// Every screen in light and dark at the default size and in light at AX5; the title-heavy and long screens at
-    /// more sizes. Step 4 is the one German titles break first, so it gets AX3 in both schemes.
+    /// Every screen at the default size and at AX5; the title-heavy and long screens at AX3 too.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen -> [Shot] in
-        var all = [Shot(screen: screen, dark: false, size: .standard), Shot(screen: screen, dark: true, size: .standard),
-                   Shot(screen: screen, dark: false, size: .ax5)]
+        var all = [Shot(screen: screen, size: .standard), Shot(screen: screen, size: .ax5)]
         switch screen {
-        case .pick, .detected, .choose, .done:
-            all.append(Shot(screen: screen, dark: true, size: .ax3))
-        case .map:
-            all += [Shot(screen: screen, dark: false, size: .ax3), Shot(screen: screen, dark: true, size: .ax3)]
-        case .preview:
-            all += [Shot(screen: screen, dark: true, size: .ax3), Shot(screen: screen, dark: true, size: .ax5)]
+        case .pick, .detected, .choose, .map, .preview, .done:
+            all.append(Shot(screen: screen, size: .ax3))
         default:
             break
         }
@@ -175,7 +168,7 @@ struct ImportScreenshotTests {
     /// be drawn.
     private static func render(_ shot: Shot, in scene: UIWindowScene) async -> UIImage? {
         let height = shot.screen.isModal ? TextSize.standard.height : shot.size.height
-        let root = shot.screen.view(scheme: shot.scheme).environment(\.dynamicTypeSize, shot.size.dynamicType)
+        let root = shot.screen.view().environment(\.dynamicTypeSize, shot.size.dynamicType)
         let host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = shot.size.category
         host.view.backgroundColor = .clear
@@ -184,7 +177,7 @@ struct ImportScreenshotTests {
         let window = UIWindow(windowScene: scene)
         window.frame = frame
         window.windowLevel = .alert + 1
-        window.overrideUserInterfaceStyle = shot.dark ? .dark : .light
+        window.overrideUserInterfaceStyle = .dark
         window.rootViewController = host
         window.isHidden = false
         defer {

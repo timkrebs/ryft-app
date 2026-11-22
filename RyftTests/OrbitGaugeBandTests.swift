@@ -240,7 +240,7 @@ struct OrbitGaugeBandTests {
         #expect(OrbitGauge.spokenStrain(9.6, band: Self.band) == expected)
         #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("range 8 to 13"), "whole ends without a decimal: \(expected)")
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasSuffix(expected))
-        #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, "))
+        #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasPrefix("71, High. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, "))
     }
 
     @Test func aboveTheBandTheSentenceSaysAbove() {

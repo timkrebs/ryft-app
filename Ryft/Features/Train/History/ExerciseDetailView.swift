@@ -73,7 +73,7 @@ enum E1RMChange {
 
     /// "▲ 11.6 kg in 90 days" under the numeral.
     static func overWindow(_ change: String) -> String {
-        String(localized: "\(change) in 90 days",
+        String(localized: "\(change) in 90\u{00A0}days",
                comment: "The exercise page, under its estimated 1RM: the change over the chart's 90 days (\"▲ 11.6 kg\", \"Steady\").")
     }
 
@@ -117,7 +117,9 @@ private struct ExerciseDetailScreen: View {
 /// The page: the header, the numeral 22 under it with its caption and change, the chart card 22 under that, then "Personal
 /// records" and "Recent sets", 18 apart; a timed or distance exercise leads with its recent sets. A failed read with nothing
 /// cached is the message with Try again alone; the copy on this phone carries "Offline · as of 14:05" under the header.
-/// Pushed, no navigation bar: Back is the header's, the edge swipe still pops.
+/// Pushed, no navigation bar: Back is the header's, the edge swipe still pops, and the header scrolls with the page. In a
+/// sheet (`onClose`, from the live workout) the sheet header is pinned and the page scrolls under it, stopping at the pinned
+/// bar's edge (Nocturne gate D4 rule 5).
 struct ExerciseDetailPage: View {
     let model: ExerciseDetailViewModel
     var numeralStyle: DotNumeral.Style = .dots
@@ -127,9 +129,31 @@ struct ExerciseDetailPage: View {
     @ScaledMetric(relativeTo: .caption2) private var prLabelHeight = ExerciseDetailLayout.prLabelHeight
 
     var body: some View {
+        Group {
+            if let onClose {
+                VStack(spacing: 0) {
+                    SheetHeader(Text(verbatim: model.title), onClose: onClose)
+                        .padding(.horizontal, SheetHeaderSpec.sidePadding)
+                        .padding(.top, SheetHeaderSpec.topInset)
+                    // The page's first block is at least 12 under the header (`offlineGap`), the edge's gap.
+                    page(header: false)
+                        .underPinnedHeader()
+                }
+            } else {
+                page(header: true)
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .keepsBackSwipe()
+        .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
+    }
+
+    /// The scrolling page, with the pushed header (`header`) at its top or, in a sheet, without one.
+    private func page(header showsHeader: Bool) -> some View {
         ScrollView {
             VStack(spacing: 0) {
-                header
+                if showsHeader { header }
                 if model.failed {
                     // Nothing read, nothing cached: the message alone, never "No sets logged" or an unlit hero.
                     InlineMessage(message: model.failureText, details: model.failureDetails,
@@ -140,14 +164,9 @@ struct ExerciseDetailPage: View {
                 }
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.top, onClose == nil ? 0 : SheetHeaderSpec.topInset)
             .padding(.bottom, ExerciseDetailLayout.bottomPadding)
         }
         .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .keepsBackSwipe()
-        .modifier(ExerciseSheetPresentation(isSheet: onClose != nil))
     }
 
     /// VoiceOver, once, over the outlines while the history loads the first time: the chart's, or the recent sets' when they
@@ -157,10 +176,21 @@ struct ExerciseDetailPage: View {
              comment: "VoiceOver: the exercise page's outlines while its history loads the first time.")
     }
 
-    /// A failed read with nothing cached (the session detail's words).
-    static var failureText: String {
+    /// A failed read with nothing cached, the iPhone offline (the session detail's words).
+    static var offlineFailureText: String {
         String(localized: "This exercise's history couldn't be loaded. Try again when you're online.",
                comment: "The exercise page: the platform couldn't be reached and nothing is cached.")
+    }
+
+    /// A failed read with nothing cached while online (RYFT answered with an error, or not in time).
+    static var onlineFailureText: String {
+        String(localized: "This exercise's history couldn't be loaded. Try again.",
+               comment: "The exercise page: the read failed online and nothing is cached. Try again and Details are under it.")
+    }
+
+    /// The failed state's sentence (`TrainReadFailure`).
+    static func failureText(offline: Bool, heldBack: Bool) -> String {
+        TrainReadFailure.text(offline: offline, heldBack: heldBack, whenOffline: offlineFailureText, whenFailed: onlineFailureText)
     }
 
     /// The estimate leads (hero, chart); a bodyweight exercise without added weight shows the unlit hero and why; a timed or
@@ -197,13 +227,10 @@ struct ExerciseDetailPage: View {
         .padding(.top, model.lead == .sets ? ExerciseDetailLayout.heroGap : ExerciseDetailLayout.sectionGap)
     }
 
-    @ViewBuilder private var header: some View {
-        if let onClose {
-            SheetHeader(Text(verbatim: model.title), onClose: onClose)
-        } else {
-            PushedHeader(Text(verbatim: model.title), subtitle: model.subtitle.map { Text(verbatim: $0) },
-                         subtitleParts: model.subtitleParts, identifierPrefix: "exerciseDetail")
-        }
+    /// The pushed page's header (Back); a sheet pins its `SheetHeader` above the page (`body`).
+    private var header: some View {
+        PushedHeader(Text(verbatim: model.title), subtitle: model.subtitle.map { Text(verbatim: $0) },
+                     subtitleParts: model.subtitleParts, identifierPrefix: "exerciseDetail")
     }
 
     // MARK: hero
@@ -553,7 +580,7 @@ struct E1RMChart: View {
         .frame(height: typeSize.isAccessibilitySize ? ExerciseDetailLayout.chartHeightLargeText : ExerciseDetailLayout.chartHeight)
         .chartAppear()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Estimated one-rep max, last 90 days"))
+        .accessibilityLabel(Text("Estimated one-rep max, last 90\u{00A0}days"))
         .accessibilityValue(Text(summary))
         .accessibilityChartDescriptor(SeriesChartDescriptor(title: String(localized: "Estimated 1RM"), valueName: "kg",
                                                             points: points.map { ($0.date, $0.value) },
@@ -574,9 +601,9 @@ struct E1RMChart: View {
 enum ExerciseDetailPreview {
     /// The page as loaded with `history`, Bench press's by default; `fresh` false is the copy on this phone, offline.
     static func model(_ history: ExerciseHistory?, exercise: UUID = MockTrain.bench.id, fresh: Bool = true,
-                      fetchedAt: Date? = nil) -> ExerciseDetailViewModel {
+                      fetchedAt: Date? = nil, offline: Bool = true) -> ExerciseDetailViewModel {
         ExerciseDetailViewModel(exerciseID: exercise, history: history, library: TrainPreview.library, clock: SystemClock(),
-                                fresh: fresh, fetchedAt: fetchedAt)
+                                fresh: fresh, fetchedAt: fetchedAt, offline: offline)
     }
 
     /// A history of `exercise` without estimates (a plank's holds, pull-ups without added weight): two sessions of `sets`.
@@ -617,6 +644,11 @@ enum ExerciseDetailPreview {
 
 #Preview("Exercise page · failed") {
     NavigationStack { ExerciseDetailPage(model: ExerciseDetailPreview.model(nil, fresh: false)) }
+        .previewEnvironment()
+}
+
+#Preview("Exercise page · failed online") {
+    NavigationStack { ExerciseDetailPage(model: ExerciseDetailPreview.model(nil, fresh: false, offline: false)) }
         .previewEnvironment()
 }
 

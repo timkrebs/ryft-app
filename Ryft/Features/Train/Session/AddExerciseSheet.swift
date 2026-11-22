@@ -214,7 +214,7 @@ struct AddExerciseSheet: View {
         remaining == 1
             ? String(localized: "The new exercise continues with 1 set.",
                      comment: "Replace sheet: the picked exercise gets the one remaining set.")
-            : String(localized: "The new exercise continues with \(remaining) sets.",
+            : String(localized: "The new exercise continues with \(remaining)\u{00A0}sets.",
                      comment: "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets.")
     }
 
@@ -336,7 +336,7 @@ struct CustomExerciseForm: View {
     private static let loadTypes: [LoadType] = [.weight, .bodyweight, .time, .distance]
     /// Under the name while it is longer than the platform takes: "Up to 80 characters."
     static var tooLong: Text {
-        Text("Up to \(CustomExerciseDraft.maxNameLength) characters.",
+        Text("Up to \(CustomExerciseDraft.maxNameLength)\u{00A0}characters.",
              comment: "Under a custom exercise's name while it is too long; Add stays off. 1: the limit, 80.")
     }
 

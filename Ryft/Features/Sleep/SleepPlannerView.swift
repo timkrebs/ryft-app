@@ -479,14 +479,14 @@ struct SleepScheduleView: View {
     }
 
     /// "30 min".
-    private static func minutes(_ value: Int) -> String { String(localized: "\(value) min") }
+    private static func minutes(_ value: Int) -> String { String(localized: "\(value)\u{00A0}min") }
 
     // MARK: reminder, alarm
 
     private var reminder: some View {
         GroupedCard(Text("Bedtime reminder")) {
             GroupedRow.toggle(Text("Remind me to wind down"),
-                              detail: Text("A notification \(draft.windDownMin) min before tonight's bedtime. It moves with your day."),
+                              detail: Text("A notification \(draft.windDownMin)\u{00A0}min before tonight's bedtime. It moves with your day."),
                               identifier: "schedule.reminder",
                               isOn: Binding(get: { draft.reminderOn }, set: { on in
                                   Task {

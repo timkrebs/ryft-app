@@ -127,7 +127,7 @@ final class NotificationSettingsViewModel {
         case .pr:
             return String(localized: "When a session sets a record and Workout scored is off.")
         case .syncStale:
-            return String(localized: "When no heart rate or steps arrived for 20 hours, between 09:00 and 21:00.")
+            return String(localized: "When no heart rate or steps arrived for 20\u{00A0}hours, between 09:00 and 21:00.")
         }
     }
 

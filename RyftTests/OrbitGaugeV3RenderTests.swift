@@ -441,11 +441,11 @@ struct OrbitGaugeV3RenderTests {
 
     @Test func theSpokenSentencesAreThePR2Strings() {
         let spoken = OrbitGauge.spokenValue(.previewScored).replacingOccurrences(of: "9,6", with: "9.6")
-        #expect(spoken == "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+        #expect(spoken == "71, High. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9.6 of 21")
         #expect(OrbitGauge.spokenPending(.previewScored).replacingOccurrences(of: "9,6", with: "9.6")
-                == "Not scored yet. Last scored: 71. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+                == "Not scored yet. Last scored: 71. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9.6 of 21")
         #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 3))
-                == "3 of 7 nights. Readiness appears once the baselines are complete.")
+                == "3 of 7\u{00A0}nights. Readiness appears once the baselines are complete.")
     }
 }
 
