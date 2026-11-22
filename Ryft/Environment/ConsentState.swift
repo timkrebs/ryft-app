@@ -206,20 +206,31 @@ final class ConsentState {
         return env.defaults.object(forKey: Self.withdrawalKey(account)) as? Date
     }
 
-    /// This phone's agreement, settled or not; nil signed out, in demo mode, before the first `204` and after a
+    /// This phone's agreement as stored, settled or not; nil signed out, in demo mode, before the first `204` and after a
     /// withdrawal.
     var agreement: Agreement? { record?.agreement }
 
+    /// The agreement as the flow, the upload gate and the status rule count it. One recorded after now is void (the clock
+    /// was set back since, security review N-3): nothing settles it and nothing waits for it, and the stored user
+    /// decides. It counts again once the clock passes it.
+    var standingAgreement: Agreement? {
+        guard let env, let agreement, agreement.at <= env.clock.now() else { return nil }
+        return agreement
+    }
+
+    /// The standing agreement while RYFT's own word on it is still out.
+    var pendingAgreement: Agreement? { standingAgreement.flatMap { $0.settled ? nil : $0 } }
+
     /// The version this phone agreed to while RYFT's own word on it is still out: onboarding's flow counts it as given
-    /// (`OnboardingCoordinator.missing`), the upload gate never does (`gate`, ADR 0025).
-    var unsettledAgreement: String? { agreement.flatMap { $0.settled ? nil : $0.version } }
+    /// (`OnboardingCoordinator.missing`), and the upload gate holds while it's there (`gate`, ADR 0025).
+    var unsettledAgreement: String? { pendingAgreement?.version }
 
     /// A `GET /v1/me/sync` asked for at `askedAt` speaks for consent, `consent_required` or `null`: not when it was asked
     /// within `ScoringWord.statusCacheTime` of this phone's consent `204`, or before it, when the platform's cache
     /// (API.md: 10 s per user) may still hold an answer from before the consent. The same rule as
-    /// `ScoringWord.isAnswered(byStatusRequestedAt:)`. Without an agreement every status does.
+    /// `ScoringWord.isAnswered(byStatusRequestedAt:)`. Without a standing agreement every status does.
     func statusSpeaksForConsent(askedAt: Date) -> Bool {
-        guard let agreement else { return true }
+        guard let agreement = standingAgreement else { return true }
         return askedAt.timeIntervalSince(agreement.at) >= ScoringWord.statusCacheTime
     }
 
@@ -280,7 +291,7 @@ final class ConsentState {
     /// withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
     /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
     func heard(_ user: User, askedAt: Date) {
-        if let agreement, !agreement.settled, askedAt >= agreement.at {
+        if let agreement = pendingAgreement, askedAt >= agreement.at {
             write { $0.agreement?.settled = true }
             agreementSettled?()
         }

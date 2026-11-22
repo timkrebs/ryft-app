@@ -375,7 +375,7 @@ final class OnboardingCoordinator {
         }
         let account = env.auth.accountID
         if account != self.account { switchAccount(account) }
-        let unsettled = consent.agreement.flatMap { $0.settled ? nil : $0 }
+        let unsettled = consent.pendingAgreement
         if !force, phase == .ready, let lastCheck, unsettled == nil,
            env.clock.now().timeIntervalSince(lastCheck) < Self.recheckInterval { return }
         // Offline: the cached account decides; the next start (or a gate) asks again.

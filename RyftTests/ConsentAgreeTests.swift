@@ -750,4 +750,38 @@ struct ConsentAgreeTests {
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.starts.runs == 0)
     }
+
+    // MARK: Security review N-3: an agreement from after now is void
+
+    @Test("N-3: an agreement from after now (the clock set back) is void: the stored user decides; it counts once passed",
+          .timeLimit(.minutes(1)))
+    func anAgreementFromAfterNowIsVoid() async throws {
+        let h = H()
+        // A consent cached from before and a kept refusal, as in S3: the agreement is what holds the gate.
+        h.api.accountConsent = Consent(policyVersion: H.version, grantedAt: h.clock.now())
+        await h.onboarding.check()
+        h.consent.refused(.consentRequired, at: h.clock.now())
+        h.api.faults["me"] = .init(.offline)
+        #expect(await h.onboarding.agree())
+        h.api.faults["me"] = nil
+        let agreedAt = try #require(h.consent.agreement?.at)
+        try #require(h.consent.unsettledAgreement == H.version)
+        try #require(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired), "held for RYFT's word (S3)")
+
+        // The clock was ahead when Agree was tapped: set back an hour.
+        h.clock.set(agreedAt.addingTimeInterval(-3_600))
+        #expect(h.consent.unsettledAgreement == nil && h.consent.agreement?.settled == false)
+        #expect(h.consent.statusSpeaksForConsent(askedAt: h.clock.now()))
+        // The stored user decides: its consent counts. The policy answer is from after now too, so it holds as unknown.
+        #expect(!h.onboarding.missing.contains(.consent), "\(h.onboarding.missing)")
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .policyUnknown)
+
+        // Once the clock passes it, it counts again, until RYFT's word asked after it.
+        h.clock.set(agreedAt.addingTimeInterval(1))
+        #expect(h.consent.unsettledAgreement == H.version)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        await h.onboarding.check()
+        #expect(h.consent.agreement?.settled == true)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+    }
 }
