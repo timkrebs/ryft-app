@@ -211,8 +211,8 @@ final class ConsentState {
     var agreement: Agreement? { record?.agreement }
 
     /// The agreement as the flow, the upload gate and the status rule count it. One recorded after now is void (the clock
-    /// was set back since, security review N-3): nothing settles it and nothing waits for it, and the stored user
-    /// decides. It counts again once the clock passes it.
+    /// was set back since, security review N-3): nothing waits for it, and the stored user decides. It counts again once
+    /// the clock passes it, unless a `/v1/me` heard meanwhile settled it (`heard`).
     var standingAgreement: Agreement? {
         guard let env, let agreement, agreement.at <= env.clock.now() else { return nil }
         return agreement
@@ -287,12 +287,14 @@ final class ConsentState {
     }
 
     /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`). Asked for at
-    /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). Not when `settles` is
-    /// false (a withdrawal's own re-read: RYFT may record the `DELETE` after it). Asked for after the withdrawal and
-    /// showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on another device).
-    /// One asked for before either may be from before it, and an older policy's consent isn't one.
+    /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). A void one (recorded
+    /// after now, `standingAgreement`) any answer settles: the stored user decides then anyway (code review round 2, 5).
+    /// Not when `settles` is false (a withdrawal's own re-read: RYFT may record the `DELETE` after it). Asked for after
+    /// the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
+    /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
     func heard(_ user: User, askedAt: Date, settles: Bool = true) {
-        if settles, let agreement = pendingAgreement, askedAt >= agreement.at {
+        if settles, let env, let agreement, !agreement.settled,
+           askedAt >= agreement.at || agreement.at > env.clock.now() {
             write { $0.agreement?.settled = true }
             agreementSettled?()
         }

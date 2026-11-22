@@ -1084,4 +1084,29 @@ struct ConsentAgreeTests {
         await delete.open()
     }
 
+    // MARK: Review round 2, code 5: a read during the void
+
+    @Test("Code 5: a /v1/me heard while the agreement is void settles it: nothing waits for it once the clock passes it",
+          .timeLimit(.minutes(1)))
+    func aReadDuringTheVoidSettlesIt() async throws {
+        let h = H()
+        // As in N-3: a consent cached from before and a kept refusal, so the agreement is what holds the gate.
+        h.api.accountConsent = Consent(policyVersion: H.version, grantedAt: h.clock.now())
+        await h.onboarding.check()
+        h.consent.refused(.consentRequired, at: h.clock.now())
+        h.api.faults["me"] = .init(.offline)
+        #expect(await h.onboarding.agree())
+        h.api.faults["me"] = nil
+        let agreedAt = try #require(h.consent.agreement?.at)
+        try #require(h.consent.unsettledAgreement == H.version)
+
+        h.clock.set(agreedAt.addingTimeInterval(-3_600))
+        try await h.state.repository.refreshUser(mode: .latest, userInitiated: true)
+        #expect(h.consent.agreement?.settled == true, "the stored user decides from now on")
+
+        h.clock.set(agreedAt.addingTimeInterval(1))
+        #expect(h.consent.unsettledAgreement == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil, "nothing waits for it again")
+    }
+
 }
