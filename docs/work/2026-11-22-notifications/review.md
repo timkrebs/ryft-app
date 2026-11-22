@@ -34,3 +34,15 @@ The runs on HEAD (sync-engineer, after the merge with #129): Unit 7,722 passed, 
 ### localization-editor: `HIDDEN_PREVIEW_WAKE` added ("Wake-up time")
 - **Nit:** BEDTIME's hidden-preview placeholder uses the plain key "Bedtime reminder" (`PushRegistrar.swift:279`). That is also the visible Sleep toggle's label (`SleepPlannerView.swift:487`), so a change to either moves both. **Lead decision:** add `HIDDEN_PREVIEW_BEDTIME` with the same value and a "No sleep need or goal" comment, and update `PushPresentationTests.swift:19`. This goes into the fix round if the re-reviews ask for one, otherwise into N4.
 - **Nit:** "Time to get up" and "Your wake time from Bedtime & wake." have no comments. Add them with N4's strings.
+
+### security-privacy-reviewer: approve, one should-fix (APNs after an expiry)
+Round 1's B-1, S-1, S-3, S-4 and N-1 to N-7 are fixed. Nothing local reaches another account or a signed-out lock screen.
+
+| # | Finding | Lead decision |
+|---|---|---|
+| S-1 | **After an expiry, the next account can bring A's server alerts back.** The platform keeps A's token, because there's no session for the `DELETE`. B signs in, `registerForRemoteNotifications()` often returns the same token, and B's `POST /v1/devices/{id}/push` is refused (`403 invite_required`, offline, a 5xx). The token is live again but still A's, so A's `MORNING_SCORE` shows on B's lock screen, and B's passes can't clear it (no `ryft.account` on server alerts yet, NT1). The CHANGELOG, NT7 and the `AuthService` comment claim more than this. | **Fix in this PR, before `push.enabled` widens:** (1) the CHANGELOG, NT7 and the comment say what's true; NT7's priority goes up. (2) `refresh()` doesn't register while the account is invite-blocked. `send()` unregisters again after a non-cancellation failure when no record is accepted for this account. (3) NT7 asks the platform to drop other accounts' tokens for a device when an account authenticates with `X-RYFT-Device-ID` (or to exempt the push POST from the invite gate). It also adds the failed-DELETE-at-sign-out case. |
+| N-1 | A wipe resumed after the first frame (expiry, app killed during `client.signOut()`) leaves APNs registered until a foreground frame. The comment at `AuthService.swift:956` overclaims. | **Fix:** run the notification step at launch in that branch (it touches no parked rows), and correct the comment. |
+| N-2 | Wake is still silent in the foreground in Demo, below iOS 26. | **Fix:** WAKE presents when its account matches, Demo or not (its content carries no data). |
+| N-3 | Delivered journal and "not syncing" notifications stay after a gate shuts. | **Fix:** with a gate known shut, `removeDelivered` for `sync.stale.1`, `sync.stale.2` and the journal ids for yesterday and today. |
+| N-4 | A parked account's journal setting outlives its parked rows (UserDefaults and backups). | **Fix:** in `accountWillChange` with `to != nil`, drop the journal keys of accounts that aren't current. |
+| Policy | If ryftlab.de/privacy says the push token is deleted at sign-out, an expiry is the exception until NT7. | **Needs the user:** check the policy text. |
