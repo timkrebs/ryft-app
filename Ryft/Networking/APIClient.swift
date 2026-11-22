@@ -281,8 +281,8 @@ final class APIClient: RyftDataSource {
     static let maxRateLimitWait = 60
 
     /// Instruments (docs/work/2026-11-22-consent-agree-lag/design.md §6.4): an event `attempt` per round trip (method,
-    /// the redacted route, status or transport, duration) and the interval `retry-wait` while a `503` is waited out. The
-    /// route is public as in `APIStatus.log`: no query, no IDs (`redactedPath`).
+    /// the route, status or transport, duration) and the interval `retry-wait` while a `503` is waited out. The route is
+    /// public, as a template: no query, no IDs, no days (`signpostRoute`, security review S-1).
     static let signposter = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "api")
 
     static let defaultConfiguration: URLSessionConfiguration = {
@@ -565,7 +565,7 @@ final class APIClient: RyftDataSource {
                     if case .transport(let inner) = e { return (inner as? URLError)?.code.name ?? "transport" }
                     return nil
                 } ?? "cancelled"
-                Self.signposter.emitEvent("attempt", "\(method, privacy: .public) \(redactedPath(path), privacy: .public) 0 \(transport, privacy: .public)")
+                Self.signposter.emitEvent("attempt", "\(method, privacy: .public) \(signpostRoute(path), privacy: .public) 0 \(transport, privacy: .public)")
                 if error is CancellationError {
                     await status.cancelled(epoch: epoch)
                 } else {
@@ -579,7 +579,7 @@ final class APIClient: RyftDataSource {
             let durationMs = Self.milliseconds(since: started)
             let code = response?.statusCode ?? 0
             Self.signposter.emitEvent("attempt", """
-                \(method, privacy: .public) \(redactedPath(path), privacy: .public) \(code, privacy: .public) \
+                \(method, privacy: .public) \(signpostRoute(path), privacy: .public) \(code, privacy: .public) \
                 \(durationMs, privacy: .public) ms
                 """)
             if (200..<300).contains(code) || accepting.contains(code) {
