@@ -227,6 +227,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// Opt-in usage analytics (PostHog EU): the prompt, the Profile row and any sending. The remote `false` is the
     /// kill switch, read at once (`newest`), not on the next screen (analytics design.md, decisions 3–4).
     case analyticsEnabled = "analytics.enabled"
+    /// The two new local reminders, the morning journal reminder and this iPhone's "not syncing" fallback (bedtime's isn't
+    /// gated): dark until N4's switches ship and the operator opens it (`docs/API_REQUESTS.md`, NT5). Known off removes
+    /// what's scheduled; not known yet (no config for the account, a background launch) keeps it (`known`).
+    case notificationsReminders = "notifications.reminders"
 
     var id: String { rawValue }
 
@@ -236,7 +240,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
-        case .analyticsEnabled: return false
+        case .analyticsEnabled, .notificationsReminders: return false
         }
     }
 }
@@ -255,6 +259,9 @@ protocol FeatureFlagProvider: AnyObject {
     func newest(_ flag: FeatureFlag) -> Bool
     /// The newest answer's `analytics`, pending or shown.
     var newestAnalytics: AnalyticsConfig? { get }
+    /// `newest`, or nil while nothing is known: no answer for this account (or Demo data) cached or arrived, and nothing
+    /// overrides it. For what must tell "off" from "not known yet" (the local reminders: unknown never removes).
+    func known(_ flag: FeatureFlag) -> Bool?
     /// Called whenever `newest` or `newestAnalytics` may have changed: an answer applied (shown or pending), an
     /// account or demo switch, a reset, an override.
     var onNewest: (@MainActor () -> Void)? { get set }
@@ -279,6 +286,8 @@ final class StaticFlags: FeatureFlagProvider {
     func isOn(_ flag: FeatureFlag) -> Bool { overrides[flag] ?? flag.compiledDefault }
     func source(of flag: FeatureFlag) -> FlagSource { overrides[flag] == nil ? .compiled : .override }
     func newest(_ flag: FeatureFlag) -> Bool { isOn(flag) }
+    /// Previews and tests: the compiled defaults count as an answer.
+    func known(_ flag: FeatureFlag) -> Bool? { isOn(flag) }
     var newestAnalytics: AnalyticsConfig? { analytics }
 }
 

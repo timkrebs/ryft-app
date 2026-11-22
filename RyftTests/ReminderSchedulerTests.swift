@@ -85,6 +85,19 @@ private final class ReminderRig {
         scheduler.inputs.user = { [weak self] in self?.user }
         scheduler.overBudget = { [weak self] in self?.overBudget.append($0) }
         flags.setOverride(.pushEnabled, false)
+        // Dark on `main` (review B-1); these tests are about what the reminders do once it's open.
+        flags.setOverride(.notificationsReminders, true)
+    }
+
+    /// A `GET /v1/config` answer for this account with `flags`.
+    func answer(_ flags: [String: Bool]) {
+        self.flags.apply(RemoteConfig(flags: flags, evaluatedAt: clock.now(), ttlSec: 21_600), fetchedAt: clock.now())
+    }
+
+    /// Bedtime's offer, as the planner makes it, for the current owner.
+    func offerBedtime(_ reminders: [LocalReminder]) async {
+        let owner = BedtimePlanner.Owner(account: AccountBinding(env), epoch: env.persistence.epoch.current)
+        await scheduler.offerBedtime(.these(reminders), owner: owner)
     }
 
     /// The auth service's session observation is listening (before a sign-out or a sign-in).
@@ -723,5 +736,82 @@ struct ReminderBedtimeTests {
                                                      trigger: nil))
         await SystemWakeAlarms(notifier: notifier).cancelAll()
         #expect(notifier.requests.map(\.identifier) == ["bedtime.2026-11-23"] && notifier.pendingReads == 0)
+    }
+}
+
+// MARK: - round 2, B-1: dark behind notifications.reminders
+
+@MainActor
+@Suite("Reminders: the journal's and the fallback's behind notifications.reminders")
+struct ReminderFlagTests {
+    private let today = local.startOfDay(for: .now)
+    private func day(_ offset: Int) -> String {
+        reminderDay(local.date(byAdding: .day, value: offset, to: today) ?? today, calendar: local)
+    }
+
+    /// 08:00 today on this iPhone's calendar (the mock journal answers by the real day), the journal live with habits, a
+    /// sync just now, and the flag as `flag` says: an answer with the key on or off, or (nil) no answer and no override.
+    private func rig(flag: Bool?) async -> ReminderRig {
+        let now = local.date(bySettingHour: 8, minute: 0, second: 0, of: today) ?? today
+        let rig = ReminderRig(at: now, calendar: local)
+        rig.flags.setOverride(.notificationsReminders, nil)
+        if let flag { rig.answer(["notifications.reminders": flag]) }
+        rig.scheduler.connect(journal: rig.journal)
+        await rig.journal.load()
+        rig.env.settings.lastSync = rig.clock.now()
+        return rig
+    }
+
+    private func bedtime() -> LocalReminder {
+        let tomorrow = local.dateComponents([.year, .month, .day], from: local.date(byAdding: .day, value: 1, to: today) ?? today)
+        return bedtimeReminder(day(2), fire: DateComponents(year: tomorrow.year, month: tomorrow.month, day: tomorrow.day,
+                                                            hour: 22, minute: 10))
+    }
+
+    @Test("On: the journal's three mornings and the fallback's two, beside bedtime's")
+    func on() async {
+        let rig = await rig(flag: true)
+        await rig.offerBedtime([bedtime()])
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2 && rig.ids(.bedtime) == ["bedtime.\(day(2))"])
+    }
+
+    @Test("Known off (the answer has it off, or doesn't name it): none of theirs; bedtime's is set")
+    func off() async {
+        for flags in [["notifications.reminders": false], [:]] {
+            let rig = await rig(flag: nil)
+            rig.answer(flags)
+            #expect(rig.flags.known(.notificationsReminders) == false)
+            await rig.offerBedtime([bedtime()])
+            #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty, "\(flags)")
+            #expect(rig.ids(.bedtime) == ["bedtime.\(day(2))"], "\(flags)")
+        }
+    }
+
+    @Test("Not known (no config cached: a background launch): what's on iOS stays, nothing is added")
+    func unknown() async throws {
+        let rig = await rig(flag: nil)
+        #expect(rig.flags.known(.notificationsReminders) == nil)
+        let fire = local.dateComponents([.year, .month, .day], from: today)
+        let kept = journalReminder(day(-1), fire: DateComponents(year: fire.year, month: fire.month, day: fire.day,
+                                                                 hour: 9, minute: 0))
+        try await rig.seed([kept], owner: accountA.uuidString)
+        let adds = rig.notifier.adds
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal) == [kept.id] && rig.ids(.syncStale).isEmpty)
+        #expect(rig.notifier.adds == adds && rig.notifier.removals == 0)
+    }
+
+    @Test("On, then turned off (a newer answer, pending or not): theirs go at once, bedtime's stays")
+    func onThenOff() async {
+        let rig = await rig(flag: true)
+        rig.watch()
+        await rig.offerBedtime([bedtime()])
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2)
+
+        rig.answer(["notifications.reminders": false])
+        #expect(rig.flags.isOn(.notificationsReminders), "pending: the screens still show the answer before")
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty)
+        #expect(rig.ids(.bedtime) == ["bedtime.\(day(2))"])
     }
 }

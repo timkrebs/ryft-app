@@ -6,6 +6,7 @@ import UserNotifications
 /// Why a pass was asked for (coalesced; the signpost names them).
 enum ReminderReason: String, Sendable {
     case appActive, backgroundRefresh, synced, journal, journalSettings, preferences, push, bedtime, account, demo, timeChange
+    case flags
 }
 
 /// What the plans read, from their owners, never a stored copy (design.md §3.1). The settings, flags, push record and
@@ -35,6 +36,8 @@ struct ReminderInputs {
 ///   nothing: the account's stay, as bedtime's always did). Adds that landed after the owner changed are taken away again.
 /// - **Unknown never removes:** a kind whose inputs aren't known yet keeps what it has (a background launch before the
 ///   journal's catalog is read, bedtime before the planner's first offer).
+/// - **Dark:** the journal reminder and the fallback follow `notifications.reminders` (review B-1). Known off, theirs go;
+///   not known yet (no config cached for the account), they stay. Bedtime's doesn't ask.
 @MainActor
 final class ReminderScheduler {
     /// The scheduler's own kinds at most (19 today with the wake alarms, against iOS's 64). Debug asserts; Release keeps the
@@ -186,9 +189,15 @@ final class ReminderScheduler {
 
     /// The app's triggers (RyftApp, once; tests that need them): a successful sync, the user's notification preferences,
     /// `push.enabled`, the journal's habits and whether it's live, an accepted or removed push registration, a time zone or
-    /// clock change.
+    /// clock change, and every newest config (`notifications.reminders` acts at once, as a kill switch must: the hook that
+    /// was there, analytics' gate, still runs first).
     func watch(journal: JournalStore, push: PushRegistrar) {
         connect(journal: journal)
+        let flagsHook = env.flags.onNewest
+        env.flags.onNewest = { [weak self] in
+            flagsHook?()
+            self?.reschedule(.flags)
+        }
         push.onRecordChanged = { [weak self] in self?.reschedule(.push) }
         let settings = env.settings, flags = env.flags, user = inputs.observeUser
         watches = [
@@ -210,7 +219,8 @@ final class ReminderScheduler {
     /// only when the reminder is on, yesterday isn't known answered and today's reminder is still ahead. A day answered on
     /// another device then takes its reminder away (`answered`) before the refresh's pass.
     func readYesterdayIfOwed() async {
-        guard let journal = inputs.journal(), let account = env.auth.accountID, !env.isDemo, journal.isLive else { return }
+        guard newKinds == true, let journal = inputs.journal(), let account = env.auth.accountID, !env.isDemo,
+              journal.isLive else { return }
         let yesterday = yesterday
         guard journal.cachedDay(yesterday)?.answered != true,
               case .these(let ahead) = JournalReminderPlan.wish(journalSettings.settings(for: account), habits: true,
@@ -246,6 +256,15 @@ final class ReminderScheduler {
     }
 
     private var quiet: QuietHours? { inputs.user()?.notifications.quietHours }
+
+    /// The journal reminder's and the fallback's gate: `notifications.reminders`, newest answer. Nil: not known yet.
+    private var newKinds: Bool? { env.flags.known(.notificationsReminders) }
+
+    /// A new kind's wish behind its gate: shut, none (what's scheduled goes); not known, it stays as it is.
+    private func gated(_ wish: () -> ReminderWish) -> ReminderWish {
+        guard let open = newKinds else { return .unknown }
+        return open ? wish() : .these([])
+    }
 
     private func pass() async {
         passes += 1
@@ -288,8 +307,8 @@ final class ReminderScheduler {
 
         let wishes = budgeted([
             .bedtime: bedtime.flatMap { $0.owner == binding ? $0.wish : nil } ?? .unknown,
-            .journal: journalWish(account: account),
-            .syncStale: syncStaleWish(account: account),
+            .journal: gated { journalWish(account: account) },
+            .syncStale: gated { syncStaleWish(account: account) },
         ])
         guard var ledger else { return }
         var remove: [String] = [], add: [LocalReminder] = []

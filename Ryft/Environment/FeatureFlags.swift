@@ -89,6 +89,15 @@ final class FlagStore: FeatureFlagProvider {
         return overrides[flag] ?? (pending?.config.flags ?? remote)[flag.rawValue] ?? flag.compiledDefault
     }
 
+    /// `newest`, or nil before any answer for this account (or Demo data) is cached or pending and with no override: a
+    /// background launch that never read the config. A known answer without the key is the compiled default.
+    func known(_ flag: FeatureFlag) -> Bool? {
+        if launchFlags.contains(flag) { return true }
+        if let value = overrides[flag] { return value }
+        guard pending != nil || evaluatedAt != nil else { return nil }
+        return newest(flag)
+    }
+
     /// The pending answer's `analytics` (`null` included), else the shown one's.
     var newestAnalytics: AnalyticsConfig? {
         if let pending { return pending.config.analytics }
