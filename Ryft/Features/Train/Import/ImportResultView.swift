@@ -350,14 +350,14 @@ struct ImportResultView: View {
         switch job?.phase {
         case .finished?:
             if let job, job.hasRejected {
-                ImportPrimaryButton(title: String(localized: "Retry \(job.rejected.count)", comment: "Training import I4: send the failed items again."),
-                                    identifier: "import.retryRejected", systemImage: PillButton.Icon.retry) {
+                ImportStepButton(title: String(localized: "Retry \(job.rejected.count)", comment: "Training import I4: send the failed items again."),
+                                 identifier: "import.retryRejected", systemImage: PillButton.Icon.retry) {
                     Task { await model.retryRejected() }
                 }
                 ImportSecondaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
             } else {
-                ImportPrimaryButton(title: String(localized: "Open history", comment: "Training import I3."),
-                                    identifier: "import.openHistory") {
+                ImportStepButton(title: String(localized: "Open history", comment: "Training import I3."),
+                                 identifier: "import.openHistory") {
                     model.openHistory()
                 }
                 if let job, job.plans.done > 0 {
@@ -367,23 +367,23 @@ struct ImportResultView: View {
                 }
             }
         case .paused(.notAvailable)?:
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
             discardJob
         case .paused(.gated)?:
             // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
-            ImportPrimaryButton(title: String(localized: "Continue in RYFT",
-                                              comment: "Training import I8: close the import so the consent or invite step can show."),
-                                identifier: "import.continueInApp") {
+            ImportStepButton(title: String(localized: "Continue in RYFT",
+                                           comment: "Training import I8: close the import so the consent or invite step can show."),
+                             identifier: "import.continueInApp") {
                 model.finish(.close)
             }
             discardJob
         case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
             // Nothing to do here: Done closes and the upload goes on by itself (or after Try again above); Discard is
             // there, quieter, and still asks first.
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
             discardJob
         case .paused(.waitingForAccount)?:
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) { model.done() }
         default:
             EmptyView()
         }

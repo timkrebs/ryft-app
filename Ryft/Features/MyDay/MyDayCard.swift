@@ -422,13 +422,13 @@ extension MyDayItem {
 }
 
 /// ＋: what can be added to the day (ui.md §2.1; PR 6 B §9): Add activity, Start strength workout, Add sleep; Start activity
-/// joins with A4. Only the entries offered. A menu, so a `CircleButton` (a button) can't be it: the label draws the circle
-/// button's look from its numbers (a 40 pt outlined circle in a 44 pt box, the 14 pt glyph), as the live workout's More does.
+/// joins with A4. Only the entries offered. The one circle menu (D3), as the live workout's More.
 struct MyDayAddMenu: View {
     let actions: MyDayActions
 
     var body: some View {
-        Menu {
+        CircleMenu(systemImage: "plus",
+                   accessibilityLabel: Text("Add", comment: "VoiceOver: My Day's plus menu (Add activity, Add sleep, Start strength workout).")) {
             if let add = actions.addActivity {
                 Button(action: add) { Label("Add activity", systemImage: "square.and.pencil") }
                     .accessibilityIdentifier("myday.add.activity")
@@ -440,22 +440,6 @@ struct MyDayAddMenu: View {
             if let sleep = actions.addSleep {
                 Button(action: sleep) { Label("Add sleep", systemImage: "bed.double") }
                     .accessibilityIdentifier("myday.add.sleep")
-            }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: CircleButton.iconSize, weight: .regular))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
-                .overlay {
-                    Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
-                }
-                .frame(width: CircleButton.hitSize, height: CircleButton.hitSize)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(Text("Add", comment: "VoiceOver: My Day's plus menu (Add activity, Add sleep, Start strength workout)."))
-        .accessibilityShowsLargeContentViewer {
-            Label { Text("Add", comment: "VoiceOver: My Day's plus menu (Add activity, Add sleep, Start strength workout).") } icon: {
-                Image(systemName: "plus")
             }
         }
         .accessibilityIdentifier("myday.add")

@@ -267,28 +267,14 @@ struct SessionView: View {
         .accessibilityLabel(Text("\(controller.session.title), elapsed time"))
     }
 
-    /// A menu, so a `CircleButton` (a button) can't be it: the label draws the circle button's look from its numbers. Its type
-    /// doesn't grow, so a long press shows it large, as the circle buttons do.
+    /// Reorder exercises and Discard workout, in the one circle menu (D3); its 16 pt glyph is Minimise's.
     private var moreMenu: some View {
-        Menu {
+        CircleMenu(systemImage: "ellipsis", iconSize: LiveSessionSpec.headerIcon, accessibilityLabel: Text("More")) {
             Button("Reorder exercises", systemImage: "arrow.up.arrow.down") { showsReorder = true }
             Button("Discard workout", systemImage: "trash", role: .destructive) { confirmDiscard = true }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: LiveSessionSpec.headerIcon, weight: .regular))
-                .foregroundStyle(Theme.textPrimary)
-                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
-                .overlay {
-                    Circle().strokeBorder(Theme.textPrimary.opacity(CircleButton.borderOpacity), lineWidth: Theme.Metrics.hairline)
-                }
-                .frame(width: CircleButton.hitSize, height: CircleButton.hitSize)
-                .contentShape(Rectangle())
         }
         .headerEdgeButton()
-        .accessibilityLabel(Text("More"))
-        .accessibilityShowsLargeContentViewer {
-            Label { Text("More") } icon: { Image(systemName: "ellipsis") }
-        }
+        .accessibilityIdentifier("session.more")
     }
 
     /// An outline until every set is done, then filled (F14, D6B-5): one primary at a time, and at all-done the card's
@@ -312,14 +298,7 @@ struct SessionView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 14) {
-                    if !sync.isOnline {
-                        Label("Offline — every set is saved on this phone and syncs later.",
-                              systemImage: "wifi.slash")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                    }
+                    if !sync.isOnline { SessionOfflineLine() }
                     exerciseList
                     if controller.exercises.isEmpty {
                         InlineMessage(message: String(localized: "An empty session. Add your first exercise."),

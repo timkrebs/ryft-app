@@ -517,13 +517,8 @@ final class AppState {
         repository.trend(metric, range)
     }
 
+    /// The workout's curve and zones as cached (`WorkoutDetailViewModel` revalidates them itself).
     func cachedWorkoutDetail(_ w: Workout) -> WorkoutDetail? { repository.workout(w.id) }
-
-    /// The workout's curve and zones; without them (no endpoint, offline) the list's fields.
-    func workoutDetail(_ w: Workout) async -> WorkoutDetail {
-        try? await repository.refreshWorkout(w.id)
-        return repository.workout(w.id) ?? WorkoutDetail(workout: w)
-    }
 
     /// Loaded, and nothing in the history came from Apple Health: access may be
     /// off or the watch isn't writing to Health (HealthKit never says which).

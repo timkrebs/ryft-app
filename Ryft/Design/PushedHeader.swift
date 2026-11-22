@@ -1,23 +1,26 @@
-// The header of a page pushed from Train, My Day or an activity (Nocturne PR 6 B §1.2 "Pushed"; T6B.0): Back on the left, the
-// page's title over a subtitle in the middle, and a trailing circle or an empty 40 pt slot. Sleep's header and PR 5's workout
-// detail draw the same row by hand; area B's seven pushed pages (Plans, plan detail, History, session detail, the exercise
-// page, My Day, activity detail) share this one. A/C's subpages, with a 26 pt title leading, are `SubpageScaffold`.
+// The header of a pushed page (Nocturne PR 6 B §1.2 "Pushed"; T6B.0; Nocturne gate DG-6, one rule for every pushed page):
+// Back on the left, the page's title over a subtitle in the middle, and a trailing circle or an empty 40 pt slot. Area B's
+// pushed pages (Plans, plan detail, History, session detail, the exercise page, My Day, activity detail), the workout detail,
+// and every pushed `SubpageScaffold` (Profile's and the journal's subpages, the signed-out forms, the import's steps 2–5)
+// draw it. The tab roots keep `ScreenHeader`; a sheet's root has `SheetHeader`.
 import SwiftUI
 
 /// The pushed header's numbers.
 enum PushedHeaderSpec {
-    /// The title → the subtitle under it: 2 (Sleep's header, `StrainLayout.headerSubtitleGap`).
+    /// The title → the subtitle under it: 2 (Sleep's header; the workout detail's sport over its day and time).
     nonisolated static let subtitleGap: CGFloat = 2
 }
 
-/// `ScreenHeader`'s three slots: `CircleButton("chevron.left")` labelled "Back" · the title (`callout`, `textPrimary`) with the
+/// Three slots: `CircleButton("chevron.left")` labelled "Back" · the title (`callout`, `textPrimary`) with the
 /// subtitle 2 under it (`caption`, `textTertiary`, tabular digits) · the caller's `CircleButton` (a menu, "Add") or, without one,
 /// an empty 40 pt slot, so the title stays centred. 40 high; it grows only when the title or the subtitle wraps (large text).
 /// A subtitle of facts ("Fri, Nov 13 · 55 min · 17 sets") comes as `subtitleParts`: one line joined, one part per line from
 /// AX1 (`PartsLine`), so no "·" dangles at a line's end. With a `subtitle` as well, that is the line below AX1 (the page's
 /// own wording: "Today · Wed, Nov 18", "Barbell · Chest") and the parts are only how it stands from AX1.
-/// From AX1 (C §2.9, as `SubpageHeader` stacks): Back and the trailing circle on the first 40 pt line, 12 under it the title
-/// and then the subtitle, from the leading inset across the whole width, wrapping; never squeezed between the circles.
+/// Below AX1 the middle is centred on the row whatever the slots hold (two circles trailing, Back alone leading): the wider
+/// slot's width stays free on both sides (`SheetHeaderLayout`), and a long title wraps there, never under the circles.
+/// From AX1 (C §2.9): Back and the trailing circle on the first 40 pt line, 12 under it the title and then the subtitle,
+/// from the leading inset across the whole width, wrapping; never squeezed between the circles.
 ///
 /// VoiceOver reads Back, then the middle as one header element (the title, with the subtitle as its value, or
 /// `spokenSubtitle` when the drawn one abbreviates: "Fri, Nov 13 · 55 min" → "Friday 13 November, 55 minutes"), then the
@@ -56,18 +59,21 @@ struct PushedHeader<Trailing: View>: View {
         if typeSize.isAccessibilitySize {
             stacked
         } else {
-            ScreenHeader {
+            // Each circle laid out as its 40 pt circle, the edges on the insets; the title never stacks below AX1.
+            SheetHeaderLayout(minHeight: ScreenHeaderSpec.height, minGap: ScreenHeaderSpec.minGap, minTitleWidth: 0) {
                 backButton
-            } center: {
+                    .headerEdgeButton()
                 middle(.center)
-            } trailing: {
-                trailing
+                HStack(spacing: 0) { trailing }
+                    .headerEdgeButton()
             }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .contain)
         }
     }
 
     /// From AX1: the circles' line (each laid out as its 40 pt circle, the edges on the insets), then the title and the
-    /// subtitle under it, leading (`SubpageHeader`'s stacked layout).
+    /// subtitle under it, leading.
     private var stacked: some View {
         VStack(alignment: .leading, spacing: SubpageSpec.stackedGap) {
             HStack(spacing: 0) {
@@ -85,7 +91,7 @@ struct PushedHeader<Trailing: View>: View {
     }
 
     private var backButton: some View {
-        CircleButton(systemImage: "chevron.left", accessibilityLabel: SubpageHeader<EmptyView>.backLabel) {
+        CircleButton(systemImage: "chevron.left", accessibilityLabel: CircleButton.backLabel) {
             if let onBack { onBack() } else { dismiss() }
         }
         .accessibilityIdentifier("\(identifierPrefix).back")

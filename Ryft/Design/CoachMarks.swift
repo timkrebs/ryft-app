@@ -125,36 +125,74 @@ private struct CoachMarkOverlay: View {
         return below + 90 < size.height ? below : max(hole.minY - 110, 120)
     }
 
+    /// A `Card` (radius 22, 16 inside: the gate's D8): the position, the title, the text, then Skip and the compact primary
+    /// pill ("Next", "Done" on the last step; no icon circle).
     private var card: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(marks.position).ryftLabelStyle()
-            Text(step.title)
-                .font(.ryft(.headline))
-                .foregroundStyle(Theme.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Text(step.body)
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Skip") { marks.finish() }
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(marks.position).ryftLabelStyle()
+                Text(step.title)
+                    .font(.ryft(.headline))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(step.body)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("coach.skip")
-                Spacer()
-                Button(marks.isLast ? String(localized: "Done") : String(localized: "Next")) { advance() }
-                    .buttonStyle(TealButtonStyle())
-                    .frame(maxWidth: 140)
-                    .accessibilityIdentifier("coach.next")
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Skip") { marks.finish() }
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("coach.skip")
+                    Spacer()
+                    PillButton(marks.isLast ? Text("Done") : Text("Next"), size: .compact) { advance() }
+                        .accessibilityIdentifier("coach.next")
+                }
             }
         }
-        .padding(18)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
         .padding(.horizontal, Theme.Metrics.screenPadding)
     }
 
     private func advance() {
         withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.slow)) { marks.next() }
     }
+}
+
+// MARK: previews (dark only)
+
+/// The overlay over a stand-in page, on step `step` (a throwaway defaults suite: nothing is remembered).
+private struct CoachMarksPreview: View {
+    @State private var marks: CoachMarks
+
+    init(step: Int) {
+        let defaults = UserDefaults(suiteName: "preview.coachMarks") ?? .standard
+        defaults.removeObject(forKey: CoachMarks.doneKey)
+        let marks = CoachMarks(defaults: defaults)
+        for _ in 0..<step { marks.next() }
+        _marks = State(initialValue: marks)
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            RoundedRectangle(cornerRadius: Theme.Metrics.neutralTileRadius).fill(Theme.surface).frame(height: 220)
+                .coachMarkTarget(.gauges)
+            RoundedRectangle(cornerRadius: Theme.Metrics.neutralTileRadius).fill(Theme.surface).frame(height: 124)
+                .coachMarkTarget(.physiology)
+            RoundedRectangle(cornerRadius: Theme.Metrics.neutralTileRadius).fill(Theme.surface).frame(height: 120)
+                .coachMarkTarget(.trends)
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Metrics.screenPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
+        .coachMarks(marks, enabled: true)
+        .preferredColorScheme(.dark)
+    }
+}
+
+#Preview("Coach marks · first step") { CoachMarksPreview(step: 0) }
+#Preview("Coach marks · last step") { CoachMarksPreview(step: 2) }
+#Preview("Coach marks · first step · AX3") {
+    CoachMarksPreview(step: 0).dynamicTypeSize(.accessibility3)
 }

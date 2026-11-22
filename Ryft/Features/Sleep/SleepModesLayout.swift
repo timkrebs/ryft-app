@@ -28,9 +28,9 @@ enum SleepModesLayout {
     nonisolated static let bedWakeMinHeight: CGFloat = 168, stripGap: CGFloat = 8, hintGap: CGFloat = 8
     /// A night's row in the strip: 14 with its date (Week), 7 without (Month: 30 labels collide).
     nonisolated static let weekRowHeight: CGFloat = 14, monthRowHeight: CGFloat = 7
-    /// The stage card: `surface`, radius 22, padding 14 / 16 / 14; the chart 10 under its head, 150 high (its plot 128 and
-    /// the date row), the legend 10 under it with 10 pt squares.
-    nonisolated static let stageCardRadius: CGFloat = 22
+    /// The stage card: `surface`, the card radius, 22 (`Theme.Metrics.neutralTileRadius`), padding 14 / 16 / 14; the chart 10
+    /// under its head, 150 high (its plot 128 and the date row), the legend 10 under it with 10 pt squares.
+    nonisolated static let stageCardRadius = Theme.Metrics.neutralTileRadius
     nonisolated static let stageCardPadding = (top: CGFloat(14), sides: CGFloat(16), bottom: CGFloat(14))
     nonisolated static let stageChartGap: CGFloat = 10, stageChartHeight: CGFloat = 150, stagePlotHeight: CGFloat = 128
     nonisolated static let legendGap: CGFloat = 10, legendSwatch: CGFloat = 10, legendSwatchRadius: CGFloat = 2

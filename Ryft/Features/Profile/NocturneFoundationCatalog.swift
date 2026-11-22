@@ -49,14 +49,16 @@ struct NocturneFoundationCatalog: View {
 
     private var subpage: some View {
         VStack(alignment: .leading, spacing: 18) {
-            caption("subpage header · back · back and a trailing circle · a sheet's root · a long title")
-            SubpageHeader(Text(verbatim: "Display"))
-            SubpageHeader(Text(verbatim: "Journal")) {
+            caption("headers · pushed · pushed with a trailing circle · a sheet's root · back and close · a long title")
+            PushedHeader(Text(verbatim: "Display"))
+            PushedHeader(Text(verbatim: "Journal")) {
                 CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add a habit")) {}
             }
-            SubpageHeader(Text(verbatim: "What do you wear?"), navigation: .close())
-            SubpageHeader(Text(verbatim: "Import · Match exercises"), navigation: .backAndClose())
-            SubpageHeader(Text(verbatim: "Baseline sleep need"))
+            SheetHeader(Text(verbatim: "What do you wear?"))
+            PushedHeader(Text(verbatim: "Match exercises")) {
+                CircleButton(systemImage: "xmark", accessibilityLabel: Text(verbatim: "Close")) {}
+            }
+            PushedHeader(Text(verbatim: "Baseline sleep need for the week ahead"))
             caption("pinned bar · a disabled primary with its reason · a footnote and a quiet action")
             PinnedActionBar(caption: Text(verbatim: "Write a message first.")) {
                 PillButton(Text(verbatim: "Send"), systemImage: PillButton.Icon.send) {}

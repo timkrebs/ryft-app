@@ -818,39 +818,50 @@ import UIKit
 
     private let todayLabels = ["0", "low", "moderate", "high", "100"]
 
-    /// Today's ruler at AX3 in `width`, and the height of the label ink under the 36 pt graphic: one line, or the joined line wrapped.
-    private func todayLabelInk(width: CGFloat) throws -> CGRect {
+    /// Today's ruler at AX3 in `width`, and the label ink under the 36 pt graphic within `xs` (the whole width if nil): nil where
+    /// no label is drawn.
+    private func todayLabelInk(width: CGFloat, xs: ClosedRange<Double>? = nil) throws -> CGRect? {
         let view = RulerScale(range: 0...100, value: nil, zone: 67...100, tickCount: RulerScale.Ticks.today, labels: todayLabels,
                               accessibilityLabel: Text(verbatim: "Scale"), accessibilityValue: Text(verbatim: "value"), reduceMotion: true)
             .frame(width: width).environment(\.dynamicTypeSize, .accessibility3).background(Theme.background)
         let shot = try #require(render(view))
-        return try #require(shot.bounds(xs: 0...Double(width), ys: 36...Double(shot.size.height)) { self.distance($0, self.screen) > 0.1 },
-                            "label ink at \(width) pt")
+        return shot.bounds(xs: xs ?? 0...Double(width), ys: 36...Double(shot.size.height)) { self.distance($0, self.screen) > 0.1 }
     }
 
+    /// The middle third of a `width` ruler: "moderate" when all five labels show, nothing when only the ends do.
+    private func middle(_ width: CGFloat) -> ClosedRange<Double> { Double(width) / 3...Double(width) * 2 / 3 }
+
     /// The five labels side by side at AX3 take `natural` points; with the 16 pt minimum between them, four gaps, the one-line row
-    /// needs `natural + 64`. Under that the row falls back to the joined " · " line (407 pt at AX3, so it wraps in any of the widths
-    /// here); at or over it, the labels sit on one line. The natural width is measured, so the bracket holds when the font moves.
-    @Test("Today's five labels at AX3: one line from natural + 4 × 16 pt, the joined, wrapping line just below")
+    /// needs `natural + 64`. Under that (Nocturne gate D9 row 4) the row shows the two ends alone, "0 … 100", still one line at
+    /// the ruler's edges; at or over it, all five sit on one line. The natural width is measured, so the bracket holds when the
+    /// font moves.
+    @Test("Today's five labels at AX3: one line from natural + 4 × 16 pt, the two ends alone just below")
     func labelsFallBackWhenTheGapsGetUnderSixteen() throws {
         let natural = HStack(spacing: 0) {
             ForEach(Array(todayLabels.enumerated()), id: \.offset) { Text(verbatim: $1).lineLimit(1).fixedSize() }
         }
         .font(.ryft(.axis)).fixedSize().environment(\.dynamicTypeSize, .accessibility3)
         let t = Double(try #require(render(natural)).size.width)
-        let oneLine = try todayLabelInk(width: CGFloat(t + 4 * 16 + 6))
-        let fallback = try todayLabelInk(width: CGFloat(t + 4 * 16 - 6))
-        // One line of AX3 11 pt text is about 29 pt of ink (a digit's box, not a line's); a wrapped joined line is two lines or more.
+        let wide = CGFloat(t + 4 * 16 + 6), narrow = CGFloat(t + 4 * 16 - 6)
+        let oneLine = try #require(try todayLabelInk(width: wide), "label ink at \(wide) pt")
+        let ends = try #require(try todayLabelInk(width: narrow), "label ink at \(narrow) pt")
+        // One line of AX3 11 pt text is about 29 pt of ink (a digit's box, not a line's); two lines would be 40 or more.
         #expect(oneLine.height < 40, "at natural + 70: \(oneLine)")
-        #expect(fallback.height > 40, "at natural + 58 (gaps of 13 pt) the labels fall back and wrap: \(fallback)")
-        // On one line the last label ends at the trailing edge; the joined line is leading-aligned and ragged.
-        #expect(oneLine.maxX >= t + 4 * 16 + 6 - 4, "the last label is at the trailing edge: \(oneLine)")
+        #expect(ends.height < 40, "at natural + 58 (gaps of 13 pt) the ends alone, on one line: \(ends)")
+        // Both rows span the ruler: "0" at the leading edge, "100" at the trailing one.
+        for (width, ink) in [(wide, oneLine), (narrow, ends)] {
+            #expect(ink.minX <= 4 && ink.maxX >= Double(width) - 4, "the ends at the ruler's edges in \(width) pt: \(ink)")
+        }
+        // In between: "moderate" at natural + 70, nothing at natural + 58.
+        #expect(try todayLabelInk(width: wide, xs: middle(wide)) != nil, "all five labels at natural + 70")
+        #expect(try todayLabelInk(width: narrow, xs: middle(narrow)) == nil, "only the ends at natural + 58")
     }
 
     /// The case review row 10 describes: Today at AX3 in a 350 pt column. With the old 8 pt gap (340 pt needed) the labels sat
-    /// on one line and read as one run; with 16 (372 pt) they fall back. The window below is the measured width of the labels
-    /// (308 pt now); if the font changes enough to leave it, the test says so instead of passing for the wrong reason.
-    @Test("Today's five labels at AX3 in 350 pt fall back to the joined line (they would fit on one line at an 8 pt gap)")
+    /// on one line and read as one run; with 16 (372 pt) they don't fit, so the ends show alone (D9 row 4). The window below is
+    /// the measured width of the labels (308 pt now); if the font changes enough to leave it, the test says so instead of
+    /// passing for the wrong reason.
+    @Test("Today's five labels at AX3 in 350 pt give way to the two ends (they would fit on one line at an 8 pt gap)")
     func todayLabelsAtAX3In350() throws {
         let natural = HStack(spacing: 0) {
             ForEach(Array(todayLabels.enumerated()), id: \.offset) { Text(verbatim: $1).lineLimit(1).fixedSize() }
@@ -858,8 +869,9 @@ import UIKit
         .font(.ryft(.axis)).fixedSize().environment(\.dynamicTypeSize, .accessibility3)
         let t = Double(try #require(render(natural)).size.width)
         #expect(t + 4 * 8 <= 350 && 350 < t + 4 * 16, "the labels are \(t) pt wide: 350 no longer separates an 8 pt gap from a 16 pt one")
-        let ink = try todayLabelInk(width: 350)
-        #expect(ink.height > 40, "wrapped, not one line: \(ink)")
+        let ink = try #require(try todayLabelInk(width: 350), "label ink at 350 pt")
+        #expect(ink.height < 40 && ink.minX <= 4 && ink.maxX >= 346, "the ends, one line, at the edges: \(ink)")
+        #expect(try todayLabelInk(width: 350, xs: middle(350)) == nil, "nothing between the ends")
     }
 
     // MARK: CircleButton

@@ -252,7 +252,7 @@ together: `RYFT_API_URL` alone sends the sync to production ingest).
 Ryft/
   App/         entry, AppState (read-side store + disk cache), Settings, SupabaseConfig, formatting
   Auth/        AuthService (Supabase Auth: Apple, email, links, deletion), AppleSignInButton
-  Design/      Theme, Typography, RyftMark and components (ScoreRing, MetricTile, Card,
+  Design/      Theme, Typography, RyftMark and components (OrbitGauge, NeutralTile, Card,
                SegmentedPicker, HypnogramPlot, StageRow, InsightCard, TrendChart, status views)
   Features/    Auth (Welcome, Create account, Log in, reset), Today, Sleep, Strain
                (+ WorkoutDetail), Insights, Profile, Train (live session, plans, history)

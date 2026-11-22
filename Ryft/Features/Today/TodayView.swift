@@ -666,7 +666,7 @@ struct ImportCard: View {
                 HStack(spacing: 10) {
                     RyftMark()
                         .frame(width: 22, height: 22)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.textPrimary)
                     Text("Setting up RYFT")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
@@ -680,7 +680,7 @@ struct ImportCard: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     ProgressView(value: progress.fraction)
-                        .tint(Theme.accent)
+                        .tint(Theme.textPrimary)
                         .accessibilityHidden(true)
                     Text(progress.coverageText)
                         .font(.ryft(.caption))
@@ -698,12 +698,7 @@ struct ImportCard: View {
                             .font(.ryft(.callout))
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 12) {
-                            Button(action: enablePush) { Text("Allow") }
-                                .buttonStyle(TealButtonStyle(prominent: true))
-                            Button(action: dismissPush) { Text("Not now") }
-                                .buttonStyle(TealButtonStyle(prominent: false))
-                        }
+                        PushAskButtons(identifier: "today.importCard.push", enable: enablePush, dismiss: dismissPush)
                     }
                     .accessibilityElement(children: .contain)
                 }
@@ -711,7 +706,8 @@ struct ImportCard: View {
         }
     }
 
-    /// Reading Apple Health → Uploading → Scoring, the current one lit.
+    /// Reading Apple Health → Uploading → Scoring, the current one lit: the inverse chip (`background` ink on a `textPrimary`
+    /// capsule, accent map class F), the ones done in `textSecondary`, the ones to come in `textTertiary`.
     private var steps: some View {
         HStack(spacing: 6) {
             ForEach(ImportProgress.Step.allCases, id: \.self) { step in
@@ -723,11 +719,11 @@ struct ImportCard: View {
                 }
                 Text(step.title)
                     .font(.ryft(.caption))
-                    .foregroundStyle(step == progress.step ? Theme.onAccent
+                    .foregroundStyle(step == progress.step ? Theme.background
                                      : step < progress.step ? Theme.textSecondary : Theme.textTertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(step == progress.step ? Theme.accent : .clear, in: Capsule())
+                    .background(step == progress.step ? Theme.textPrimary : .clear, in: Capsule())
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -766,7 +762,7 @@ struct ImportRow: View {
             }
             .font(.ryft(.caption))
             ProgressView(value: progress.fraction)
-                .tint(Theme.accent)
+                .tint(Theme.textPrimary)
         }
         .padding(.horizontal, 4)
         .accessibilityElement(children: .ignore)
@@ -900,11 +896,11 @@ struct WatchSyncHintCard: View {
             }
             Spacer(minLength: 0)
         }
-        // `Card`'s surface (design.md §D3.2): no hairline, the surface is the edge.
-        .padding(Theme.Metrics.cardPadding)
+        // `Card`'s surface, radius and inset (design.md §D3.2; the gate's D8: 22 and 16): no hairline, the surface is the edge.
+        .padding(CardSpec.padding)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: CardSpec.radius, style: .continuous))
     }
 
     /// What VoiceOver reads when the card is a button: the sentence with its age (static text), then the action.

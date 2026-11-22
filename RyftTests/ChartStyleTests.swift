@@ -49,7 +49,7 @@ struct ChartStyleTests {
         #expect(d.percent == 20)
         // No-break spaces hold the arrow to the number and the number to its unit (it wraps only after "·").
         #expect(DeltaLabel.text(d, spec: .hrv) == "▲\u{00A0}+10\u{00A0}ms · +20\u{00A0}%")
-        #expect(DeltaLabel.color(d, spec: .hrv) == Theme.accent)
+        #expect(DeltaLabel.color(d, spec: .hrv) == Theme.recovery)
         #expect(DeltaLabel.color(d, spec: .rhr) == Theme.alert)
     }
 
