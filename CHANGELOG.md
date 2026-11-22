@@ -21,6 +21,13 @@ Store "What's New".
 - A focused workout screen: one exercise at a time with the next set ready to check, a strip of exercises, an estimated
   1RM or 10RM column, and the rest timer as a pill at the bottom. Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
+- A journal reminder, on by default at 09:00 once you've chosen habits: one notification each morning asking about
+  yesterday, none once it's answered (also on another device), held until quiet hours end. A tap opens the journal on
+  that day.
+- When RYFT hasn't synced for about 20 hours (and again after about three days), your iPhone says so, between 09:00 and
+  21:00 and outside quiet hours, unless RYFT's server can already reach this iPhone with that notification.
+- Signing out removes RYFT's notifications from Notification Center too, and notifications never show another account's
+  data. With previews hidden, each notification says only what kind it is.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
 - Account with Sign in with Apple or email, data export and account deletion.

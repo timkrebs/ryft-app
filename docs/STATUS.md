@@ -1,4 +1,37 @@
-# Status — 2026-11-20
+# Status — 2026-11-22
+
+## 2026-11-22: N3, local reminders (`feat/reminder-scheduler`, stacked on `feat/notifications`)
+
+Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7, §9–§12; ADR 0024).
+
+- **Done:**
+  - `ReminderScheduler` (`Ryft/Push/`) is the one writer of RYFT's local requests: bedtime's wind-down, the journal
+    reminder and the "not syncing" fallback. Each kind is a pure plan, and a pass diffs the plans' wishes against
+    what the scheduler put on iOS. It reads iOS's pending set once per process. A pass that changes nothing makes no
+    system call.
+  - **Journal reminder:** on by default at 09:00 once habits are chosen. It covers the next 3 mornings as
+    `journal.<asked day>`. An answered day has none, and saving or reading it answered (also from another device)
+    removes it, pending and delivered, at once. It is held until quiet hours end. A tap opens the journal sheet on
+    that day (`/journal/<day>`). Delivered ones about a day other than yesterday go on app active.
+  - **"Not syncing" fallback:** `sync.stale.1` and `.2`, 20 h and 72 h after the last successful sync, between
+    09:00 and 21:00 and outside quiet hours. Only when the server's `SYNC_STALE` can't reach this iPhone: when
+    `push.enabled` is off, notifications aren't allowed or this account's registration isn't accepted.
+  - **Accounts:** the sign-out wipe removes every pending and delivered notification and the wake alarms.
+    `notifications.owner` catches what a kill or a store-only retry left. Demo data freezes the account's reminders.
+  - **Presentation:** every category has a placeholder for hidden previews. A local notification for another account
+    (or arriving in Demo data) isn't presented and opens Today only (`PushPresentation`).
+  - **Bedtime:** it now offers its reminders to the scheduler (`offerBedtime`). The wake notifications are removed by
+    their fixed ids.
+- **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
+  `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The catalog keys listed in the N3 handback
+  are added by the localization-editor; until then `sync-strings --check` lists them as missing.
+- **Measured** (Debug, simulator, mock notifier): a pass that changes nothing makes no system call and takes 0.10 ms
+  (median of 500; p95 0.17 ms); the process's first pass (1 pending read, 1 status read, 2 adds) 0.95 ms; 50 syncs
+  inside an hour, at most 1 add. Before, every bedtime reschedule read iOS's pending set, removed and added all 7.
+- **Verification:** simulator and unit tests only. Not verified on a device: delivery at the floating wall times, the
+  BG refresh's pass, the sign-out's removal from Notification Center, and the hidden-preview placeholders.
+- **Your steps (device):** see the N3 handback (journal reminder at 09:00 and its tap, the fallback after a kill from
+  the app switcher with `push.enabled` off, sign-out clearing Notification Center, previews hidden on the lock screen).
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
