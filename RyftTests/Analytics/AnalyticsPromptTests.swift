@@ -98,8 +98,8 @@ struct AnalyticsPromptTests {
         #expect(!rig.analytics.showsPrompt && rig.analytics.optIn == .optedOut)
     }
 
-    @Test func swipeCountsAsDecline() {
-        // The sheet's dismissal calls `setOptIn(false)` while nothing was answered: that is a decline, and final.
+    @Test func notNowCountsAsAnAnswer() {
+        // The onboarding step's "Not now" calls `setOptIn(false)` while nothing was answered: that is a decline, and final.
         let rig = makeRig()
         rig.analytics.setOptIn(false)
         #expect(rig.analytics.optIn == .optedOut)
@@ -201,9 +201,12 @@ struct AnalyticsPromptTests {
         #endif
     }
 
-    @Test func withoutTheSDKTheLiveSinkIsNoopAndCannotSend() {
-        #if !canImport(PostHog)
+    @Test func inTheSimulatorTheLiveSinkCannotSendEvenWithTheSDKLinked() {
+        // The SDK is linked (phase 2), but the simulator and Debug builds still get the no-op; only a Release device
+        // build gets `PostHogSink`. Without the SDK it is the no-op everywhere.
+        #if targetEnvironment(simulator) || !canImport(PostHog)
         #expect(AnalyticsSinks.live() is NoopAnalyticsSink)
+        #expect(!AnalyticsSinks.live().canSend)
         #expect(!AnalyticsSinks.live(arguments: ["-RyftAnalytics"]).canSend)
         #endif
     }
