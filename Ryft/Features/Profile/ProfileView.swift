@@ -615,6 +615,8 @@ private struct ProfileDeveloperGroup: View {
                               detail: Text(verbatim: held ? "Held while your consent withdrawal is on its way."
                                                           : "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
                               identifier: ProfileRows.devAPIKeyMode, isOn: Bindable(settings).apiKeyMode)
+                // Held, the switch alone dims, so "Held while…" stays readable (as Demo data's).
+                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
                 .disabled(held)
             if settings.apiKeyMode {
                 field("API key") {

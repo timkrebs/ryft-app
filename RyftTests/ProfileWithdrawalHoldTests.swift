@@ -355,6 +355,12 @@ struct ProfileWithdrawalHoldTests {
             #expect(ink.title > 0.8, "Demo data's title at full ink (textPrimary, 0.95): \(ink.title)")
             #expect(ink.detail > 0.44 && ink.detail < 0.6, "the reason at full ink (the detail's textTertiary, 0.49): \(ink.detail)")
             #expect(ink.track > 0.1 && ink.track < 0.3, "the switch's track dimmed to 35 % (0.22): \(ink.track)")
+            #if DEBUG
+            // Round 3, D: API key mode's "Held while…" reads at full ink too; its switch alone dims.
+            let key = try await onScreen(w, ProfileRows.devAPIKeyMode) { Self.demoInk($0, $1) }
+            #expect(key.title > 0.8 && key.detail > 0.44 && key.detail < 0.6 && key.track > 0.1 && key.track < 0.3,
+                    "API key mode: the title and reason at full ink, the track dimmed: \(key)")
+            #endif
             // With `PROFILE_SHOTS_DIR`: one screen around the buttons row, clear of a paged shot's seams (the paged
             // `profile-withdrawing-*` shots can cut through the pill).
             if let dir = ProcessInfo.processInfo.environment["PROFILE_SHOTS_DIR"] {
