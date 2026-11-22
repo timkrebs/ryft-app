@@ -75,7 +75,9 @@ final class OnboardingCoordinator {
         /// The consent record could be read (`ConsentState.isRecordReadable`; false before the first unlock).
         var recordReadable = true
         /// Profile's Withdraw consent is on its way (`isWithdrawing`): data waits, whatever RYFT's word meanwhile (security
-        /// review round 2, S-1). A local fact that only closes (ADR 0008); the flow's steps don't count it.
+        /// review round 2, S-1). So it does after one sent with no answer, until RYFT is heard from after it
+        /// (`ConsentState.withdrawalUnresolvedSince`, round 3, S-2). A local fact that only closes (ADR 0008); the flow's
+        /// steps don't count it.
         var withdrawing = false
     }
 
@@ -113,7 +115,8 @@ final class OnboardingCoordinator {
     ///   Only a `GET /v1/me` asked for after the `204` and stored opens it (ADR 0025, decision 3).
     /// - While a withdrawal is on its way (`withdrawing`), data waits too: an answer heard meanwhile (Check with RYFT, a
     ///   reconnect, Agree's re-read) may settle the agreement, and the withdrawal is the last word (security review round
-    ///   2, S-1). Only closing: once it ends, the rest decides.
+    ///   2, S-1). So it does after one sent with no answer, until RYFT is heard from after it: RYFT may have recorded it
+    ///   (round 3, S-2). Only closing: once it ends, the rest decides.
     nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate? {
         if f.demo { return path == .healthKit ? .demo : nil }
         guard f.recordReadable else { return .policyUnknown }
@@ -215,8 +218,12 @@ final class OnboardingCoordinator {
                      aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup),
                      demo: env.isDemo, inviteBlocked: apiStatus.inviteBlocked || refusals.contains(.inviteRequired),
                      policyFresh: consent.isPolicyFresh(at: env.clock.now()), recordReadable: consent.isRecordReadable,
-                     withdrawing: isWithdrawing)
+                     withdrawing: withdrawalHolds)
     }
+
+    /// A withdrawal is on its way (`isWithdrawing`), or went without an answer and RYFT hasn't been heard from since
+    /// (`ConsentState.withdrawalUnresolvedSince`): every data upload waits for it (`Facts.withdrawing`).
+    var withdrawalHolds: Bool { isWithdrawing || consent.withdrawalUnresolvedSince != nil }
 
     /// `GET /v1/me/sync` → `gate`; a `consent_required` only from a status that speaks for consent (R2: not one asked
     /// within the platform's cache time of this phone's consent `204`).
@@ -375,8 +382,8 @@ final class OnboardingCoordinator {
     /// Asks the platform what's missing: at launch (restored session) and after every
     /// sign-in, when a gate is reported, and after each step. `changedSince`: the account's answer must have been
     /// asked for after then (a withdrawal's re-check), never one already in flight. While this phone's agreement waits
-    /// for RYFT's word (its re-read failed), every check asks: never answered from the last one, and `/v1/me` asked for
-    /// after the agreement. `userInitiated` (Profile's Check with RYFT): its reads don't wait out a `Retry-After`.
+    /// for RYFT's word (its re-read failed), or a withdrawal had no answer (S-2), every check asks: never answered from
+    /// the last one, and `/v1/me` asked for after the agreement or the withdrawal. `userInitiated` (Profile's Check with RYFT): its reads don't wait out a `Retry-After`.
     func check(force: Bool = false, changedSince: Date? = nil, userInitiated: Bool = false) async {
         guard !env.isDemo, env.auth.isSignedIn else {
             phase = .ready
@@ -385,7 +392,10 @@ final class OnboardingCoordinator {
         let account = env.auth.accountID
         if account != self.account { switchAccount(account) }
         let unsettled = consent.pendingAgreement
-        if !force, phase == .ready, let lastCheck, unsettled == nil,
+        // A withdrawal without an answer the same way: every check asks, `/v1/me` asked for after it (security review
+        // round 3, S-2).
+        let unresolved = consent.withdrawalUnresolvedSince
+        if !force, phase == .ready, let lastCheck, unsettled == nil, unresolved == nil,
            env.clock.now().timeIntervalSince(lastCheck) < Self.recheckInterval { return }
         // Offline: the cached account decides; the next start (or a gate) asks again.
         guard env.connectivity.isOnline else {
@@ -393,7 +403,8 @@ final class OnboardingCoordinator {
             return
         }
         if phase != .ready { phase = .checking }
-        let answer = await fetchWithTimeout(changedSince: changedSince ?? unsettled?.at, userInitiated: userInitiated)
+        let since = changedSince ?? [unsettled?.at, unresolved].compactMap { $0 }.max()
+        let answer = await fetchWithTimeout(changedSince: since, userInitiated: userInitiated)
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
         // Written through inside its read (and the time zone's PATCH): the gates below decide from it in this step
@@ -504,6 +515,9 @@ final class OnboardingCoordinator {
     /// From no account (the launch's first check, a sign-in) it stays: a link opened at launch is the launch account's,
     /// and one that arrived signed out waits in `DeepLinkRouter.pending` until after this switch.
     func switchAccount(_ account: String?) {
+        // Another account, or none: the previous account's withdrawal without an answer ends with it (security review
+        // round 3, S-2). Never from no account: the launch's first check keeps the launch account's.
+        if let old = self.account, old != account { consent.endUnresolvedWithdrawal(of: old) }
         if self.account != nil {
             apiStatus.resetGates()
             turn += 1
@@ -692,10 +706,11 @@ final class OnboardingCoordinator {
         return state.repository.user()?.consent?.policyVersion == version ? "ok" : "no_consent"
     }
 
-    /// Back online: an agreement RYFT hasn't confirmed yet (its re-read failed) is asked about again (RyftApp). Nothing
-    /// else: the launch, a foreground return and a gate ask on their own.
+    /// Back online: an agreement RYFT hasn't confirmed yet (its re-read failed), or a withdrawal without an answer
+    /// (security review round 3, S-2), is asked about again (RyftApp). Nothing else: the launch, a foreground return and a
+    /// gate ask on their own.
     func reconnected() async {
-        guard consent.unsettledAgreement != nil else { return }
+        guard consent.unsettledAgreement != nil || consent.withdrawalUnresolvedSince != nil else { return }
         await check()
     }
 
@@ -755,7 +770,8 @@ final class OnboardingCoordinator {
     /// answer is recorded on this phone, before the re-check (Profile's hold ends then, and VoiceOver hears it, security
     /// review N-3); true is returned only after the re-check. Sent with no answer (`Unanswered`), RYFT is asked what it
     /// holds: without the consent, the withdrawal arrived and is recorded as an answered one; with it, Profile says it may
-    /// still have arrived (`withdrawalUnansweredMessage`).
+    /// still have arrived (`withdrawalUnansweredMessage`). Without an answer, data waits until RYFT is heard from after the
+    /// attempt ended (`ConsentState.withdrawalUnresolvedSince`, security review round 3, S-2).
     @discardableResult
     func withdrawConsent(onRecorded: @MainActor () -> Void = {}) async -> Bool {
         guard !isWithdrawing else { return false }
@@ -764,7 +780,6 @@ final class OnboardingCoordinator {
         defer { if started == turn { isWithdrawing = false } }
         return await perform(waitsForTurn: true) { sent in
             let change = self.state.repository.userChange()
-            let sentAt = self.env.clock.now()
             var reread = false
             do {
                 try await self.failingFast { try await self.api.revokeConsent() }
@@ -773,10 +788,16 @@ final class OnboardingCoordinator {
                 // (`/v1/me` only, as Agree asks), so Privacy shows that (security review round 3, A). The consent sheet
                 // waits meanwhile: a withdrawal that arrived is never asked about again on its own, as below.
                 try self.answered(sent)
+                // RYFT may have recorded it: every data upload waits until RYFT is heard from after the attempt ended,
+                // here, after a relaunch and in a background launch (security review round 3, S-2). Set before
+                // `isWithdrawing` ends, so the hold never lapses in between.
+                let cancelledAt = self.env.clock.now()
+                self.consent.withdrawalUnresolved(since: cancelledAt)
                 let wasDeferred = self.deferred.contains(.consent)
                 self.deferred.insert(.consent)
-                // Its answer settles no agreement (security review round 2, S-1): RYFT may record the DELETE after it.
-                let read = await self.askAgain(since: sentAt, settles: false)
+                // Asked for after the attempt ended: one asked earlier may be from before RYFT recorded the DELETE. Its
+                // answer settles no agreement (security review round 2, S-1): RYFT may record the DELETE after it.
+                let read = await self.askAgain(since: cancelledAt, settles: false)
                 try self.answered(sent)
                 let user = read ? self.state.repository.user() : nil
                 // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal

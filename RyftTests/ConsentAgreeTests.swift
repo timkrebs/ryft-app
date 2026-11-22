@@ -1257,4 +1257,103 @@ struct ConsentAgreeTests {
         delete.release()
         #expect(await withdrawing.value)
     }
+
+    // MARK: Review round 3, S-2: a withdrawal without an answer
+
+    @Test("S-2: a withdrawal that landed without an answer, its /v1/me late: nothing goes until RYFT is heard from after it",
+          .timeLimit(.minutes(1)))
+    func anUnansweredWithdrawalKeepsTheHold() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        try #require(h.consent.agreement?.settled == true)
+        let train = h.trainOutbox()
+        let delete = Gate(), me = FirstCallsHold()
+        let api = h.api
+        // RYFT records the withdrawal, and its answer never comes; asked again, its /v1/me is held past the deadline.
+        api.beforeRevokeConsent = {
+            api.accountConsent = nil
+            await delete.wait()
+        }
+        api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        let cancelled = h.clock.now()
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await withdrawing.value == false)
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+
+        // The stored user still shows the consent, and nothing goes: RYFT may have recorded the DELETE.
+        #expect(!h.onboarding.isWithdrawing && h.state.repository.user()?.consent != nil)
+        #expect(h.consent.withdrawalUnresolvedSince == cancelled)
+        #expect(h.onboarding.uploadGate(for: .train) != nil, "Train's outbox waits")
+        for path in [UploadPath.healthKit, .activities, .trainImport] {
+            #expect(h.onboarding.uploadGate(for: path) != nil, "\(path) waits")
+        }
+        #expect(h.onboarding.uploadGate(for: .activities, write: .erasure) == nil, "erasure goes")
+        _ = await train.finish(SessionFactory.empty(in: h.persistence))
+        await train.flush()
+        #expect(train.pendingCount > 0 && h.api.count("putSession") == 0, "nothing went: \(h.api.calls)")
+        // The next process on this iPhone (a relaunch, a background launch) holds too.
+        let (next, _) = h.relaunched(online: true)
+        #expect(next.uploadGate(for: .train) != nil, "after a relaunch")
+        #expect(next.uploadGate(for: .healthKit) != nil, "after a relaunch")
+
+        // RYFT's late answer, asked after the attempt ended, resolves it: no consent, and the stored user holds from now.
+        me.release()
+        #expect(await eventually { h.consent.withdrawalUnresolvedSince == nil }, "the late read resolved it")
+        #expect(h.state.repository.user().map { $0.consent == nil } ?? false)
+        #expect(h.onboarding.uploadGate(for: .train) == .gate(.consentRequired))
+        await train.flush()
+        #expect(h.api.count("putSession") == 0)
+        await delete.open()
+    }
+
+    @Test("S-2: a withdrawal without an answer ends on a /v1/me asked after it, an answered one, a new Agree, another account",
+          .timeLimit(.minutes(1)))
+    func anUnresolvedWithdrawalsEnds() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let user = try #require(h.state.repository.user())
+        func unresolved() -> Date {
+            let at = h.clock.now()
+            h.consent.withdrawalUnresolved(since: at)
+            h.clock.advance(by: .seconds(1))
+            return at
+        }
+
+        // A /v1/me asked for before it says nothing about it; one asked at or after it does, whatever it shows.
+        let at = unresolved()
+        h.state.repository.store(fetchedUser: user, askedAt: at.addingTimeInterval(-1))
+        #expect(h.consent.withdrawalUnresolvedSince == at && h.onboarding.uploadGate(for: .train) != nil)
+        h.state.repository.store(fetchedUser: user, askedAt: at)
+        #expect(h.consent.withdrawalUnresolvedSince == nil && h.onboarding.uploadGate(for: .train) == nil)
+
+        // The next check asks, even within its recheck interval, for a /v1/me asked after it.
+        _ = unresolved()
+        let reads = h.api.count("me")
+        await h.onboarding.check()
+        #expect(h.api.count("me") == reads + 1 && h.consent.withdrawalUnresolvedSince == nil)
+
+        // A withdrawal answered, and a new Agree.
+        _ = unresolved()
+        h.consent.withdrew(at: h.clock.now())
+        #expect(h.consent.withdrawalUnresolvedSince == nil)
+        _ = unresolved()
+        h.consent.consented(to: H.version, at: h.clock.now())
+        #expect(h.consent.withdrawalUnresolvedSince == nil)
+
+        // Another account: A's ends with it, and B's uploads aren't held by it.
+        _ = unresolved()
+        let a = h.account
+        await h.signIn(H.b)
+        h.accountChanged(from: a)
+        #expect(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(a)) == nil)
+        #expect(h.consent.withdrawalUnresolvedSince == nil)
+    }
 }

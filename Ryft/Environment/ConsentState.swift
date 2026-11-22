@@ -75,6 +75,8 @@ enum UploadWrite: Sendable {
 ///   a failed save still can) and in a background launch that never runs the check, until this phone agrees again
 ///   (`consented`) or a `GET /v1/me` asked for after it shows consent to the policy in force (`heard`). Not wiped with
 ///   the account: the same account signing in again hasn't agreed since either.
+/// - **A withdrawal with no answer** (`withdrawalUnresolvedSince`) is kept the same way, and only closes: every data
+///   upload waits until RYFT is heard from after it (security review round 3, S-2).
 /// - **Demo data** reads and writes nothing: the gate decides demo before the record (design.md §3.2).
 @MainActor
 @Observable
@@ -122,6 +124,9 @@ final class ConsentState {
 
     /// Where `withdrawnAt` is kept for `account` (`env.defaults`).
     nonisolated static func withdrawalKey(_ account: String) -> String { "consent.withdrawn.\(account)" }
+
+    /// Where `withdrawalUnresolvedSince` is kept for `account` (`env.defaults`, beside `withdrawnAt`).
+    nonisolated static func unresolvedWithdrawalKey(_ account: String) -> String { "consent.withdrawal.unresolved.\(account)" }
 
     /// Bumped by every write: whoever reads the record reads again.
     private(set) var revision = 0
@@ -206,6 +211,18 @@ final class ConsentState {
         return env.defaults.object(forKey: Self.withdrawalKey(account)) as? Date
     }
 
+    /// A withdrawal sent with no answer, and RYFT not heard from since (security review round 3, S-2): from when its
+    /// attempt ended. The `DELETE` may have been recorded, so every data upload waits (`OnboardingCoordinator`'s
+    /// `Facts.withdrawing`), in this process, the next one and a background launch alike: kept per account in
+    /// `env.defaults`, beside `withdrawnAt`. Only closes. It ends on a `GET /v1/me` asked for at or after it and stored
+    /// (`heard`: the withdrawal's own late re-read, the next check), a withdrawal answered (`withdrew`), a new agreement
+    /// (`consented`), or another account on this iPhone (`endUnresolvedWithdrawal(of:)`). Nil signed out and in demo mode.
+    var withdrawalUnresolvedSince: Date? {
+        _ = revision
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return nil }
+        return env.defaults.object(forKey: Self.unresolvedWithdrawalKey(account)) as? Date
+    }
+
     /// This phone's agreement as stored, settled or not; nil signed out, in demo mode, before the first `204` and after a
     /// withdrawal.
     var agreement: Agreement? { record?.agreement }
@@ -262,6 +279,7 @@ final class ConsentState {
     /// answer whose re-read showed the consent).
     func consented(to version: String, at: Date, settled: Bool = false) {
         endWithdrawal()
+        endUnresolvedWithdrawal()
         write { record in
             if record.answeredAt.map({ $0 <= at }) ?? true {
                 if record.policyVersion != version { record.policyURL = nil }
@@ -275,10 +293,11 @@ final class ConsentState {
 
     /// `DELETE /v1/me/consent` answered at `at`: this phone's withdrawal, kept outside the store (`withdrawnAt`), and the
     /// platform's refusal from then on (API.md: sync answers `403 consent_required`), recorded as any refusal is. This
-    /// phone's agreement goes with it.
+    /// phone's agreement goes with it, and a withdrawal that had no answer is resolved (`withdrawalUnresolvedSince`).
     func withdrew(at: Date) {
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
         env.defaults.set(at, forKey: Self.withdrawalKey(account))
+        env.defaults.removeObject(forKey: Self.unresolvedWithdrawalKey(account))
         revision += 1
         write { record in
             record.agreement = nil
@@ -292,12 +311,15 @@ final class ConsentState {
     /// Not when `settles` is false (a withdrawal's own re-read: RYFT may record the `DELETE` after it). Asked for after
     /// the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
     /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
+    /// Asked for at or after a withdrawal that had no answer, it resolves that one, whatever it shows, `settles` or not
+    /// (security review round 3, S-2): the stored user is RYFT's word on it from then on.
     func heard(_ user: User, askedAt: Date, settles: Bool = true) {
         if settles, let env, let agreement, !agreement.settled,
            askedAt >= agreement.at || agreement.at > env.clock.now() {
             write { $0.agreement?.settled = true }
             agreementSettled?()
         }
+        if let since = withdrawalUnresolvedSince, askedAt >= since { endUnresolvedWithdrawal() }
         guard let withdrawnAt, askedAt >= withdrawnAt, let version = latestPolicyVersion,
               user.consent?.policyVersion == version else { return }
         endWithdrawal()
@@ -307,6 +329,23 @@ final class ConsentState {
         guard let env, !env.isDemo, let account = env.auth.accountID,
               env.defaults.object(forKey: Self.withdrawalKey(account)) != nil else { return }
         env.defaults.removeObject(forKey: Self.withdrawalKey(account))
+        revision += 1
+    }
+
+    /// `DELETE /v1/me/consent` went out and no answer came (`withdrawalUnresolvedSince`): `since` is when its attempt
+    /// ended. A later one without an answer moves it on: only a `/v1/me` asked for after that one resolves it.
+    func withdrawalUnresolved(since: Date) {
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        env.defaults.set(since, forKey: Self.unresolvedWithdrawalKey(account))
+        revision += 1
+    }
+
+    /// The unresolved withdrawal of `account` ends: another account is on this iPhone now (`OnboardingCoordinator`'s
+    /// `switchAccount`), or the current one heard RYFT (nil: the current account).
+    func endUnresolvedWithdrawal(of account: String? = nil) {
+        guard let env, let account = account ?? (env.isDemo ? nil : env.auth.accountID),
+              env.defaults.object(forKey: Self.unresolvedWithdrawalKey(account)) != nil else { return }
+        env.defaults.removeObject(forKey: Self.unresolvedWithdrawalKey(account))
         revision += 1
     }
 
