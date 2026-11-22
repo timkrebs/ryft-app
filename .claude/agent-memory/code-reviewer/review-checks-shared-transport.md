@@ -46,3 +46,12 @@ Known red test (2026-10-22): `PullToRefreshTests.thePullReturnsAfterThreeSeconds
 Screen-level `.refreshable` (My Day A1 part 2, 2026-10-23): awaiting more after `screens.pullToRefresh()` (e.g.
 `load(day, force: true)`) bypasses `AppState.spinnerCap` (3 s), and `.latest` on today joins phase 2's flight or sends
 a second `GET /v1/days/{today}`. Ask for activities-only / capped follow-ups.
+
+Deadlines added to a wait whose answer is stored inside the flight (consent agree lag round 2, `askAgain(since:)`, 2026-11-22):
+the read still lands *after* the caller has decided, and it skips the decision path. Withdrawal: on `Unanswered` the
+code un-deferred `.consent`. The late `/v1/me` showing the DELETE arrived then put the consent sheet over Profile. Agree:
+the late consent moved the flow (or dismissed the sheet), but the "try again" error stayed and showed on About you and in
+Privacy. For every bounded wait, list what the late landing changes (`missing`, `deferred`, `errorMessage`), and check the
+test's end state asserts those too. A deadline test that releases the held read and stops there hides it.
+Also: a fix at two call sites tested only through the helper (`scoringGate(of:)` called directly) leaves the call-site
+revert alive. Ask for a test through the real step.

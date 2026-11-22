@@ -96,5 +96,21 @@ Seen 2026-10-22 (tracker setup T1, several agents on one Mac):
   dev.timkrebs.ryft …` writes the device's domain, which the app never reads. Use the container plist as the domain:
   `defaults write "$(simctl get_app_container <udid> <bundle> data)/Library/Preferences/<bundle>" key value` through
   `simctl spawn`, with the app not running. Debug's `demoMode` default is on, so a "Demo data off" run must write it.
+- **`-only-testing:` takes type names, not file names** (2026-11-20, D247): briefs list files (`AppAttestAvailabilityTests`,
+  `FeatureFlagsTests`, `ConsentGateTests`) whose structs are named otherwise (`AppAttestNotServedTests`, `FlagStoreTests`,
+  `ConsentGateRuleTests` …); a non-matching name runs 0 tests silently. Grep `^struct|final class` in the files first and
+  compare the "N tests in M suites" count. Erase + `bootstatus -b` + `-parallel-testing-enabled NO` got past the clone error.
+
+- **Scratchpad worktree checks** (2026-11-22, N3 round 3):
+  - `make lint` prints "Built-in exercises: no platform checkout, check skipped" and still exits 0, because there is no `../plattform` next to the worktree. Run `python3 scripts/builtin-exercises.py --check --platform <main checkout>/../plattform`.
+  - UISmoke is XCTest: count `Test Case '-[…]' passed|failed|skipped` and `Executed N tests`, not `' passed on`.
+  - A mutant that fails two `eventually` waits (30 s each) runs into the Unit plan's 60 s allowance. xcodebuild prints "Restarting after … test timeout", runs the rest of the suite, and still exits 65 (killed).
+  - Swift Testing's console lines carry the `@Test("…")` display name, never the function name: grep a phrase of the title to prove a new test ran (a grep for the function name counts 0 on a pass).
+
+- **More scratchpad worktree checks** (2026-11-22, invalid-workout hotfix):
+  - `make style` runs `install-tools.sh`, which downloads into the worktree's git-ignored `.build/`. Copy the two pinned binaries from the user's checkout into `.build/tools/` first, and delete them at cleanup.
+  - With `-only-testing`, the console has only `Test case 'Type/func()' failed on`; the expectation text is in the result bundle. Walk `xcrun xcresulttool get test-results tests --path <xcresult>` JSON for `nodeType == "Failure Message"` under each `Test Case`.
+  - The destination line `platform=iOS Simulator,id=…` contains a space: never `split()` it in a script (xcodebuild then exits 64).
+  - On "iPhone 17 Pro" iOS 27.2, made by `CI_SIM_NAME`, the full Unit plan passed (7 648 passed, 0 failed, 4 skipped). The hosted-geometry failures listed above for iPhone Duo didn't appear.
 
 **How to apply:** any session that builds/tests in a worktree; related [[project-dev-machine-disk]].

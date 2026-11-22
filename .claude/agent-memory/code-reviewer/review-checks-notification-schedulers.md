@@ -1,6 +1,6 @@
 ---
 name: review-checks-notification-schedulers
-description: RYFT review checks for local-notification schedulers (N3 ReminderScheduler, 2026-11-22) - stored Calendar.current snapshots vs time-change passes, owner-key teardowns on upgrade hit by HealthKit background launches, denied-permission add retries breaking "zero system calls", costs measured on unwired rigs, id-only local requests (wake.*) silenced by an account check, default-on kinds shipping before their switch
+description: RYFT review checks for local-notification schedulers (N3 ReminderScheduler rounds 1-2, 2026-11-22) - caches nil-ed mid-pass by other entry points, untested gates on BG reads, stored Calendar.current snapshots vs time-change passes, owner-key teardowns on upgrade hit by HealthKit background launches, denied-permission add retries breaking "zero system calls", costs measured on unwired rigs, id-only local requests (wake.*) silenced by an account check, default-on kinds shipping before their switch
 metadata:
   type: feedback
 ---
@@ -30,3 +30,18 @@ From the N3 review (read-only, no build, 2026-11-22). The suite and the mutants 
 **Why:** these needed the launch wiring, the `Foundation` calendar semantics or the rig's inputs, not the diff.
 **How to apply:** any PR that schedules local notifications, owns a ledger of system state, or claims costs and call
 counts. See [[review-checks-side-effect-passes]], [[review-checks-mutant-evidence]], [[review-checks-control-holds]].
+
+Added after the round-2 re-review (7eb7c8c..4062619, read-only, 2026-11-22). Every round-1 item held. What was left, or worth checking first next time:
+- **A cached input that other entry points reset to nil goes nil mid-pass.** `reschedule(.appActive)` and `offerBedtime` set
+  `authorization = nil` at once. A pass waiting on `delivered()` then sees `allowed == nil`, and `if allowed == false { add = [] }`
+  lets bedtime's adds through while notifications are denied. Snapshot the per-pass inputs after their read, or flag "read again".
+- **`isProtectedDataAvailable` is false whenever the phone is locked, not only before the first unlock.** Guarding only the
+  signed-out and owner-mismatch branches is right: an owner key that reads equal to the account shows that the defaults are
+  readable. The pass that bailed runs again at the unlock only through `ConsentState.reload()` bumping `revision`. That trigger is implicit.
+- **New gates on a background network read need their own test.** The mutants covered the pass's `gated`, but not the
+  `readYesterdayIfOwed` guard `newKinds == true, consentAllows == true`, which is the dark launch's only guard on a BG `GET`.
+- **"Wired as an account-state forgetter" means every forget:** the Demo switch and every sign-in (`accountWillChange`), not only
+  wipes. Read each forgetter's doc comment against that (`PushRegistrar.forgetAccount`).
+- **"M1–M14 killed":** r3 re-ran only M7–M14, and M1–M6 date from round 1. Check whether the tests that killed them were rewritten.
+- A stored `Calendar.autoupdatingCurrent` follows `NSTimeZone.default` (a swiftc probe), and `.current` doesn't.
+- Late commits again (ff3dc95 strings, 6eda540 review notes) after the stated range. STATUS's "key missing" line went stale.

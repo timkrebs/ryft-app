@@ -18,6 +18,11 @@ Used for P1 (fast RFC 3339 parsing, 2026-10-23, `perf/fast-date-parsing`):
 - **Mutants in seconds.** For pure code, a python script that extracts the test's case tables and generator from the
   Swift Testing file into a macOS `swiftc` harness ran 36 mutants in ~2 min (vs ~4 min per mutant through
   xcodebuild). Check the formatter/Foundation behaviour it relies on matches the simulator first (probe both).
+- **Real Swift Testing suites in SwiftPM (2026-11-22, SyncScreen).**
+  - Target `Ryft` = copies of `Models.swift`, `DateParsing.swift`, `App/Formatting.swift`, `SleepMath.swift` and the file under test, plus stubs (`HealthDelta`, `APIClient` with its two coders).
+  - Test target = the test file cut at the first suite that needs mocks. `@testable import Ryft` works as-is.
+  - `swift test --filter <Suite>`: about 60 s the first time, then about 30 s per mutant. 18 mutants ran without one xcodebuild.
+  - Engine-level mutants still need xcodebuild. Group them so each targeted test fails for one known reason, and read the reasons from the result bundle (see [[project-simulator-and-tools]]).
 - **xcodebuild test shuts the device down** when it finishes (seen 3× that day): `simctl spawn` then fails with
   "device is not booted". `simctl boot` + `bootstatus -b` again.
 

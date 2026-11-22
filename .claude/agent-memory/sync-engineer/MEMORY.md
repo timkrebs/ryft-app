@@ -43,3 +43,4 @@
 - [MockNotifier authorization](project_mock_notifier_authorization.md) — starts .notDetermined; scheduler adds only when allowed; bedtime tests authorize; run full Unit
 - [Protected data guard](project_protected_data_guard.md) — isProtectedDataAvailable is false whenever locked; guard only destructive branches
 - [Wire precision for Go rules](project_wire_precision_go_rules.md) — mirror platform checks on encoded values: whole seconds, distantPast = Go zero, bytes after NUL strip
+- [Entitlements hook](project_entitlements_hook.md) — pre-edit-guard refuses *.entitlements edits even if a brief asks; give Xcode steps

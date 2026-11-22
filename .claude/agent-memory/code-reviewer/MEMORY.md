@@ -1,6 +1,6 @@
 - [Today-state review checks](review_checks_today_state.md) — day words, per-body cost, first-frame catalog, widget republish triggers, readiness⇔recovery
 - [Outbox/queue review checks](review-checks-outbox-queues.md) — stale snapshots, late answers, epoch timing, never-sent markers, unknown 403 codes, whole-batch 4xx
-- [Shared transport/coalescing checks](review-checks-shared-transport.md) — error-shape audits, cancellable waits, joined replays, global holds, debounced-save flush, flakes
+- [Shared transport/coalescing checks](review-checks-shared-transport.md) — error shapes, cancellable waits, late landings after deadlines, global holds, debounced flush
 - [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merged-in PRs, deleted views' stale keys
 - [Derived states](review-checks-derived-states.md) — server aggregates, after-midnight, nil unscored, ScoringWord.state, tonight = BedtimePlanner
 - [Dark launch + remote content](review-checks-dark-launch.md) — flag-off leaks, shared string keys, RootView modifiers, remote glyphs, launch args
@@ -14,7 +14,7 @@
 - [Session UI planners](review-checks-session-ui.md) — planner vs nextUp warm-ups, children:.ignore, VO on collapse, cover updates while dismissing, fold vs keypad
 - [Undo windows + held uploads](review-checks-undo-windows.md) — queued ops leak held state, tasks outliving Finish, chained plan PUTs, probe copies
 - [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, parity exceptions, task id vs env flag, v3 halo-clip/entrance-end tautologies
-- [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, enum collapse, probe recipe
+- [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, since-markers vs clock, probe recipe
 - [Design notes before code](review-checks-design-notes.md) — "only site" claims, dark value of swaps, ticket order, Shared visibility, stale base
 - [Tokens + dark-only](review-checks-tokens-dark-only.md) — Info.plist names deleted colorsets, project-xcconfig accent, mid-branch ADRs, scheme asserts, icons
 - [Design components ahead of screens](review-checks-design-components.md) — glow-tile text colours, doc drift, fixedSize HStack overflow, FP ties, test guard bounds
@@ -53,5 +53,6 @@
 - [Action patches of server overviews](review-checks-action-patches.md) — refresh in flight undoes patch, actions out of order, UserDefaults keys across parallel suites, platform SQL as contract
 - [Header moves + deletions](review-checks-header-unification.md) — ids/dismiss paths, pinned vs scrolled headers, edge vs scrollTo(.top) (probed), mock resets, scans
 - [Control holds over a flight](review-checks-control-holds.md) — held button vs running task/re-shown dialog, no-answer as "No connection", stopped TestClock budget, git show only
-- [Flow vs gate splits](review-checks-flow-vs-gate-splits.md) — cached state opens gate early, every consent reader, untested pre-T answers, unbounded re-reads
-- [Notification schedulers](review-checks-notification-schedulers.md) — stored Calendar.current, upgrade owner-key teardown in BG launches, denied retries, unwired cost rigs, wake.* silenced
+- [Flow vs gate splits](review-checks-flow-vs-gate-splits.md) — cached state opens gate early, every consent reader, untested pre-T answers, unbounded re-reads, no-settle flags on joins
+- [Notification schedulers](review-checks-notification-schedulers.md) — Calendar.current snapshots, upgrade teardowns, denied retries, mid-pass nil caches, BG-read gates
+- [Validator mirrors](review-checks-validator-mirrors.md) — wire-second compares, bytes vs chars, other 4xx/500 paths, empty-page anchors, diagnostics allowlist
