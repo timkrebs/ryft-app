@@ -1458,4 +1458,30 @@ struct ConsentAgreeTests {
         #expect(h.onboarding.uploadGate(for: .train) == .gate(.consentRequired))
         await delete.open()
     }
+
+    // MARK: Review round 3, code S and 4: Check with RYFT's failure
+
+    @Test("Code S, 4: a failure RYFT sent back is said in its own words, with Details; offline, no line",
+          .timeLimit(.minutes(1)))
+    func aCheckFailureHasItsWordsAndDetails() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        let unanswered = String(localized: "RYFT didn't answer. Try again in a moment.")
+        // A 429 over the read's cap: it fails at once, with RYFT's answer in hand.
+        h.api.faults["me"] = .init(.status(429, retryAfter: 600))
+        await profile.checkConsent()
+        let busy = APIError.http(429, "", requestID: "fault-me", retryAfter: 600)
+        #expect(profile.consentAwaitsConfirmation)
+        #expect(profile.consentCheckMessage == OnboardingCoordinator.fallbackMessage(for: busy))
+        #expect(profile.consentCheckMessage != unanswered, "RYFT did answer")
+        #expect(profile.consentCheckDetails == busy.diagnosticDetails, "\(profile.consentCheckDetails ?? "-")")
+        #expect(profile.consentCheckDetails?.contains("fault-me") == true, "the request ID")
+
+        // Offline: no line; the footer says when RYFT is asked again.
+        h.connectivity.update(false)
+        #expect(profile.consentCheckMessage == nil && profile.consentCheckDetails == nil)
+        h.connectivity.update(true)
+        #expect(profile.consentCheckMessage != nil, "back online, still unanswered")
+    }
 }

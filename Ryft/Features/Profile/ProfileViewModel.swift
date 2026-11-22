@@ -347,8 +347,13 @@ final class ProfileViewModel {
     /// "Check with RYFT" is on its way (its row is busy, Withdraw consent is dimmed).
     private(set) var checkingConsent = false
 
-    /// The last Check with RYFT brought no word (`consentCheckMessage`).
-    private var consentCheckFailed = false
+    /// A Check with RYFT that brought no word: the failure that came back instead, nil when nothing did.
+    private struct ConsentCheckFailure {
+        var error: (any Error)?
+    }
+
+    /// The last Check with RYFT brought no word (`consentCheckMessage`, `consentCheckDetails`).
+    private var consentCheckFailure: ConsentCheckFailure?
 
     /// Check with RYFT can ask: online, and no withdrawal on its way. Offline the row is dimmed and the footer says this
     /// iPhone asks again once it's back online (code review round 2, 3).
@@ -357,20 +362,42 @@ final class ProfileViewModel {
     /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again, as the person's own read
     /// (`OnboardingCoordinator.confirmAgreement`: `/v1/me` asked for after the agreement, not held by a `Retry-After`).
     /// Its answer decides the row: confirmed, "Given" without the line; without the consent, "Not given" and Review and
-    /// agree. No word (no answer within the check's 10 s, a failure): one line says so (`consentCheckMessage`).
+    /// agree. No word (no answer within the check's 10 s, a failure): one line says so (`consentCheckMessage`), with the
+    /// failure's status and request ID behind Details (`consentCheckDetails`).
     func checkConsent() async {
         guard canCheckConsent, !checkingConsent else { return }
         checkingConsent = true
-        consentCheckFailed = false
+        consentCheckFailure = nil
         defer { checkingConsent = false }
-        consentCheckFailed = !(await onboarding?.confirmAgreement() ?? true)
+        guard case .unconfirmed(let failure)? = await onboarding?.confirmAgreement() else { return }
+        consentCheckFailure = ConsentCheckFailure(error: failure)
     }
 
-    /// Under Privacy after a Check with RYFT that brought no word, while the consent still waits for it.
+    /// Under Privacy after a Check with RYFT that brought no word, while the consent still waits for it, online only (code
+    /// review round 3, 4: offline the footer says when RYFT is asked again). An answer RYFT sent back is said in its words
+    /// (`APIError`'s own for a `429` or a `503`, code review round 3, S); "RYFT didn't answer" only when nothing came back
+    /// (no answer within the check's wait, a timeout, the connection lost).
     var consentCheckMessage: String? {
-        guard consentCheckFailed, consentAwaitsConfirmation, !checkingConsent else { return nil }
-        return String(localized: "RYFT didn't answer. Try again in a moment.",
-                      comment: "Profile → Privacy, after Check with RYFT: no answer came in time, or the request failed.")
+        guard let consentCheckFailure, consentAwaitsConfirmation, !checkingConsent, env.connectivity.isOnline else {
+            return nil
+        }
+        guard let failure = consentCheckFailure.error, !Self.noResponse(failure) else {
+            return String(localized: "RYFT didn't answer. Try again in a moment.",
+                          comment: "Profile → Privacy, after Check with RYFT: nothing came back from RYFT (no answer in time, the connection lost).")
+        }
+        return OnboardingCoordinator.fallbackMessage(for: failure)
+    }
+
+    /// No response came back at all: a transport failure.
+    private static func noResponse(_ error: any Error) -> Bool {
+        if case .transport? = error as? APIError { return true }
+        return error is URLError
+    }
+
+    /// Status and request ID of the failure behind `consentCheckMessage`, behind its Details (hard rule 6).
+    var consentCheckDetails: String? {
+        guard consentCheckMessage != nil else { return nil }
+        return consentCheckFailure?.error?.diagnosticDetails
     }
 
     var policyPage: LegalPage { onboarding?.policyPage ?? .privacy }

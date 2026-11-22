@@ -452,7 +452,8 @@ struct ProfileView: View {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
                 }
                 if let unanswered = model.consentCheckMessage {
-                    InlineMessage(message: unanswered, systemImage: "exclamationmark.circle", identifier: "privacy.checkUnanswered")
+                    InlineMessage(message: unanswered, systemImage: "exclamationmark.circle", details: model.consentCheckDetails,
+                                  identifier: "privacy.checkUnanswered")
                 }
                 if let detail = model.consentDetail {
                     GroupFooter(consentFooter(detail))
