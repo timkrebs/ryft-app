@@ -26,3 +26,11 @@ The core holds: account boundaries, the in-flight re-check, coalescing, hysteres
 | S4 | STATUS's cost numbers came from a pass without the journal. The app's pass does 3+ SwiftData fetches on the main actor (unmemoized misses) and decodes settings each time. | **Fix:** memoize the misses and keep the accepted record in memory. Re-measure with the journal connected, and correct STATUS. |
 | S5 | Wake silenced below iOS 26. | Same as security S-3, already decided. |
 | Nits | Write the owner key only when it changes; Demo on during an add keeps the landed requests (the old `keepsTheAccounts` rule); `readYesterdayIfOwed` with the real `allowed` and on the background session; a wipe-line test; the mock's `adds` counted after the append; a vacuous `eventually`; docs wording (CHANGELOG, ARCHITECTURE §4 "after every forget", STATUS strings line); `JournalReminderStore` `@Observable` for N4. | **All fixed in round 2.** |
+
+## Round 2 (7eb7c8c..4062619, strings ff3dc95)
+
+The runs on HEAD (sync-engineer, after the merge with #129): Unit 7,722 passed, 0 failed; UISmoke 55 passed, 1 skipped; Release OK; 0 warnings; lint and style clean; M1–M14 killed.
+
+### localization-editor: `HIDDEN_PREVIEW_WAKE` added ("Wake-up time")
+- **Nit:** BEDTIME's hidden-preview placeholder uses the plain key "Bedtime reminder" (`PushRegistrar.swift:279`). That is also the visible Sleep toggle's label (`SleepPlannerView.swift:487`), so a change to either moves both. **Lead decision:** add `HIDDEN_PREVIEW_BEDTIME` with the same value and a "No sleep need or goal" comment, and update `PushPresentationTests.swift:19`. This goes into the fix round if the re-reviews ask for one, otherwise into N4.
+- **Nit:** "Time to get up" and "Your wake time from Bedtime & wake." have no comments. Add them with N4's strings.
