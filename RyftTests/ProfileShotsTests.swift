@@ -77,7 +77,7 @@ struct ProfileShotGraph {
     func releaseWithdrawal() async {
         guard let withdrawal else { return }
         await withdrawal.open()
-        _ = await eventually { !screens.profile.withdrawingConsent }
+        #expect(await eventually { !screens.profile.withdrawingConsent }, "the held withdrawal answered")
     }
 
     /// `clock`: the signed-in graph's (a test that holds a withdrawal passes one that stands still).
@@ -143,6 +143,9 @@ struct ProfileShotGraph {
                                  flags: StaticFlags([.devicesSetup: true, .trainImport: true]),
                                  connectivity: .preview(online: true), defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
+        // A clock that stands still never refills the read budget (5 starts a second on `env.clock`): a later read would
+        // wait for ever. As `.test` does.
+        if clock is TestClock { env.reads.budget = RequestBudget(clock: clock, maxStarts: .max) }
         let state = AppState(env: env)
         state.repository.widgetFile = nil
         state.history = MockData.history

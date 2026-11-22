@@ -307,7 +307,7 @@ struct ProfileWithdrawalHoldTests {
     }
 
     @Test("Held at the default size and at AX3 (the buttons stacked): the same hold, the line under the last pill, Demo data's switch alone dimmed",
-          arguments: [false, true])
+          .timeLimit(.minutes(2)), arguments: [false, true])
     func heldAtBothSizes(ax3: Bool) async throws {
         let graph = try await ProfileShotGraph.make("withdrawing")
         defer { graph.tearDown() }
