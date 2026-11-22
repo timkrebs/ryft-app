@@ -145,28 +145,36 @@ enum QuietWindow { static func firstAllowed(atOrAfter: Date, quiet: QuietHours?,
 
 ```mermaid
 flowchart LR
-  T[trigger] -->|debounce 500 ms, one pass at a time| O{owner current?\nsigned in, not demo}
+  T[trigger] -->|debounce 500 ms, one pass at a time| O{owner key, §3.4\nsigned in, not demo}
   O -- demo --> F[freeze: change nothing]
-  O -- no account --> X[teardown our kinds]
+  O -- no account --> X[teardown our kinds\nNotification Center once]
   O -- yes --> W[wishes: bedtime offer, journal plan, sync plan]
   W --> D[diff with ledger\nunknown = keep]
   D --> R[removePending once]
   D --> A[add each changed request\nowner re-checked before each]
-  A --> L[ledger, owner key]
+  A --> L[ledger]
 ```
 
 1. **Owner.** `AccountBinding(env)` plus the store epoch, captured at the start and re-checked after every `await`.
-   Signed out: teardown. Demo data: **freeze**, adding, moving and removing nothing (the account's stay, as
-   `BedtimePlanner.keepsTheAccounts` already does).
+   Signed out: teardown, and Notification Center (§3.4). Then the owner key is checked, and written when it differs
+   (§3.4); a pass that changes nothing writes no default. Demo data: **freeze**, adding, moving and removing nothing
+   (the account's stay, as `BedtimePlanner.keepsTheAccounts` already does).
 2. **Wishes.** Each kind is `.unknown` while its inputs aren't known. That covers a background launch before the
    journal's catalog is read, bedtime before the planner's first pass, and the authorization not read yet. **Unknown
-   never removes**, so a background launch with half its inputs never tears anything down.
+   never removes**, so a background launch with half its inputs never tears anything down. The journal's and the
+   fallback's wish behind their gates (`notifications.reminders`, consent): one known shut, none; one not known,
+   `.unknown`. A pass reads iOS's answer once and decides its wishes and its adds by that one read (an app active
+   during the pass forgets the property, not the pass's copy).
 3. **Diff.** `remove` = ids in the ledger that no known wish holds any more (and every past one-shot); `add` = wished
    requests whose `LocalReminder` differs from the ledger's. One `removePending(ids:)` (synchronous), then `add` per
    request. An `add` that throws (`UNError.notificationsNotAllowed`) isn't written to the ledger, and the pass doesn't
-   retry it.
+   retry it. Not allowed when read, no `add` is tried; removals still apply. A gate known shut also takes the two
+   kinds' delivered ones (`sync.stale.1`, `sync.stale.2`, the journal's for yesterday and today) from Notification
+   Center in one call, once while it stays shut.
 4. **After.** If the owner changed during the adds, the ids this pass added are removed again (`BedtimePlanner`'s alarm
-   pattern). The account is written to `notifications.owner` (UserDefaults, per install): whose requests iOS holds.
+   pattern), unless only Demo data came on for the same account: what landed is the account's and stays, frozen. A
+   journal day answered while its reminder was on its way goes again at once. `notifications.owner` (UserDefaults, per
+   install: whose requests iOS holds) isn't written here; step 1 wrote it.
 
 ### 3.3 Ids, windows, budget
 
@@ -190,11 +198,21 @@ elsewhere (§4.3).
 
 The ledger (`[id: LocalReminder]`) lives in memory. The **first pass of a process** reads `pending()` once (a new seam
 method returning the requests, replacing `pendingIDs()`) and rebuilds the ledger with `LocalReminder(request)`. It reads
-the authorization status once too, and again on every app-active trigger. If `notifications.owner` names an account
-other than the current one, or there is none, every pending id with our prefixes goes first. That covers a kill
-between a wipe and its removals, an owed wipe resumed as `storeOnly` (which skips the device steps), and a restore.
-After that, no pass enumerates iOS. `BedtimePlanner.removeReminders` and `SystemWakeAlarms.cancelAll` stop calling
-`pendingIDs()`. The wake ids are fixed, so they are removed by name.
+the authorization status once too, again after every app-active trigger, and again on bedtime's offer while it wasn't
+allowed (turning the reminder on may just have asked). Then `notifications.owner`, never while protected data is
+unavailable (locked, the key and the session may only read empty):
+
+- **another account's:** every request of ours goes, and everything RYFT has in Notification Center;
+- **none** (the first launch after the update that brought the key, a first sign-in): each request's own
+  `ryft.account` decides. Another account's go, this account's stay, and an earlier build's bedtime reminders (no
+  account) stay until the planner's first offer replaces them. Notification Center is left alone;
+- **signed out:** every request of ours goes, Notification Center is cleared once while signed out (a sign-in ends
+  that) and again at every app active, and the key is removed.
+
+That covers a kill between a wipe and its removals, an owed wipe resumed as `storeOnly` (which skips the device steps),
+and a restore. After that, no pass enumerates iOS's pending set. App active reads Notification Center once: a delivered
+journal reminder about a day other than yesterday goes. `BedtimePlanner.removeReminders` and
+`SystemWakeAlarms.cancelAll` stop calling `pendingIDs()`. The wake ids are fixed, so they are removed by name.
 
 ### 3.5 Triggers
 
@@ -357,18 +375,23 @@ reminder system.
 | `SESSION_SCORED`, `PR`, `ACTIVITY_SCORED` | server | yes | banner, list | `ryft.url` |
 | `SYNC_STALE` | server | yes | banner, list (the app syncs, so the gap is data) | Today, then `.userInitiated` (today's path) |
 | `SYNC_STALE` | local | yes | **none**: moved instead | same |
-| `BEDTIME` | local | "Bedtime reminder" (exists) | banner, list, sound | Today (Tonight) |
+| `BEDTIME` | local | `HIDDEN_PREVIEW_BEDTIME`, "Bedtime reminder": no sleep need or goal | banner, list, sound | Today (Tonight) |
 | `JOURNAL_REMINDER` | local | yes | banner, list | `/journal/<day>` |
+| `WAKE` | local, below iOS 26 (`SystemWakeAlarms`) | `HIDDEN_PREVIEW_WAKE`, "Wake-up time": no time | banner, list, sound | Today |
 
-`willPresent` and `didReceive` go through one pure function: `PushPresentation.options(category:isLocal:accountMatches:)`
-and `PushPresentation.route(message:currentAccount:isDemo:)`. A local request is one whose trigger isn't a
+`willPresent` and `didReceive` go through pure functions: `PushPresentation.accountMatches(category:isLocal:account:`
+`currentAccount:isDemo:)`, then `PushPresentation.options(category:isLocal:accountMatches:)` and
+`PushPresentation.route(message:category:accountMatches:)`. A local request is one whose trigger isn't a
 `UNPushNotificationTrigger`.
 
 ### 7.2 Account on a notification
 
 A local request's `ryft.account` that isn't the signed-in account, or arrives while Demo data is on, is not presented
-in the foreground, and its tap opens Today only. Server alerts get the same check once API.md carries `ryft.account`
-(NT1 asks for it on every alert). Until then the sign-out's removal of delivered notifications (§9) covers them.
+in the foreground, and its tap opens Today only. The wake notification is the exception to Demo data: it carries no
+data and the account's wake time stays set while Demo data is shown, so it's presented whenever its account is the
+signed-in one. With nobody signed in, nothing is presented, a server alert included. Server alerts get the same check
+once API.md carries `ryft.account` (NT1 asks for it on every alert). Until then the sign-out's removal of delivered
+notifications (§9) covers them.
 
 ### 7.3 `AppRoute` additions
 
@@ -400,17 +423,28 @@ rollback. The journal rows write `JournalReminderSettings` at once, with no netw
    `AuthService.wipeSharedLocalData`'s device step (`before`): `ReminderScheduler.wipe(UNUserNotificationCenter.current())`,
    meaning `removeAllPendingNotificationRequests()` and `removeAllDeliveredNotifications()`. Both are synchronous and
    need no enumeration, and on iOS 26+ `AlarmKitWake.cancelAll()` runs too. Then `notifications.owner` and
-   `notifications.journal.*` are removed. The step takes a `NotificationWiping` protocol, which `UNUserNotificationCenter`
+   `notifications.journal.*` are removed, but a session expiry's account keeps its own journal setting (it's parked
+   with the account's rows) until another account signs in: `AppState.accountWillChange` then drops every journal
+   setting but the incoming account's. The step takes a `NotificationWiping` protocol, which `UNUserNotificationCenter`
    and `MockNotifier` conform to. It never reads `AppEnvironment.live` (ADR 0020's rule: a launch wipe runs inside its
    `swift_once`). This removes the previous account's **delivered** server alerts too ("Recovery 82%" in Notification
    Center), the part of W4b that a normal sign-out can do now (Q4).
+   - **APNs:** the step ends with `unregisterForRemoteNotifications()`: no remote notification reaches this iPhone
+     until the app registers again. That ends nothing on the platform. A sign-out sends
+     `DELETE /v1/devices/{id}/push` first (a failure is ignored); an expired session can't. iOS often hands the next
+     registration the same token, and the platform moves it only on an accepted `POST`, so until then the account
+     that left can reach this iPhone again (API_REQUESTS NT7, P1). `PushRegistrar` doesn't register while the account
+     is invite-blocked, and unregisters again after a refused `POST` when nothing was accepted for the account.
+   - **Resumed after the first frame** (an expiry killed mid-wipe, for its parked rows): the launch runs this
+     notification step at once, unless it ran before the kill, and the rest waits for the frame. A background launch
+     shows no frame.
 2. **In the same turn:** the scheduler's `forget()` is an account-state forgetter (`state.forgetsAccountState`), as
    `BedtimePlanner.forget` is. Its generation is bumped, its ledger dropped and its debounce cancelled, so a pass that
    began for the leaving account adds nothing after the wipe.
 3. **Account change** (`onChange(of: auth.accountID)`, and `finishOwedWipe(train:bedtime:)` for a wipe resumed later):
    `accountChanged()` tears down our kinds from the ledger and runs a pass for the new account. That account starts
-   with no journal setting (the default), no schedule and no `lastSync`, so its first requests come with its own
-   setup and first sync.
+   with no journal setting (the default; the same account after an expiry keeps its own), no schedule and no
+   `lastSync`, so its first requests come with its own setup and first sync.
 4. **Every launch:** the owner check of §3.4. It catches what a kill or a `storeOnly` retry left.
 5. **A debt with no published session** schedules nothing, because there is no account. When W4a's ledger gate lands
    (`Repository.publishWidget`), the scheduler asks the same gate: a notification is a lock-screen surface (ADR 0020,
