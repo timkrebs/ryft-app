@@ -609,6 +609,28 @@ struct ReminderJournalTests {
         #expect(late.api.count("journal") == 0, "today's reminder is gone by: nothing to take away")
     }
 
+    /// Review code 1: the read is the journal reminder's, so it waits behind the reminder's gates (the positive case is
+    /// `readYesterdayIfOwed`: open, it reads once).
+    @Test("Behind the reminder's gates: the flag known off, the flag not known, consent withdrawn; no journal read",
+          arguments: ["flag off", "flag not known", "consent withdrawn"])
+    func readYesterdayIsGated(_ gate: String) async {
+        let rig = await liveRig(at: 8)
+        switch gate {
+        case "flag off":
+            rig.flags.setOverride(.notificationsReminders, nil)
+            rig.answer(["notifications.reminders": false])
+            #expect(rig.flags.known(.notificationsReminders) == false)
+        case "flag not known":
+            rig.flags.setOverride(.notificationsReminders, nil)
+            #expect(rig.flags.known(.notificationsReminders) == nil)
+        default:
+            rig.env.consent.withdrew(at: rig.clock.now())
+            #expect(rig.env.consent.withdrawnAt != nil)
+        }
+        await rig.scheduler.readYesterdayIfOwed()
+        #expect(rig.api.count("journal") == 0, "\(gate)")
+    }
+
     @Test("The journal read is on the background session, with iOS's answer read first; not allowed, none")
     func readsInTheBackground() async {
         let rig = await liveRig(at: 8)
