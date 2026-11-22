@@ -1216,6 +1216,8 @@ final class ReadScheduler {
     private final class Outcome {
         private var result: Result<(any Sendable)?, Error>?
         private var waiters: [UUID: CheckedContinuation<(any Sendable)?, Error>] = [:]
+        /// When the flight that brought `result` was started (`runAsked`); set with it.
+        private(set) var started: Date?
 
         func value() async throws -> (any Sendable)? {
             if let result { return try result.get() }
@@ -1235,10 +1237,11 @@ final class ReadScheduler {
             }
         }
 
-        /// The first result wins; every waiter gets it.
-        func resolve(_ result: Result<(any Sendable)?, Error>) {
+        /// The first result wins; every waiter gets it. `started`: the start of the flight that brought it.
+        func resolve(_ result: Result<(any Sendable)?, Error>, started: Date? = nil) {
             guard self.result == nil else { return }
             self.result = result
+            self.started = started
             let pending = waiters
             waiters = [:]
             for continuation in pending.values { continuation.resume(with: result) }
@@ -1315,6 +1318,20 @@ final class ReadScheduler {
         let store: Store = { value, started in if let value = value as? T { await storeAsked(value, started) } }
         guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: store, fetch) else { return nil }
         return try await outcome.value() as? T
+    }
+
+    /// The answer, and when the flight that brought it was asked for (a joined flight's start, a `.changed` caller's
+    /// follow-up's), without giving the flight a store: one of its own would keep another caller's from running (the first
+    /// store given wins), and a caller that only decides by the start needs none. `OnboardingCoordinator.check()`'s status
+    /// read: a `consent_required` asked within the platform's cache time of this phone's consent `204` doesn't count
+    /// (`ConsentState.statusSpeaksForConsent`), and the sync's poll may have started the flight with its own store. Nil when
+    /// nothing was sent.
+    func runAsked<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
+                               _ fetch: @escaping @MainActor () async throws -> T) async throws -> (value: T, asked: Date)? {
+        try Task.checkCancellation()
+        guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: nil, fetch) else { return nil }
+        guard let value = try await outcome.value() as? T, let asked = outcome.started else { return nil }
+        return (value, asked)
     }
 
     /// How many callers joined `key`'s flight in progress (none when nothing is in flight). For tests that need a read
@@ -1428,7 +1445,7 @@ final class ReadScheduler {
                 result = .failure(error)
             }
             self?.landed(key, flight.id)
-            flight.outcome.resolve(result)
+            flight.outcome.resolve(result, started: flight.started)
         }
         return flight
     }
@@ -1451,7 +1468,8 @@ final class ReadScheduler {
                 return
             }
             do {
-                outcome.resolve(.success(try await next.value()))
+                let value = try await next.value()
+                outcome.resolve(.success(value), started: next.started)
             } catch {
                 outcome.resolve(.failure(error))
             }

@@ -35,7 +35,8 @@ final class ProfileViewModel {
         bodySettings = BodySettingsEditor(state: state)
         let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
         self.devices = devices
-        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus,
+                                       onboarding: onboarding)
         syncDetails = details
         // The read pipeline's record and Sync details' state through the report's allow-list (never its
         // support text); the trackers' ids while `devices.setup` is on.
@@ -568,16 +569,20 @@ final class SyncDetailsModel {
     private let sync: SyncService
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
+    /// Asked first about a gate's hold (`idleState`), as Today asks it.
+    private let onboarding: OnboardingCoordinator?
 
     private(set) var isRunning = false
     private(set) var hasQueuedRun = false
     private(set) var copied = false
 
-    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil,
+         onboarding: OnboardingCoordinator? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.apiStatus = apiStatus ?? .shared
+        self.onboarding = onboarding
     }
 
     private var env: AppEnvironment { state.env }
@@ -630,9 +635,10 @@ final class SyncDetailsModel {
         }
     }
 
-    /// Between runs: never "Up to date" after a held, failed or stopped run (`SyncIdleState`).
+    /// Between runs: never "Up to date" after a held, failed or stopped run (`SyncIdleState`). A gate's hold asks
+    /// onboarding first, as Today does: just agreed, with RYFT's word still out, it's "Paused", not "Action needed".
     var idleState: SyncIdleState {
-        SyncIdleState.decide(pausedFor: sync.pausedFor, offline: isOffline,
+        SyncIdleState.decide(pausedFor: sync.pausedFor, pendingGate: onboarding.map { $0.pendingGate }, offline: isOffline,
                              failed: engine.lastError != nil || sync.lastError != nil, backfillDone: engine.backfillDone,
                              backlog: sync.hasBacklog, uploaded: env.isDemo || env.settings.lastSync != nil)
     }

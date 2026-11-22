@@ -18,7 +18,9 @@ import SwiftUI
 ///   sheet over the tabs afterwards (never a reset to Welcome).
 /// - **Nothing uploads before consent to the policy in force** (`uploadGate(for:write:)`,
 ///   the pure `gate(_:path:write:)`, asked by `SyncService`, `ActivityUploader` and
-///   `TrainSyncService`; ADR 0008); after agreeing, the first sync starts at once.
+///   `TrainSyncService`; ADR 0008). Agreeing moves the flow on at the consent's `204` (this phone's agreement,
+///   `ConsentState`); the gate opens, and the first sync starts, once a `GET /v1/me` asked for after it shows the consent
+///   (ADR 0025).
 @MainActor
 @Observable
 final class OnboardingCoordinator {
@@ -44,10 +46,14 @@ final class OnboardingCoordinator {
         var userKnown = false
         var betaAccess = true
         var consentVersion: String?
+        /// This phone's consent `204` to this version, RYFT's own word on it still out (`ConsentState.unsettledAgreement`):
+        /// the flow's consent step counts it (`missing`), the upload gate doesn't (`gate`; ADR 0025).
+        var agreedVersion: String?
         /// `GET /v1/config` → `privacy_policy_version`, the latest heard of, whatever its age (`ConsentState`);
         /// `nil` when unknown.
         var policyVersion: String?
-        /// `GET /v1/me/sync` → `gate`.
+        /// `GET /v1/me/sync` → `gate`, without a `consent_required` from a status that can't speak for consent (asked within
+        /// the platform's cache time of this phone's consent `204`, `ConsentState.statusSpeaksForConsent`).
         var serverGate: APIErrorCode?
         /// Refusals and warn-mode headers since (`APIStatus.gates`), the gates `ConsentState` keeps the
         /// platform's refusal of, and this phone's withdrawal of consent (`ConsentState.withdrawnAt`).
@@ -72,13 +78,15 @@ final class OnboardingCoordinator {
 
     /// The missing steps, in order. Invite only when the platform says its gate applies
     /// (with the gate off, `beta_access: false` is normal); consent whenever the account
-    /// hasn't agreed to the policy in force; "about you" until answered or skipped once; "what do you wear"
+    /// hasn't agreed to the policy in force (the stored user's consent, or this phone's agreement while RYFT's word on it
+    /// is out), or the platform refused at it; "about you" until answered or skipped once; "what do you wear"
     /// likewise, while `devices.setup` is on.
     nonisolated static func missing(_ f: Facts) -> [Step] {
         var out: [Step] = []
         let inviteSignal = f.serverGate == .inviteRequired || f.reported.contains(.inviteRequired)
         if inviteSignal, !(f.userKnown && f.betaAccess) { out.append(.invite) }
-        let consented = f.policyVersion.map { f.consentVersion == $0 } ?? (f.consentVersion != nil)
+        let given = { (version: String?) in f.policyVersion.map { version == $0 } ?? (version != nil) }
+        let consented = given(f.consentVersion) || given(f.agreedVersion)
         let consentSignal = f.serverGate == .consentRequired || f.reported.contains(.consentRequired)
         if (f.userKnown && !consented) || consentSignal { out.append(.consent) }
         if f.userKnown, !f.aboutYouDone, f.birthYear == nil || f.aboutYouSaved { out.append(.aboutYou) }
@@ -95,14 +103,17 @@ final class OnboardingCoordinator {
     ///   hold it (Art. 17).
     /// - Data waits for the account, then the consent step (`missing`: a known mismatch, or the platform's refusal),
     ///   then a fresh policy (`policyUnknown`). Only a fresh policy the consent matches opens it: staleness can only
-    ///   hold.
+    ///   hold. The consent is the stored user's, the platform's own word: never this phone's agreement, which only moves
+    ///   the flow (ADR 0025).
     nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate? {
         if f.demo { return path == .healthKit ? .demo : nil }
         guard f.recordReadable else { return .policyUnknown }
         if f.inviteBlocked { return .gate(.inviteRequired) }
         if write == .erasure { return nil }
         guard f.userKnown else { return .gate(.consentRequired) }
-        if missing(f).contains(.consent) { return .gate(.consentRequired) }
+        var platform = f
+        platform.agreedVersion = nil
+        if missing(platform).contains(.consent) { return .gate(.consentRequired) }
         guard f.policyFresh else { return .policyUnknown }
         return nil
     }
@@ -114,6 +125,8 @@ final class OnboardingCoordinator {
 
     private(set) var phase: Phase = .idle
     private(set) var syncStatus: SyncStatus?
+    /// When `syncStatus`'s flight was asked for: whether its `consent_required` counts (`serverGate`, R2).
+    private var syncStatusAskedAt: Date?
     /// "Not now" this session; asked again on the next app start.
     private(set) var deferred: Set<Step> = []
     /// The invite field; a `ryft://invite/<code>` link fills it in.
@@ -162,6 +175,8 @@ final class OnboardingCoordinator {
         // The platform's consent gate, wherever it's reported (a 403, X-RYFT-Gate, GET /v1/me/sync), is kept for the
         // account; its end too (ADR 0008).
         state.env.consent.listen(to: apiStatus)
+        // RYFT's word on this phone's agreement was heard: the agree line's `confirmed`.
+        state.env.consent.agreementSettled = { [weak self] in self?.agreeTimer?.heard() }
     }
 
     /// What the user wears: "What do you wear?" saves it, the setup screen after Apple Health reads it.
@@ -185,11 +200,22 @@ final class OnboardingCoordinator {
         // A withdrawal on this phone, whatever the store kept of it (a refused save, a background launch).
         if consent.withdrawnAt != nil { reported.insert(.consentRequired) }
         return Facts(userKnown: u != nil, betaAccess: u?.betaAccess ?? true, consentVersion: u?.consent?.policyVersion,
-                     policyVersion: consent.latestPolicyVersion, serverGate: syncStatus?.gate,
+                     agreedVersion: consent.unsettledAgreement, policyVersion: consent.latestPolicyVersion,
+                     serverGate: serverGate,
                      reported: reported, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
                      aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup),
                      demo: env.isDemo, inviteBlocked: apiStatus.inviteBlocked || refusals.contains(.inviteRequired),
                      policyFresh: consent.isPolicyFresh(at: env.clock.now()), recordReadable: consent.isRecordReadable)
+    }
+
+    /// `GET /v1/me/sync` → `gate`; a `consent_required` only from a status that speaks for consent (R2: not one asked
+    /// within the platform's cache time of this phone's consent `204`).
+    private var serverGate: APIErrorCode? {
+        guard let gate = syncStatus?.gate else { return nil }
+        if gate == .consentRequired, let asked = syncStatusAskedAt, !consent.statusSpeaksForConsent(askedAt: asked) {
+            return nil
+        }
+        return gate
     }
 
     var missing: [Step] {
@@ -338,7 +364,9 @@ final class OnboardingCoordinator {
 
     /// Asks the platform what's missing: at launch (restored session) and after every
     /// sign-in, when a gate is reported, and after each step. `changedSince`: the account's answer must have been
-    /// asked for after then (a withdrawal's re-check), never one already in flight.
+    /// asked for after then (a withdrawal's re-check), never one already in flight. While this phone's agreement waits
+    /// for RYFT's word (its re-read failed), every check asks: never answered from the last one, and `/v1/me` asked for
+    /// after the agreement.
     func check(force: Bool = false, changedSince: Date? = nil) async {
         guard !env.isDemo, env.auth.isSignedIn else {
             phase = .ready
@@ -346,7 +374,8 @@ final class OnboardingCoordinator {
         }
         let account = env.auth.accountID
         if account != self.account { switchAccount(account) }
-        if !force, phase == .ready, let lastCheck,
+        let unsettled = consent.agreement.flatMap { $0.settled ? nil : $0 }
+        if !force, phase == .ready, let lastCheck, unsettled == nil,
            env.clock.now().timeIntervalSince(lastCheck) < Self.recheckInterval { return }
         // Offline: the cached account decides; the next start (or a gate) asks again.
         guard env.connectivity.isOnline else {
@@ -354,7 +383,7 @@ final class OnboardingCoordinator {
             return
         }
         if phase != .ready { phase = .checking }
-        let answer = await fetchWithTimeout(changedSince: changedSince)
+        let answer = await fetchWithTimeout(changedSince: changedSince ?? unsettled?.at)
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
         // Written through inside its read (and the time zone's PATCH): the gates below decide from it in this step
@@ -362,20 +391,28 @@ final class OnboardingCoordinator {
         // withdrawal) was dropped there, and its consent mustn't clear a gate here either.
         let user = answer.user == nil ? nil : state.repository.user()
         // The config was recorded inside its read (`ConsentState.fetchConfig`).
+        var refusesConsent = false
         if let status = answer.status {
             syncStatus = status
+            syncStatusAskedAt = answer.statusAskedAt
             state.syncStatus = status
             statusReceived?(status)
+            // R2: asked within the platform's cache time of this phone's consent `204`, it may be from before it, so it
+            // says nothing about consent either way. Its other fields count, the invite's gate too.
+            let speaks = answer.statusAskedAt.map(consent.statusSpeaksForConsent(askedAt:)) ?? true
             // The platform no longer reports a gate this phone still remembers: it's passed.
             // Kept for the account (`ConsentState`): `consent_required` here as anywhere. `invite_required` here
             // can't tell warn from enforced, so it's never kept (a warn-mode invite doesn't hold uploads).
             switch status.gate {
             case nil:
                 apiStatus.resolved(.inviteRequired)
-                apiStatus.resolved(.consentRequired)
+                if speaks { apiStatus.resolved(.consentRequired) }
             case .consentRequired?:
                 apiStatus.resolved(.inviteRequired)
-                consent.refused(.consentRequired, at: env.clock.now())
+                if speaks {
+                    consent.refused(.consentRequired, at: env.clock.now())
+                    refusesConsent = true
+                }
             // The App Attest codes are never a `gate` (API.md → Errors → App Attest).
             case .inviteRequired?, .importInProgress?, .importNotEnabled?, .appAttestRequired?,
                  .appAttestChallengeInvalid?, .appAttestInvalid?, .appAttestKeyUnknown?:
@@ -384,7 +421,7 @@ final class OnboardingCoordinator {
         }
         // This same check's answers show a gate kept from before is passed, and its status didn't name it: the
         // account's consent matches the policy it heard, or the account has beta access.
-        if let user, answer.status?.gate != .consentRequired,
+        if let user, !refusesConsent,
            let version = answer.config?.privacyPolicyVersion, user.consent?.policyVersion == version {
             consent.cleared(.consentRequired)
         }
@@ -399,6 +436,8 @@ final class OnboardingCoordinator {
         var user: User?
         var config: RemoteConfig?
         var status: SyncStatus?
+        /// When the status's flight was asked for (a joined flight's start).
+        var statusAskedAt: Date?
     }
 
     /// The three reads at once, through the read pipeline (joined with the launch's own reads of
@@ -418,8 +457,9 @@ final class OnboardingCoordinator {
                 }
                 // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
                 async let config = try? consent.fetchConfig()
-                // The same mode: after a withdrawal, a status asked for before it would say no gate.
-                async let status = try? reads.run(ReadKey(.syncStatus), mode: meMode) { try await api.syncStatus() }
+                // The same mode: after a withdrawal, a status asked for before it would say no gate. With when its flight
+                // was asked for, without taking over its store (the sync's poll may have started it): R2 decides by it.
+                async let status = try? reads.runAsked(ReadKey(.syncStatus), mode: meMode) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz {
@@ -429,7 +469,8 @@ final class OnboardingCoordinator {
                         user = patched
                     }
                 }
-                return Answer(user: user, config: await config, status: await status)
+                let answered = await status
+                return Answer(user: user, config: await config, status: answered?.value, statusAskedAt: answered?.asked)
             }
             group.addTask {
                 try? await clock.sleep(for: Self.checkTimeout)
@@ -460,6 +501,7 @@ final class OnboardingCoordinator {
         }
         self.account = account
         syncStatus = nil
+        syncStatusAskedAt = nil
         agreeTimer = nil
         deferred = []
         lastCheck = nil
@@ -508,16 +550,25 @@ final class OnboardingCoordinator {
     /// `POST /v1/me/consent` for the policy version on screen (`shown`: the one the step drew; nil takes the current
     /// one), then the first sync. Nothing without a version, or when `shown` isn't the current one any more; a stale
     /// version is checked first, and a newer policy is shown, not agreed to.
+    ///
+    /// The `204` is this phone's agreement (`ConsentState.consented`): the next step shows in that step, and `isWorking`
+    /// ends with it. RYFT's own word follows outside `perform`: one `GET /v1/me` asked for at or after the `204`
+    /// (`Repository.readUserBack`), stored through, settles it, and its consent opens the upload gate (ADR 0025). Only
+    /// then, still for this account (`Flight`), does the first sync start. A re-read that fails leaves the next step on
+    /// screen, without a word, and the gate closed; every later `check()` asks again, and so does coming back online
+    /// (`reconnected()`). True once that's done, for this account.
     @discardableResult
     func agree(shown: String? = nil) async -> Bool {
         guard let version = policyVersion, shown == nil || shown == version else { return false }
-        // A step's request is out: this tap sends nothing (`perform`), and the agree line counts it.
-        if isWorking {
+        // A step's request is out, or this version's agreement is being confirmed with the step gone (the re-read below
+        // doesn't hold `isWorking`): this tap sends nothing, and the agree line counts it.
+        if isWorking || (consent.unsettledAgreement == version && !missing.contains(.consent)) {
             agreeTimer?.busyTap()
             return false
         }
         let timer = startAgreeTimer(session: .standard)
         let going = flight
+        var agreedAt: Date?
         let ok = await perform { sent in
             if !self.consent.isPolicyFresh(at: self.env.clock.now()) {
                 timer?.readsPolicy()
@@ -540,14 +591,14 @@ final class OnboardingCoordinator {
                 throw error
             }
             try self.answered(sent)
-            // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
-            self.consent.consented(to: version, at: self.env.clock.now())
+            // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl, and this phone's
+            // agreement. The flow moves on here; nothing is awaited after it, so `isWorking` ends in the same step.
+            let at = self.env.clock.now()
+            self.consent.consented(to: version, at: at)
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
             timer?.stepRecorded()
-            timer?.confirming()
-            await self.check(force: true)
-            timer?.committed(self.state.repository.user()?.consent?.policyVersion == version ? "ok" : "none")
+            agreedAt = at
         } message: { error in
             let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
             if error is PolicyChangedOnScreen { return updated }
@@ -559,10 +610,43 @@ final class OnboardingCoordinator {
             }
             return updated
         }
+        guard ok, let agreedAt, going == flight else {
+            // The path ended for this account: its line.
+            if going == flight { timer?.save(in: env) }
+            return false
+        }
+        // RYFT's own word: `/v1/me` only, neither the config nor the status.
+        timer?.confirming()
+        let word: String, read: Bool
+        do {
+            read = try await state.repository.readUserBack(since: agreedAt)
+            word = confirmation(of: version, read: read)
+        } catch {
+            read = false
+            word = error.isCancellation ? "dropped" : "failed \(AgreeTiming.status(of: error))"
+        }
+        // Signed out, another account or Demo data meanwhile: nothing of this one goes on, no line and no sync.
+        guard going == flight else { return false }
+        timer?.committed(word)
         // The path ended for this account: its line, before the sync it starts.
-        if going == flight { timer?.save(in: env) }
-        if ok { await startSync() }
-        return ok
+        timer?.save(in: env)
+        if read, uploadGate(for: .healthKit) == nil { await startSync() }
+        return true
+    }
+
+    /// The agree line's `confirmed` after the re-read: RYFT's word as stored (`ok`, `no_consent`), nothing sent (`none`), or
+    /// an answer the store didn't take (`dropped`: a withdrawal meanwhile).
+    private func confirmation(of version: String, read: Bool) -> String {
+        guard read else { return "none" }
+        guard let agreement = consent.agreement, agreement.version == version, agreement.settled else { return "dropped" }
+        return state.repository.user()?.consent?.policyVersion == version ? "ok" : "no_consent"
+    }
+
+    /// Back online: an agreement RYFT hasn't confirmed yet (its re-read failed) is asked about again (RyftApp). Nothing
+    /// else: the launch, a foreground return and a gate ask on their own.
+    func reconnected() async {
+        guard consent.unsettledAgreement != nil else { return }
+        await check()
     }
 
     /// A new Agree is timed from here (nothing signed out or in demo mode).
@@ -601,10 +685,12 @@ final class OnboardingCoordinator {
     }
 
     /// Profile → Privacy: `DELETE /v1/me/consent`. Syncing stops; nothing is deleted. Never dropped for a step's request
-    /// still out (an Agree's re-check, an invite, About you): it waits for that one's answer and then goes, so it's the
+    /// still out (an Agree's POST, an invite, About you): it waits for that one's answer and then goes, so it's the
     /// last word on the platform and on this phone, and Profile shows its failure (security review N-B). A sign-out or
     /// another account meanwhile ends it unsent: A's withdrawal never goes out with B's session. A second one while
-    /// this one is on its way sends nothing (Profile's row is busy). It fails fast (`revokeFailingFast`): Profile holds
+    /// this one is on its way sends nothing (Profile's row is busy). An Agree's re-read holds no turn: the withdrawal goes at
+    /// once, removes the agreement (`ConsentState.withdrew`), and the re-read's late answer is dropped (the Repository
+    /// takes no `/v1/me` asked before this phone's change of the user). It fails fast (`revokeFailingFast`): Profile holds
     /// Demo data and Log out meanwhile, for seconds, not for a request's 5 minutes. `onRecorded` runs once the platform's
     /// answer is recorded on this phone, before the re-check (Profile's hold ends then, and VoiceOver hears it, security
     /// review N-3); true is returned only after the re-check. Sent with no answer (`Unanswered`), RYFT is asked what it

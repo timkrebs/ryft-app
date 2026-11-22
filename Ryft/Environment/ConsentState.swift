@@ -57,7 +57,12 @@ enum UploadWrite: Sendable {
 ///
 /// - **Written only here**, and only when something changed: a `/v1/config` answer (`fetchConfig`, the one door for
 ///   the config), a consent `204` (`consented`), a refusal and its end (`refused`, `cleared`): `consent_required` in
-///   any mode, `invite_required` only when enforced.
+///   any mode, `invite_required` only when enforced; and this phone's agreement (`consented`, settled by `heard`,
+///   removed by `withdrew`).
+/// - **This phone's agreement** (ADR 0025, docs/work/2026-11-22-consent-agree-lag/design.md §4): a consent `204` moves
+///   onboarding on at once (`unsettledAgreement`, counted by `OnboardingCoordinator.missing`), never an upload: the gate
+///   waits for a `GET /v1/me` asked for at or after it (`heard`). Until `ScoringWord.statusCacheTime` after it, a
+///   `GET /v1/me/sync` says nothing about consent (`statusSpeaksForConsent`): the platform caches it 10 s.
 /// - **Fresh** while `0 ≤ now − answeredAt < min(ttl, 24 h)` on this phone's clock (`ttl` is the answer's `ttl_sec`;
 ///   a clock set back counts as stale). Only a fresh answer opens a gate; staleness can only hold.
 /// - **Read once per `AccountBinding`** into unobserved storage. The observed `revision` bumps on every write and
@@ -89,6 +94,20 @@ final class ConsentState {
         /// `GET /v1/me/sync`) and an enforced `invite_required` (a `403`), each until the platform no longer names it
         /// or the user passes it. A background process behind either sends nothing.
         var refusals: [APIErrorCode: Date] = [:]
+        /// This phone's last consent `204` (`consented`), settled once a `GET /v1/me` asked for at or after it is stored
+        /// (`heard`), removed by this phone's withdrawal. Older records have none.
+        var agreement: Agreement?
+    }
+
+    /// A consent `204` on this phone: what onboarding's flow counts until RYFT's own word on it is heard, and when the
+    /// platform's status cache may still say otherwise (`statusSpeaksForConsent`).
+    struct Agreement: Codable, Equatable, Sendable {
+        /// The policy version agreed to.
+        var version: String
+        /// When the `204` arrived, on this phone's clock.
+        var at: Date
+        /// A `GET /v1/me` asked for at or after `at` was stored: from then on the stored user decides, for the flow too.
+        var settled = false
     }
 
     /// API.md: `GET /v1/config` → `ttl_sec` is 21 600 today.
@@ -112,6 +131,8 @@ final class ConsentState {
     @ObservationIgnored private var memo: (binding: AccountBinding, record: Record?)?
     /// The last failed `revalidate` read, for its binding: nothing is sent again within `retryAfterFailure`.
     @ObservationIgnored private var lastFailure: (binding: AccountBinding, at: Date, error: Error)?
+    /// Told when `heard` settles this phone's agreement (the agree line's `confirmed`, `OnboardingCoordinator`).
+    @ObservationIgnored var agreementSettled: (@MainActor () -> Void)?
     /// Whether the store can be read (before the first unlock after a reboot it can't, and reads come back empty).
     @ObservationIgnored var isProtectedDataAvailable: @MainActor () -> Bool = {
         UIApplication.shared.isProtectedDataAvailable
@@ -185,6 +206,23 @@ final class ConsentState {
         return env.defaults.object(forKey: Self.withdrawalKey(account)) as? Date
     }
 
+    /// This phone's agreement, settled or not; nil signed out, in demo mode, before the first `204` and after a
+    /// withdrawal.
+    var agreement: Agreement? { record?.agreement }
+
+    /// The version this phone agreed to while RYFT's own word on it is still out: onboarding's flow counts it as given
+    /// (`OnboardingCoordinator.missing`), the upload gate never does (`gate`, ADR 0025).
+    var unsettledAgreement: String? { agreement.flatMap { $0.settled ? nil : $0.version } }
+
+    /// A `GET /v1/me/sync` asked for at `askedAt` speaks for consent, `consent_required` or `null`: not when it was asked
+    /// within `ScoringWord.statusCacheTime` of this phone's consent `204`, or before it, when the platform's cache
+    /// (API.md: 10 s per user) may still hold an answer from before the consent. The same rule as
+    /// `ScoringWord.isAnswered(byStatusRequestedAt:)`. Without an agreement every status does.
+    func statusSpeaksForConsent(askedAt: Date) -> Bool {
+        guard let agreement else { return true }
+        return askedAt.timeIntervalSince(agreement.at) >= ScoringWord.statusCacheTime
+    }
+
     /// A policy answer younger than its ttl (at most `maximumTTL`), on this phone's clock.
     func isPolicyFresh(at now: Date) -> Bool {
         guard let record, record.policyVersion != nil, let answeredAt = record.answeredAt else { return false }
@@ -208,8 +246,10 @@ final class ConsentState {
     }
 
     /// `POST /v1/me/consent` answered `204` for `version`: it was in force `at` (the platform answers `422`
-    /// otherwise), so that's an answer then, good for the same ttl, and the refusal is over.
-    func consented(to version: String, at: Date) {
+    /// otherwise), so that's an answer then, good for the same ttl, and the refusal is over. This phone's agreement
+    /// replaces the last one, unsettled, or `settled` when RYFT's own word on it was already stored (a POST without an
+    /// answer whose re-read showed the consent).
+    func consented(to version: String, at: Date, settled: Bool = false) {
         endWithdrawal()
         write { record in
             if record.answeredAt.map({ $0 <= at }) ?? true {
@@ -218,22 +258,32 @@ final class ConsentState {
                 record.answeredAt = at
             }
             record.refusals[.consentRequired] = nil
+            record.agreement = Agreement(version: version, at: at, settled: settled)
         }
     }
 
     /// `DELETE /v1/me/consent` answered at `at`: this phone's withdrawal, kept outside the store (`withdrawnAt`), and the
-    /// platform's refusal from then on (API.md: sync answers `403 consent_required`), recorded as any refusal is.
+    /// platform's refusal from then on (API.md: sync answers `403 consent_required`), recorded as any refusal is. This
+    /// phone's agreement goes with it.
     func withdrew(at: Date) {
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
         env.defaults.set(at, forKey: Self.withdrawalKey(account))
         revision += 1
-        refused(.consentRequired, at: at)
+        write { record in
+            record.agreement = nil
+            if record.refusals[.consentRequired] == nil { record.refusals[.consentRequired] = at }
+        }
     }
 
-    /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`): asked for
-    /// after the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed
-    /// again, on another device). One asked for before it may be from before it, and an older policy's consent isn't one.
+    /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`). Asked for at
+    /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). Asked for after the
+    /// withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
+    /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
     func heard(_ user: User, askedAt: Date) {
+        if let agreement, !agreement.settled, askedAt >= agreement.at {
+            write { $0.agreement?.settled = true }
+            agreementSettled?()
+        }
         guard let withdrawnAt, askedAt >= withdrawnAt, let version = latestPolicyVersion,
               user.consent?.policyVersion == version else { return }
         endWithdrawal()

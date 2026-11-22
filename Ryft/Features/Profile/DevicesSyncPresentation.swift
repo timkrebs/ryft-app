@@ -55,12 +55,17 @@ enum SyncIdleState: Equatable, Sendable {
 
     /// - Parameters:
     ///   - pausedFor: `SyncService.pausedFor` (demo data's hold is silent: demo data never sends).
+    ///   - pendingGate: onboarding's `pendingGate` when there is a coordinator, as Today asks it first: a gate hold no step
+    ///     asks for (this phone agreed, and RYFT's word on it is still out; the account not known yet) is a pause, not an
+    ///     action. Without a coordinator (`nil`), the hold's own gate.
     ///   - failed: the last run's error, kept by the engine or the service.
     ///   - uploaded: a run that sent everything is on record (`Settings.lastSync`), or demo data (always there).
-    static func decide(pausedFor: UploadGate?, offline: Bool, failed: Bool, backfillDone: Bool, backlog: Bool,
-                       uploaded: Bool) -> SyncIdleState {
+    static func decide(pausedFor: UploadGate?, pendingGate: OnboardingCoordinator.Step?? = nil, offline: Bool,
+                       failed: Bool, backfillDone: Bool, backlog: Bool, uploaded: Bool) -> SyncIdleState {
         switch pausedFor {
-        case .gate(let code)?: return .actionNeeded(code == .inviteRequired ? .invite : .consent)
+        case .gate(let code)?:
+            if let asked = pendingGate { return asked.map(SyncIdleState.actionNeeded) ?? .paused }
+            return .actionNeeded(code == .inviteRequired ? .invite : .consent)
         case .policyUnknown?: return .paused
         case .demo?, nil: break
         }

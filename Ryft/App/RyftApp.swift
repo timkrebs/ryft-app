@@ -300,6 +300,8 @@ struct RyftApp: App {
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
                     Task { await coordinator.run(.reconnect) }
+                    // An agreement RYFT hasn't confirmed yet (its re-read failed offline): asked about again.
+                    Task { await screens.onboarding.reconnected() }
                     Task { await refreshTrain() }
                     // Reports saved offline (Profile → Report a problem).
                     Task(priority: .utility) { await screens.profile.report.flush() }

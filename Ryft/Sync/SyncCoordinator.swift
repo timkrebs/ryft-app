@@ -770,12 +770,16 @@ final class LiveSyncSteps: SyncSteps {
     /// goes to onboarding; an operator's re-sync request to the next upload. Scheduled
     /// (`ReadKey(.syncStatus)`): a pull's ask joins a poll in flight, and the other way round.
     /// The effects run inside the flight, so they happen even if this caller stops waiting.
+    /// A `consent_required` asked within the platform's cache time of this phone's consent `204` may be from before it,
+    /// and isn't reported (R2, `ConsentState.statusSpeaksForConsent`; onboarding's `check()` applies the same rule).
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
         let env = state.env, state = state, apiStatus = apiStatus, sync = sync
         let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
                                              storeAsked: { (status: SyncStatus, asked: Date) in
             state.syncStatus = status
-            if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
+            if let gate = status.gate, gate != .consentRequired || env.consent.statusSpeaksForConsent(askedAt: asked) {
+                apiStatus.observe([gate], enforced: false)
+            }
             // When the flight was asked for, not when this caller joined it: the ledger's "requested after".
             sync.receive(status, requestedAt: asked)
         }) { try await env.api.syncStatus() }
