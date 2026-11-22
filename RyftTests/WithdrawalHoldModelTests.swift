@@ -39,6 +39,8 @@ struct WithdrawalHoldModelTests {
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
             env = .test(api: api, clock: clock, auth: auth, flags: [.activitiesManual: true])
+            // An account's switch, off (the setting falls back to `demoDefault`, on here): a held switch leaves it so.
+            env.settings.demoMode = false
             env.uploader.random = { $0.lowerBound }
             env.uploader.gate = { _ in nil } // consent given: what goes up, goes up
             state = AppState(env: env)
@@ -94,7 +96,8 @@ struct WithdrawalHoldModelTests {
         // "Log out anyway" from a dialog shown before the hold, and the Demo data switch: neither does anything.
         await g.profile.logOut()
         await g.profile.setDemoMode(true)
-        #expect(g.auth.isSignedIn && !g.profile.demoMode, "\(ending): held, no sign-out and no Demo data")
+        // The switch's setting, not `demoMode`: the test environment pins `isDemo` off.
+        #expect(g.auth.isSignedIn && !g.env.settings.demoMode, "\(ending): held, no sign-out and no Demo data")
 
         await revoke.open()
         await withdrawing.value
