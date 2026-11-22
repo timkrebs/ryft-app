@@ -59,6 +59,10 @@ final class JournalStore {
     #endif
     /// Bumped when the account's state is forgotten (`accountChanged()`): an answer asked for before it is dropped.
     private var generation = 0
+    /// Days the cache was asked for and didn't hold: the reminder's every pass asks for the same ones, and each miss
+    /// would be a SwiftData fetch on the main actor (review S4). Only this store writes the account's days, and a day it
+    /// stores is in `days` first; the account's change forgets them.
+    @ObservationIgnored private var notCached: Set<String> = []
     /// A day found answered, by a save here or a read (another device): its journal reminder goes (`ReminderScheduler`).
     @ObservationIgnored var onAnswered: (@MainActor (String) -> Void)?
     /// The list asked for again after a write that may have saved (no answer, a `5xx`); tests await it.
@@ -99,6 +103,7 @@ final class JournalStore {
         rereading = nil
         behaviors = []
         days = [:]
+        notCached = []
         impacts = nil
         error = nil
         availability = .unknown
@@ -155,8 +160,9 @@ final class JournalStore {
     /// A day as known now: in memory, else the SwiftData cache (no request).
     func cachedDay(_ day: String) -> JournalDay? {
         if let known = days[day] { return known }
-        let cached = env.accountDocuments?.document(JournalDay.self, key: Self.dayKey(day))
-        if let cached { days[day] = cached }
+        guard !notCached.contains(day), let disk = env.accountDocuments else { return nil }
+        let cached = disk.document(JournalDay.self, key: Self.dayKey(day))
+        if let cached { days[day] = cached } else { notCached.insert(day) }
         return cached
     }
 

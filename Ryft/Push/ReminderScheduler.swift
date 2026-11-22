@@ -74,6 +74,9 @@ final class ReminderScheduler {
     private var readsDelivered = false
     /// Journal days whose reminder went at their answer in this process (pending and delivered): never added again.
     private var answeredDays: Set<String> = []
+    /// Whose the accepted push registration is, for an account and side and store epoch: a SwiftData fetch per pass
+    /// otherwise (review S4). Its save or removal (`PushRegistrar.onRecordChanged`) and the wipe's turn read it again.
+    private var registered: (key: BedtimePlanner.Owner, account: String?)?
     private var watches: [ObservationWatch] = []
     private var timeObservers: [NSObjectProtocol] = []
 
@@ -182,6 +185,8 @@ final class ReminderScheduler {
         ledger = nil
         bedtime = nil
         answeredDays = []
+        registered = nil
+        journalSettings.forget()
     }
 
     /// The sign-out wipe (any reason): every pending and delivered RYFT notification, without an enumeration, whose they
@@ -212,7 +217,10 @@ final class ReminderScheduler {
             flagsHook?()
             self?.reschedule(.flags)
         }
-        push.onRecordChanged = { [weak self] in self?.reschedule(.push) }
+        push.onRecordChanged = { [weak self] in
+            self?.registered = nil
+            self?.reschedule(.push)
+        }
         let settings = env.settings, flags = env.flags, user = inputs.observeUser, consent = env.consent
         watches = [
             ObservationWatch(read: { _ = consent.revision }, changed: { [weak self] in self?.reschedule(.consent) }),
@@ -460,12 +468,19 @@ final class ReminderScheduler {
         let route = allowed.flatMap { allowed in prefs.map { prefs in
             SyncStaleRoute.decide(category: prefs.isOn(.syncStale),
                                   pushEnabled: env.flags.isOn(.pushEnabled), allowed: allowed,
-                                  registered: env.persistence.document(PushRegistrar.Record.self,
-                                                                       key: PushRegistrar.recordKey)?.account == account)
+                                  registered: registeredAccount() == account)
         } }
         let scheduled = (ledger ?? [:]).values.filter { $0.kind == .syncStale }.sorted { $0.id < $1.id }
         return SyncStalePlan.wish(lastSync: env.settings.lastSync, route: route, allowed: allowed, quiet: quiet,
                                   scheduled: scheduled, account: account, now: now, calendar: calendar)
+    }
+
+    private func registeredAccount() -> String? {
+        let key = BedtimePlanner.Owner(account: AccountBinding(env), epoch: env.persistence.epoch.current)
+        if let registered, registered.key == key { return registered.account }
+        let account = env.persistence.document(PushRegistrar.Record.self, key: PushRegistrar.recordKey)?.account
+        registered = (key, account)
+        return account
     }
 
     /// The wishes within the budget: over it, Debug asserts and the soonest are kept.

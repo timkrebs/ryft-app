@@ -1118,3 +1118,42 @@ struct ReminderDeniedTests {
         #expect(tried == 3 && rig.ids(.bedtime) == ["bedtime.2026-11-24"] && rig.ids(.syncStale).count == 2)
     }
 }
+
+// MARK: - round 2, S4: what a pass reads
+
+@MainActor
+@Suite("Reminders: a pass reads the journal's misses, the registration and the setting once")
+struct ReminderCostTests {
+    @Test("Misses aren't fetched again; a day stored, the account's change and a saved registration are read afresh")
+    func memo() async throws {
+        let rig = await LiveMorning.rig()
+        let day = LiveMorning.day(-10)
+        #expect(rig.journal.cachedDay(day) == nil)
+        rig.env.accountDocuments?.saveDocument(JournalDay(day: day, answered: true, answeredAt: nil, editable: true, entries: []),
+                                               key: JournalStore.dayKey(day), at: rig.clock.now())
+        #expect(rig.journal.cachedDay(day) == nil, "a miss is remembered")
+        rig.journal.accountChanged()
+        #expect(rig.journal.cachedDay(day)?.answered == true, "forgotten with the account")
+
+        rig.flags.setOverride(.pushEnabled, true)
+        rig.watch()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale).count == 2)
+        await rig.push.didRegister(deviceToken: Data([0x0a, 0x0b]))
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).isEmpty, "the saved registration was read afresh")
+    }
+
+    @Test("The setting is decoded once per account; a write and the wipe's turn read it again")
+    func settings() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        let store = rig.scheduler.journalSettings
+        #expect(store.settings(for: accountA.uuidString) == .default)
+        rig.defaults.set(Data("{\"on\":false,\"minute\":540}".utf8), forKey: JournalReminderStore.key(accountA.uuidString))
+        #expect(store.settings(for: accountA.uuidString) == .default, "remembered")
+        rig.scheduler.forget()
+        #expect(store.settings(for: accountA.uuidString) == JournalReminderSettings(on: false, minute: 540))
+        #expect(store.set(JournalReminderSettings(on: true, minute: 600)))
+        #expect(store.settings(for: accountA.uuidString) == JournalReminderSettings(on: true, minute: 600))
+    }
+}

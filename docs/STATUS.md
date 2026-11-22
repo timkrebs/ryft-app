@@ -25,9 +25,13 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
 - **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
   `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The catalog keys listed in the N3 handback
   are added by the localization-editor; until then `sync-strings --check` lists them as missing.
-- **Measured** (Debug, simulator, mock notifier): a pass that changes nothing makes no system call and takes 0.10 ms
-  (median of 500; p95 0.17 ms); the process's first pass (1 pending read, 1 status read, 2 adds) 0.95 ms; 50 syncs
-  inside an hour, at most 1 add. Before, every bedtime reschedule read iOS's pending set, removed and added all 7.
+- **Measured** (Debug, simulator, mock notifier, on the shared CI Mac under load; round 2, review S4): with the journal
+  connected (live, habits on, no day cached) and this account's push registration saved, a pass that changes nothing
+  makes no system call and no SwiftData fetch, 0.11–0.15 ms (median of 500, two runs; p95 0.14–0.16 ms). Before the
+  misses and the record were remembered it made 4 fetches (3 journal days, the record): 0.33 ms (p95 0.55 ms). The
+  process's first pass (1 pending read, 1 status read, 7 bedtime and 3 journal adds) 2.3 ms against 3.7 ms (one sample
+  each, noisy: 10 ms in a run at load 240). Round 1's 0.10 ms had no journal. 50 syncs inside an hour, at most 1 add.
+  Before N3, every bedtime reschedule read iOS's pending set, removed and added all 7.
 - **Verification:** simulator and unit tests only. Not verified on a device: delivery at the floating wall times, the
   BG refresh's pass, the sign-out's removal from Notification Center, and the hidden-preview placeholders.
 - **Your steps (device):** see the N3 handback (journal reminder at 09:00 and its tap, the fallback after a kill from
