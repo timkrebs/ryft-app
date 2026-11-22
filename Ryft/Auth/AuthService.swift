@@ -7,6 +7,7 @@ import CryptoKit
 import Foundation
 import GameplayKit
 import Observation
+import UserNotifications
 import Auth
 
 // MARK: - SDK seam
@@ -951,6 +952,9 @@ final class AuthService {
     func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
         guard finishOwedWipe() else { return }
         train.accountChanged()
+        // A resumed wipe is `storeOnly`, without the device step's removals: the local reminders' owner check takes
+        // what's left (design.md §9.3).
+        await bedtime.reminders.accountChanged()
         await bedtime.accountChanged()
     }
 
@@ -984,6 +988,12 @@ final class AuthService {
             // The usage analytics answer is the person's: whoever signs in next is asked, with a new id. Here too, not
             // only in `AppState.wiped`, because a wipe resumed at launch runs before that hook is bound.
             Analytics.forgetAnswer(defaults: .standard)
+            // Every notification of the account's, pending and delivered (its server alerts in Notification Center too),
+            // its wake alarms, and whose they were (design.md §9.1). Never through `AppEnvironment.live` (ADR 0020).
+            ReminderScheduler.wipe(UNUserNotificationCenter.current(), defaults: .standard)
+            #if canImport(AlarmKit)
+            if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
+            #endif
         }, store: wipeStoreStep, after: {
             RestActivityController.shared.end()
             // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the

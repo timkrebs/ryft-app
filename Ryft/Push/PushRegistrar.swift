@@ -44,6 +44,8 @@ final class PushRegistrar {
     private(set) var lastResult: String?
     /// Bumped when a per-user setting changes, so observers re-read the defaults.
     private var revision = 0
+    /// The accepted registration was saved or removed: where "not syncing" is said may change (`ReminderScheduler`).
+    @ObservationIgnored var onRecordChanged: (@MainActor () -> Void)?
 
     init(env: AppEnvironment) {
         self.env = env
@@ -139,6 +141,7 @@ final class PushRegistrar {
             try await env.liveAPI.registerPush(deviceID: env.settings.deviceId,
                                                PushRegistration(token: token, env: record.env, locale: record.locale))
             env.persistence.saveDocument(record, key: Self.recordKey, at: env.clock.now())
+            onRecordChanged?()
             lastError = nil
             lastResult = "POST 204 · \(record.env.rawValue) · \(record.locale)"
             // Once per accepted registration: on TestFlight (no Developer section) this
@@ -166,6 +169,7 @@ final class PushRegistrar {
             }
         }
         env.persistence.removeDocument(key: Self.recordKey)
+        onRecordChanged?()
         token = nil
         env.notifier.unregisterForRemoteNotifications()
     }

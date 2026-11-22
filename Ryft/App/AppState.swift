@@ -53,6 +53,17 @@ final class AppState {
 
     let env: AppEnvironment
     let repository: Repository
+    /// RYFT's local notifications (ADR 0024): bedtime's wind-down, the journal reminder and "not syncing". The one writer
+    /// of the account's local requests; it forgets with the other account-state forgetters.
+    @ObservationIgnored private(set) lazy var reminders: ReminderScheduler = {
+        let scheduler = ReminderScheduler(env: env, inputs: ReminderInputs(user: { [weak self] in self?.repository.user() },
+                                                                           journal: { nil },
+                                                                           observeUser: { [weak self] in
+                                                                               _ = self?.repository.userRevision
+                                                                           }))
+        forgetsAccountState { [weak scheduler] in scheduler?.forget() }
+        return scheduler
+    }()
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
     private var defaults: UserDefaults { env.defaults }

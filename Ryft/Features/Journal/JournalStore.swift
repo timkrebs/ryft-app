@@ -59,6 +59,8 @@ final class JournalStore {
     #endif
     /// Bumped when the account's state is forgotten (`accountChanged()`): an answer asked for before it is dropped.
     private var generation = 0
+    /// A day found answered, by a save here or a read (another device): its journal reminder goes (`ReminderScheduler`).
+    @ObservationIgnored var onAnswered: (@MainActor (String) -> Void)?
     /// The list asked for again after a write that may have saved (no answer, a `5xx`); tests await it.
     private(set) var rereading: Task<Void, Never>?
     /// The side changed since the account's documents were read (`accountChanged()`): the account's next `load()` reads
@@ -343,6 +345,8 @@ final class JournalStore {
         guard owns(owner) else { return }
         days[day.day] = day
         env.accountDocuments?.saveDocument(day, key: Self.dayKey(day.day), at: now)
+        // Demo data's answers never take the account's reminder away: the scheduler ignores them.
+        if day.answered { onAnswered?(day.day) }
     }
 
     // MARK: Today's card

@@ -84,6 +84,8 @@ final class ScreenModels {
         push = PushRegistrar(env: state.env)
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
+        // Its habits and answers decide the journal reminder; a day answered takes it away at once.
+        state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)

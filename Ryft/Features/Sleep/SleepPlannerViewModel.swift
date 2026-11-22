@@ -402,6 +402,8 @@ final class BedtimePlanner {
     /// Bedtime & wake's page, one for every way in (Profile, Tonight, Sleep → Bedtime): one copy being edited, one save at a
     /// time.
     @ObservationIgnored private(set) lazy var editor = BedtimeScheduleEditor(planner: self)
+    /// The one writer of the local reminders (ADR 0024): the app's, through its state.
+    var reminders: ReminderScheduler { state.reminders }
 
     /// A bedtime that moved less than this keeps its reminder.
     static let rescheduleThreshold: TimeInterval = 10 * 60

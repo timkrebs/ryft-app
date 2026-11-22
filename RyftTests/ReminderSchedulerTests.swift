@@ -1,0 +1,670 @@
+import Foundation
+import HealthKit
+import Testing
+import UserNotifications
+@testable import Ryft
+
+// N3 (design.md §10, criteria 1–6 and 8; §11): the one writer of RYFT's local requests, on a graph of its own (auth,
+// flags, notifier, defaults, clock), synthetic data only. The not-syncing and account tests run on Europe/Berlin; the
+// journal's on this iPhone's calendar and today's date, because the mock platform's journal answers by the real day.
+
+private let accountA = UUID(uuidString: "0000000A-0000-4000-8000-00000000000A") ?? UUID()
+private let accountB = UUID(uuidString: "0000000B-0000-4000-8000-00000000000B") ?? UUID()
+
+/// The calendar `DayFormat` and the mock journal use.
+private let local: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = .autoupdatingCurrent
+    return c
+}()
+
+@MainActor
+private final class WipeTarget {
+    var env: AppEnvironment?
+    var notifier: MockNotifier?
+    var wipesNotifications = true
+}
+
+@MainActor
+private final class ReminderRig {
+    let clock = TestClock()
+    let notifier = MockNotifier()
+    let api = MockPlatformAPI()
+    let demoAPI = MockPlatformAPI()
+    let client: MockAuthClient
+    let auth: AuthService
+    let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+    let flags: FlagStore
+    let env: AppEnvironment
+    let state: AppState
+    let scheduler: ReminderScheduler
+    let calendar: Calendar
+    private let target = WipeTarget()
+    var user: User? = MockData.user
+    var overBudget: [Int] = []
+    private(set) lazy var journal = JournalStore(env: env)
+    private(set) lazy var push = PushRegistrar(env: env)
+
+    /// `wipesNotifications: false`: a sign-out's wipe that leaves iOS's requests (one resumed `storeOnly`).
+    init(at now: Date, calendar: Calendar = Berlin.calendar, health: MockHealthStore = MockHealthStore(),
+         wipesNotifications: Bool = true) {
+        clock.set(now)
+        self.calendar = calendar
+        client = MockAuthClient(session: .preview(id: accountA))
+        let target = self.target
+        target.wipesNotifications = wipesNotifications
+        auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
+                           wipeLocalData: { _ in
+                               guard let env = target.env, let notifier = target.notifier else { return true }
+                               // The device step, on this graph's centre (the app's passes `UNUserNotificationCenter`).
+                               if target.wipesNotifications { ReminderScheduler.wipe(notifier, defaults: env.defaults) }
+                               return env.persistence.wipe()
+                           },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in })
+        let settings = Settings(defaults: defaults)
+        settings.demoMode = false
+        flags = FlagStore(store: TrainStore(inMemory: true), defaults: defaults)
+        api.now = { [clock] in clock.now() }
+        demoAPI.now = { [clock] in clock.now() }
+        env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: demoAPI, auth: auth,
+                             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier, flags: flags,
+                             connectivity: .preview(online: true), defaults: defaults, demoOverride: nil)
+        env.reads.random = { $0.lowerBound }
+        env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+        target.env = env
+        target.notifier = notifier
+        state = AppState(env: env)
+        state.repository.widgetFile = nil
+        state.bindAccountHooks(auth, apiStatus: APIStatus())
+        // As `AppState.reminders` is wired, on this rig's calendar.
+        let scheduler = ReminderScheduler(env: env, inputs: .none, calendar: calendar)
+        state.forgetsAccountState { [weak scheduler] in scheduler?.forget() }
+        self.scheduler = scheduler
+        notifier.status = .authorized
+        scheduler.inputs.user = { [weak self] in self?.user }
+        scheduler.overBudget = { [weak self] in self?.overBudget.append($0) }
+        flags.setOverride(.pushEnabled, false)
+    }
+
+    /// The auth service's session observation is listening (before a sign-out or a sign-in).
+    func settle() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+
+    func watch() {
+        scheduler.watch(journal: journal, push: push)
+    }
+
+    /// One debounced pass: waits for its timer, moves the clock past it, waits for the pass.
+    func afterDebounce() async {
+        let passes = scheduler.passes
+        #expect(await eventually { clock.pendingSleeps >= 1 })
+        clock.advance(by: ReminderScheduler.debounce)
+        #expect(await eventually { scheduler.passes > passes })
+        await scheduler.rescheduleNow()   // folds in anything that came with it, and waits for every pass
+    }
+
+    func ids(_ kind: ReminderKind) -> [String] {
+        notifier.requests.map(\.identifier).filter { $0.hasPrefix(kind.prefix) }.sorted()
+    }
+
+    func reminder(_ id: String) -> LocalReminder? {
+        notifier.requests.first { $0.identifier == id }.flatMap(LocalReminder.init)
+    }
+
+    /// The system calls so far: enumerations, adds, removals, status and delivered reads.
+    var calls: [Int] {
+        [notifier.pendingReads, notifier.adds, notifier.removals, notifier.statusReads, notifier.deliveredReads]
+    }
+
+    func quiet(_ from: String, _ to: String) {
+        user?.notifications = NotificationPrefs(categories: NotificationPrefs.allOn.categories,
+                                                quietHours: QuietHours(from: from, to: to))
+    }
+
+    func record(_ account: UUID) {
+        env.persistence.saveDocument(PushRegistrar.Record(account: account.uuidString, token: "0a0b", env: .sandbox,
+                                                          locale: "en-DE"),
+                                     key: PushRegistrar.recordKey, at: clock.now())
+    }
+
+    /// A request on iOS from before this process (a previous launch), with its owner key.
+    func seed(_ reminders: [LocalReminder], owner: String?) async throws {
+        for reminder in reminders { try await notifier.add(reminder.request) }
+        defaults.set(owner, forKey: ReminderScheduler.ownerKey)
+    }
+
+    func switchDemo(on: Bool) {
+        env.settings.demoMode = on
+        state.reset()
+    }
+}
+
+private func journalReminder(_ day: String, fire: DateComponents, account: UUID = accountA) -> LocalReminder {
+    LocalReminder(id: "journal.\(day)", kind: .journal, fire: fire, title: "t", body: "b", category: "JOURNAL_REMINDER",
+                  route: JournalReminderPlan.route(day), day: day, account: account.uuidString)
+}
+
+private func bedtimeReminder(_ wakeDay: String, fire: DateComponents, account: UUID = accountA) -> LocalReminder {
+    LocalReminder(id: "bedtime.\(wakeDay)", kind: .bedtime, fire: fire, title: "Wind down", body: "In bed by 22:40.",
+                  category: PushCategories.bedtime, route: nil, day: wakeDay, account: account.uuidString)
+}
+
+// MARK: - 3: the not-syncing fallback
+
+@MainActor
+@Suite("Reminders: not syncing on this iPhone")
+struct ReminderFallbackTests {
+    @Test("20 h and 72 h after the last sync, in 09:00–21:00, with the account and SYNC_STALE")
+    func followsTheLastSync() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale) == ["sync.stale.1", "sync.stale.2"])
+        let one = try #require(rig.reminder("sync.stale.1"))
+        #expect(one.fire == Berlin.wall(2026, 11, 23, 10) && one.account == accountA.uuidString && one.category == "SYNC_STALE")
+        #expect(rig.reminder("sync.stale.2")?.fire == Berlin.wall(2026, 11, 25, 14))
+        #expect(rig.notifier.requests.allSatisfy { $0.content.threadIdentifier == $0.content.categoryIdentifier })
+    }
+
+    @Test("Out of quiet hours: their end, if that's inside the daytime")
+    func leavesQuietHours() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.quiet("08:00", "12:00")
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 12))
+        #expect(rig.reminder("sync.stale.2")?.fire == Berlin.wall(2026, 11, 25, 14))
+    }
+
+    @Test("None without a last sync")
+    func noneWithoutASync() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale).isEmpty && rig.notifier.adds == 0)
+    }
+
+    @Test("A sync within the hour costs no call; one an hour later moves both; one earlier moves them back")
+    func hysteresis() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.watch()
+        let first = rig.clock.now()
+        rig.env.settings.lastSync = first
+        #expect(await eventually { rig.notifier.adds == 2 })
+        let calls = rig.calls
+
+        rig.clock.set(first.addingTimeInterval(59 * 60))
+        rig.env.settings.lastSync = rig.clock.now()
+        let passes = rig.scheduler.passes
+        #expect(await eventually { rig.scheduler.passes > passes })
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.calls == calls, "59 minutes later: kept, no system call")
+        #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 10))
+
+        rig.clock.set(first.addingTimeInterval(3600))
+        rig.env.settings.lastSync = rig.clock.now()
+        #expect(await eventually { rig.notifier.adds == 4 }, "an hour later: both moved")
+        #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 11))
+        #expect(rig.reminder("sync.stale.2")?.fire == Berlin.wall(2026, 11, 25, 15))
+
+        rig.env.settings.lastSync = first.addingTimeInterval(-10 * 60)
+        #expect(await eventually { rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 9, 50) },
+                "earlier (the clock set back): moved")
+    }
+
+    @Test("A held, a failed and a locked run write no last sync: nothing moves; a run that uploads does")
+    func onlyASuccessfulRunMovesIt() async throws {
+        let t = Date(timeIntervalSince1970: 1_792_300_000)
+        let page = HealthDelta(samples: (0..<2).map {
+            Sample(type: .heartRate, start: t.addingTimeInterval(Double($0) * 60), end: t.addingTimeInterval(Double($0) * 60),
+                   value: 60, unit: "bpm", source: "Garmin")
+        })
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [page]])
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14), health: health)
+        rig.watch()
+        let sync = SyncService.ungated(env: rig.env)
+
+        sync.gate = { .gate(.consentRequired) }
+        _ = try? await sync.upload()
+        sync.gate = { nil }
+        rig.api.failNext = APIError.http(500, "unavailable")
+        _ = try? await sync.upload()
+        health.nextError = HKError(.errorDatabaseInaccessible)
+        _ = try? await sync.upload()
+        #expect(sync.waitingForUnlock)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.env.settings.lastSync == nil && rig.ids(.syncStale).isEmpty)
+
+        _ = try? await sync.upload()
+        #expect(rig.env.settings.lastSync == rig.clock.now())
+        #expect(await eventually { rig.ids(.syncStale) == ["sync.stale.1", "sync.stale.2"] })
+    }
+
+    @Test("A silent push refreshes days without an upload: no last sync, nothing scheduled")
+    func silentPush() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.watch()
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: rig.state, sync: SyncService.ungated(env: rig.env),
+                                                               apiStatus: APIStatus()),
+                                          clock: rig.clock)
+        _ = await coordinator.run(.silentPush(days: ["2026-11-21"]))
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.env.settings.lastSync == nil && rig.notifier.adds == 0)
+    }
+}
+
+// MARK: - 4: one path for "not syncing"
+
+@MainActor
+@Suite("Reminders: the server's or this iPhone's")
+struct ReminderDedupeTests {
+    @Test("push.enabled on with this account's registration: the server says it, ours go; off again, they're back")
+    func aFlagFlip() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.record(accountA)
+        rig.watch()
+        rig.env.settings.lastSync = rig.clock.now()
+        #expect(await eventually { rig.ids(.syncStale).count == 2 }, ".thisIPhone while the flag is off")
+
+        rig.flags.setOverride(.pushEnabled, true)
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).isEmpty, ".server")
+
+        rig.flags.setOverride(.pushEnabled, false)
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).count == 2)
+    }
+
+    @Test("An accepted registration takes them away; its removal at a sign-out's first step brings them back")
+    func anAcceptedRegistration() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        rig.watch()
+        rig.env.settings.lastSync = rig.clock.now()
+        #expect(await eventually { rig.ids(.syncStale).count == 2 }, "no registration yet: this iPhone")
+
+        await rig.push.didRegister(deviceToken: Data([0x0a, 0x0b]))
+        #expect(rig.env.persistence.document(PushRegistrar.Record.self, key: PushRegistrar.recordKey) != nil)
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).isEmpty)
+
+        await rig.push.signOut()
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).count == 2)
+    }
+
+    @Test("Another account's registration isn't this one's: this iPhone says it")
+    func anotherAccountsRecord() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.record(accountB)
+        rig.flags.setOverride(.pushEnabled, true)
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale).count == 2)
+    }
+
+    @Test("SYNC_STALE off: none, and the scheduled ones go when the preferences change")
+    func off() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale).count == 2)
+        var categories = NotificationPrefs.allOn.categories
+        categories[NotificationCategory.syncStale.rawValue] = false
+        rig.user?.notifications = NotificationPrefs(categories: categories, quietHours: nil)
+        rig.scheduler.reschedule(.preferences)
+        await rig.afterDebounce()
+        #expect(rig.ids(.syncStale).isEmpty)
+    }
+}
+
+// MARK: - 5: unknown never removes
+
+@MainActor
+@Suite("Reminders: what isn't known stays")
+struct ReminderUnknownTests {
+    @Test("A pass before the journal's catalog is known and before bedtime's first offer leaves theirs")
+    func unknownStays() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 6))
+        try await rig.seed([journalReminder("2026-11-21", fire: Berlin.wall(2026, 11, 22, 9)),
+                            bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10))],
+                           owner: accountA.uuidString)
+        rig.scheduler.connect(journal: rig.journal)
+        #expect(rig.journal.availability == .unknown)
+        let calls = rig.calls
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal) == ["journal.2026-11-21"] && rig.ids(.bedtime) == ["bedtime.2026-11-23"])
+        #expect(rig.notifier.removals == calls[2] && rig.notifier.adds == calls[1])
+    }
+
+    @Test("Before iOS's answer is read the plans aren't asked; the first pass reads pending and the status once")
+    func readsOnce() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.pendingReads == 1 && rig.notifier.statusReads == 1)
+        let calls = rig.calls
+        for _ in 0..<3 { await rig.scheduler.rescheduleNow() }
+        #expect(rig.calls == calls, "a pass that changes nothing makes no system call")
+    }
+}
+
+// MARK: - 6: accounts
+
+@MainActor
+@Suite("Reminders: whose they are")
+struct ReminderAccountTests {
+    @Test("The sign-out wipe leaves nothing, pending or delivered, wake alarms and server alerts included")
+    func theWipe() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        try await rig.notifier.add(UNNotificationRequest(identifier: "wake.0", content: UNMutableNotificationContent(),
+                                                         trigger: nil))
+        rig.notifier.deliver("recovery-2026-11-22")
+        rig.notifier.deliver("journal.2026-11-21")
+        rig.scheduler.journalSettings.set(JournalReminderSettings(on: true, minute: 8 * 60))
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountA.uuidString)
+        #expect(rig.defaults.data(forKey: JournalReminderStore.key(accountA.uuidString)) != nil)
+        await rig.settle()
+
+        await rig.auth.signOut()
+        #expect(rig.notifier.requests.isEmpty && rig.notifier.deliveredIDs.isEmpty)
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == nil)
+        #expect(rig.defaults.data(forKey: JournalReminderStore.key(accountA.uuidString)) == nil)
+        #expect(rig.scheduler.ledgerIDs == nil, "forgotten in the same turn")
+    }
+
+    @Test("A pass on its way for A adds nothing after the wipe, and takes back what landed")
+    func aPassInFlight() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.settle()
+        let hold = AddHold()
+        rig.notifier.beforeAdd = { _ in await hold.wait() }
+        let pass = Task { await rig.scheduler.rescheduleNow() }
+        #expect(await eventually { hold.waiting == 1 })
+
+        await rig.auth.signOut()
+        #expect(rig.notifier.requests.isEmpty)
+        hold.release()
+        await pass.value
+
+        #expect(rig.notifier.requests.isEmpty, "the one that landed after the wipe went again")
+        #expect(rig.notifier.adds == 1, "the second never went")
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == nil)
+    }
+
+    @Test("Another account: A's go before B's first one is added")
+    func accountChanged() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14), wipesNotifications: false)
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.requests.count == 2)
+        await rig.settle()
+        await rig.auth.signOut()
+        rig.client.emit(.signedIn, .preview(id: accountB))
+        #expect(await eventually { rig.auth.accountID == accountB.uuidString })
+        #expect(rig.notifier.requests.count == 2, "a wipe resumed store-only left A's on iOS")
+
+        var atFirstAdd: [String]?
+        rig.notifier.beforeAdd = { _ in
+            if atFirstAdd == nil { atFirstAdd = rig.notifier.requests.compactMap { LocalReminder($0)?.account } }
+        }
+        rig.env.settings.lastSync = rig.clock.now().addingTimeInterval(-3600)
+        await rig.scheduler.accountChanged()
+        #expect(atFirstAdd == [], "nothing of A's left when B's first one went")
+        #expect(rig.notifier.requests.compactMap { LocalReminder($0)?.account } == [accountB.uuidString, accountB.uuidString])
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountB.uuidString)
+    }
+
+    @Test("Another owner at the first pass, or none: every request of ours goes, bedtime's too; a wake alarm stays")
+    func theOwnerCheck() async throws {
+        for owner in [accountB.uuidString, nil] {
+            let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+            try await rig.seed([journalReminder("2026-11-22", fire: Berlin.wall(2026, 11, 23, 9), account: accountB),
+                                bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10), account: accountB)],
+                               owner: owner)
+            try await rig.notifier.add(UNNotificationRequest(identifier: "wake.3", content: UNMutableNotificationContent(),
+                                                             trigger: nil))
+            await rig.scheduler.rescheduleNow()
+            #expect(rig.notifier.requests.map(\.identifier) == ["wake.3"], "owner \(owner ?? "none")")
+            #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountA.uuidString)
+        }
+    }
+
+    @Test("Demo data freezes the account's (no add, no remove); off again they follow")
+    func demoFreezes() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        let before = rig.notifier.requests
+        let (adds, removals) = (rig.notifier.adds, rig.notifier.removals)
+
+        rig.switchDemo(on: true)
+        rig.env.settings.lastSync = rig.clock.now().addingTimeInterval(2 * 3600)
+        await rig.scheduler.rescheduleNow()
+        rig.scheduler.reschedule(.demo)
+        await rig.afterDebounce()
+        #expect(rig.notifier.adds == adds && rig.notifier.removals == removals)
+        #expect(zip(rig.notifier.requests, before).allSatisfy { $0 === $1 } && rig.notifier.requests.count == before.count)
+
+        rig.switchDemo(on: false)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 12), "the sync two hours later, now")
+    }
+
+    @Test("Signed out (Demo data or not): nothing of ours stays")
+    func signedOut() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14), wipesNotifications: false)
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        await rig.settle()
+        await rig.auth.signOut()
+        rig.switchDemo(on: true)
+        await rig.scheduler.accountChanged()
+        #expect(rig.notifier.requests.isEmpty && rig.defaults.string(forKey: ReminderScheduler.ownerKey) == nil)
+    }
+
+    @Test("On app active a delivered journal reminder about a day other than yesterday goes; others stay")
+    func oldDeliveredJournal() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        for id in ["journal.2026-11-20", "journal.2026-11-21", "journal.2026-11-19", "recovery-2026-11-22", "sync.stale.1"] {
+            rig.notifier.deliver(id)
+        }
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.deliveredIDs.count == 5 && rig.notifier.deliveredReads == 0, "only app active looks")
+
+        rig.scheduler.reschedule(.appActive)
+        await rig.afterDebounce()
+        #expect(rig.notifier.deliveredIDs == ["journal.2026-11-21", "recovery-2026-11-22", "sync.stale.1"])
+        #expect(rig.notifier.deliveredReads == 1)
+    }
+}
+
+// MARK: - 1, 2: the journal reminder
+
+@MainActor
+@Suite("Reminders: the journal")
+struct ReminderJournalTests {
+    private let today = local.startOfDay(for: .now)
+    private func day(_ offset: Int) -> String {
+        reminderDay(local.date(byAdding: .day, value: offset, to: today) ?? today, calendar: local)
+    }
+    private func at(_ hour: Int) -> Date { local.date(bySettingHour: hour, minute: 0, second: 0, of: today) ?? today }
+
+    /// A rig at `hour` today whose journal is live with habits on.
+    private func liveRig(at hour: Int) async -> ReminderRig {
+        let rig = ReminderRig(at: at(hour), calendar: local)
+        rig.scheduler.connect(journal: rig.journal)
+        await rig.journal.load()
+        #expect(rig.journal.isLive && !rig.journal.enabledBehaviors.isEmpty)
+        return rig
+    }
+
+    @Test("Live with habits: the next three mornings; off, none; at another time, there")
+    func followsItsSettings() async throws {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal) == ["journal.\(day(-1))", "journal.\(day(0))", "journal.\(day(1))"])
+        let first = try #require(rig.reminder("journal.\(day(-1))"))
+        #expect(first.fire.hour == 9 && first.route == "https://ryftlab.de/journal/\(day(-1))")
+
+        rig.scheduler.journalSettings.set(JournalReminderSettings(on: false, minute: 9 * 60))
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).isEmpty)
+
+        rig.scheduler.journalSettings.set(JournalReminderSettings(on: true, minute: 10 * 60 + 15))
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).count == 3 && rig.reminder("journal.\(day(-1))")?.fire.minute == 15)
+    }
+
+    @Test("Not allowed any more (read again at app active): they go")
+    func denied() async {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal).count == 3)
+        rig.notifier.status = .denied
+        rig.scheduler.reschedule(.appActive)
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).isEmpty)
+    }
+
+    @Test("Saving yesterday takes its reminder off iOS in the same turn, before any pass")
+    func savingYesterday() async throws {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal).contains("journal.\(day(-1))"))
+        let passes = rig.scheduler.passes
+        try await rig.journal.save(day: day(-1), entries: [])
+        #expect(!rig.ids(.journal).contains("journal.\(day(-1))") && rig.scheduler.passes == passes)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal) == ["journal.\(day(0))", "journal.\(day(1))"], "and no pass brings it back")
+    }
+
+    @Test("Saved after it was shown: the delivered one goes too")
+    func savingDelivered() async throws {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        rig.clock.set(at(10))
+        rig.notifier.deliver("journal.\(day(-1))")
+        try await rig.journal.save(day: day(-1), entries: [])
+        #expect(rig.notifier.deliveredIDs.isEmpty)
+    }
+
+    @Test("A read that finds yesterday answered (on another device) does the same")
+    func answeredElsewhere() async {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal).contains("journal.\(day(-1))"))
+        let answered = await rig.journal.loadDay(day(-1))
+        #expect(answered?.answered == true, "the mock platform answers yesterday as answered")
+        #expect(!rig.ids(.journal).contains("journal.\(day(-1))"))
+    }
+
+    @Test("A save in Demo data leaves the account's reminder")
+    func demoSave() async throws {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        rig.switchDemo(on: true)
+        await rig.journal.load()
+        try await rig.journal.save(day: day(-1), entries: [])
+        #expect(rig.ids(.journal).contains("journal.\(day(-1))"))
+    }
+
+    @Test("The background refresh reads yesterday only while its reminder is still to come, and not again once answered")
+    func readYesterdayIfOwed() async {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.rescheduleNow()
+        await rig.scheduler.readYesterdayIfOwed()
+        #expect(rig.api.count("journal") == 1)
+        #expect(!rig.ids(.journal).contains("journal.\(day(-1))"))
+        await rig.scheduler.readYesterdayIfOwed()
+        #expect(rig.api.count("journal") == 1, "known answered: not asked again")
+
+        let late = ReminderRig(at: at(10), calendar: local)
+        late.scheduler.connect(journal: late.journal)
+        await late.journal.load()
+        await late.scheduler.readYesterdayIfOwed()
+        #expect(late.api.count("journal") == 0, "today's reminder is gone by: nothing to take away")
+    }
+}
+
+// MARK: - 8 and §11
+
+@MainActor
+@Suite("Reminders: the budget and the cost")
+struct ReminderBudgetTests {
+    @Test("More than 32 wished: Debug says so, and the soonest are kept")
+    func overBudget() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 1, 12))
+        let wished = (0..<40).map { i in
+            bedtimeReminder(String(format: "2026-11-%02d", 2 + i % 28) + "-\(i)",
+                            fire: Berlin.wall(2026, 11, 1, 13, 0).with(minute: i))
+        }
+        let owner = BedtimePlanner.Owner(account: AccountBinding(rig.env), epoch: rig.env.persistence.epoch.current)
+        await rig.scheduler.offerBedtime(.these(wished), owner: owner)
+        #expect(rig.overBudget == [40])
+        #expect(rig.ids(.bedtime).count == ReminderScheduler.budget)
+        #expect(Set(rig.notifier.requests.compactMap { LocalReminder($0)?.fire.minute }) == Set(0..<32))
+    }
+
+    @Test("50 syncs inside an hour move the fallback at most once")
+    func fiftySyncs() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.watch()
+        let first = rig.clock.now()
+        rig.env.settings.lastSync = first
+        #expect(await eventually { rig.notifier.adds == 2 })
+        for i in 1...50 {
+            rig.clock.set(first.addingTimeInterval(Double(i) * 72))
+            rig.env.settings.lastSync = rig.clock.now()
+            await Task.yield()
+        }
+        #expect(await eventually { rig.env.settings.lastSync == first.addingTimeInterval(3600) })
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.adds <= 4, "one move of .1 and .2 at most: \(rig.notifier.adds - 2) adds")
+        #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 11))
+    }
+
+    @Test("Ten app actives within 500 ms: one pass")
+    func tenAppActives() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        for _ in 0..<10 {
+            rig.scheduler.reschedule(.appActive)
+            rig.clock.advance(by: .milliseconds(40))
+        }
+        #expect(await eventually { rig.clock.pendingSleeps == 1 })
+        rig.clock.advance(by: .milliseconds(500))
+        #expect(await eventually { rig.scheduler.passes == 1 })
+        for _ in 0..<20 { await Task.yield() }
+        #expect(rig.scheduler.passes == 1)
+    }
+}
+
+private extension DateComponents {
+    func with(minute: Int) -> DateComponents {
+        var c = self
+        c.minute = minute
+        return c
+    }
+}
+
+/// Holds a call until released (an `add` on its way).
+@MainActor
+private final class AddHold {
+    private(set) var waiting = 0
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        waiting += 1
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func release() {
+        let all = continuations
+        continuations = []
+        for c in all { c.resume() }
+    }
+}

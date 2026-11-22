@@ -206,9 +206,9 @@ enum JournalReminderPlan {
     static let mornings = 3
     static let category = "JOURNAL_REMINDER"
 
+    // swiftlint:disable function_parameter_count
     /// `habits`: some habit is on (nil: the catalog isn't known yet; false also when the journal isn't live). `answered`:
     /// what this iPhone knows of a day (nil: nothing). `allowed`: iOS lets RYFT notify (nil: not read yet).
-    // swiftlint:disable:next function_parameter_count
     static func wish(_ settings: JournalReminderSettings?, habits: Bool?, answered: (String) -> Bool?, allowed: Bool?,
                      quiet: QuietHours?, account: String, now: Date, calendar: Calendar) -> ReminderWish {
         guard let settings else { return .unknown }
@@ -234,6 +234,7 @@ enum JournalReminderPlan {
         }
         return .these(reminders)
     }
+    // swiftlint:enable function_parameter_count
 
     /// `ryft.url`: the journal sheet on the day it asks about.
     static func route(_ day: String) -> String { "https://\(AppRoute.host)/journal/\(day)" }
@@ -267,9 +268,9 @@ enum SyncStalePlan {
     static let firstID = ReminderKind.syncStale.prefix + "1"
     static let secondID = ReminderKind.syncStale.prefix + "2"
 
+    // swiftlint:disable function_parameter_count
     /// `scheduled`: the `sync.stale.*` the scheduler put on iOS for this account (its ledger). `allowed`: iOS lets RYFT
     /// notify (nil: not read yet). `route` nil: not known yet.
-    // swiftlint:disable:next function_parameter_count
     static func wish(lastSync: Date?, route: SyncStaleRoute?, allowed: Bool?, quiet: QuietHours?,
                      scheduled: [LocalReminder], account: String, now: Date, calendar: Calendar) -> ReminderWish {
         guard route != nil, allowed != nil else { return .unknown }
@@ -294,6 +295,7 @@ enum SyncStalePlan {
         }
         return .these(reminders)
     }
+    // swiftlint:enable function_parameter_count
 }
 
 // MARK: - words
