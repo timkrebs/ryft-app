@@ -59,3 +59,20 @@ Every round-1 finding is fixed; no path uploads or starts a sync on the local ag
 | 9 | Onboarding's status reaches the scoring wait with its arrival time, not its asked time. | **Fix:** pass `statusAskedAt` through; it's available in `check()`. |
 
 The post-merge run at 9514686: strict build 0 warnings, strings 0, lint OK. The test run failed at launch because the disk was full (the app couldn't start in the simulator), not on code; round 3 re-runs it.
+
+## Round 3 (d1240d3..11ea2fc, strings 6c5174b)
+
+The runs (ios-developer): Unit 4,948 passed, 0 failed; UISmoke 55; strict and Release builds 0 warnings; 20 mutants killed.
+
+### localization-editor: 5 added, 3 dropped, 1 comment updated
+Open, not this PR: "Given" has no comment, and it now also means "recorded, confirmation out". Add one with the next strings batch.
+
+### security-privacy-reviewer: approve, one should-fix
+Every round-2 item checked is fixed. No upload path runs while the `DELETE` is out, and da684d8 opens nothing early. The 75 public log interpolations are clean.
+
+| # | Finding | Lead decision |
+|---|---|---|
+| S-2 | **An unanswered withdrawal releases held data before RYFT's state is known.** The `DELETE` commits but its `204` is lost, and the re-read misses its 10 s. `isWithdrawing` then goes false while the stored user still shows the consent, so the gate opens. `gateChanged` flushes Train's outbox, and `PUT /v1/sessions/…` isn't gated on the platform, so one flush is accepted after the withdrawal. Not a regression (main since #134), but it breaks this PR's own rule. | **Fix in this PR:** a close-only `withdrawalUnresolvedSince` kept in defaults beside `withdrawnAt`, fed into `Facts.withdrawing`. It ends on a stored `/v1/me` asked after the cancellation, a successful retry, a new Agree or an account change. The re-read asks `since:` the cancellation. Test with the code-1 shape: assert `uploadGate(for: .train) != nil` and that a Train flush sends nothing. |
+| N-a | During a withdrawal of an unconfirmed consent, the pause words say "confirm your consent". | **Fix:** `agreementUnsettled: unsettled && !onboarding.isWithdrawing` (and while unresolved). |
+| N-b | After an unanswered withdrawal of an unconfirmed consent, Privacy keeps "RYFT has recorded your consent" even after the late read shows none. | **Fix:** a read showing no consent settles (closing is always safe). |
+| Outside | `PushRegistrar.swift:165` and `TrainCoordinator.swift:650` log `error.localizedDescription` publicly (the server's message for some statuses). | Follow-up, low: into STATUS. |
