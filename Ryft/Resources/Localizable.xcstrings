@@ -2359,6 +2359,17 @@
         }
       }
     },
+    "HIDDEN_PREVIEW_WAKE" : {
+      "comment" : "Lock screen with previews hidden: Bedtime & wake's wake notification (below iOS 26). No time.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wake-up time"
+          }
+        }
+      }
+    },
     "Hides the detailed chart" : {
       "comment" : "VoiceOver hint on an open trend card: a tap collapses the chart."
     },
