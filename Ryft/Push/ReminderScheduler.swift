@@ -93,6 +93,8 @@ final class ReminderScheduler {
     var isProtectedDataAvailable: @MainActor () -> Bool = { UIApplication.shared.isProtectedDataAvailable }
     /// Notification Center was cleared since the account left: once while signed out, and again at every app active.
     private var clearedSignedOut = false
+    /// The journal's and the fallback's delivered ones went since their gate shut: once while it stays shut.
+    private var clearedWhileShut = false
 
     init(env: AppEnvironment, inputs: ReminderInputs, calendar: Calendar = .autoupdatingCurrent) {
         self.env = env
@@ -173,6 +175,7 @@ final class ReminderScheduler {
         debounced = nil
         bedtime = nil
         answeredDays = []
+        clearedWhileShut = false
         tearDown()
         await passNow()
     }
@@ -187,6 +190,7 @@ final class ReminderScheduler {
         bedtime = nil
         answeredDays = []
         registered = nil
+        clearedWhileShut = false
         journalSettings.forget()
     }
 
@@ -296,6 +300,9 @@ final class ReminderScheduler {
         return consent.withdrawnAt == nil && consent.refusals.isDisjoint(with: [.consentRequired, .inviteRequired])
     }
 
+    /// A gate of the new kinds is known shut: the flag off, or consent withdrawn or refused.
+    private var newKindsShut: Bool { newKinds == false || consentAllows == false }
+
     /// A new kind's wish behind its gates: one known shut, none (what's scheduled goes); one not known, it stays as it is.
     private func gated(_ wish: () -> ReminderWish) -> ReminderWish {
         let gates = [newKinds, consentAllows]
@@ -388,6 +395,18 @@ final class ReminderScheduler {
             removed += remove.count
         }
         self.ledger = ledger
+        // A gate known shut: what the two kinds left in Notification Center goes as well, after their pending ones, once
+        // while it stays shut (review N-3). The journal's for yesterday and today; an older one goes at app active.
+        if newKindsShut {
+            if !clearedWhileShut {
+                clearedWhileShut = true
+                let days = [yesterday, reminderDay(now, calendar: calendar)]
+                env.notifier.removeDelivered(ids: [SyncStalePlan.firstID, SyncStalePlan.secondID]
+                    + days.map { ReminderKind.journal.prefix + $0 })
+            }
+        } else {
+            clearedWhileShut = false
+        }
         // Not allowed (denied, or not asked yet): iOS would refuse each add, a throw and a log line, up to seven bedtime
         // ones a pass (review S3). Removals still apply; app active and bedtime's next offer read the status again, and
         // an allowed pass adds what's missing.

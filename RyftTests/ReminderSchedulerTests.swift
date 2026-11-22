@@ -892,6 +892,42 @@ struct ReminderConsentTests {
         await rig.afterDebounce()
         #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2, "\(code)")
     }
+
+    /// Review N-3: a gate known shut takes what the two kinds left in Notification Center too (the fallback's two, the
+    /// journal's for yesterday and today), in one call, once while it stays shut. Bedtime's and the server's stay.
+    @Test("Shut: their delivered ones go once while it stays shut; open and shut again, again; the flag off, the same")
+    func deliveredGo() async {
+        let rig = await LiveMorning.rig()
+        rig.watch()
+        await rig.scheduler.rescheduleNow()
+        let theirs = ["sync.stale.1", "sync.stale.2", "journal.\(LiveMorning.day(-1))", "journal.\(LiveMorning.day(0))"]
+        let others = ["bedtime.\(LiveMorning.day(1))", "morning-score-\(LiveMorning.day(0))"]
+        func deliverAll() { for id in theirs + others { rig.notifier.deliver(id) } }
+        deliverAll()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.deliveredIDs.count == 6, "open: they stay")
+
+        rig.env.consent.withdrew(at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.notifier.deliveredIDs == others, "withdrawn")
+        deliverAll()
+        let removals = rig.notifier.removals
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.removals == removals && rig.notifier.deliveredIDs.count == 6, "still shut: no call")
+
+        rig.env.consent.consented(to: "2026-11-01", at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.notifier.deliveredIDs.count == 6 && rig.ids(.syncStale).count == 2, "open again: theirs are back")
+        rig.env.consent.refused(.inviteRequired, at: rig.clock.now())
+        await rig.afterDebounce()
+        #expect(rig.notifier.deliveredIDs == others, "shut again: again")
+
+        let off = await LiveMorning.rig()
+        off.flags.setOverride(.notificationsReminders, false)
+        for id in theirs + others { off.notifier.deliver(id) }
+        await off.scheduler.rescheduleNow()
+        #expect(off.notifier.deliveredIDs == others, "the flag known off: from the first pass")
+    }
 }
 
 // MARK: - round 2, S-2: after a session ends
