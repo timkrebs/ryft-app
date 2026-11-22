@@ -23,3 +23,4 @@
 - [Release build check](release-build-check.md) — PR CI is Debug only; add a Release build to every integration run
 - [Flagged agent actions](flagged-agent-actions.md) — check remote refs + gh run list + transcript; release.sh (local Release build) tripped "Production Deploy"
 - [Integration run: UI smoke](integration-run-ui-smoke.md) — final local run includes the whole UISmoke plan; grep UI tests for changed labels
+- [Merge authority](merge-authority.md) — per PR unless told otherwise; time-boxed grants cover own PRs only, end at the deadline

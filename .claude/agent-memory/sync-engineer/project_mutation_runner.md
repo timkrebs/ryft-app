@@ -25,6 +25,12 @@ Leads ask for a mutation check per new test ("break what it guards, see it fail,
 - (2026-11-19) "ERROR 65" with "SwiftData … backing data was detached" and "Restarting after unexpected exit" means
   the mutant made code touch a deleted model's rows. That counts as a kill by crash, not by the test's checks. Say so
   in the test's doc comment rather than claiming the row checks catch it.
+- (2026-11-21) After a parallel Unit/UISmoke run the original device is shut down (the clones ran the tests); the
+  runner's `-parallel-testing-enabled NO` run then failed with "The test runner hung before establishing connection"
+  and no `✘` lines, which a naive parser reads as SURVIVED. Boot + `bootstatus -b` before each test step, and retry
+  when the log has no "Test run with N tests" line.
+- (2026-11-21) Parameterized tests: the issue lines read `✘ Test f(late:reloadFails:) recorded an issue with 2
+  arguments late → .plans, reloadFails → false at …`; match per case to show which arguments a mutant breaks.
 
 **Why:** reviews re-run mutants ([[feedback-tests-pin-decisions]]); doing it by hand for 20+ mutants is slow and
 error-prone. **How to apply:** any round that asks for mutation results.

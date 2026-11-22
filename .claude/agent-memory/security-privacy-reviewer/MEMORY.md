@@ -5,6 +5,10 @@
   shelf (closed round 3), TrainLibrary unbound reads + unstructured Try again, busy-rule once-only guarantees.
 - [train-reads-binding.md](train-reads-binding.md): TrainLibrary `Client`/`fetch` binding guard (S-1 fix, R1; send guard +
   owner keys R4), reads bypassing ReadScheduler, Demo switch clear, TrainTodayViewModel forget (R4), ADR 0019 residue, App Attest.
+- [consent-prompts.md](consent-prompts.md): analytics opt-in sheet + swipe=decline modifier, phase-1 no-op gate,
+  push pre-prompt wiring, header .perform routing after SubpageHeader's deletion.
+- [withdrawal-hold.md](withdrawal-hold.md): consent withdrawal lifecycle, Flight/turn, transport timeouts, the D6 hold (F2) and its
+  gaps (Send first, offline minutes, auth-driven silent ends).
 - [widget-privacy.md](widget-privacy.md): snapshot contents/protection, WidgetConcealment, gallery, Live Activity
   redaction status, notification placeholders.
 
@@ -27,3 +31,15 @@ Review history:
   inviteCode survives account change (R4O late-success skip widened it; test overwrites the field); waiting/sent withdrawal
   ends without a word on sign-out or Demo flip. Nit: onboarding error + request ID under Privacy survive the Demo flip.
   No logging/pasteboard/URL/entitlement/xcprivacy change; APP_STORE.md:67 Demo line now 'open' (accurate).
+- 2026-11-21 Nocturne gate part 1 (feat/nocturne-gate @ 7fa1b6f): 0 B, 0 S. Analytics prompt equal/ordered/swipe=decline,
+  sink still no-op, ids kept; push Allow/Not now same actions, no earlier request; headers keep .perform (cancel/asks);
+  flags view #if DEBUG. Nits: CHANGELOG line 116 says 'the analytics question' w/o 'not active yet' (becomes What's New);
+  Report a problem Done|Send row puts Send where the keyboard's Done was (diagnostics default on); 'Allow' on push pre-alert
+  (pre-existing). No plist/entitlements/xcprivacy/logging/defaults/network change.
+- 2026-11-21 F2 withdrawal hold + Train failure words (fix/withdrawal-hold @ f93387e): 0 B, 3 S (Send first logs out mid-
+  withdrawal; offline hold ~5 min via waitsForConnectivity; auth-driven silent ends, follow-up), nits: DEBUG API key/URL not
+  held, seam in Release (inert), hold outlasts confirmation by the re-check, CHANGELOG 'seconds'. Train offline split clean.
+- 2026-11-22 F2 re-verify (wt-f2 @ dc5d882): S-1, S-2, N-1..N-4 CLOSED; S-3 open (follow-up). New nits: a timed-out DELETE may
+  have been processed (app says 'No connection…', shows Given; safe direction, idempotent retry); no re-check after NoAnswer.
+- 2026-11-22 F2 round 3 (wt-f2 @ 467db54, #134): 'arrived' path, deferred .consent, Log out busy/withdraw guard all fine; nits:
+  'may still have arrived' also for errors that sent nothing (TLS, cannot connect, token SDK); request ID dropped for 408/2xx.

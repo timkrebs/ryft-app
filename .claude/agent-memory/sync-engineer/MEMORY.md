@@ -37,3 +37,5 @@
 - [Locale tests, device region](project_locale_tests_device_region.md) — sims are en_US@rg=DE; a de_DE-only locale test passes without the locale; test en_US and de_DE
 - [SwiftUI push shapes](project_swiftui_push_shapes.md) — a value link under two isPresented/item pushes does nothing; push it by item
 - [ReadScheduler weak env](project_read_scheduler_weak_env.md) — scheduler holds env weakly; keep test envs alive or every read is "offline"
+- [state.reset() keeps the store](project_state_reset_keeps_store.md) — reset ≠ wipe in tests; never end a turn to wait (forced hand-back); midnight Activities flake
+- [Test defaults isolation](project_test_defaults_isolation.md) — .standard keys race in parallel suites; inject UserDefaults, a suite per rig; uninstall after mutants

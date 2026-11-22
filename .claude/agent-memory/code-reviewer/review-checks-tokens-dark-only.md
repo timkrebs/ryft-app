@@ -1,6 +1,6 @@
 ---
 name: review-checks-tokens-dark-only
-description: RYFT review checks for design-token / dark-only / font / icon PRs (Nocturne PR 1, 2026-11-16) - ADRs frozen at an intermediate commit, dropped scheme-only asserts, call-site tracking exposed, CI does fetch fonts, tautological icon checks
+description: RYFT review checks for design-token / dark-only / font / icon PRs and colorset deletions (Nocturne PR 1 2026-11-16, gate part 2 2026-11-21) - Info.plist names deleted colorsets, global accent via project xcconfig, ADRs frozen mid-branch, dropped scheme asserts, tracking exposed, CI fetches fonts, tautological icon checks
 metadata:
   type: feedback
 ---
@@ -24,3 +24,13 @@ Found in the Nocturne PR 1 review (2026-11-16); the token values and WCAG math w
 
 **Why:** each looked fine in its own section; only cross-reading HEAD caught them. **How to apply:** any PR that changes
 colour sets, appearance, Typography or the icon. See [[review-checks-design-notes]], [[review-checks-shared-widget-gauges]].
+
+Colorset deletions (gate part 2, 2026-11-21, `feat/nocturne-gate-2`): the Swift compiler and `check-accent-use.py` (Swift
+only) passed, but `Ryft/Info.plist` `UILaunchScreen.UIColorName` still named the deleted `Graphite`. For any colorset
+deletion: `git grep` the names in `*.plist`, `*.pbxproj`, `*.storyboard`, `*.json`, `*.xcconfig`, then compare the built
+`Assets.car` (`xcrun --sdk iphonesimulator assetutil --info <app>/Assets.car`, AssetType Color) with the built Info.plist.
+The implementer's DerivedData is usually `<worktree>/build/DerivedData`. `DarkOnlyTests` only checks UIUserInterfaceStyle.
+Global accent: `Config/Production.xcconfig` is included by Debug/Release.xcconfig, the *project-level* base configs, so a
+setting there reaches every target (app, widget, tests); `plutil -extract NSAccentColorName raw <built Info.plist>` proves it.
+`check-shared-types.py` requires identical Contents.json for a colorset present in both catalogs (why the widget's
+AccentColor had to change too).

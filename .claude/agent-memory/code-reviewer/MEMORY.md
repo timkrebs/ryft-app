@@ -16,7 +16,7 @@
 - [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, parity exceptions, task id vs env flag, v3 halo-clip/entrance-end tautologies
 - [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, enum collapse, probe recipe
 - [Design notes before code](review-checks-design-notes.md) — "only site" claims, dark value of swaps, ticket order, Shared visibility, stale base
-- [Tokens + dark-only](review-checks-tokens-dark-only.md) — mid-branch ADRs, dropped scheme asserts, exposed call-site tracking, CI fetches fonts, icon checks
+- [Tokens + dark-only](review-checks-tokens-dark-only.md) — Info.plist names deleted colorsets, project-xcconfig accent, mid-branch ADRs, scheme asserts, icons
 - [Design components ahead of screens](review-checks-design-components.md) — glow-tile text colours, doc drift, fixedSize HStack overflow, FP ties, test guard bounds
 - [Launch overlays](review-checks-launch-overlays.md) — side effects under the cover, XCUITest dumps, idle waits, hand-off geometry, .global across TabView
 - [Async write queues](review-checks-async-write-queues.md) — unawaited clear, one lock value+save, no escalation, as-of without order, 0xdead10cc, harness gaps
@@ -50,3 +50,6 @@
 - [Demo/account split rounds](review-checks-side-split-rounds.md) — read-backs after unsent refreshes, 3 forgetter wirings, .test previews lose coach-done, isLive rows vanish
 - [Combine guards + token lints](review-checks-combine-guards-and-lints.md) — side guard at Save only after a merge, Demo keeps sheets up, lint snippet probes, duplicate formatters
 - [Fix-round re-verification](review-checks-fix-round-reverify.md) — caller-vs-flight binding, read chains past a reset, scan scope, shared error fields, waiter resume sites, forgetters w/o generation
+- [Action patches of server overviews](review-checks-action-patches.md) — refresh in flight undoes patch, actions out of order, UserDefaults keys across parallel suites, platform SQL as contract
+- [Header moves + deletions](review-checks-header-unification.md) — ids/dismiss paths, pinned vs scrolled headers, edge vs scrollTo(.top) (probed), mock resets, scans
+- [Control holds over a flight](review-checks-control-holds.md) — held button vs running task/re-shown dialog, no-answer as "No connection", stopped TestClock budget, git show only
