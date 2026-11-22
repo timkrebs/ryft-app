@@ -907,4 +907,53 @@ struct ConsentAgreeTests {
         #expect(!ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.status(.paused(.held))))
             .gateAsksForStep)
     }
+
+    // MARK: Code review S4: T3d, and Paused
+
+    @Test("T3d: a /v1/me asked before the tap and answered after it settles nothing and bounces nothing; the follow-up does",
+          .timeLimit(.minutes(1)))
+    func aReadFromBeforeTheTapSettlesNothing() async throws {
+        let h = H()
+        try await h.ready()
+        let early = FirstCallsHold()
+        h.api.beforeMe = { await early.wait() }
+        // Asked before the tap (read when it arrives: no consent yet), and held on its way back.
+        let refreshing = Task { try? await h.state.repository.refreshUser(force: true) }
+        #expect(await eventually { early.waiting == 1 })
+        h.clock.advance(by: .seconds(1))
+        let follow = FirstCallsHold()
+        h.api.beforeMe = { await follow.wait() }
+
+        let agreeing = Task { await h.onboarding.agree() }
+        #expect(await eventually { h.consent.unsettledAgreement == H.version })
+        early.release()
+        await refreshing.value
+        #expect(await eventually { follow.waiting == 1 }, "the follow-up, asked after the 204: \(h.api.calls)")
+        #expect(h.state.repository.user()?.consent == nil, "the early answer is stored")
+        #expect(h.consent.unsettledAgreement == H.version, "and settles nothing")
+        #expect(h.onboarding.flowStep == .aboutYou, "nothing bounces: \(h.onboarding.missing)")
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.starts.runs == 0)
+
+        follow.release()
+        #expect(await agreeing.value)
+        #expect(h.consent.agreement?.settled == true)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil && h.starts.runs == 1)
+    }
+
+    @Test("S4: a gate's hold no step answers is Paused, not Action needed; without onboarding, the hold's own gate")
+    func aHoldNoStepAnswersIsPaused() {
+        func decide(_ hold: UploadGate, _ pending: OnboardingCoordinator.Step??) -> SyncIdleState {
+            SyncIdleState.decide(pausedFor: hold, pendingGate: pending, offline: false, failed: false, backfillDone: true,
+                                 backlog: false, uploaded: true)
+        }
+        let consent = UploadGate.gate(.consentRequired)
+        #expect(decide(consent, .some(nil)) == .paused, "agreed here, RYFT's word out")
+        #expect(decide(consent, .some(.consent)) == .actionNeeded(.consent))
+        #expect(decide(consent, nil) == .actionNeeded(.consent), "no coordinator")
+        #expect(decide(.gate(.inviteRequired), .some(.invite)) == .actionNeeded(.invite))
+        #expect(decide(.gate(.inviteRequired), nil) == .actionNeeded(.invite))
+        #expect(decide(.policyUnknown, .some(.consent)) == .paused)
+        #expect(SyncIdleState.held(at: .demo, pendingGate: .some(.consent)) == nil)
+    }
 }
