@@ -1484,4 +1484,30 @@ struct ConsentAgreeTests {
         h.connectivity.update(true)
         #expect(profile.consentCheckMessage != nil, "back online, still unanswered")
     }
+
+    // MARK: Review round 3, code 6: ScreenModels' wiring of onboarding's status
+
+    @Test("Code 6: ScreenModels hands onboarding's status to the sync with when it was asked for: the ledger counts from then")
+    func screenModelsPassTheStatusAskedTime() throws {
+        let h = H()
+        let sync = SyncService.ungated(env: h.env)
+        let store = TrainStore(inMemory: true)
+        let outbox = TrainSyncService.preview(store: store)
+        let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, outbox: { outbox }, restore: false)
+        let steps = LiveSyncSteps(state: h.state, sync: sync, apiStatus: h.status)
+        let screens = ScreenModels(state: h.state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: h.clock),
+                                   store: store, library: library, apiStatus: h.status)
+        let day = DayFormat.string(from: h.clock.now())
+        let written = h.clock.now()
+        sync.awaiting([day])
+        try #require(sync.scoringLedger[day]?.kind == .pending)
+        h.clock.advance(by: .seconds(30))
+        let status = h.cachedStatus(gate: nil)
+
+        // Arrived 30 s after the write, but asked 5 s after it: maybe the platform's cache from before the write.
+        screens.onboarding.statusReceived?(status, written.addingTimeInterval(5))
+        #expect(sync.scoringLedger[day]?.kind == .pending, "asked within the cache time: no answer to the write")
+        screens.onboarding.statusReceived?(status, written.addingTimeInterval(ScoringWord.statusCacheTime))
+        #expect(sync.scoringLedger[day] == nil, "asked after it: the write is answered")
+    }
 }
