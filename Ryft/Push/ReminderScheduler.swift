@@ -363,6 +363,9 @@ final class ReminderScheduler {
             guard current() else { return }
             authorization = status
         }
+        // iOS's answer as this pass read it, for its wishes and its adds alike: an app active while the pass waits below
+        // forgets the property (`reschedule`), and the wishes and the add filter must not each see another (review code 2).
+        let allowed = self.allowed
         if readsDelivered {
             readsDelivered = false
             removed += await removeOldDeliveredJournal()
@@ -371,8 +374,8 @@ final class ReminderScheduler {
 
         let wishes = budgeted([
             .bedtime: bedtime.flatMap { $0.owner == binding ? $0.wish : nil } ?? .unknown,
-            .journal: gated { journalWish(account: account) },
-            .syncStale: gated { syncStaleWish(account: account) },
+            .journal: gated { journalWish(account: account, allowed: allowed) },
+            .syncStale: gated { syncStaleWish(account: account, allowed: allowed) },
         ])
         guard var ledger else { return }
         var remove: [String] = [], add: [LocalReminder] = []
@@ -476,7 +479,7 @@ final class ReminderScheduler {
         return old.count
     }
 
-    private func journalWish(account: String) -> ReminderWish {
+    private func journalWish(account: String, allowed: Bool?) -> ReminderWish {
         guard let journal = inputs.journal() else { return .unknown }
         let habits: Bool? = switch journal.availability {
         case .unknown: nil
@@ -488,7 +491,7 @@ final class ReminderScheduler {
                                         account: account, now: now, calendar: calendar)
     }
 
-    private func syncStaleWish(account: String) -> ReminderWish {
+    private func syncStaleWish(account: String, allowed: Bool?) -> ReminderWish {
         // Not known before the user's preferences or the authorization are: what's scheduled stays.
         let prefs = inputs.user()?.notifications
         let route = allowed.flatMap { allowed in prefs.map { prefs in

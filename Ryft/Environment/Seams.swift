@@ -107,6 +107,8 @@ final class MockNotifier: Notifier {
     var addError: Error?
     /// Awaited inside each `add`, before the request is pending: a test holds a pass there.
     var beforeAdd: (@MainActor (UNNotificationRequest) async -> Void)?
+    /// Awaited inside each `delivered()`, before it answers: a test runs something while a pass waits there.
+    var beforeDelivered: (@MainActor () async -> Void)?
 
     /// Pending, in the order added.
     private(set) var requests: [UNNotificationRequest] = []
@@ -156,6 +158,7 @@ final class MockNotifier: Notifier {
 
     func delivered() async -> [String] {
         deliveredReads += 1
+        if let beforeDelivered { await beforeDelivered() }
         return deliveredIDs
     }
 

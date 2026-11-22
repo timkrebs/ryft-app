@@ -1208,6 +1208,31 @@ struct ReminderDeniedTests {
         await rig.afterDebounce()
         #expect(tried == 3 && rig.ids(.bedtime) == ["bedtime.2026-11-24"] && rig.ids(.syncStale).count == 2)
     }
+
+    /// Review code 2: a pass decides by the answer it read. Here it reads "denied", then waits on Notification Center
+    /// (an app active asked it to look), and the app becomes active again meanwhile, which forgets the answer. Its wishes
+    /// and its adds still go by "denied": the fallback's go, and bedtime's offer isn't tried.
+    @Test("The app active again while a denied pass reads Notification Center: the pass keeps the answer it read")
+    func oneAnswerPerPass() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale).count == 2)
+
+        rig.notifier.status = .denied
+        rig.scheduler.reschedule(.appActive)
+        var tried = 0, activeAgain = false
+        rig.notifier.beforeAdd = { _ in tried += 1 }
+        rig.notifier.beforeDelivered = {
+            guard !activeAgain else { return }
+            activeAgain = true
+            rig.scheduler.reschedule(.appActive)
+        }
+        await rig.offerBedtime([bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10))])
+        #expect(activeAgain && rig.notifier.deliveredReads == 1, "the pass waited on Notification Center")
+        #expect(tried == 0 && rig.ids(.bedtime).isEmpty, "denied when read: no add tried")
+        #expect(rig.ids(.syncStale).isEmpty, "the fallback's went by the same answer")
+    }
 }
 
 // MARK: - round 2, S4: what a pass reads
