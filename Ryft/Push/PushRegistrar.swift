@@ -221,17 +221,94 @@ extension PushEnvironment {
 /// from the platform (`NotificationCategory`); `BEDTIME` is the local reminder.
 enum PushCategories {
     static let bedtime = "BEDTIME"
+    /// The journal reminder (local, ADR 0024).
+    static let journalReminder = "JOURNAL_REMINDER"
+    /// NT1's alert for a scored activity: registered before the platform sends it (design.md §6), so its placeholder is
+    /// there when it does. `NotificationCategory` gets the case once API.md publishes it.
+    static let activityScored = "ACTIVITY_SCORED"
 
-    /// No actions yet: a tap opens the app (`ryft.url`, or Today for `SYNC_STALE`).
+    /// Every category RYFT shows, the server's and the local ones. No actions: a tap already does the one thing each is for
+    /// (design.md §7.1).
+    static var ids: [String] {
+        NotificationCategory.allCases.map(\.rawValue) + [activityScored, bedtime, journalReminder]
+    }
+
+    /// With previews hidden iOS shows only this under the app name (no title, no body): what kind it is, never a value, a
+    /// name or a number (ui.md §5.5). No category shows its title then.
     static var all: Set<UNNotificationCategory> {
-        var categories = Set(NotificationCategory.allCases.map {
-            UNNotificationCategory(identifier: $0.rawValue, actions: [], intentIdentifiers: [], options: [])
+        Set(ids.map {
+            UNNotificationCategory(identifier: $0, actions: [], intentIdentifiers: [],
+                                   hiddenPreviewsBodyPlaceholder: placeholder($0) ?? "", options: [])
         })
+    }
+
+    static func placeholder(_ category: String) -> String? {
+        switch category {
+        case NotificationCategory.morningScore.rawValue:
+            String(localized: "HIDDEN_PREVIEW_MORNING_SCORE", defaultValue: "Your morning score is ready",
+                   comment: "Lock screen with previews hidden: a morning score arrived. Shown alone under the app name; no score.")
+        case activityScored:
+            String(localized: "HIDDEN_PREVIEW_ACTIVITY_SCORED", defaultValue: "Activity scored",
+                   comment: "Lock screen with previews hidden: an activity (a run, a ride) was scored. No name, no value.")
+        case NotificationCategory.sessionScored.rawValue:
+            String(localized: "HIDDEN_PREVIEW_SESSION_SCORED", defaultValue: "Strength session scored",
+                   comment: "Lock screen with previews hidden: a logged strength session was scored. No name, no value.")
+        case NotificationCategory.pr.rawValue:
+            String(localized: "HIDDEN_PREVIEW_PR", defaultValue: "New record",
+                   comment: "Lock screen with previews hidden: a new personal record. No exercise, no weight.")
+        case NotificationCategory.syncStale.rawValue:
+            String(localized: "HIDDEN_PREVIEW_SYNC_STALE", defaultValue: "Your data may be behind",
+                   comment: "Lock screen with previews hidden: RYFT hasn't synced for a while (the server's or this iPhone's).")
+        case journalReminder:
+            String(localized: "HIDDEN_PREVIEW_JOURNAL_REMINDER", defaultValue: "Journal reminder",
+                   comment: "Lock screen with previews hidden: the journal reminder. No habit names.")
         // Locked with previews hidden: no sleep need or goal on the lock screen.
-        categories.insert(UNNotificationCategory(identifier: bedtime, actions: [], intentIdentifiers: [],
-                                                 hiddenPreviewsBodyPlaceholder: String(localized: "Bedtime reminder"),
-                                                 options: []))
-        return categories
+        case bedtime: String(localized: "Bedtime reminder")
+        default: nil
+        }
+    }
+}
+
+/// How a notification shows in the foreground and where its tap goes (design.md §7.1–7.2): one pure function for
+/// `willPresent` and `didReceive`. A local request (any trigger but a push's) for another account, or one arriving while
+/// Demo data is shown, isn't presented and its tap opens Today only. Server alerts get the same check once API.md carries
+/// `ryft.account` (NT1).
+enum PushPresentation {
+    enum Route: Equatable {
+        case today
+        /// "Not syncing": Today, then a sync the user asked for.
+        case todayThenSync
+        case open(URL)
+    }
+
+    /// `ryft.account` of a notification (the local ones carry it; NT1 asks it of the server's).
+    static func account(in userInfo: [AnyHashable: Any]) -> String? {
+        (userInfo["ryft"] as? [String: Any])?["account"] as? String
+    }
+
+    static func accountMatches(isLocal: Bool, account: String?, currentAccount: String?, isDemo: Bool) -> Bool {
+        guard isLocal || account != nil else { return true }
+        return !isDemo && account != nil && account == currentAccount
+    }
+
+    static func options(category: String, isLocal: Bool, accountMatches: Bool) -> UNNotificationPresentationOptions {
+        guard accountMatches else { return [] }
+        switch category {
+        case NotificationCategory.morningScore.rawValue, PushCategories.bedtime:
+            return [.banner, .list, .sound]
+        case NotificationCategory.syncStale.rawValue:
+            // The open app syncs, so this iPhone's hint has moved instead; the server's still says it (the gap is data).
+            return isLocal ? [] : [.banner, .list]
+        default:
+            return [.banner, .list]
+        }
+    }
+
+    static func route(message: PushMessage?, category: String, accountMatches: Bool) -> Route {
+        guard accountMatches else { return .today }
+        if category == NotificationCategory.syncStale.rawValue { return .todayThenSync }
+        if case .alert(_, let url?) = message { return .open(url) }
+        return .today
     }
 }
 

@@ -12,6 +12,9 @@ struct PushHandlers {
     /// The read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, at most 2 s): awaited
     /// before that completion too.
     var settled: @MainActor () async -> Void = {}
+    /// Who is signed in, and whether Demo data is shown: a local notification for another account (or arriving in Demo data)
+    /// isn't presented and opens Today only (`PushPresentation`).
+    var current: @MainActor () -> (account: String?, demo: Bool) = { (nil, false) }
 }
 
 /// UIKit's half of push: APNs token callbacks, the silent refresh, and taps
@@ -87,28 +90,45 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     // MARK: UNUserNotificationCenterDelegate
 
-    /// In the foreground: a banner too, since the score is the news.
+    /// In the foreground: a banner too, since the score is the news; as `PushPresentation` says per category.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        let request = notification.request
+        let category = request.content.categoryIdentifier
+        let isLocal = !(request.trigger is UNPushNotificationTrigger)
+        let account = PushPresentation.account(in: request.content.userInfo)
+        perform { handlers in
+            let now = handlers.current()
+            let matches = PushPresentation.accountMatches(isLocal: isLocal, account: account, currentAccount: now.account,
+                                                          isDemo: now.demo)
+            completionHandler(PushPresentation.options(category: category, isLocal: isLocal, accountMatches: matches))
+        }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let content = response.notification.request.content
+        let request = response.notification.request
+        let content = request.content
         let message = PushMessage(userInfo: content.userInfo)
+        let isLocal = !(request.trigger is UNPushNotificationTrigger)
+        let account = PushPresentation.account(in: content.userInfo)
         perform { handlers in
-            if content.categoryIdentifier == NotificationCategory.syncStale.rawValue {
+            let now = handlers.current()
+            let matches = PushPresentation.accountMatches(isLocal: isLocal, account: account, currentAccount: now.account,
+                                                          isDemo: now.demo)
+            switch PushPresentation.route(message: message, category: content.categoryIdentifier, accountMatches: matches) {
+            case .todayThenSync:
                 // No URL: Today, and a sync.
                 await handlers.router.open(.day(.now))
                 completionHandler()
                 await handlers.coordinator.run(.userInitiated)
-                return
-            }
-            if case .alert(_, let url?) = message {
+            case .open(let url):
                 await handlers.router.open(url)
+                completionHandler()
+            case .today:
+                await handlers.router.open(.today)
+                completionHandler()
             }
-            completionHandler()
         }
     }
 

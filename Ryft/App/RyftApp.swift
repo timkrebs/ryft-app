@@ -306,7 +306,8 @@ struct RyftApp: App {
                                                         coordinator: coordinator, reads: state.env.reads,
                                                         settled: { [repository = state.repository] in
                                                             await repository.settledBeforeCompletion()
-                                                        })
+                                                        },
+                                                        current: { [env = state.env] in (env.auth.accountID, env.isDemo) })
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in

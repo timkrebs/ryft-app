@@ -204,7 +204,7 @@ struct JournalReminderSettings: Codable, Equatable, Sendable {
 /// iOS doesn't allow notifications; `.unknown` while the catalog or the authorization isn't known.
 enum JournalReminderPlan {
     static let mornings = 3
-    static let category = "JOURNAL_REMINDER"
+    static let category = PushCategories.journalReminder
 
     // swiftlint:disable function_parameter_count
     /// `habits`: some habit is on (nil: the catalog isn't known yet; false also when the journal isn't live). `answered`:

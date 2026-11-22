@@ -210,7 +210,7 @@ struct PushMessageTests {
 
     @Test func categoriesIncludeTheLocalBedtimeReminder() {
         let ids = Set(PushCategories.all.map(\.identifier))
-        #expect(ids == ["MORNING_SCORE", "SESSION_SCORED", "PR", "SYNC_STALE", "BEDTIME"])
+        #expect(ids == ["MORNING_SCORE", "SESSION_SCORED", "PR", "SYNC_STALE", "ACTIVITY_SCORED", "BEDTIME", "JOURNAL_REMINDER"])
         // No actions yet: a tap opens the app.
         let withActions = PushCategories.all.filter { !$0.actions.isEmpty }
         #expect(withActions.isEmpty)
@@ -331,7 +331,8 @@ struct PushRegistrarTests {
         let push = PushRegistrar(env: env)
         await push.refresh()
         #expect(notifier.registeredForRemote)
-        #expect(notifier.categories.count == 5)
+        #expect(Set(notifier.categories.map(\.identifier)) == Set(PushCategories.ids))
+        #expect(notifier.categories.count == 7)
     }
 
     @Test func signOutDeletesTheRegistration() async {
