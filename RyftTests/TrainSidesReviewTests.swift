@@ -452,7 +452,7 @@ struct TrainHeldBackTests {
                                                                 reads: offlineEnv.reads).library)
         await offline.load()
         withExtendedLifetime(offlineEnv) {}
-        #expect(offline.failed && offline.failureText == TrainHistoryRows.failureText)
+        #expect(offline.failed && offline.failureText == TrainHistoryRows.offlineFailureText)
     }
 
     /// Plans with nothing cached: not "Plans appear once you're online.", but the busy failure with the hold's Details; Try
