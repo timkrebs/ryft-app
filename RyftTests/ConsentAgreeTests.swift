@@ -1109,4 +1109,32 @@ struct ConsentAgreeTests {
         #expect(h.onboarding.uploadGate(for: .healthKit) == nil, "nothing waits for it again")
     }
 
+    // MARK: Review round 2, code 9: onboarding's status and the scoring wait
+
+    @Test("Code 9: onboarding's status reaches the scoring wait with when it was asked for, not when it arrived",
+          .timeLimit(.minutes(1)))
+    func onboardingsStatusCountsFromItsAsk() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let sync = h.sync()
+        // As ScreenModels wires it.
+        h.onboarding.statusReceived = { sync.receive($0, requestedAt: $1) }
+        let steps = LiveSyncSteps(state: h.state, sync: sync, apiStatus: h.status)
+        let held = FirstCallsHold()
+        h.api.syncStatusOverride = h.cachedStatus(gate: .consentRequired)
+        h.api.beforeSyncStatus = { await held.wait() }
+
+        // Asked at the 204 + 3 s, within the platform's cache time; it arrives at + 11 s.
+        h.clock.advance(by: .seconds(3))
+        let checking = Task { await h.onboarding.check(force: true) }
+        #expect(await eventually { held.waiting == 1 })
+        h.clock.advance(by: .seconds(8))
+        held.release()
+        await checking.value
+        let status = try #require(h.state.syncStatus)
+        #expect(status.gate == .consentRequired && sync.statusReadAt == h.clock.now(), "arrived at + 11 s")
+        #expect(steps.scoringGate(of: status) == nil, "asked at + 3 s: it says nothing about consent")
+    }
+
 }

@@ -151,8 +151,9 @@ final class OnboardingCoordinator {
     private let apiStatus: APIStatus
     /// Starts a sync (after consent).
     private let startSync: @MainActor () async -> Void
-    /// The launch's `GET /v1/me/sync` answer, for the sync (an operator's re-sync request).
-    @ObservationIgnored var statusReceived: (@MainActor (SyncStatus) -> Void)?
+    /// The launch's `GET /v1/me/sync` answer, for the sync (an operator's re-sync request), with when its flight was asked
+    /// for (nil: not known): the scoring wait and the sync's ledger count from then (code review round 2, 9).
+    @ObservationIgnored var statusReceived: (@MainActor (SyncStatus, Date?) -> Void)?
     private var account: String?
     /// Bumped by every `switchAccount`: a step's request still out then is the previous account's (`Flight`).
     private var turn = 0
@@ -404,8 +405,8 @@ final class OnboardingCoordinator {
         if let status = answer.status {
             syncStatus = status
             syncStatusAskedAt = answer.statusAskedAt
-            state.syncStatus = status
-            statusReceived?(status)
+            state.setSyncStatus(status, askedAt: answer.statusAskedAt)
+            statusReceived?(status, answer.statusAskedAt)
             // R2: asked within the platform's cache time of this phone's consent `204`, it may be from before it, so it
             // says nothing about consent either way. Its other fields count, the invite's gate too.
             let speaks = answer.statusAskedAt.map(consent.statusSpeaksForConsent(askedAt:)) ?? true

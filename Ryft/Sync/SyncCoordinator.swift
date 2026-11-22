@@ -787,7 +787,7 @@ final class LiveSyncSteps: SyncSteps {
         let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
                                              storeAsked: { [weak self] (status: SyncStatus, asked: Date) in
             self?.asked = (status, asked)
-            state.syncStatus = status
+            state.setSyncStatus(status, askedAt: asked)
             if let gate = status.gate, gate != .consentRequired || env.consent.statusSpeaksForConsent(askedAt: asked) {
                 apiStatus.observe([gate], enforced: false)
             }
@@ -867,11 +867,13 @@ final class LiveSyncSteps: SyncSteps {
     }
 
     /// The status door's R2 (`syncStatus(userInitiated:)`), for the scoring wait: the status it just read or the last one
-    /// kept. Asked for when this door's flight started; one this door didn't store (onboarding's check passed it on)
-    /// counts from when it arrived (`SyncService.statusReadAt`), which is no earlier.
+    /// kept. Asked for when this door's flight started; one onboarding's check stored, when its flight started
+    /// (`AppState.syncStatusAskedAt`, code review round 2, 9); any other counts from when it arrived
+    /// (`SyncService.statusReadAt`), which is no earlier.
     func scoringGate(of status: SyncStatus) -> APIErrorCode? {
         guard status.gate == .consentRequired else { return status.gate }
-        let at = asked.flatMap { $0.status == status ? $0.at : nil } ?? sync.statusReadAt
+        let stored = state.syncStatus == status ? state.syncStatusAskedAt : nil
+        let at = asked.flatMap { $0.status == status ? $0.at : nil } ?? stored ?? sync.statusReadAt
         guard let at else { return status.gate }
         return state.env.consent.statusSpeaksForConsent(askedAt: at) ? status.gate : nil
     }

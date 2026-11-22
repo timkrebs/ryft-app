@@ -38,7 +38,19 @@ final class AppState {
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
     var syncStatus: SyncStatus? {
-        didSet { repository.todayStatus = syncStatus?.today }
+        didSet {
+            repository.todayStatus = syncStatus?.today
+            syncStatusAskedAt = nil
+        }
+    }
+    /// When `syncStatus`'s flight was asked for, when the one who stored it said (`setSyncStatus(_:askedAt:)`): the
+    /// scoring wait reads its gate by then (R2, `LiveSyncSteps.scoringGate`; code review round 2, 9). Nil otherwise.
+    private(set) var syncStatusAskedAt: Date?
+
+    /// `status`, with when its flight was asked for (nil: not known).
+    func setSyncStatus(_ status: SyncStatus, askedAt: Date?) {
+        syncStatus = status
+        syncStatusAskedAt = askedAt
     }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?

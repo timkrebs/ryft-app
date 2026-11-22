@@ -646,7 +646,7 @@ struct SyncScoringStateTests {
         let env = AppEnvironment.test(api: api, health: health)
         let sync = SyncService.ungated(env: env)
         let onboarding = OnboardingCoordinator(state: AppState(env: env), apiStatus: APIStatus()) {}
-        onboarding.statusReceived = { sync.receive($0) }
+        onboarding.statusReceived = { sync.receive($0, requestedAt: $1) }
 
         await onboarding.check() // the launch's GET /v1/me/sync, no scoring wait involved
         await sync.syncNow()
