@@ -141,6 +141,16 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **Today:** the switch and the time live on the phone, per account. They survive a session expiry, and a sign-out clears them.
    - **Later:** if users ask for the setting to follow them across devices, `NotificationPrefs` could gain `journal_reminder: {on: bool, minute: int}`.
    - **Status:** nothing is needed now. This is filed so the shape is agreed before anyone builds it.
+7. **NT7 (low): an expired session's push token.**
+   - **Today:** sign-out and account deletion send `DELETE /v1/devices/{id}/push` while the session still authorises
+     it. A session that expired can't, so the platform keeps that iPhone's token under the account. The app then
+     unregisters from APNs and removes what Notification Center holds. Whoever signs in next registers a fresh token
+     (`POST /v1/devices/{id}/push`).
+   - **What happens to the old token:** the platform drops a token when APNs answers `410` or `Unregistered`. Until then,
+     `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` for the account are still sent to it.
+   - **Request:** state this in API.md → `POST /v1/devices/{id}/push`. Please also confirm that a new `POST` for the
+     same `{id}` replaces the token it held, so the stale token doesn't stay beside the new one.
+   - **Status:** nothing blocks the app. This is filed so the contract says what happens after an expiry.
 
 ## App Attest (answered, 2026-11-20)
 
