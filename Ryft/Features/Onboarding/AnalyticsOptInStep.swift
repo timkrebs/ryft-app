@@ -11,6 +11,12 @@ import SwiftUI
 struct AnalyticsOptInStepView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var legal: LegalPage?
+
+    /// Where the policy in force is published (`OnboardingCoordinator.policyPage`'s rule), else the bundled address.
+    private var policyPage: LegalPage {
+        env.consent.policyURL.flatMap(URL.init(string:)).flatMap(LegalPage.init(url:)) ?? .privacy
+    }
 
     var body: some View {
         let inline = typeSize.isAccessibilitySize
@@ -21,6 +27,7 @@ struct AnalyticsOptInStepView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !inline { PinnedActionBar { answers(analytics) } }
             }
+            .safariSheet($legal)
     }
 
     private func page(answersInline: Bool, analytics: Analytics) -> some View {
@@ -29,7 +36,7 @@ struct AnalyticsOptInStepView: View {
                          showsLockup: true, dismissible: false) {
             GroupedCard {
                 OnboardingPoint(symbol: "square.grid.2x2", title: "What is counted",
-                                text: "Which screens and features are used, onboarding progress, and errors shown, with their status codes.")
+                                text: "Which screens and features are used, onboarding progress, errors shown with their status codes, and when the app is opened or closed, with the app and iOS version and the device type.")
                 OnboardingPoint(symbol: "heart.slash", title: "What is not",
                                 text: "No health data, scores, sleep or workout details, names or free text.")
                 OnboardingPoint(symbol: "number", title: "Your ID",
@@ -42,6 +49,10 @@ struct AnalyticsOptInStepView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, OnboardingSpec.actionGap)
+            // Art. 13: the policy, in the page (never the bar), the consent step's link; the in-app Safari sheet opens it.
+            Button { legal = policyPage } label: { Text("Privacy Policy") }
+                .ryftLink()
+                .accessibilityIdentifier("analytics.policy")
             if answersInline {
                 answers(analytics)
                     .padding(.top, OnboardingSpec.primaryGap)

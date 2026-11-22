@@ -8059,7 +8059,7 @@
     "This is separate from your health-data consent. It stays off unless you say yes." : {
       "comment" : "Analytics prompt: the text under the title."
     },
-    "Which screens and features are used, onboarding progress, and errors shown, with their status codes." : {
+    "Which screens and features are used, onboarding progress, errors shown with their status codes, and when the app is opened or closed, with the app and iOS version and the device type." : {
       "comment" : "Analytics prompt: the first point (what is sent)."
     },
     "Your watch didn't record sleep stages for this night — only the total." : {
