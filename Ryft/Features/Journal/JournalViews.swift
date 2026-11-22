@@ -340,6 +340,7 @@ struct JournalSheetBody: View {
                 .padding(.bottom, JournalLayout.bottomPadding)
             }
             .scrollIndicators(.hidden)
+            .underPinnedHeader(gap: JournalLayout.headerToStrip)
         }
         .background(Theme.background.ignoresSafeArea())
     }

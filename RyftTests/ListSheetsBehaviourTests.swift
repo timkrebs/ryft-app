@@ -116,7 +116,7 @@ struct ListSheetsBehaviourTests {
     func aNameOverTheLimit() async throws {
         // 11 family emoji (7 scalars each, joined by ZWJ) and "Rows": 15 Characters, 81 scalars.
         let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
-        let reason = "Up to \(CustomExerciseDraft.maxNameLength) characters."
+        let reason = "Up to \(CustomExerciseDraft.maxNameLength)\u{00A0}characters."
         var saved: Exercise?
         let over = CustomExerciseForm(name: String(repeating: family, count: 11) + "Rows") { saved = $0 }
         try await HostedWindow.run(width: 390, height: 844, over) { w in

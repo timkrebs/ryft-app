@@ -372,8 +372,8 @@ struct SleepHeaderContent: Equatable {
     private static func rangeTitle(_ mode: SleepMode) -> String {
         switch mode {
         case .day: return ""
-        case .week: return String(localized: "Last 7 nights")
-        case .month: return String(localized: "Last 30 nights")
+        case .week: return String(localized: "Last 7\u{00A0}nights")
+        case .month: return String(localized: "Last 30\u{00A0}nights")
         case .plan: return String(localized: "Tonight")
         }
     }
@@ -544,7 +544,7 @@ struct SleepBoard: Equatable {
         if let performance = scored?.sleepPerformance {
             caption = String(localized: "Asleep · \(performance)\u{00A0}% of your need",
                              comment: "Under Sleep's numeral: the night's time asleep as a share of its sleep need (\"Asleep · 94 % of your need\").")
-            spokenCaption = String(localized: "\(performance) percent of your need",
+            spokenCaption = String(localized: "\(performance)\u{00A0}percent of your need",
                                    comment: "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\").")
         } else {
             caption = String(localized: "Asleep")
@@ -580,8 +580,8 @@ struct SleepRuler: Equatable {
         let need = needMin.flatMap { $0 > 0 ? $0 : nil }
         value = totalMin.map { Double($0) / 60 }
         zone = need.flatMap { RulerScale.zone(lo: Self.zoneShare * Double($0) / 60, hi: Double($0) / 60) }
-        let low = String(localized: "0 h", comment: "Sleep's duration ruler: the scale's start, zero hours.")
-        let high = String(localized: "10 h", comment: "Sleep's duration ruler: the scale's end, ten hours.")
+        let low = String(localized: "0\u{00A0}h", comment: "Sleep's duration ruler: the scale's start, zero hours.")
+        let high = String(localized: "10\u{00A0}h", comment: "Sleep's duration ruler: the scale's end, ten hours.")
         if let need {
             labels = [low, String(localized: "need \(Fmt.clock(minutes: need))",
                                   comment: "Sleep's duration ruler, the middle label: the night's sleep need as hours:minutes (\"need 8:18\")."),
@@ -592,16 +592,16 @@ struct SleepRuler: Equatable {
         let spokenNeed = need.map { Fmt.spokenDuration(minutes: $0, locale: locale) }
         switch (totalMin.map { Fmt.spokenDuration(minutes: $0, locale: locale) }, spokenNeed) {
         case let (asleep?, need?):
-            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10 hours. Your need is \(need).",
+            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10\u{00A0}hours. Your need is \(need).",
                                  comment: "VoiceOver on Sleep's duration ruler: the time asleep, then the night's sleep need (both \"7 hours 48 minutes\").")
         case let (asleep?, nil):
-            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10 hours.",
+            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10\u{00A0}hours.",
                                  comment: "VoiceOver on Sleep's duration ruler without a sleep need: the time asleep (\"7 hours 48 minutes\").")
         case let (nil, need?):
-            spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10 hours. Your need is \(need).",
+            spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10\u{00A0}hours. Your need is \(need).",
                                  comment: "VoiceOver on Sleep's duration ruler before the night is known, with the sleep need (\"8 hours 18 minutes\").")
         case (nil, nil):
-            spokenValue = unknown ?? String(localized: "No time asleep yet, on a scale from 0 to 10 hours.",
+            spokenValue = unknown ?? String(localized: "No time asleep yet, on a scale from 0 to 10\u{00A0}hours.",
                                  comment: "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need.")
         }
     }

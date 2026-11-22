@@ -105,6 +105,7 @@ struct SubpageScaffold<Trailing: View, Content: View>: View {
                     .padding(.top, isSheet ? SubpageSpec.sheetTopInset : 0)
                     .frame(maxWidth: .infinity)
                 scroll(topInset: 0) { EmptyView() }
+                    .underPinnedHeader()
             }
         } else {
             scroll(topInset: isSheet ? SubpageSpec.sheetTopInset : 0) { pageHeader }
@@ -264,6 +265,46 @@ extension View {
     func pinnedBar<Bar: View>(caption: Text? = nil, footnote: Text? = nil, @ViewBuilder _ content: () -> Bar) -> some View {
         let bar = PinnedActionBar(caption: caption, footnote: footnote, content: content)
         return safeAreaInset(edge: .bottom, spacing: 0) { bar }
+    }
+}
+
+/// The edge of a pinned header (Nocturne gate D4 rule 5): `PinnedActionBar`'s, turned over. While content has scrolled under
+/// the header, the page stops `gap` below it (the bar's 12) on the screen colour, at a 1 pt `separator` rule; at rest nothing
+/// shows. `SubpageScaffold`'s sheets, `SheetFrame`, the import's sheet roots and the sheets that pin their own `SheetHeader`
+/// put it on the scroll view under the header.
+private struct PinnedHeaderEdge: ViewModifier {
+    let gap: CGFloat
+    @State private var contentUnder = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 0.5
+            } action: { _, under in
+                contentUnder = under
+            }
+            .overlay(alignment: .top) {
+                if contentUnder {
+                    Theme.background
+                        .frame(height: max(gap, Theme.Metrics.hairline))
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Theme.separator)
+                                .frame(height: Theme.Metrics.hairline)
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+extension View {
+    /// On the scroll view under a pinned `SheetHeader` (`PinnedHeaderEdge`): content scrolled under the header stops `gap`
+    /// below it at the pinned bar's rule. `gap` no more than the content's own top gap at rest (8 for the journal's strip),
+    /// so the first scroll hides nothing at once.
+    func underPinnedHeader(gap: CGFloat = PinnedBarSpec.topPadding) -> some View {
+        modifier(PinnedHeaderEdge(gap: gap))
     }
 }
 

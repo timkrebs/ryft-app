@@ -14,8 +14,8 @@ struct ReadinessCopyTests {
     }
 
     @Test func calibratingCountsNights() {
-        #expect(ReadinessCopy.sentence(for: .calibrating, nightsToGo: 4) == "Learning your baseline — 4 nights to go.")
-        #expect(ReadinessCopy.sentence(for: .calibrating, nightsToGo: 1) == "Learning your baseline — 1 night to go.")
+        #expect(ReadinessCopy.sentence(for: .calibrating, nightsToGo: 4) == "Learning your baseline — 4\u{00A0}nights to go.")
+        #expect(ReadinessCopy.sentence(for: .calibrating, nightsToGo: 1) == "Learning your baseline — 1\u{00A0}night to go.")
     }
 
     /// A scored row (it has a `computed_at`) without a readiness.
@@ -24,7 +24,7 @@ struct ReadinessCopyTests {
     @Test func nightsToGoFromBaselineDays() {
         let s = DailyScore(day: "2026-10-18", state: .calibrating, baselineDays: 5, calibrating: true, computedAt: Self.scoredAt)
         #expect(s.nightsToGo == 2)
-        #expect(ReadinessCopy.sentence(score: s) == "Learning your baseline — 2 nights to go.")
+        #expect(ReadinessCopy.sentence(score: s) == "Learning your baseline — 2\u{00A0}nights to go.")
         // Never zero nights to go.
         #expect(DailyScore(day: "2026-10-18", baselineDays: 9, calibrating: true).nightsToGo == 1)
     }

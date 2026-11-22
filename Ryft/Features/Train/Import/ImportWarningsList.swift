@@ -113,7 +113,8 @@ struct ImportWarningsList: View {
     private var subtitle: String {
         let rest = String(localized: "The rest imports normally.", comment: "Training import, step 2: under the warnings row.")
         guard problems > 0, notes > 0 else { return rest }
-        return rest + " " + String(localized: "and \(notes) notes", comment: "Training import, step 2: notes after the warnings count.")
+        return String(localized: "The rest imports normally, and \(notes) notes.",
+                      comment: "Training import, step 2: under the warnings row, when some lines couldn't be read and there are notes too. One sentence, so its word order is the language's.")
     }
 
     private var shown: [ImportWarning] {

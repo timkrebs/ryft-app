@@ -82,14 +82,14 @@ struct CollapsedExerciseRow: View {
         let count = done.isEmpty ? working.count : done.count
         let best = Self.best(of: done, loadType: ex.loadType)
         guard let best else {
-            return Summary(text: String(localized: "\(count) sets"),
-                           spoken: String(localized: "\(ex.name), completed. \(count) sets.",
+            return Summary(text: String(localized: "\(count)\u{00A0}sets"),
+                           spoken: String(localized: "\(ex.name), completed. \(count)\u{00A0}sets.",
                                           comment: "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets."))
         }
         return Summary(
-            text: String(localized: "\(count) sets · best \(best.text)",
+            text: String(localized: "\(count)\u{00A0}sets · best \(best.text)",
                          comment: "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6."),
-            spoken: String(localized: "\(ex.name), completed. \(count) sets, best \(best.spoken).",
+            spoken: String(localized: "\(ex.name), completed. \(count)\u{00A0}sets, best \(best.spoken).",
                            comment: "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms."))
     }
 
@@ -97,10 +97,10 @@ struct CollapsedExerciseRow: View {
         if let top = sets.filter({ ($0.weightKg ?? 0) > 0 })
             .max(by: { ($0.weightKg ?? 0, $0.reps ?? 0) < ($1.weightKg ?? 0, $1.reps ?? 0) }),
             let kg = top.weightKg, loadType == .weight || loadType == .bodyweight {
-            guard let reps = top.reps else { return (Fmt.kg(kg), String(localized: "\(Fmt.kgNumber(kg)) kilograms")) }
+            guard let reps = top.reps else { return (Fmt.kg(kg), String(localized: "\(Fmt.kgNumber(kg))\u{00A0}kilograms")) }
             // No-break spaces, as the card's "Last time": "80 × 5" never splits over two lines.
             return ("\(Fmt.kgNumber(kg))\u{00A0}×\u{00A0}\(reps)",
-                    String(localized: "\(reps) reps at \(Fmt.kgNumber(kg)) kilograms"))
+                    String(localized: "\(reps)\u{00A0}reps at \(Fmt.kgNumber(kg))\u{00A0}kilograms"))
         }
         switch loadType {
         case .time:
@@ -115,7 +115,7 @@ struct CollapsedExerciseRow: View {
             break
         }
         guard let reps = sets.compactMap(\.reps).max() else { return nil }
-        let text = String(localized: "\(reps) reps")
+        let text = String(localized: "\(reps)\u{00A0}reps")
         return (text, text)
     }
 }

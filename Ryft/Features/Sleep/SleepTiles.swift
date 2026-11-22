@@ -81,13 +81,13 @@ struct SleepTile: Equatable, Identifiable {
             guard let night else { return .noData }
             return night >= regularThreshold ? .full : .missed
         }
-        let spokenPercent = value.map { String(localized: "\($0) percent") } ?? String(localized: "No data")
+        let spokenPercent = value.map { String(localized: "\($0)\u{00A0}percent") } ?? String(localized: "No data")
         var spoken = spokenPercent
         if !nights.isEmpty {
             let regular = nights.filter { $0.map { $0 >= regularThreshold } ?? false }.count
             let irregular = nights.filter { $0.map { $0 < regularThreshold } ?? false }.count
             let unknown = nights.filter { $0 == nil }.count
-            var parts = [String(localized: "\(regular) of the last 7 nights were regular",
+            var parts = [String(localized: "\(regular) of the last 7\u{00A0}nights were regular",
                                 comment: "VoiceOver, Sleep's Consistency tile: nights of the seven that were regular (60+). Plural: one \"was regular\".")]
             if irregular > 0 {
                 parts.append(String(localized: "\(irregular) were not",
@@ -146,7 +146,7 @@ struct SleepTile: Equatable, Identifiable {
         let rounded = percent.map { Int($0.rounded()) }
         return SleepTile(kind: .efficiency, value: rounded.map(String.init) ?? Fmt.placeholder, unit: rounded.map { _ in "%" },
                          notes: [], marks: [],
-                         spokenValue: rounded.map { String(localized: "\($0) percent") } ?? String(localized: "No data"))
+                         spokenValue: rounded.map { String(localized: "\($0)\u{00A0}percent") } ?? String(localized: "No data"))
     }
 
     /// Deep + REM minutes from the stages ("3:20" + "h", D4-9), "Deep + REM" under it; the platform's 0–100
@@ -163,7 +163,7 @@ struct SleepTile: Equatable, Identifiable {
         var spoken = String(localized: "\(Fmt.spokenDuration(minutes: minutes, locale: locale)) of deep and REM sleep",
                             comment: "VoiceOver on Sleep's Restorative tile: the deep and REM time (\"3 hours 20 minutes of deep and REM sleep\").")
         if let score = sleep.restorative {
-            spoken += ", " + String(localized: "\(score) percent of the target",
+            spoken += ", " + String(localized: "\(score)\u{00A0}percent of the target",
                                     comment: "VoiceOver, Sleep's Restorative tile, after the time: its score, 0–100 (\"100 percent of the target\").")
         }
         return SleepTile(kind: .restorative, value: Fmt.clock(minutes: minutes), unit: hours, notes: [note], marks: [],

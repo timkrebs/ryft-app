@@ -11,34 +11,18 @@ private func page(_ scenario: FocusedPreview.Scenario, _ column: SetColumn?) -> 
         .background(Theme.background)
 }
 
-#Preview("Column · E1RM, dark") {
+#Preview("Column · E1RM") {
     page(.estimates, .e1rm).previewEnvironment()
 }
 
-#Preview("Column · E1RM, light") {
-    page(.estimates, .e1rm).previewEnvironment(scheme: .light)
-}
-
-#Preview("Column · 10RM, dark") {
+#Preview("Column · 10RM") {
     page(.estimates, .tenRM).previewEnvironment()
 }
 
-#Preview("Column · 10RM, light") {
-    page(.estimates, .tenRM).previewEnvironment(scheme: .light)
-}
-
-#Preview("Column · RPE, dark") {
+#Preview("Column · RPE") {
     page(.estimates, .rpe).previewEnvironment()
 }
 
-#Preview("Column · RPE, light") {
-    page(.estimates, .rpe).previewEnvironment(scheme: .light)
-}
-
-#Preview("Column · bodyweight, dark") {
+#Preview("Column · bodyweight") {
     page(.bodyweightEstimates, .e1rm).previewEnvironment()
-}
-
-#Preview("Column · bodyweight, light") {
-    page(.bodyweightEstimates, .e1rm).previewEnvironment(scheme: .light)
 }

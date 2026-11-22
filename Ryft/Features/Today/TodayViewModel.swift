@@ -756,7 +756,7 @@ struct ImportProgress: Equatable {
     var coverageText: String {
         guard let oldestDay, coveredDays > 0 else { return String(localized: "Starting with your last few days") }
         let day = oldestDay.formatted(.dateTime.day().month(.abbreviated))
-        return String(localized: "Imported through \(day) · \(coveredDays) of \(Self.windowDays) days")
+        return String(localized: "Imported through \(day) · \(coveredDays) of \(Self.windowDays)\u{00A0}days")
     }
 
     var fraction: Double { min(1, Double(coveredDays) / Double(Self.windowDays)) }
@@ -779,8 +779,8 @@ struct PendingNight: Equatable, Sendable {
     var detail: String {
         if waitingForSleep { return String(localized: "It's scored as soon as Apple Health has it.") }
         guard let seconds = expectedWithinSec, seconds > 0 else { return String(localized: "Usually ready within a minute.") }
-        if seconds < 90 { return String(localized: "Usually ready within \(seconds) s.") }
-        return String(localized: "Usually ready within \((seconds + 59) / 60) min.")
+        if seconds < 90 { return String(localized: "Usually ready within \(seconds)\u{00A0}s.") }
+        return String(localized: "Usually ready within \((seconds + 59) / 60)\u{00A0}min.")
     }
 }
 

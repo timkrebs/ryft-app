@@ -33,7 +33,7 @@ struct SyncDetailsView: View {
         .onChange(of: model.copied) { _, copied in
             if copied { AccessibilityNotification.Announcement(String(localized: "Copied")).post() }
         }
-        .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
+        .confirmationDialog("Re-upload the last 90\u{00A0}days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
             Button("Re-sync", role: .destructive) {
                 resyncing = true
@@ -155,7 +155,7 @@ struct SyncDetailsView: View {
     /// footer says why (copying always can).
     private var actions: some View {
         GroupedCard(footer: actionsFooter) {
-            GroupedRow.action(Text("Sync last 3 days again"), systemImage: "arrow.clockwise", busy: resending,
+            GroupedRow.action(Text("Sync last 3\u{00A0}days again"), systemImage: "arrow.clockwise", busy: resending,
                               identifier: "syncDetails.resendRecent") {
                 // Busy before the task starts: a second tap in the same frame finds it busy.
                 resending = true

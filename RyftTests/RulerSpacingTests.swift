@@ -130,7 +130,7 @@ struct RulerSpacingTests {
     }
 
     /// The board's label sets: Today's readiness, Sleep's need, Strain's target.
-    static let labelSets = [["0", "low", "moderate", "high", "100"], ["0 h", "need 8:18", "10 h"], ["0", "target 10–14", "21"]]
+    static let labelSets = [["0", "low", "moderate", "high", "100"], ["0\u{00A0}h", "need 8:18", "10\u{00A0}h"], ["0", "target 10–14", "21"]]
 
     /// One line of the labels' font at `typeSize`.
     private func lineHeight(_ typeSize: DynamicTypeSize) -> CGFloat {

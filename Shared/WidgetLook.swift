@@ -5,7 +5,7 @@
 // PR 6 C §4.15, B §8 (D6B-11), F21, F24, L27.
 import SwiftUI
 
-/// The neutral ladder the widget draws its text in: `Brand.mist` at the strengths of the app's `textPrimary`,
+/// The neutral ladder the widget draws its text in: `Brand.textPrimary` at the strengths of the app's `textPrimary`,
 /// `textSecondary` and `textTertiary`. No colour is on it. Volt is the orbit's readiness marker (the shared drawing's
 /// `Signal`, in every family, as on Today) and the running rest's dot and bar (`Brand.signal`, `Inks.restMarks`); teal
 /// is only the orbit's recovery (`OrbitGaugePalette`).
@@ -17,7 +17,7 @@ enum WidgetInk: Equatable, Sendable {
     /// A previous day's number and the dash.
     case tertiary
 
-    /// Of `Brand.mist`.
+    /// Of `Brand.textPrimary`.
     var opacity: Double {
         switch self {
         case .primary: return 1

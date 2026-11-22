@@ -405,7 +405,7 @@ struct AddBehaviorSheet: View {
                     InlineMessage(message: failure.message, systemImage: "exclamationmark.circle", caption: failure.details)
                         .textSelection(.enabled)
                 }
-                GroupedCard(footer: Text("Up to \(Self.maxName) characters.")) {
+                GroupedCard(footer: Text("Up to \(Self.maxName)\u{00A0}characters.")) {
                     FormField(Text("Name"), isFocused: nameFocused) {
                         TextField(text: $name) { Text("Name") }
                             .focused($nameFocused)

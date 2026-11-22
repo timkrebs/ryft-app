@@ -256,7 +256,7 @@ struct NocturneFoundationHostedTests {
         }
     }
 
-    @Test("With nothing trailing the title is still centred; a slot too wide at AX3 puts the title under the buttons, whole")
+    @Test("With nothing trailing the title is still centred; at AX3 the title goes under the buttons from the inset, whole")
     func sheetHeaderEdges() async throws {
         try await host(SheetHeader(Text(verbatim: "Start workout")).padding(.top, 26)) { w in
             try await w.settle()
@@ -270,8 +270,9 @@ struct NocturneFoundationHostedTests {
             try await w.settle()
             let title = try node(w, "Add sleep"), close = try node(w, "Close")
             #expect(title.frame.minY >= close.frame.maxY - ScreenHeaderSpec.buttonOverhang - 0.5, "under the buttons")
-            #expect(title.frame.width > 120 && title.frame.minX >= 20 - 0.5 && title.frame.maxX <= 370 + 0.5, "\(title.frame)")
-            #expect(abs(title.frame.midX - 195) < 1, "centred")
+            #expect(title.frame.minX >= 20 - 0.5 && title.frame.maxX <= 370 + 0.5, "\(title.frame)")
+            // From AX1 as PushedHeader (D4 rule 2): from the leading inset, not centred.
+            #expect(abs(title.frame.minX - 20) < 1, "from the inset: \(title.frame)")
         }
     }
 

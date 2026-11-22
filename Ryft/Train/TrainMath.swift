@@ -51,17 +51,17 @@ extension Fmt {
     /// "82.5 kg".
     static func kg(_ kg: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let kg else { return placeholder }
-        return String(localized: "\(kgNumber(kg, locale: locale)) kg", comment: "A weight in kilograms, e.g. 82.5 kg.")
+        return String(localized: "\(kgNumber(kg, locale: locale))\u{00A0}kg", comment: "A weight in kilograms, e.g. 82.5 kg.")
     }
 
     /// Volume: "4,250 kg"; tonnes above 10 t ("12.4 t").
     static func volume(_ kg: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let kg else { return placeholder }
         if kg >= 10_000 {
-            return String(localized: "\((kg / 1000).formatted(.number.precision(.fractionLength(1)).locale(locale))) t",
+            return String(localized: "\((kg / 1000).formatted(.number.precision(.fractionLength(1)).locale(locale)))\u{00A0}t",
                           comment: "Training volume in tonnes, e.g. 12.4 t.")
         }
-        return String(localized: "\(kg.formatted(.number.precision(.fractionLength(0)).locale(locale))) kg",
+        return String(localized: "\(kg.formatted(.number.precision(.fractionLength(0)).locale(locale)))\u{00A0}kg",
                       comment: "Training volume in kilograms, e.g. 4,250 kg.")
     }
 

@@ -222,7 +222,7 @@ struct ReportProblemView: View {
 
     private var messageFooter: Text {
         model.isTooLong
-            ? Text("Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private.",
+            ? Text("Too long: a report takes up to 4,000\u{00A0}characters. Please don't type health values you'd rather keep private.",
                    comment: "Report a problem: the message card's footer while the message is over 4,000 characters.")
             : Text("Please don't type health values you'd rather keep private.")
     }

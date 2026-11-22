@@ -165,7 +165,7 @@ struct TrendCardContent: Identifiable, Equatable {
             return String(localized: "As of \(day.formatted(.dateTime.month(.abbreviated).day()))")
         }
         if usual == .tooShort {
-            return String(localized: "Usual range needs 7 days of data",
+            return String(localized: "Usual range needs 7\u{00A0}days of data",
                           comment: "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed.")
         }
         switch metric {
@@ -200,7 +200,7 @@ struct TrendCardContent: Identifiable, Equatable {
 
     /// "Readiness over 30 days": the chart's name.
     var chartLabel: String {
-        String(localized: "\(title) over \(days) days", comment: "VoiceOver: a trend line's name, e.g. \"Readiness over 30 days\".")
+        String(localized: "\(title) over \(days)\u{00A0}days", comment: "VoiceOver: a trend line's name, e.g. \"Readiness over 30 days\".")
     }
 
     /// How the chart's sentence ends: "ending above its usual range", "ending at 78", or nothing.

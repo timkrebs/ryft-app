@@ -23,7 +23,7 @@
     "%@ from %@" : {
       "comment" : "Training import, VoiceOver: 12 workouts from 8 June to 5 July 2026."
     },
-    "%@ in 90 days" : {
+    "%@ in 90 days" : {
       "comment" : "The exercise page, under its estimated 1RM: the change over the chart's 90 days (\"▲ 11.6 kg\", \"Steady\")."
     },
     "%@ in part" : {
@@ -49,7 +49,7 @@
       "comment" : "VoiceOver on Sleep's Restorative tile: the deep and REM time (\"3 hours 20 minutes of deep and REM sleep\")."
     },
     "%@ outside the window" : {},
-    "%@ over %lld days" : {
+    "%@ over %lld days" : {
       "comment" : "VoiceOver: a trend line's name and its range. %@: the metric's name, e.g. \"Readiness\". %lld: the number of days, e.g. 30 (plural: \"over 1 day\").",
       "localizations" : {
         "en" : {
@@ -66,13 +66,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg day"
+                      "value" : "%arg day"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg days"
+                      "value" : "%arg days"
                     }
                   }
                 }
@@ -82,10 +82,10 @@
         }
       }
     },
-    "%@ per kilometre" : {
+    "%@ per kilometre" : {
       "comment" : "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”."
     },
-    "%@ per mile" : {
+    "%@ per mile" : {
       "comment" : "VoiceOver: a pace, e.g. “9 minutes, 10 seconds per mile”."
     },
     "%@ readings" : {},
@@ -115,13 +115,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg set done"
+                      "value" : "%arg set done"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg sets done"
+                      "value" : "%arg sets done"
                     }
                   }
                 }
@@ -156,7 +156,7 @@
     "%@, %@" : {
       "comment" : "VoiceOver: the night's baseline, \"Baseline, 7 hours 30 minutes\". 1: the term, 2: the time."
     },
-    "%@, %@, %lld sets done" : {
+    "%@, %@, %lld sets done" : {
       "comment" : "VoiceOver value of the resume banner: the session's title, how long it has run (\"23 minutes\"), the sets checked off.",
       "localizations" : {
         "en" : {
@@ -173,13 +173,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg set done"
+                      "value" : "%arg set done"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg sets done"
+                      "value" : "%arg sets done"
                     }
                   }
                 }
@@ -213,7 +213,7 @@
     "%@, minimum. %@" : {
       "comment" : "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower."
     },
-    "%@, completed. %lld sets, best %@." : {
+    "%@, completed. %lld sets, best %@." : {
       "comment" : "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms.",
       "localizations" : {
         "en" : {
@@ -222,13 +222,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@, completed. %lld set, best %@."
+                  "value" : "%@, completed. %lld set, best %@."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@, completed. %lld sets, best %@."
+                  "value" : "%@, completed. %lld sets, best %@."
                 }
               }
             }
@@ -236,7 +236,7 @@
         }
       }
     },
-    "%@, completed. %lld sets." : {
+    "%@, completed. %lld sets." : {
       "comment" : "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets.",
       "localizations" : {
         "en" : {
@@ -245,13 +245,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@, completed. %lld set."
+                  "value" : "%@, completed. %lld set."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%@, completed. %lld sets."
+                  "value" : "%@, completed. %lld sets."
                 }
               }
             }
@@ -265,10 +265,10 @@
     "%@, now matched. %lld left to check." : {
       "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking."
     },
-    "%@, on a scale from 0 to 10 hours." : {
+    "%@, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep's duration ruler without a sleep need: the time asleep (\"7 hours 48 minutes\")."
     },
-    "%@, on a scale from 0 to 10 hours. Your need is %@." : {
+    "%@, on a scale from 0 to 10 hours. Your need is %@." : {
       "comment" : "VoiceOver on Sleep's duration ruler: the time asleep, then the night's sleep need (both \"7 hours 48 minutes\")."
     },
     "%@, plus %@" : {
@@ -383,7 +383,7 @@
         }
       }
     },
-    "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them." : {
+    "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them." : {
       "comment" : "Welcome after a session expiry: how many unsent activities and nights wait on the phone.",
       "localizations" : {
         "en" : {
@@ -392,13 +392,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld activity or night you added hasn't reached RYFT yet. Log in within 30 days to send it."
+                  "value" : "%lld activity or night you added hasn't reached RYFT yet. Log in within 30 days to send it."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them."
+                  "value" : "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them."
                 }
               }
             }
@@ -429,7 +429,7 @@
         }
       }
     },
-    "%lld days" : {
+    "%lld days" : {
       "comment" : "Training import: a count of plan days.",
       "localizations" : {
         "en" : {
@@ -438,13 +438,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld day"
+                  "value" : "%lld day"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld days"
+                  "value" : "%lld days"
                 }
               }
             }
@@ -452,7 +452,7 @@
         }
       }
     },
-    "%lld days a week" : {
+    "%lld days a week" : {
       "comment" : "VoiceOver, a plan's summary: how many days a week it trains (\"4 days/week\" on screen).",
       "localizations" : {
         "en" : {
@@ -461,13 +461,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld day a week"
+                  "value" : "%lld day a week"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld days a week"
+                  "value" : "%lld days a week"
                 }
               }
             }
@@ -475,7 +475,7 @@
         }
       }
     },
-    "%lld exercises · %lld sets" : {
+    "%lld exercises · %lld sets" : {
       "comment" : "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets.",
       "localizations" : {
         "en" : {
@@ -512,13 +512,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg set"
+                      "value" : "%arg set"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg sets"
+                      "value" : "%arg sets"
                     }
                   }
                 }
@@ -581,13 +581,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld night has no data"
+                  "value" : "%lld night has no data"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld nights have no data"
+                  "value" : "%lld nights have no data"
                 }
               }
             }
@@ -670,7 +670,7 @@
         }
       }
     },
-    "%lld min" : {},
+    "%lld min" : {},
     "%lld need a fix." : {
       "localizations" : {
         "en" : {
@@ -719,7 +719,7 @@
         }
       }
     },
-    "%lld nights" : {
+    "%lld nights" : {
       "localizations" : {
         "en" : {
           "variations" : {
@@ -727,13 +727,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld night"
+                  "value" : "%lld night"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld nights"
+                  "value" : "%lld nights"
                 }
               }
             }
@@ -764,7 +764,7 @@
         }
       }
     },
-    "%lld of %lld days" : {},
+    "%lld of %lld days" : {},
     "%lld of %lld expected signals are arriving." : {
       "localizations" : {
         "en" : {
@@ -817,7 +817,7 @@
         }
       }
     },
-    "%lld of %lld nights with heart-rate data. Readiness appears once the baselines are complete." : {
+    "%lld of %lld nights with heart-rate data. Readiness appears once the baselines are complete." : {
       "comment" : "VoiceOver value of the baseline gauge when a long history lacks HRV and resting heart rate.",
       "localizations" : {
         "en" : {
@@ -834,13 +834,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg night with heart-rate data"
+                      "value" : "%arg night with heart-rate data"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg nights with heart-rate data"
+                      "value" : "%arg nights with heart-rate data"
                     }
                   }
                 }
@@ -850,13 +850,13 @@
         }
       }
     },
-    "%lld of %lld nights with HRV." : {
+    "%lld of %lld nights with HRV." : {
       "comment" : "VoiceOver value of the baseline gauge when only HRV fills; the note under it says why."
     },
-    "%lld of %lld nights with resting heart rate." : {
+    "%lld of %lld nights with resting heart rate." : {
       "comment" : "VoiceOver value of the baseline gauge when only resting heart rate fills; the note under it says why."
     },
-    "%lld of %lld nights. Readiness appears once the baselines are complete." : {},
+    "%lld of %lld nights. Readiness appears once the baselines are complete." : {},
     "%lld of %lld workouts" : {
       "comment" : "Training import I2: progress."
     },
@@ -866,7 +866,7 @@
     "%lld of 10, %@" : {
       "comment" : "VoiceOver: the selected effort, e.g. '6 of 10, Moderate'."
     },
-    "%lld of the last 7 nights were regular" : {
+    "%lld of the last 7 nights were regular" : {
       "comment" : "VoiceOver, Sleep's Consistency tile: nights of the seven that were regular (60+). Plural: one \"was regular\".",
       "localizations" : {
         "en" : {
@@ -875,13 +875,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld of the last 7 nights was regular"
+                  "value" : "%lld of the last 7 nights was regular"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld of the last 7 nights were regular"
+                  "value" : "%lld of the last 7 nights were regular"
                 }
               }
             }
@@ -892,13 +892,13 @@
     "%lld out of 100" : {
       "comment" : "VoiceOver on Sleep → Week or Month's Consistency tile: the range's mean consistency on its 0–100 scale. %lld: the score, e.g. 72."
     },
-    "%lld percent of the target" : {
+    "%lld percent of the target" : {
       "comment" : "VoiceOver, Sleep's Restorative tile, after the time: its score, 0–100 (\"100 percent of the target\")."
     },
-    "%lld percent of your need" : {
+    "%lld percent of your need" : {
       "comment" : "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\")."
     },
-    "%lld percent, %@" : {
+    "%lld percent, %@" : {
       "comment" : "VoiceOver, two places. Training import: the progress value. Today's Recovery tile: the score, then its band or the day (\"82 percent, High\", \"75 percent, Yesterday, not today's score\")."
     },
     "%lld plans" : {
@@ -947,7 +947,7 @@
         }
       }
     },
-    "%lld sets" : {
+    "%lld sets" : {
       "comment" : "Training import: a count of sets.",
       "localizations" : {
         "en" : {
@@ -956,13 +956,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld set"
+                  "value" : "%lld set"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld sets"
+                  "value" : "%lld sets"
                 }
               }
             }
@@ -970,10 +970,10 @@
         }
       }
     },
-    "%lld sets are done and stay." : {
+    "%lld sets are done and stay." : {
       "comment" : "Edit targets, under the sets stepper. 1: number of done sets."
     },
-    "%lld sets of %@" : {
+    "%lld sets of %@" : {
       "comment" : "VoiceOver, a plan exercise: sets and reps (\"5 sets of 5\"; \"5 × 5\" on screen).",
       "localizations" : {
         "en" : {
@@ -990,13 +990,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg set"
+                      "value" : "%arg set"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg sets"
+                      "value" : "%arg sets"
                     }
                   }
                 }
@@ -1006,7 +1006,7 @@
         }
       }
     },
-    "%lld sets skipped" : {
+    "%lld sets skipped" : {
       "comment" : "Training import, step 5: sets with no weight or reps.",
       "localizations" : {
         "en" : {
@@ -1015,13 +1015,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld set skipped"
+                  "value" : "%lld set skipped"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld sets skipped"
+                  "value" : "%lld sets skipped"
                 }
               }
             }
@@ -1029,30 +1029,7 @@
         }
       }
     },
-    "%lld sets skipped (no weight or reps)" : {
-      "comment" : "Training import I3: sets that weren't imported.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld set skipped (no weight or reps)"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld sets skipped (no weight or reps)"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "%lld sets · best %@" : {
+    "%lld sets · best %@" : {
       "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6.",
       "localizations" : {
         "en" : {
@@ -1061,13 +1038,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld set · best %@"
+                  "value" : "%lld set · best %@"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld sets · best %@"
+                  "value" : "%lld sets · best %@"
                 }
               }
             }
@@ -1293,29 +1270,6 @@
         }
       }
     },
-    "%lld workouts not imported" : {
-      "comment" : "Training import I4.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld workout not imported"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld workouts not imported"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "%lld, %@, on a scale from 0 to 100" : {
       "comment" : "VoiceOver value of Today's readiness ruler: the readiness, its band in lower case (low, moderate, high)."
     },
@@ -1337,13 +1291,13 @@
     "+kg" : {
       "comment" : "Set table's column in a workout: load added to bodyweight."
     },
-    "0 h" : {
+    "0 h" : {
       "comment" : "Sleep's duration ruler: the scale's start, zero hours."
     },
     "0 workouts in this range" : {
       "comment" : "Training import C4."
     },
-    "10 h" : {
+    "10 h" : {
       "comment" : "Sleep's duration ruler: the scale's end, ten hours."
     },
     "10RM" : {
@@ -1365,7 +1319,7 @@
     "4 h" : {
       "comment" : "Baseline sleep need editor: the ruler's start, four hours."
     },
-    "7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours" : {},
+    "7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours" : {},
     "7 D" : {
       "comment" : "Insights' range control: 7 days. A short label; D stands for day."
     },
@@ -1388,7 +1342,7 @@
     "A night is already recorded for that day." : {
       "comment" : "Add or edit sleep: the platform already has a night for the wake day (a tracker's or another device's)."
     },
-    "A notification %lld min before tonight's bedtime. It moves with your day." : {},
+    "A notification %lld min before tonight's bedtime. It moves with your day." : {},
     "A notification at your wake time. It won't ring like an alarm on this iOS version." : {},
     "A number here couldn't be read and was left out" : {
       "comment" : "Import warning, after \"Line N\"."
@@ -1561,10 +1515,10 @@
       "comment" : "Toggle in the replace sheet: change the plan day too."
     },
     "Always yours" : {},
-    "An activity can be at most 24 hours." : {
+    "An activity can be at most 24 hours." : {
       "comment" : "Add activity: too long."
     },
-    "An activity can start at most 14 days ago." : {
+    "An activity can start at most 14 days ago." : {
       "comment" : "Add activity: the start is further back than the app allows."
     },
     "An estimated 1RM needs sets with added weight." : {
@@ -1586,29 +1540,6 @@
     "and %lld more" : {
       "comment" : "Training import, step 2: warnings not listed."
     },
-    "and %lld notes" : {
-      "comment" : "Training import, step 2: notes after the warnings count.",
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "and %lld note"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "and %lld notes"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "Anything your tracker syncs later will appear here." : {
       "comment" : "My Day: under 'Nothing recorded on this day'."
     },
@@ -1625,7 +1556,7 @@
     "Applies from the next %@ day. You're offline: the plan can only be changed online." : {
       "comment" : "Under the disabled Also change the plan toggle without a connection. 1: plan day name."
     },
-    "Apps and devices that sent data to RYFT in the last 30 days." : {
+    "Apps and devices that sent data to RYFT in the last 30 days." : {
       "comment" : "Footnote of Seen in Apple Health."
     },
     "Arrives" : {
@@ -1651,7 +1582,7 @@
     "at %@" : {
       "comment" : "VoiceOver, a plan exercise's target weight (\"at 100 kilograms\")."
     },
-    "at %@ percent of one-rep max" : {
+    "at %@ percent of one-rep max" : {
       "comment" : "VoiceOver, a plan exercise's target as a share of the one-rep max (\"75 % 1RM\" on screen)."
     },
     "at %lld percent efficiency" : {
@@ -1708,7 +1639,7 @@
     "Average sleep, %@" : {
       "comment" : "VoiceOver on Sleep → Week or Month's numeral and stage card: the range's average time asleep. %@: the duration, e.g. \"7 hours 58 minutes\"."
     },
-    "Average · %lld nights" : {
+    "Average · %lld nights" : {
       "comment" : "Sleep → Week or Month under the numeral: fewer nights than days were recorded. %lld: the number of nights, e.g. \"Average · 4 nights\". Plural: \"Average · 1 night\".",
       "localizations" : {
         "en" : {
@@ -1717,13 +1648,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Average · %lld night"
+                  "value" : "Average · %lld night"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Average · %lld nights"
+                  "value" : "Average · %lld nights"
                 }
               }
             }
@@ -1731,7 +1662,7 @@
         }
       }
     },
-    "Average · last %lld nights" : {
+    "Average · last %lld nights" : {
       "comment" : "Sleep → Week or Month under the numeral: the time asleep is the average of the whole range. %lld: the number of nights in the average, e.g. \"Average · last 7 nights\". Plural: \"last 1 night\".",
       "localizations" : {
         "en" : {
@@ -1740,13 +1671,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Average · last %lld night"
+                  "value" : "Average · last %lld night"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Average · last %lld nights"
+                  "value" : "Average · last %lld nights"
                 }
               }
             }
@@ -2221,10 +2152,10 @@
     "Estimated from your birth year" : {
       "comment" : "Onboarding, body settings: the group title over the maximum heart rate, when RYFT estimates it from the birth year."
     },
-    "estimated one-rep max %@ kilograms" : {
+    "estimated one-rep max %@ kilograms" : {
       "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated one-rep max 100 kilograms."
     },
-    "estimated ten-rep max %@ kilograms" : {
+    "estimated ten-rep max %@ kilograms" : {
       "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated ten-rep max 75 kilograms."
     },
     "Exercise %lld of %lld, %@, %@" : {
@@ -2261,7 +2192,7 @@
     "Fill in your email and password first." : {
       "comment" : "Log in: the hint under the disabled Log in button until both fields have text."
     },
-    "First score: the last 3 days" : {},
+    "First score: the last 3 days" : {},
     "Focused" : {
       "comment" : "Profile → Training → Session layout: one exercise per page."
     },
@@ -2304,7 +2235,7 @@
     "Getting ready" : {
       "comment" : "Training import I1."
     },
-    "Give the exercise a name of up to 80 characters." : {
+    "Give the exercise a name of up to 80 characters." : {
       "comment" : "Custom exercise: the name is empty or longer than the platform takes, so nothing was saved."
     },
     "Given" : {},
@@ -2374,7 +2305,7 @@
     "How to set up %@" : {
       "comment" : "Link under Today's gauge: opens the tracker's setup card. The argument is its app, e.g. Garmin Connect."
     },
-    "HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days" : {
+    "HRV %lld milliseconds, lowest %lld and highest %lld over the last 7 days" : {
       "comment" : "VoiceOver on Today's Recovery tile: the HRV sparkline, the shown day's value and the week's range."
     },
     "HTTP status" : {},
@@ -2431,6 +2362,29 @@
     "Import needs attention" : {
       "comment" : "Training import: the resume row."
     },
+    "Import needs attention · %lld workouts not imported" : {
+      "comment" : "Training import: the resume row when a finished import has workouts that weren't imported. One line, with a count.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import needs attention · %lld workout not imported"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import needs attention · %lld workouts not imported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Import not finished" : {},
     "Import paused" : {
       "comment" : "Training import: the resume row, held for a reason the user can't act on."
@@ -2459,10 +2413,56 @@
     "Imported %@" : {
       "comment" : "Training import I3: the result, e.g. Imported 1 plan and 12 workouts."
     },
+    "Imported %@ · %lld workouts not imported" : {
+      "comment" : "Training import I4: the result, then how many workouts weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 workouts not imported.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld workout not imported"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld workouts not imported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Imported %@ · %lld sets skipped (no weight or reps)" : {
+      "comment" : "Training import I3: the result, then the sets that weren't imported. The first count is the one above, e.g. Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps).",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld set skipped (no weight or reps)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported %@ · %lld sets skipped (no weight or reps)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Imported exercise" : {
       "comment" : "Training import: the name of a new custom exercise when the file's name can't be used."
     },
-    "Imported through %@ · %lld of %lld days" : {},
+    "Imported through %@ · %lld of %lld days" : {},
     "Imported workouts count towards strain on their days, so past strain can change once. You won't get record notifications for them. RYFT sends only what's listed here. The file stays on your iPhone." : {
       "comment" : "Training import, step 5: the footer."
     },
@@ -2475,7 +2475,7 @@
     "Importing isn't available on this account yet" : {
       "comment" : "Training import E10: Open in with the import off."
     },
-    "Importing the last 90 days" : {},
+    "Importing the last 90 days" : {},
     "Importing your history" : {},
     "Importing…" : {
       "comment" : "Training import I2."
@@ -2488,7 +2488,7 @@
       "comment" : "The wind-down reminder: the bedtime, the share of the sleep need it gives, that sleep. The % sign is literal."
     },
     "In bed by %@ for your full %@." : {},
-    "In bed by %@, for %lld percent of your need. Wake %@, need %@." : {
+    "In bed by %@, for %lld percent of your need. Wake %@, need %@." : {
       "comment" : "VoiceOver on Today's Tonight tile: tonight's bedtime for the goal, its share of the need, the wake time and the need (\"In bed by 10:41 PM, for 100 percent of your need. Wake 6:30 AM, need 8 hours 18 minutes.\")."
     },
     "In bed by · %lld %% of your need" : {
@@ -2522,7 +2522,7 @@
     "Large numbers on Today, Sleep and Strain." : {
       "comment" : "Footer under Profile → Display → Hero numbers: where the dots or thin digits show."
     },
-    "last 90 days" : {
+    "last 90 days" : {
       "comment" : "History's subtitle after the count: the list covers the last 90 days (\"25 workouts · last 90 days\")."
     },
     "Last night · %@" : {
@@ -2546,10 +2546,10 @@
     "learned %@" : {
       "comment" : "Baseline sleep need, after \"Set by you\": the baseline RYFT learned from the nights (\"learned 7h 52m\")."
     },
-    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
+    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
       "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7)."
     },
-    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
+    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
       "comment" : "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7)."
     },
     "Less" : {
@@ -2662,7 +2662,7 @@
     "No older night to show" : {
       "comment" : "VoiceOver hint on Sleep's disabled Previous night button."
     },
-    "No plan yet, on a scale from 0 to 10 hours." : {
+    "No plan yet, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep → Bedtime's ruler (named \"Planned sleep\") while tonight's plan is loading, failed or offline."
     },
     "No readiness yet, on a scale from 0 to 100" : {
@@ -2680,10 +2680,10 @@
     "No strain yet today." : {
       "comment" : "Strain's caption under the unlit numeral, and Profile's identity row (VoiceOver): nothing has added strain so far today."
     },
-    "No time asleep yet, on a scale from 0 to 10 hours." : {
+    "No time asleep yet, on a scale from 0 to 10 hours." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need."
     },
-    "No time asleep yet, on a scale from 0 to 10 hours. Your need is %@." : {
+    "No time asleep yet, on a scale from 0 to 10 hours. Your need is %@." : {
       "comment" : "VoiceOver on Sleep's duration ruler before the night is known, with the sleep need (\"8 hours 18 minutes\")."
     },
     "None of your habits" : {
@@ -2827,7 +2827,7 @@
     "Recorded by %@" : {
       "comment" : "Under a workout's heart-rate chart: the app or device that recorded the workout. %@: its name."
     },
-    "Recovery and last night's sleep, against your own baseline. The ticks mark the usual ranges; the line underneath compares with the 7 days before." : {
+    "Recovery and last night's sleep, against your own baseline. The ticks mark the usual ranges; the line underneath compares with the 7 days before." : {
       "comment" : "Coach mark on Today's gauges: what the rings show. The ticks mark the usual ranges; the line below compares with the 7 days before."
     },
     "Reminders resume once RYFT has tonight's plan." : {
@@ -2992,16 +2992,16 @@
         }
       }
     },
-    "Slept enough on %lld of the last 7 nights; the last is the night shown" : {
+    "Slept enough on %lld of the last 7 nights; the last is the night shown" : {
       "comment" : "VoiceOver on the 7 dots of Today's Sleep tile: nights asleep 90 % of the need or more; the last is the night shown."
     },
-    "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data" : {
+    "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data" : {
       "comment" : "VoiceOver on the 7-night dots of Today's Sleep tile, when some nights lack the numbers to tell (no sleep or no need).",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Slept enough on %1$lld of the last 7 nights; the last is the night shown; %#@nights@"
+            "value" : "Slept enough on %1$lld of the last 7 nights; the last is the night shown; %#@nights@"
           },
           "substitutions" : {
             "nights" : {
@@ -3012,13 +3012,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg night has no data"
+                      "value" : "%arg night has no data"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg nights have no data"
+                      "value" : "%arg nights have no data"
                     }
                   }
                 }
@@ -3105,7 +3105,7 @@
     "the last is the night shown" : {
       "comment" : "VoiceOver on Sleep's Consistency tile, after the counts: the last dot (in Volt) is the night on screen."
     },
-    "The new exercise continues with %lld sets." : {
+    "The new exercise continues with %lld sets." : {
       "comment" : "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets."
     },
     "The new exercise continues with 1 set." : {
@@ -3125,6 +3125,29 @@
     },
     "The privacy policy version didn't load. You can agree once it's shown." : {
       "comment" : "Onboarding, consent: shown when the privacy policy version can't be loaded. The user can agree once it's shown."
+    },
+    "The rest imports normally, and %lld notes." : {
+      "comment" : "Training import, step 2: under the warnings row, when some lines couldn't be read and there are notes too. One sentence, so its word order is the language's.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The rest imports normally, and %lld note."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The rest imports normally, and %lld notes."
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "The timeline isn't available for this night." : {
       "comment" : "Sleep's hypnogram tile when the night has stage totals but no timeline."
@@ -3184,7 +3207,7 @@
     "Keep on this iPhone" : {
       "comment" : "Training import V5: store the import to upload later."
     },
-    "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it." : {
+    "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it." : {
       "comment" : "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe)."
     },
     "Kilometre %lld" : {
@@ -3237,13 +3260,13 @@
       "comment" : "Training import, step 5: the help under the plan."
     },
     "Learned" : {},
-    "Learning your baselines: %lld of %lld nights." : {
+    "Learning your baselines: %lld of %lld nights." : {
       "comment" : "Note under Today's gauge while the baselines fill. Arguments: nights so far, nights needed (7)."
     },
-    "Learning your HRV baseline: %lld of %lld nights." : {
+    "Learning your HRV baseline: %lld of %lld nights." : {
       "comment" : "Note under Today's gauge while the HRV baseline fills. Arguments: nights so far, nights needed (7)."
     },
-    "Learning your resting heart rate baseline: %lld of %lld nights." : {
+    "Learning your resting heart rate baseline: %lld of %lld nights." : {
       "comment" : "Note under Today's gauge while the resting heart rate baseline fills. Arguments: nights so far, nights needed (7)."
     },
     "Leaves RYFT." : {
@@ -3288,7 +3311,7 @@
     "Log this in Train" : {
       "comment" : "Activity detail: a manual Strength activity; log the sets in Train."
     },
-    "Looks at the last 48 hours in Apple Health. The check uploads nothing." : {},
+    "Looks at the last 48 hours in Apple Health. The check uploads nothing." : {},
     "Looks like a session you already logged" : {
       "comment" : "Training import, step 5: a likely duplicate (V2)."
     },
@@ -3375,7 +3398,7 @@
     "No data from %@ yet. Open %@ and let it sync, then tap Check again." : {},
     "No data from your Apple Watch yet. Wear it and keep it near your iPhone so it syncs, then tap Check again." : {},
     "No data from your tracker's app yet. Open it and let it sync, then tap Check again." : {},
-    "No duration: 60 min assumed" : {
+    "No duration: 60 min assumed" : {
       "comment" : "Import note, after \"Line N\"."
     },
     "No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health." : {},
@@ -3466,11 +3489,11 @@
     "Not uploaded" : {
       "comment" : "My Day row: the upload failed; the data is still on the iPhone."
     },
-    "Notes can be 500 characters." : {
+    "Notes can be 500 characters." : {
       "comment" : "Add activity: the notes limit."
     },
-    "Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again." : {},
-    "Nothing in the last 2 days" : {
+    "Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again." : {},
+    "Nothing in the last 2 days" : {
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: no data at all from it in the last 48 hours."
     },
     "Nothing is attached except your message." : {},
@@ -3670,7 +3693,7 @@
     "Recent" : {
       "comment" : "Sport picker: the sports used last."
     },
-    "Recovery %@ percent" : {
+    "Recovery %@ percent" : {
       "comment" : "OrbitGauge VoiceOver: Recovery with its value, e.g. 71."
     },
     "Recovery from %@, no HRV" : {
@@ -3702,7 +3725,7 @@
     "Request ID %@" : {
       "comment" : "Training import, Details: the X-Request-ID of the answer."
     },
-    "Rescore the last 90 days" : {},
+    "Rescore the last 90 days" : {},
     "Rescoring — scores update in a few seconds." : {},
     "Repeat last" : {},
     "Repeat last workout" : {},
@@ -3732,7 +3755,7 @@
     "RYFT can keep this import on your iPhone and upload it when importing is switched on for your account." : {
       "comment" : "Training import V5."
     },
-    "RYFT can read %@, but none came from %@ in the last 2 days." : {},
+    "RYFT can read %@, but none came from %@ in the last 2 days." : {},
     "RYFT can read CSV and plain text files." : {
       "comment" : "Training import P3."
     },
@@ -3806,8 +3829,8 @@
       "comment" : "Error when the platform's answer can't be decoded (status 200 and request ID are kept in Details)."
     },
     "RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time." : {},
-    "RYFT takes a baseline between 4 and 12 hours." : {},
-    "RYFT takes a maximum heart rate between 100 and 230 bpm." : {},
+    "RYFT takes a baseline between 4 and 12 hours." : {},
+    "RYFT takes a maximum heart rate between 100 and 230 bpm." : {},
     "Same time on weekdays" : {},
     "Save the files from the other app to Files, then choose them here." : {
       "comment" : "Training import, step 1: under Choose files."
@@ -3847,10 +3870,10 @@
     "Seen in Apple Health" : {
       "comment" : "Section in Devices & sync: sources that sent data."
     },
-    "Seen on %lld sets with different values." : {
+    "Seen on %lld sets with different values." : {
       "comment" : "Training import, step 4: the +N load differs between sets."
     },
-    "Seen on %lld sets." : {
+    "Seen on %lld sets." : {
       "comment" : "Training import, step 4: how many sets have the +N load.",
       "localizations" : {
         "en" : {
@@ -3859,13 +3882,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Seen on %lld set."
+                  "value" : "Seen on %lld set."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Seen on %lld sets."
+                  "value" : "Seen on %lld sets."
                 }
               }
             }
@@ -3954,7 +3977,7 @@
       "comment" : "Training import, step 5: why a set is skipped."
     },
     "sleep" : {},
-    "Sleep can be 1 to 16 hours." : {
+    "Sleep can be 1 to 16 hours." : {
       "comment" : "Add sleep: too short or too long."
     },
     "sleep stages" : {
@@ -3969,7 +3992,7 @@
     "Sleep was already recorded by %@." : {
       "comment" : "Add sleep: the platform has a night for this day; its source."
     },
-    "Sleep %@ percent" : {
+    "Sleep %@ percent" : {
       "comment" : "OrbitGauge VoiceOver: Sleep performance with its value, e.g. 88."
     },
     "Sleep, Strain, Recovery and Readiness stay empty without data from your tracker" : {
@@ -3983,7 +4006,7 @@
     "Some characters in this line couldn't be read" : {
       "comment" : "Import warning, after \"Line N\": the file isn't valid UTF-8 there."
     },
-    "Some items were left out: RYFT limits a workout to 50 exercises and 50 sets per exercise" : {
+    "Some items were left out: RYFT limits a workout to 50 exercises and 50 sets per exercise" : {
       "comment" : "Import note, after \"Line N\"."
     },
     "Some items were left out: this file is over RYFT's import limits" : {
@@ -4332,7 +4355,7 @@
       "comment" : "VoiceOver hint on the set table's fourth column header in a workout."
     },
     "Sync details" : {},
-    "Sync last 3 days again" : {},
+    "Sync last 3 days again" : {},
     "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record" : {},
     "Sync status" : {},
     "Syncing · %@" : {},
@@ -4400,7 +4423,7 @@
       "comment" : "Training import, step 4: a +N exercise matched to a loaded exercise."
     },
     "The last 20 requests: method, path without its query, status, error code, request ID, time, duration" : {},
-    "The last 90 days are rescored with your settings." : {},
+    "The last 90 days are rescored with your settings." : {},
     "The number is your own weight. RYFT logs the sets without added weight and notes %@ as your body weight for the workout." : {
       "comment" : "Training import, step 4: the body-weight option."
     },
@@ -4463,7 +4486,7 @@
       "comment" : "Import warning, after \"Line N\"."
     },
     "This night was scored before RYFT broke the need down." : {},
-    "This plan has %lld days. RYFT plans have at most 7." : {
+    "This plan has %lld days. RYFT plans have at most 7." : {
       "comment" : "Training import, step 3: why a plan can't be imported."
     },
     "This plan has this day number twice: check its days after the import" : {
@@ -4576,7 +4599,7 @@
     "Tonight's bedtime needs a connection. It appears once you're online." : {},
     "Tonight's plan is for another time zone than this iPhone's." : {},
     "Today's plan" : {},
-    "Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private." : {
+    "Too long: a report takes up to 4,000 characters. Please don't type health values you'd rather keep private." : {
       "comment" : "Report a problem: the message card's footer while the message is over 4,000 characters."
     },
     "Too many tries. Wait an hour, then try the code again." : {},
@@ -4611,7 +4634,7 @@
       "comment" : "Training import P4."
     },
     "Tries to load your data again" : {},
-    "Trying again in %lld seconds" : {
+    "Trying again in %lld seconds" : {
       "comment" : "Training import I5: a Retry-After countdown.",
       "localizations" : {
         "en" : {
@@ -4620,13 +4643,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Trying again in %lld second"
+                  "value" : "Trying again in %lld second"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Trying again in %lld seconds"
+                  "value" : "Trying again in %lld seconds"
                 }
               }
             }
@@ -4691,16 +4714,16 @@
     "Use “%@”" : {
       "comment" : "Training import, step 4: accept the suggestion."
     },
-    "Usual range needs 7 days of data" : {
+    "Usual range needs 7 days of data" : {
       "comment" : "A trend card's note: the usual range behind the line needs 7 days of data before the newest value. The 7 is fixed."
     },
-    "Usually ready within %lld min." : {},
-    "Usually ready within %lld s." : {},
+    "Usually ready within %lld min." : {},
+    "Usually ready within %lld s." : {},
     "Usually ready within a minute." : {},
     "Vendor guide" : {
       "comment" : "Link to the tracker maker's help page on a setup card."
     },
-    "versus 7 days" : {
+    "versus 7 days" : {
       "comment" : "VoiceOver: the reference of a change, after the change, e.g. \"Up 11 versus 7 days\"."
     },
     "Very easy" : {
@@ -4725,7 +4748,7 @@
     "Waiting for your consent withdrawal to finish." : {
       "comment" : "Profile, a consent withdrawal on its way: why Demo data and Log out are dimmed (either would end it). Their detail, line, hint."
     },
-    "Waiting since %@ · usually %lld s" : {
+    "Waiting since %@ · usually %lld s" : {
       "comment" : "Sync details → Engine → Scoring: when scoring began and the platform's usual time in seconds."
     },
     "Waiting to send" : {
@@ -4837,7 +4860,7 @@
     "You can add a tracker any time. RYFT will show how to connect it." : {
       "comment" : "Just my iPhone card."
     },
-    "You can add sleep for the last 14 days." : {
+    "You can add sleep for the last 14 days." : {
       "comment" : "Add sleep: the night is too far back."
     },
     "You can change this later in Plans." : {
@@ -4990,7 +5013,7 @@
     "Zone %1$lld, %2$@, %3$@" : {
       "comment" : "VoiceOver in the zones tile's sentence: %1$lld the zone's number, %2$@ its name, %3$@ its minutes, e.g. \"Zone 2, Aerobic, 6 minutes\"."
     },
-    "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld minutes" : {
+    "Zone %1$lld, %2$@, %3$@ of heart-rate reserve, %4$lld minutes" : {
       "comment" : "VoiceOver on one heart-rate zone row: %1$lld the zone's number, %2$@ its name, %3$@ its heart-rate-reserve range, %4$lld its minutes. Plural on minutes: \"1 minute\".",
       "localizations" : {
         "en" : {
@@ -5007,13 +5030,13 @@
                   "one" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg minute"
+                      "value" : "%arg minute"
                     }
                   },
                   "other" : {
                     "stringUnit" : {
                       "state" : "translated",
-                      "value" : "%arg minutes"
+                      "value" : "%arg minutes"
                     }
                   }
                 }
@@ -5124,15 +5147,15 @@
       "comment" : "A sentence that describes the breakdown of a night's sleep need. The argument is the total sleep need, the rest are the individual terms.",
       "isCommentAutoGenerated" : true
     },
-    "%@ can't be loaded with 2.5–25 kg plates; this is the closest below." : {
+    "%@ can't be loaded with 2.5–25 kg plates; this is the closest below." : {
       "comment" : "A footnote explaining that the target weight can't be loaded with the available plates, and mentions the closest possible weight that can be loaded.",
       "isCommentAutoGenerated" : true
     },
     "%@ is paused; this one starts at week 1. Logged workouts stay." : {},
-    "%@ kg" : {
+    "%@ kg" : {
       "comment" : "A weight in kilograms, e.g. 82.5 kg.\nTraining volume in kilograms, e.g. 4,250 kg."
     },
-    "%@ kilograms" : {
+    "%@ kilograms" : {
       "comment" : "Text describing the weight of the exercise.",
       "isCommentAutoGenerated" : true
     },
@@ -5143,7 +5166,7 @@
       "comment" : "A number that describes the recovery of a behavior.",
       "isCommentAutoGenerated" : true
     },
-    "%@ t" : {
+    "%@ t" : {
       "comment" : "Training volume in tonnes, e.g. 12.4 t."
     },
     "%@ vs average" : {
@@ -5175,14 +5198,14 @@
       "isCommentAutoGenerated" : true,
       "shouldTranslate" : false
     },
-    "%lld · ~%lld min" : {
+    "%lld · ~%lld min" : {
       "comment" : "The number of exercises and estimated duration of a workout day. The first argument is the count of exercises. The second argument is the estimated duration in minutes.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$lld · ~%2$lld min"
+            "value" : "%1$lld · ~%2$lld min"
           }
         }
       }
@@ -5191,11 +5214,11 @@
       "comment" : "A label showing the percentage of the user's need that a bedtime represents. The argument is the percentage.",
       "isCommentAutoGenerated" : true
     },
-    "%lld bpm" : {
+    "%lld bpm" : {
       "comment" : "Average heart rate.",
       "isCommentAutoGenerated" : true
     },
-    "%lld days/week" : {
+    "%lld days/week" : {
       "comment" : "The text that appears in the \"Plan\" section of the workout list.",
       "isCommentAutoGenerated" : true
     },
@@ -5249,7 +5272,7 @@
         }
       }
     },
-    "%lld percent" : {},
+    "%lld percent" : {},
     "%lld PRs" : {
       "comment" : "Pluralization key for \"PRs\".",
       "isCommentAutoGenerated" : true,
@@ -5274,7 +5297,7 @@
         }
       }
     },
-    "%lld reps" : {
+    "%lld reps" : {
       "comment" : "Text that describes a workout set.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
@@ -5284,13 +5307,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld rep"
+                  "value" : "%lld rep"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld reps"
+                  "value" : "%lld reps"
                 }
               }
             }
@@ -5298,15 +5321,15 @@
         }
       }
     },
-    "%lld reps at %@ kilograms" : {
+    "%lld reps at %@ kilograms" : {
       "comment" : "Accessibility text for a set.",
       "isCommentAutoGenerated" : true
     },
-    "%lld s" : {
+    "%lld s" : {
       "comment" : "A short description of a training set.",
       "isCommentAutoGenerated" : true
     },
-    "%lld sets checked off. Empty rows are dropped." : {
+    "%lld sets checked off. Empty rows are dropped." : {
       "comment" : "A confirmation dialog that appears when the user taps the \"Finish workout\" button. The text describes the number of sets that have been checked off.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
@@ -5316,13 +5339,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld set checked off. Empty rows are dropped."
+                  "value" : "%lld set checked off. Empty rows are dropped."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld sets checked off. Empty rows are dropped."
+                  "value" : "%lld sets checked off. Empty rows are dropped."
                 }
               }
             }
@@ -5330,7 +5353,7 @@
         }
       }
     },
-    "%lld weeks" : {
+    "%lld weeks" : {
       "comment" : "Summary text for a training plan. The argument is the training goal, the second is the number of days per week, and the third is the repetition of the plan (if repeating).",
       "isCommentAutoGenerated" : true,
       "localizations" : {
@@ -5340,13 +5363,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld week"
+                  "value" : "%lld week"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld weeks"
+                  "value" : "%lld weeks"
                 }
               }
             }
@@ -5389,7 +5412,7 @@
         }
       }
     },
-    "~%lld min" : {
+    "~%lld min" : {
       "comment" : "The duration of a day's workout.",
       "isCommentAutoGenerated" : true
     },
@@ -5425,27 +5448,27 @@
       "isCommentAutoGenerated" : true,
       "shouldTranslate" : false
     },
-    "7 d" : {
+    "7 d" : {
       "comment" : "Title of the chart header for a 7-day chart window.",
       "isCommentAutoGenerated" : true
     },
-    "7 days" : {
+    "7 days" : {
       "comment" : "Text for a 7-day time range option in the trend picker.",
       "isCommentAutoGenerated" : true
     },
-    "30 d" : {
+    "30 d" : {
       "comment" : "Title of the chart header showing the duration of the chart window.",
       "isCommentAutoGenerated" : true
     },
-    "30 days" : {
+    "30 days" : {
       "comment" : "Label for a segmented picker option representing a 30-day trend range.",
       "isCommentAutoGenerated" : true
     },
-    "90 d" : {
+    "90 d" : {
       "comment" : "Title of the chart header for the 90 days window.",
       "isCommentAutoGenerated" : true
     },
-    "90 days" : {
+    "90 days" : {
       "comment" : "Text displayed in a segmented picker for the duration of the trend.",
       "isCommentAutoGenerated" : true
     },
@@ -5461,7 +5484,7 @@
       "comment" : "A description of the effect of napping on sleep need.",
       "isCommentAutoGenerated" : true
     },
-    "A plan runs 1 to 52 weeks, or repeats." : {
+    "A plan runs 1 to 52 weeks, or repeats." : {
       "comment" : "Error message when the plan's duration is invalid.",
       "isCommentAutoGenerated" : true
     },
@@ -5498,7 +5521,7 @@
       "comment" : "The label of a button that adds a new behavior.",
       "isCommentAutoGenerated" : true
     },
-    "Add 2.5 kilograms" : {},
+    "Add 2.5 kilograms" : {},
     "Add at least one training day." : {
       "comment" : "Error message when a plan has no training days.",
       "isCommentAutoGenerated" : true
@@ -5627,7 +5650,7 @@
       "comment" : "Label for the \"Asleep\" section in the SleepRangeSection.",
       "isCommentAutoGenerated" : true
     },
-    "At least %lld characters." : {
+    "At least %lld characters." : {
       "comment" : "Hint text for the password field.",
       "isCommentAutoGenerated" : true
     },
@@ -5643,7 +5666,7 @@
       "comment" : "A description of the average sleep duration.",
       "isCommentAutoGenerated" : true
     },
-    "avg %lld bpm" : {
+    "avg %lld bpm" : {
       "comment" : "The title of the section that displays the user's average heart rate and a chart of their heart rate over time.",
       "isCommentAutoGenerated" : true
     },
@@ -5768,7 +5791,7 @@
       "comment" : "Error message when the password is the same as the one used before.",
       "isCommentAutoGenerated" : true
     },
-    "Choose a stronger password with at least %lld characters." : {
+    "Choose a stronger password with at least %lld characters." : {
       "comment" : "A localized error message for a weak password.",
       "isCommentAutoGenerated" : true
     },
@@ -6044,7 +6067,7 @@
       "comment" : "The title of the estimated 1RM value.",
       "isCommentAutoGenerated" : true
     },
-    "Estimated one-rep max, last 90 days" : {
+    "Estimated one-rep max, last 90 days" : {
       "comment" : "A description of the accessibility value of the E1RM chart.",
       "isCommentAutoGenerated" : true
     },
@@ -6064,7 +6087,7 @@
       "comment" : "Text describing a sleep quality level as \"fair\".",
       "isCommentAutoGenerated" : true
     },
-    "Fairly consistent — bedtime varies by about %lld min." : {
+    "Fairly consistent — bedtime varies by about %lld min." : {
       "comment" : "\"min\" is a unit of measurement for minutes.",
       "isCommentAutoGenerated" : true
     },
@@ -6241,7 +6264,7 @@
       "comment" : "Text under the HRV and resting heart rate value line.",
       "isCommentAutoGenerated" : true
     },
-    "HRV needs 5 nights with and 5 without it." : {
+    "HRV needs 5 nights with and 5 without it." : {
       "comment" : "A description of the HRV data that needs to be collected.",
       "isCommentAutoGenerated" : true
     },
@@ -6276,7 +6299,7 @@
     "Insights" : {
       "comment" : "Tab bar: the Insights tab's name, in the bar and for VoiceOver."
     },
-    "Irregular — bedtime varies by about %lld min. A steadier rhythm helps recovery." : {
+    "Irregular — bedtime varies by about %lld min. A steadier rhythm helps recovery." : {
       "comment" : "The last sentence is a suggestion to encourage users to improve their sleep hygiene.",
       "isCommentAutoGenerated" : true
     },
@@ -6308,23 +6331,23 @@
       "comment" : "The kind of exercise.",
       "isCommentAutoGenerated" : true
     },
-    "Last %lld days · computed %@" : {
+    "Last %lld days · computed %@" : {
       "comment" : "A footer that shows the time period and the time the data was computed.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Last %1$lld days · computed %2$@"
+            "value" : "Last %1$lld days · computed %2$@"
           }
         }
       }
     },
-    "Last 7 nights" : {
+    "Last 7 nights" : {
       "comment" : "A label displayed in the Sleep view for the last 7 nights.",
       "isCommentAutoGenerated" : true
     },
-    "Last 30 nights" : {
+    "Last 30 nights" : {
       "comment" : "A label displayed in the Sleep view for the last 30 nights.",
       "isCommentAutoGenerated" : true
     },
@@ -6356,14 +6379,14 @@
         }
       }
     },
-    "Latest %@, average %@ over %lld days" : {
+    "Latest %@, average %@ over %lld days" : {
       "comment" : "A sentence describing the latest and average values of the trend data, along with the number of days.",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Latest %1$@, average %2$@ over %3$lld days"
+            "value" : "Latest %1$@, average %2$@ over %3$lld days"
           }
         }
       }
@@ -6372,7 +6395,7 @@
       "comment" : "Display name for the lats muscle group.",
       "isCommentAutoGenerated" : true
     },
-    "Learning your baseline — %lld nights to go." : {
+    "Learning your baseline — %lld nights to go." : {
       "comment" : "Today, while the 7-night baseline is being built. The argument is the number of nights still needed (1–7).",
       "localizations" : {
         "en" : {
@@ -6381,13 +6404,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Learning your baseline — %lld night to go."
+                  "value" : "Learning your baseline — %lld night to go."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Learning your baseline — %lld nights to go."
+                  "value" : "Learning your baseline — %lld nights to go."
                 }
               }
             }
@@ -6422,7 +6445,7 @@
       "comment" : "Localized progression type names.",
       "isCommentAutoGenerated" : true
     },
-    "Linear +2.5 kg" : {
+    "Linear +2.5 kg" : {
       "comment" : "Text displayed in a button that allows users to select a progression type.",
       "isCommentAutoGenerated" : true
     },
@@ -6906,7 +6929,7 @@
       "comment" : "A label that displays the peak BPM.",
       "isCommentAutoGenerated" : true
     },
-    "Peak %lld bpm" : {
+    "Peak %lld bpm" : {
       "comment" : "A description of the peak heart rate in the chart. The argument is the peak heart rate.",
       "isCommentAutoGenerated" : true
     },
@@ -7061,7 +7084,7 @@
       "comment" : "The title of a confirmation dialog that re-syncs the user's data.",
       "isCommentAutoGenerated" : true
     },
-    "Re-upload the last 90 days of Health data?" : {
+    "Re-upload the last 90 days of Health data?" : {
       "comment" : "A confirmation dialog asking the user to re-upload the last 90 days of Health data.",
       "isCommentAutoGenerated" : true
     },
@@ -7101,7 +7124,7 @@
       "comment" : "A confirmation dialog that lets the user remove a day from their training plan.",
       "isCommentAutoGenerated" : true
     },
-    "Remove 2.5 kilograms" : {},
+    "Remove 2.5 kilograms" : {},
     "Remove day" : {
       "comment" : "The title of a confirmation dialog that lets the user",
       "isCommentAutoGenerated" : true
@@ -7174,7 +7197,7 @@
       "comment" : "A menu that lets the user select a rest duration for an exercise. The argument is the current rest duration.",
       "isCommentAutoGenerated" : true
     },
-    "Rest must be 0 to 15 minutes." : {
+    "Rest must be 0 to 15 minutes." : {
       "comment" : "Text displayed in a notification when a workout plan has an invalid rest duration.",
       "isCommentAutoGenerated" : true
     },
@@ -7244,7 +7267,7 @@
       "comment" : "A disclaimer for the use of the app.",
       "isCommentAutoGenerated" : true
     },
-    "RYFT is catching up, retrying in %lld s" : {
+    "RYFT is catching up, retrying in %lld s" : {
       "comment" : "The text of the \"RYFT is catching up, retrying in 12 s\" notification. The argument is the number of seconds.",
       "isCommentAutoGenerated" : true
     },
@@ -7436,7 +7459,7 @@
       "comment" : "A label for the sleep performance trend.",
       "isCommentAutoGenerated" : true
     },
-    "Sleep performance needs 5 nights with and 5 without it." : {
+    "Sleep performance needs 5 nights with and 5 without it." : {
       "comment" : "A description of the sleep performance impact.",
       "isCommentAutoGenerated" : true
     },
@@ -7613,7 +7636,7 @@
       "comment" : "A description of an error that might occur when exporting data.",
       "isCommentAutoGenerated" : true
     },
-    "The last 7 days. Tap for every metric over 7, 30 or 90 days." : {
+    "The last 7 days. Tap for every metric over 7, 30 or 90 days." : {
       "comment" : "Text for the body of the coach mark for the \"Trends\" section.",
       "isCommentAutoGenerated" : true
     },
@@ -7766,7 +7789,7 @@
       "comment" : "A spoken description of a change in a metric. The argument is the magnitude of the change.",
       "isCommentAutoGenerated" : true
     },
-    "Up to %lld characters." : {
+    "Up to %lld characters." : {
       "comment" : "A note in the form of a footnote that appears below the text field for the behavior's name, indicating the maximum number of characters that can be entered.",
       "isCommentAutoGenerated" : true
     },
@@ -7802,7 +7825,7 @@
       "comment" : "Label for the version of the app.",
       "isCommentAutoGenerated" : true
     },
-    "Very consistent — bedtime varies by about %lld min." : {
+    "Very consistent — bedtime varies by about %lld min." : {
       "comment" : "The first argument is a number of minutes.",
       "isCommentAutoGenerated" : true
     },
@@ -7814,7 +7837,7 @@
       "comment" : "Label for the volume of a workout.",
       "isCommentAutoGenerated" : true
     },
-    "vs 7 d" : {
+    "vs 7 d" : {
       "comment" : "The text that appears next to the current value in the chart header.",
       "isCommentAutoGenerated" : true
     },
@@ -7887,7 +7910,7 @@
       "comment" : "Display name for a workout goal type of weightlifting.",
       "isCommentAutoGenerated" : true
     },
-    "Weights follow % of your estimated 1RM, rounded to 2.5 kg." : {
+    "Weights follow % of your estimated 1RM, rounded to 2.5 kg." : {
       "comment" : "Help text for the progression type.",
       "isCommentAutoGenerated" : true
     },
@@ -7907,7 +7930,7 @@
       "comment" : "Text for the description of a notification category.",
       "isCommentAutoGenerated" : true
     },
-    "When no heart rate or steps arrived for 20 hours, between 09:00 and 21:00." : {
+    "When no heart rate or steps arrived for 20 hours, between 09:00 and 21:00." : {
       "comment" : "Detail text for the \"No new data\" notification category.",
       "isCommentAutoGenerated" : true
     },

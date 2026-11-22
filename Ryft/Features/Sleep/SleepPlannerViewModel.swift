@@ -1114,7 +1114,7 @@ struct TonightBoard: Equatable {
         line = String(localized: "for \(schedule.goal.rawValue)\u{00A0}% · wake \(wake) · need \(need)", comment: "Today's Tonight tile, under the bedtime: the share of tonight's need it gives, the wake time and the need as hours:minutes (\"for 100 % · wake 6:30 AM · need 8:18\").")
         goals = SleepSchedule.Goal.allCases.map { option in
             let time = Fmt.time(option.bedtime(in: plan), locale: locale)
-            var spoken = [option.title, String(localized: "\(option.rawValue) percent"), time]
+            var spoken = [option.title, String(localized: "\(option.rawValue)\u{00A0}percent"), time]
             if option == schedule.goal {
                 spoken.append(String(localized: "your goal",
                                      comment: "VoiceOver on Sleep → Bedtime's go-to-bed tile, after the goal that is yours (the filled marker)."))
@@ -1126,7 +1126,7 @@ struct TonightBoard: Equatable {
         self.asOf = asOfText
         let bedTime = Fmt.time(bed, locale: locale), spokenNeed = Fmt.spokenDuration(minutes: plan.needMin, locale: locale)
         // swiftlint:disable:next line_length
-        let summary = String(localized: "In bed by \(bedTime), for \(schedule.goal.rawValue) percent of your need. Wake \(wake), need \(spokenNeed).", comment: "VoiceOver on Today's Tonight tile: tonight's bedtime for the goal, its share of the need, the wake time and the need (\"In bed by 10:41 PM, for 100 percent of your need. Wake 6:30 AM, need 8 hours 18 minutes.\").")
+        let summary = String(localized: "In bed by \(bedTime), for \(schedule.goal.rawValue)\u{00A0}percent of your need. Wake \(wake), need \(spokenNeed).", comment: "VoiceOver on Today's Tonight tile: tonight's bedtime for the goal, its share of the need, the wake time and the need (\"In bed by 10:41 PM, for 100 percent of your need. Wake 6:30 AM, need 8 hours 18 minutes.\").")
         spoken = ([summary] + (asOfText.map { [$0 + "."] } ?? []) + goals.map { $0.spoken + "." }).joined(separator: " ")
     }
 
@@ -1457,7 +1457,7 @@ enum AlarmKitWake {
     /// asset colours may not resolve (`AlarmKitWakeTests` keeps them equal to the Theme's). Never teal: teal is
     /// recovery's (L27).
     static let tint = Color(red: 0.949, green: 0.945, blue: 0.925)
-    /// Snooze's words, on the tint: `Theme.background`'s graphite, #0A0C0B. Stop (iOS 26.0 only) sits on the system's own
+    /// Snooze's words, on the tint: `Theme.background`, #0A0C0B. Stop (iOS 26.0 only) sits on the system's own
     /// fill, so its words stay light.
     static let snoozeText = Color(red: 0.039, green: 0.047, blue: 0.043)
 

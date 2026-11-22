@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Colour hygiene for the Nocturne redesign (make lint; docs/work/2026-11-16-nocturne/design-pr6-b-train.md, "colour hygiene").
 
-Teal is recovery's colour and nothing else (L27); Volt is "now" and nothing else. Two rules:
+Teal is recovery's colour and nothing else (L27); Volt is "now" and nothing else. Three rules:
 
-1. In `Features/Train/**` (except `Import/**`, area C's), `Features/MyDay/**`, `Features/Activities/**` and
-   `Features/Journal/JournalViews.swift`, none of `Theme.accent`, `Theme.teal` (and the `Accent` and `Teal` assets),
-   SwiftUI's `.teal` and `.accentColor`, `TealButtonStyle`, `PrimaryButton`, `Theme.accentSecondary`, `Theme.warning`,
-   `Theme.sage`, `Theme.stageLight`, `Theme.zones` or `Theme.band` appears, and `Theme.alert` appears only inside a
-   destructive control: a call with `.destructive` as an argument (`Button(role: .destructive) { ... }`,
-   `PillButton(..., style: .destructive)`; its trailing closures and modifiers count as inside, up to a `;`), or in the
+1a. In `Ryft/`, `Shared/` and `RyftWidgets/`, none of the retired tokens appears (the Nocturne gate, T5.9, deleted them;
+   docs/work/2026-11-20-nocturne-gate/design.md §5.4): `Theme.accent`, `Theme.teal` (and the `Accent` and `Teal` assets),
+   SwiftUI's `.teal` and `.accentColor`, `TealButtonStyle`, `PrimaryButton`, `Theme.zones`, `Theme.stage*` (and the
+   `Stage…` assets), and the deleted colours `Theme.onAccent`, `graphite`, `slate`, `sage`, `mist` (and their assets).
+   The compiler finds a deleted `Theme` member; this rule finds an asset read by name, which compiles and draws nothing,
+   and SwiftUI's own teal and accent colour, which compile and draw.
+1b. In `Features/Train/**` (except `Import/**`, area C's), `Features/MyDay/**`, `Features/Activities/**` and
+   `Features/Journal/JournalViews.swift`, none of `Theme.accentSecondary`, `Theme.warning` or `Theme.band` appears, and
+   `Theme.alert` appears only inside a destructive control: a call with `.destructive` as an argument
+   (`Button(role: .destructive) { ... }`, `PillButton(..., style: .destructive)`; its trailing closures and modifiers
+   count as inside, up to a `;`), or in the
    true branch of `kind == .destructive ? Theme.alert : ...`. The ternary is a destructive-or-not control choosing coral
    exactly when it is destructive, which is the rule; a comparison elsewhere in a call's arguments does not make the call
-   destructive, and neither does the false branch (`kind != .destructive ? Theme.alert : ...`).
+   destructive, and neither does the false branch (`kind != .destructive ? Theme.alert : ...`). Outside these folders
+   amber notices, coral losses and the bands are legitimate (design.md §5.4 counted 50 such uses), so 1b stays narrow.
 2. `Theme.signal` (and `Brand.signal`, the `Signal` asset, and its aliases `FocusedRowInk.mark`, `RulerScale.needleColor`,
    `RestBar.ringInk`) appears in `Ryft/`, `Shared/` and `RyftWidgets/` only in the marks `ALLOW` lists, each with its reason.
 
@@ -44,20 +50,22 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 HYGIENE_DIRS = ("Ryft/Features/Train/", "Ryft/Features/MyDay/", "Ryft/Features/Activities/")
 HYGIENE_FILES = ("Ryft/Features/Journal/JournalViews.swift",)
 HYGIENE_EXCLUDED = ("Ryft/Features/Train/Import/",)  # area C's
-SIGNAL_DIRS = ("Ryft/", "Shared/", "RyftWidgets/")
+# Rules 1a and 2: the app, the widget and what both compile.
+SOURCE_DIRS = ("Ryft/", "Shared/", "RyftWidgets/")
 
 
 def in_hygiene_scope(path):
     return (path.startswith(HYGIENE_DIRS) or path in HYGIENE_FILES) and not path.startswith(HYGIENE_EXCLUDED)
 
 
-def in_signal_scope(path):
-    return path.startswith(SIGNAL_DIRS)
+def in_source_scope(path):
+    return path.startswith(SOURCE_DIRS)
 
 
 # MARK: the tokens
 
 RETIRED = "retired by the Nocturne accent map (docs/work/2026-11-16-nocturne/accent-map.md)"
+DELETED = "deleted with the pre-Nocturne palette (the gate, T5.9)"
 
 
 @dataclass(frozen=True)
@@ -85,27 +93,37 @@ class Token:
         return blanked, kept
 
 
-HYGIENE_TOKENS = [
-    # Theme.teal and the Teal asset are Theme.accent's colour (Theme.swift: "the same colour as `accent`").
+# Rule 1a: everywhere in SOURCE_DIRS.
+RETIRED_TOKENS = [
+    # Theme.teal and the Teal asset were Theme.accent's colour, the recovery teal.
     Token("Theme.accent", (r"\bTheme\s*\.\s*(?:accent|teal)\b",), ("Accent", "Teal"),
-          "teal is recovery's colour only (L27); controls and icons are Theme.textPrimary, the primary button is PillButton",
+          "deleted by the gate (T5.9): teal is Theme.recovery, recovery's colour only (L27); controls and icons are "
+          "Theme.textPrimary, the primary button is PillButton",
           no_symbol=("Teal",)),
     Token("Color.teal", (r"(?<!Theme)\.(?:teal|systemTeal)\b",), (),
           "SwiftUI's teal is still teal: recovery's colour only (L27)"),
     Token("Color.accentColor", (r"\.accentColor\b(?!\s*\()",), (),
-          "the app's accent is teal (it goes neutral only in PR 5): controls and icons are Theme.textPrimary"),
+          "name the colour: controls and icons are Theme.textPrimary (.accentColor is whatever the target's global accent is)"),
     Token("TealButtonStyle", (r"\bTealButtonStyle\b",), (), "the teal button is gone (T5.9); use PillButton"),
-    Token("PrimaryButton", (r"\bPrimaryButton\b",), (), "the teal primary button is gone; use PillButton"),
+    Token("PrimaryButton", (r"\bPrimaryButton\b",), (), "the teal primary button is gone (T5.9); use PillButton"),
+    # The palettes that held the retired colours (zones: stageAwake, accentSecondary, accent, warning, alert).
+    Token("Theme.zones", (r"\bTheme\s*\.\s*zones\b",), (),
+          "deleted by the gate (T5.9): pick a zone's ink from the metric (Strain's zones are ZoneBlock's), not a palette"),
+    Token("Theme.stage", (r"\bTheme\s*\.\s*stage\w*",), ("StageDeep", "StageLight", "StageREM", "StageAwake"),
+          "deleted by the gate (T5.9): the sleep stages are SleepStageTint's (the sleep violet)"),
+    *(Token(f"Theme.{name}", (rf"\bTheme\s*\.\s*{name}\b",), (asset,), f"{DELETED}: {instead}")
+      for name, asset, instead in (("onAccent", "OnAccent", "Theme.background on a light fill"),
+                                   ("graphite", "Graphite", "Theme.background"), ("slate", "Slate", "Theme.surface"),
+                                   ("sage", "Sage", "Theme.accentSecondary, where rule 1b allows it"),
+                                   ("mist", "Mist", "Theme.textPrimary"))),
+]
+# Rule 1b: in the hygiene folders only.
+HYGIENE_TOKENS = [
     Token("Theme.accentSecondary", (r"\bTheme\s*\.\s*accentSecondary\b",), ("AccentSecondary",), RETIRED),
     Token("Theme.warning", (r"\bTheme\s*\.\s*warning\b",), ("Warning",), RETIRED),
-    Token("Theme.sage", (r"\bTheme\s*\.\s*sage\b",), ("Sage",), RETIRED),
-    Token("Theme.stageLight", (r"\bTheme\s*\.\s*stageLight\b",), ("StageLight",), RETIRED),
-    # The palettes that hold the retired colours (Theme.swift: zones = stageAwake, accentSecondary, accent, warning, alert;
-    # band = accent, warning, alert).
-    Token("Theme.zones", (r"\bTheme\s*\.\s*zones\b",), (),
-          "the zone palette holds accent, warning, alert and accentSecondary: pick the zone's ink from the metric, not the palette"),
+    # The palette that holds the retired colours (Theme.swift: band = recovery, warning, alert).
     Token("Theme.band", (r"\bTheme\s*\.\s*band\b",), (),
-          "the band colour is accent, warning or alert by score: pick the ink from the metric"),
+          "the band colour is recovery, warning or alert by score: pick the ink from the metric"),
 ]
 ALERT = Token("Theme.alert", (r"\bTheme\s*\.\s*alert\b",), ("Alert",),
               "coral only inside a destructive control (Button(role: .destructive) or a .destructive pill); elsewhere it is "
@@ -118,7 +136,7 @@ SIGNAL = Token("Theme.signal",
                ("Signal",),
                "Volt is 'now' only: the active row, the rest ring, a today dot, the ruler needle, a series' last point; "
                "a new mark needs design sign-off and an ALLOW entry in scripts/check-accent-use.py")
-TOKENS = [*HYGIENE_TOKENS, ALERT, SIGNAL]
+TOKENS = [*RETIRED_TOKENS, *HYGIENE_TOKENS, ALERT, SIGNAL]
 
 
 @dataclass(frozen=True)
@@ -141,10 +159,6 @@ class Allow:
 ARGS = r"(?:[^()]|\((?:[^()]|\([^()]*\))*\))*"
 
 ALLOW = [
-    # Teal: one definition left, deleted with Theme.accent in the gate PR.
-    Allow("Ryft/Features/Train/TrainComponents.swift", ("Theme.accent", "TealButtonStyle"), r"\bstruct TealButtonStyle\b",
-          "its definition only: still used outside the linted folders (CoachMarks, PushPrePromptCard); T5.9 deletes the "
-          "struct, Theme.accent and this entry together", construct=True),
     # Volt: the brief's five marks (brief.md §1, Theme.signal's doc), L27's two for Train, L17's series end. Each entry is
     # the mark's own expression; a label or a line beside it is not covered.
     # The active row's dot and bar: the constant and its three uses.
@@ -362,13 +376,13 @@ class Finding:
 
 def check_source(path, text, allow, used=None):
     """The findings in one Swift file; `used` (a Counter) collects, per ALLOW entry, the places it covered a token."""
-    hygiene, signal = in_hygiene_scope(path), in_signal_scope(path)
-    if not (hygiene or signal):
+    hygiene, everywhere = in_hygiene_scope(path), in_source_scope(path)
+    if not (hygiene or everywhere):
         return []
     code = mask(text, strings=True)
     named = mask(text, strings=False)
     assert len(code) == len(text) == len(named)
-    tokens = ([*HYGIENE_TOKENS, ALERT] if hygiene else []) + ([SIGNAL] if signal else [])
+    tokens = ([*RETIRED_TOKENS, SIGNAL] if everywhere else []) + ([*HYGIENE_TOKENS, ALERT] if hygiene else [])
     destructive = destructive_ranges(code)
     allowed = []  # (token name, start, end, entry)
     for entry in allow:
@@ -378,7 +392,7 @@ def check_source(path, text, allow, used=None):
             end = extent(code, m.start()) if entry.construct else m.end()
             for token in entry.tokens:
                 allowed.append((token, m.start(), end, entry))
-    findings, covered = [], set()
+    found, covered = [], set()  # (offset, finding)
     for token in tokens:
         in_code, as_asset = token.patterns()
         hits = [m.start() for pattern in in_code for m in re.finditer(pattern, code)]
@@ -390,11 +404,11 @@ def check_source(path, text, allow, used=None):
                 continue
             if token.name == ALERT.name and any(start <= offset < end for start, end in destructive):
                 continue
-            findings.append(Finding(path, line_of(text, offset), token.name, token.reason))
+            found.append((offset, Finding(path, line_of(text, offset), token.name, token.reason)))
     if used is not None:
         for entry, _ in covered:
             used[entry] += 1
-    return findings
+    return [finding for _, finding in sorted(found, key=lambda pair: pair[0])]
 
 
 def swift_files(base):
@@ -435,6 +449,7 @@ def check_repository_entries(allow, used):
 
 TRAIN, MYDAY, ACTIVITIES = "Ryft/Features/Train/Session/X.swift", "Ryft/Features/MyDay/X.swift", "Ryft/Features/Activities/X.swift"
 JOURNAL, DESIGN = "Ryft/Features/Journal/JournalViews.swift", "Ryft/Design/X.swift"
+PROFILE, PUSH, WIDGET, SHARED = "Ryft/Features/Profile/X.swift", "Ryft/Push/X.swift", "RyftWidgets/X.swift", "Shared/X.swift"
 
 # (name, path, snippet, tokens expected in order; empty = passes)
 CASES = [
@@ -442,17 +457,41 @@ CASES = [
     ("accent in Activities fails", ACTIVITIES, "let c = Theme.accent", ["Theme.accent"]),
     ("accent in Train fails", TRAIN, "let c = Theme.accent", ["Theme.accent"]),
     ("accent in the Journal card fails", JOURNAL, "let c = Theme.accent", ["Theme.accent"]),
-    ("accent in Train/Import is area C's", "Ryft/Features/Train/Import/X.swift", "let c = Theme.accent", []),
-    ("accent in the other Journal files is not linted", "Ryft/Features/Journal/BehaviorsSection.swift", "let c = Theme.accent", []),
-    ("accent in Design is not linted", DESIGN, "let c = Theme.accent", []),
+    # Rule 1a covers the app, the widget and Shared/, not only the hygiene folders.
+    ("1a: accent in Train/Import (area C's) fails", "Ryft/Features/Train/Import/X.swift", "let c = Theme.accent", ["Theme.accent"]),
+    ("1a: accent in the other Journal files fails", "Ryft/Features/Journal/BehaviorsSection.swift", "let c = Theme.accent", ["Theme.accent"]),
+    ("1a: accent in Design fails", DESIGN, "let c = Theme.accent", ["Theme.accent"]),
+    ("1a: accent in Profile fails", PROFILE, "Text(x).foregroundStyle(Theme.accent)", ["Theme.accent"]),
+    ("1a: PrimaryButton( in Push fails", PUSH, 'PrimaryButton(title: "Allow") { enable() }', ["PrimaryButton"]),
+    ("1a: the Teal asset in the widget fails", WIDGET, 'Circle().fill(Color("Teal"))', ["Theme.accent"]),
+    ("1a: the Accent asset in Shared fails", SHARED, 'let c = Color("Accent")', ["Theme.accent"]),
+    ("1a: .accentColor in the widget fails", WIDGET, "Text(x).foregroundStyle(.accentColor)", ["Color.accentColor"]),
+    ("1a: Color.teal in Shared fails", SHARED, "let c = Color.teal", ["Color.teal"]),
+    ("1a: TealButtonStyle in Design fails", DESIGN, ".buttonStyle(TealButtonStyle())", ["TealButtonStyle"]),
+    ("1a: Theme.zones in Design fails", DESIGN, "let z = Theme.zones", ["Theme.zones"]),
+    ("1a: a stage colour in Design fails", DESIGN, "let c = Theme.stageDeep", ["Theme.stage"]),
+    ("1a: a stage asset by name in Shared fails", SHARED, 'let c = Color("StageREM")', ["Theme.stage"]),
+    ("1a: the deleted colour sets by name in the widget fail", WIDGET,
+     'let a = Color("Mist")\nlet b = UIColor(named: "Graphite")\nlet c = Color("Slate", bundle: nil)\nlet d = Color("OnAccent")',
+     ["Theme.mist", "Theme.graphite", "Theme.slate", "Theme.onAccent"]),
+    ("1a: the snippets in comments pass", PROFILE,
+     '// Theme.accent, PrimaryButton(title: "x"), Color("Teal"), .accentColor, Color.teal\n/* Theme.stageDeep */ let x = 1', []),
+    ("1a: the snippets in a string pass", WIDGET, 'let s = "Theme.accent PrimaryButton( Color.teal .accentColor Theme.zones"', []),
+    ("1a: tests are not linted", "RyftTests/X.swift", 'let c = Theme.accent\nPrimaryButton(title: "x") {}', []),
+    ("1a: AccentColor, the catalog's global accent (ink), is not the Accent asset", DESIGN, 'let c = Color("AccentColor")', []),
+    # Rule 1b stays in its four folders: outside them amber notices, coral losses and the bands are legitimate.
+    ("1b: warning in Profile passes", PROFILE, "let c = Theme.warning", []),
+    ("1b: band and accentSecondary in Design pass", DESIGN, "let a = Theme.band(forScore: 70)\nlet b = Theme.accentSecondary", []),
+    ("1b: alert in Push passes", PUSH, "Text(x).foregroundStyle(Theme.alert)", []),
     ("TealButtonStyle fails", TRAIN, ".buttonStyle(TealButtonStyle(prominent: true))", ["TealButtonStyle"]),
     ("PrimaryButton fails", MYDAY, 'PrimaryButton("Save") {}', ["PrimaryButton"]),
-    ("ImportPrimaryButton is a different type", MYDAY, 'ImportPrimaryButton(title: "x")', []),
+    ("ImportStepButton, the import's pill, is not PrimaryButton", MYDAY, 'ImportStepButton(title: "x")', []),
+    ("a longer name around PrimaryButton is another type", MYDAY, "let s = OldPrimaryButtonStyle()", []),
     ("accentSecondary fails", ACTIVITIES, "let c = Theme.accentSecondary", ["Theme.accentSecondary"]),
     ("warning fails", MYDAY, "let c = Theme.warning", ["Theme.warning"]),
     ("sage fails", MYDAY, "let c = Theme.sage", ["Theme.sage"]),
-    ("stageLight fails", TRAIN, "let c = Theme.stageLight", ["Theme.stageLight"]),
-    ("onAccent is not the accent", TRAIN, "let c = Theme.onAccent", []),
+    ("stageLight fails", TRAIN, "let c = Theme.stageLight", ["Theme.stage"]),
+    ("onAccent is a deleted colour of its own", TRAIN, "let c = Theme.onAccent", ["Theme.onAccent"]),
     ("the accent asset by name fails", MYDAY, 'let c = Color("Accent")', ["Theme.accent"]),
     # Teal under its other names (Theme.swift: teal is accent's colour).
     ("Theme.teal fails", TRAIN, "Circle().fill(Theme.teal)", ["Theme.accent"]),
@@ -626,7 +665,10 @@ def self_test():
         expect(f"{entry.path}: has a reason", bool(entry.reason.strip()), True)
         expect(f"{entry.path}: compiles", bool(re.compile(entry.inside)), True)
         expect(f"{entry.path}: tokens are known", all(t in names for t in entry.tokens), True)
-        expect(f"{entry.path}: {entry.inside} is a mark, not a function", re.match(r"\\bfunc |\\bstruct (?!TealButtonStyle)", entry.inside) is None, True)
+        expect(f"{entry.path}: {entry.inside} is a mark, not a function", re.match(r"\\bfunc |\\bstruct ", entry.inside) is None, True)
+    # Each rule is shown to fail on a plant: every token has a case that expects it.
+    planted = {token for cases in (CASES, ALLOW_CASES, REAL_CASES) for _, _, _, want in cases for token in want}
+    expect("every token has a failing case", sorted(names - planted), [])
     if failures:
         print(f"{failures} of {total} self-test checks failed.")
         sys.exit(1)
@@ -644,7 +686,8 @@ def main():
         print(f"\n{len(findings)} colour problem(s): teal is recovery's, Volt is 'now' "
               "(docs/work/2026-11-16-nocturne/design-pr6-b-train.md, colour hygiene).")
         sys.exit(1)
-    print("Accent use: no retired or misplaced colour in Train, My Day, Activities or the Journal card; Volt only in its marks.")
+    print("Accent use: no retired colour or component in Ryft/, Shared/ or RyftWidgets/; no misplaced colour in Train, My Day, "
+          "Activities or the Journal card; Volt only in its marks.")
 
 
 if __name__ == "__main__":

@@ -219,7 +219,7 @@ import UIKit
             let numeral = try #require(w.nodes().first { $0.identifier == "sleep.bedtime.numeral" })
             #expect(numeral.label.hasPrefix("Go to bed at "), "\(numeral.label)")
             let tile = try #require(w.nodes().first { $0.identifier == "sleep.bedtime.goToBed" })
-            #expect(tile.label == "Go to bed" && (tile.value ?? "").contains("85 percent of your need, ")
+            #expect(tile.label == "Go to bed" && (tile.value ?? "").contains("85\u{00A0}percent of your need, ")
                     && (tile.value ?? "").contains("your goal"), "\(tile.value ?? "")")
             #expect(w.nodes().filter { ($0.value ?? "").contains("your goal") }.count == 1)
             #expect(w.node("Planned sleep") != nil, "the ruler")
@@ -256,7 +256,7 @@ import UIKit
             let setUp = try frame(w, "sleep.bedtime.setUp"), tile = try frame(w, "sleep.bedtime.goToBed")
             #expect(setUp.maxY < tile.minY, "the invitation above the bedtimes")
             let goToBed = try #require(w.nodes().first { $0.identifier == "sleep.bedtime.goToBed" })
-            #expect(!(goToBed.value ?? "").contains("your goal") && (goToBed.value ?? "").contains("100 percent of your need"))
+            #expect(!(goToBed.value ?? "").contains("your goal") && (goToBed.value ?? "").contains("100\u{00A0}percent of your need"))
             for id in ["sleep.bedtime.why", "sleep.bedtime.schedule"] {
                 #expect(ids.contains(id), "\(id)")
             }

@@ -73,21 +73,21 @@ final class HostedWindow {
     private static var busy = false
 
     /// `content` gets the preview environment. `typeSize`: the Dynamic Type size, as the shots set it.
-    static func run<Content: View>(width: CGFloat, height: CGFloat, bottomInset: CGFloat = 34, dark: Bool = true,
+    static func run<Content: View>(width: CGFloat, height: CGFloat, bottomInset: CGFloat = 34,
                                    typeSize: DynamicTypeSize = .large, category: UIContentSizeCategory = .large,
                                    _ content: Content, body: (HostedWindow) async throws -> Void) async throws {
         while busy { try await Task.sleep(for: .milliseconds(25)) }
         busy = true
         defer { busy = false }
         let scene = try await windowScene()
-        let root = AnyView(content.previewEnvironment(scheme: dark ? .dark : .light).environment(\.dynamicTypeSize, typeSize))
+        let root = AnyView(content.previewEnvironment().environment(\.dynamicTypeSize, typeSize))
         let hosted = HostedWindow(scene: scene, root: root, size: CGSize(width: width, height: height),
-                                  bottomInset: bottomInset, dark: dark, category: category)
+                                  bottomInset: bottomInset, category: category)
         defer { hosted.close() }
         try await body(hosted)
     }
 
-    private init(scene: UIWindowScene, root: AnyView, size: CGSize, bottomInset: CGFloat, dark: Bool, category: UIContentSizeCategory) {
+    private init(scene: UIWindowScene, root: AnyView, size: CGSize, bottomInset: CGFloat, category: UIContentSizeCategory) {
         Self.automationEnabled = true
         host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = category
@@ -95,7 +95,7 @@ final class HostedWindow {
         window = UIWindow(windowScene: scene)
         window.frame = CGRect(origin: .zero, size: size)
         window.windowLevel = .alert + 1
-        window.overrideUserInterfaceStyle = dark ? .dark : .light
+        window.overrideUserInterfaceStyle = .dark
         window.rootViewController = host
         window.isHidden = false
     }
@@ -110,7 +110,7 @@ final class HostedWindow {
         defer { automationEnabled = real }
         automationEnabled = before
         let hosted = try await HostedWindow(scene: windowScene(), root: AnyView(EmptyView()), size: CGSize(width: 100, height: 100),
-                                            bottomInset: 0, dark: true, category: .large)
+                                            bottomInset: 0, category: .large)
         let during = automationEnabled
         hosted.close()
         return (during, automationEnabled)

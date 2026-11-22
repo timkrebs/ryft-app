@@ -476,7 +476,7 @@ final class TrainLibrary {
         e.nameEn = Self.withoutNUL(e.nameEn)
         e.nameDe = Self.withoutNUL(e.nameDe)
         guard Self.isValidName(e.name) else {
-            error = String(localized: "Give the exercise a name of up to 80 characters.")
+            error = String(localized: "Give the exercise a name of up to 80\u{00A0}characters.")
             errorDetails = nil
             return nil
         }

@@ -203,10 +203,16 @@ colour fix, G1), `DarkPreview`.
 
 ### 1.10 The `AccentColor` asset (G4)
 
-`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor` is set in both app configurations, but `Ryft/Assets.xcassets` has no
-`AccentColor.colorset`, so a control that nobody tints falls back to system blue (`PresentedRoot.swift:13` says so). G4 adds
-`AccentColor.colorset` with one universal value, `#F2F1EC` (the `TextPrimary` value): the safety net the PR 5 review asked for. The
-widget's empty `AccentColor` stays: its one `Link` is tinted `Brand.signal` in code and nothing else there is a control.
+`Ryft/Assets.xcassets` had no `AccentColor.colorset`, so a control that nobody tints fell back to system blue (`PresentedRoot.swift`
+says so). G4 adds `AccentColor.colorset` with one universal value, `#F2F1EC` (the `TextPrimary` value): the safety net the PR 5
+review asked for.
+
+**As built (G4).** This note first said `ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor` was set in both app
+configurations. It was set only on the widget target, so the app's Info.plist had no `NSAccentColorName`. G4 sets it for the app in
+`Config/Production.xcconfig`, the committed base of both configurations (no project-file edit); the built `Ryft.app/Info.plist`
+carries `NSAccentColorName = AccentColor`. The widget's `AccentColor` is filled with the same value, not left empty:
+`scripts/check-shared-types.py` requires a set that both catalogs hold to be identical. Its one `Link` is still tinted
+`Brand.signal` in code.
 
 ## 2. Decisions D1 to D9
 
@@ -334,14 +340,21 @@ circle **trailing**, scrolling with the page.
 1. **The close circle is leading.** A `CircleButton("xmark")` labelled "Close", or "Cancel" when closing discards what was typed
    (as today), or "Done" for a sheet that has nothing to discard and calls it so (Details). Always the sheet's dismissal; the caller's
    `onClose` asks first when work would be lost.
-2. **The title is centred**, `callout` `textPrimary`, header trait, between slots of equal width (`SheetHeaderLayout`); under the
-   row, centred, when it would be narrower than 120 pt (AX sizes).
+2. **The title is centred**, `callout` `textPrimary`, header trait, between slots of equal width (`SheetHeaderLayout`); below AX1
+   under the row, centred, when it would be narrower than 120 pt (a wide pill at XXXL). **From AX1 the header stacks as
+   `PushedHeader` does** (one header everywhere, part 2): the close circle and the trailing slot on the first 40 pt row; 12 below
+   them the title from the leading inset, across the width, wrapping, never squeezed between the circles; VoiceOver in the order
+   drawn (Close, the trailing slot, the title). Below AX1 VoiceOver reads the title first.
 3. **The trailing slot is empty, one `CircleButton` or `CircleMenu`, or the commit**: a compact primary `PillButton`
    ("Save", "Add", "Done"). Never a second dismissal.
 4. **Where the commit lives.** A sheet whose job is a short form with a keyboard puts its commit in the header (Add activity,
    Add sleep, plans, notes, targets). A sheet that is a page (Details' Send, Check sync, the tracker picker, an editor with a long
    footnote) keeps its single pinned primary (`PinnedActionBar`) and has an empty trailing slot. One primary per sheet, in one place.
 5. **The header is pinned**, not scroll content: the close circle stays reachable. This is the only behavioural change for C's pages.
+   While content has scrolled under it, the page stops 12 below the header at a 1 pt `separator` rule, the pinned bar's edge
+   turned over (part 2, `.underPinnedHeader()`); at rest nothing shows. Every sheet with this header does it, the exercise history
+   sheet from the live workout, Start workout and Reorder included (the part 2 review's N1). Reorder is a `List`; it reports its
+   scroll geometry as a `ScrollView` does, so it needs no exception (`NocturneHeaderTests`, "Pinned in review N1").
 6. **A page pushed inside a sheet** is a page: Back leading, its own title (`SubpageHeader`/`PushedHeader`), no close; a swipe down
    still dismisses the sheet. The one exception is the training import, a flow whose steps 2–5 need Back *and* a close that asks
    first: Back leading, the close circle trailing (`SubpageNavigation.backAndClose`, as built). Its root (step 1) has the sheet

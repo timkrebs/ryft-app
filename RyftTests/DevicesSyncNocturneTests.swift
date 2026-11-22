@@ -41,7 +41,7 @@ struct DevicesSyncNocturneTests {
         #expect(Set(kinds.map(\.symbol)).count == kinds.count)
         #expect(CheckRow.Kind.ok.color == Theme.textPrimary)
         #expect(CheckRow.Kind.fix.color == Theme.warning)
-        #expect(!kinds.contains { $0.color == Theme.accent || $0.color == Theme.recovery })
+        #expect(!kinds.contains { $0.color == Theme.recovery })
     }
 
     @Test("Spec 15: the pages' sources name no teal (L27: teal is recovery only)")

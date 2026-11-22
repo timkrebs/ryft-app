@@ -75,7 +75,7 @@ struct LaunchOverlay: View {
     @ViewBuilder
     private func content(safeAreaBottom: CGFloat) -> some View {
         if model.phase == .armed {
-            // Pixel for pixel the system launch screen (`UILaunchScreen`'s Graphite is this colour, ADR 0016).
+            // Pixel for pixel the system launch screen (`UILaunchScreen`'s colour is this asset, `Background`, ADR 0016).
             Theme.background
         } else {
             let palette = LaunchFrame.Palette.resolved(in: environment)

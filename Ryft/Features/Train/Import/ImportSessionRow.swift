@@ -77,7 +77,7 @@ struct ImportSessionRow: View {
     private var notes: [Note] {
         var out: [Note] = []
         if preview.skippedSetCount > 0 {
-            out.append(Note(text: String(localized: "\(preview.skippedSetCount) sets skipped",
+            out.append(Note(text: String(localized: "\(preview.skippedSetCount)\u{00A0}sets skipped",
                                          comment: "Training import, step 5: sets with no weight or reps."), strong: false))
         }
         if isDuplicate {
@@ -151,7 +151,7 @@ enum ImportPreviewText {
     /// "9 exercises · 31 sets · 11,420 kg".
     static func counts(_ preview: ImportSessionPreview) -> String {
         var parts = [String(localized: "\(preview.exerciseCount) exercises"),
-                     String(localized: "\(preview.setCount) sets", comment: "Training import: a count of sets.")]
+                     String(localized: "\(preview.setCount)\u{00A0}sets", comment: "Training import: a count of sets.")]
         if preview.volumeKg > 0 { parts.append(Fmt.volume(preview.volumeKg)) }
         return parts.joined(separator: " · ")
     }

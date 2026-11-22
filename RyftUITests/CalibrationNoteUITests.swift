@@ -75,7 +75,7 @@ final class CalibrationNoteUITests: XCTestCase {
         let gauge = element(app, "today.readinessGauge")
         XCTAssertTrue(gauge.waitForExistence(timeout: 60), "the readiness gauge")
         let value = gauge.value as? String ?? ""
-        XCTAssertTrue(value.contains("Learning your HRV baseline: 0 of 7 nights."), "the note: \(value)")
+        XCTAssertTrue(value.contains("Learning your HRV baseline: 0 of 7\u{00A0}nights."), "the note: \(value)")
         XCTAssertFalse(app.buttons["today.gaugeNote.link"].exists, "nothing to fix")
     }
 
@@ -88,7 +88,7 @@ final class CalibrationNoteUITests: XCTestCase {
         let gauge = element(app, "today.baselineGauge")
         XCTAssertTrue(gauge.waitForExistence(timeout: 60), "the baselines gauge")
         let value = gauge.value as? String ?? ""
-        XCTAssertEqual(value, "3 of 7 nights with resting heart rate.")
+        XCTAssertEqual(value, "3 of 7\u{00A0}nights with resting heart rate.")
         keep(app, "today-ax3-top")
         let note = element(app, "today.gaugeNote")
         let link = app.buttons["today.gaugeNote.link"]
@@ -105,7 +105,7 @@ final class CalibrationNoteUITests: XCTestCase {
         XCTAssertTrue(sleepTile.firstMatch.exists, "the Sleep tile says No data, calibrating")
         keep(app, "today-ax3-tiles")
         for _ in 0..<12 where !(note.exists && note.isHittable) { app.swipeDown() }
-        XCTAssertTrue(note.label.contains("Learning your resting heart rate baseline: 3 of 7 nights."), note.label)
+        XCTAssertTrue(note.label.contains("Learning your resting heart rate baseline: 3 of 7\u{00A0}nights."), note.label)
         XCTAssertTrue(link.exists && link.isHittable, "the link under the note")
         keep(app, "today-ax3-note")
         // Nothing clipped: the note and the tile lie inside the window's width.
