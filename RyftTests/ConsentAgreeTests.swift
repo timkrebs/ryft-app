@@ -1389,4 +1389,73 @@ struct ConsentAgreeTests {
         #expect(h.onboarding.sheetStep == .consent, "asked for, it shows")
         await delete.open()
     }
+
+    // MARK: Review round 3, N-a and N-b: a withdrawal of a consent not confirmed yet
+
+    @Test("N-a: withdrawing a consent not confirmed yet, on its way or without an answer: a pause names no confirmation",
+          .timeLimit(.minutes(1)))
+    func aPauseDuringAWithdrawalNamesNoConfirmation() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let train = h.trainOutbox()
+        _ = await train.finish(SessionFactory.empty(in: h.persistence))
+        try #require(train.pendingCount > 0 && train.heldAt == .gate(.consentRequired))
+        let details = h.details(h.sync(), onboarding: h.onboarding)
+        details.trainOutbox = train
+        #expect(details.workoutsHeldText == String(localized: "Waiting for RYFT to confirm your consent"), "before")
+        let delete = Gate(), me = FirstCallsHold()
+        let api = h.api
+        api.beforeRevokeConsent = { await delete.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        #expect(!h.onboarding.awaitsConfirmation)
+        #expect(details.workoutsHeldText == String(localized: "Paused"), "on its way")
+        // No answer, and RYFT not heard from since: the agreement is still unsettled, and the pause still names nothing.
+        api.beforeMe = { await me.wait() }
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await withdrawing.value == false)
+        try #require(h.consent.unsettledAgreement != nil && h.consent.withdrawalUnresolvedSince != nil)
+        #expect(!h.onboarding.awaitsConfirmation && !h.consent.awaitsConfirmation, "with or without a coordinator")
+        #expect(details.workoutsHeldText == String(localized: "Paused"), "without an answer")
+        me.release()
+        await delete.open()
+    }
+
+    @Test("N-b: withdrawing a consent not confirmed yet, the late answer shows none: settled, and Privacy says Not given",
+          .timeLimit(.minutes(1)))
+    func aLateAnswerWithoutTheConsentSettles() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        #expect(profile.consentAwaitsConfirmation && profile.consentText == String(localized: "Given"))
+        let delete = Gate(), me = FirstCallsHold()
+        let api = h.api
+        // RYFT records the withdrawal, and its answer never comes; asked again, its /v1/me is held past the deadline.
+        api.beforeRevokeConsent = {
+            api.accountConsent = nil
+            await delete.wait()
+        }
+        api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+        h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        #expect(await withdrawing.value == false)
+        #expect(profile.consentAwaitsConfirmation, "RYFT's word isn't in yet")
+
+        // The withdrawal's own re-read, late, shows no consent: closing is always safe, so it settles.
+        me.release()
+        #expect(await eventually { h.consent.agreement?.settled == true }, "settled by the answer without the consent")
+        #expect(!profile.consentAwaitsConfirmation)
+        #expect(profile.consentText == String(localized: "Not given"))
+        #expect(h.onboarding.uploadGate(for: .train) == .gate(.consentRequired))
+        await delete.open()
+    }
 }

@@ -242,6 +242,11 @@ final class ConsentState {
     /// (`OnboardingCoordinator.missing`), and the upload gate holds while it's there (`gate`, ADR 0025).
     var unsettledAgreement: String? { pendingAgreement?.version }
 
+    /// Data waits for RYFT's word on this phone's agreement, and for nothing this phone did since: unsettled, with no
+    /// withdrawal without an answer holding it instead (security review round 3, N-a). What a pause's words name
+    /// (`SyncIdleState.PauseCause`); `OnboardingCoordinator.awaitsConfirmation` adds a withdrawal on its way.
+    var awaitsConfirmation: Bool { unsettledAgreement != nil && withdrawalUnresolvedSince == nil }
+
     /// A `GET /v1/me/sync` asked for at `askedAt` speaks for consent, `consent_required` or `null`: not when it was asked
     /// within `ScoringWord.statusCacheTime` of this phone's consent `204`, or before it, when the platform's cache
     /// (API.md: 10 s per user) may still hold an answer from before the consent. The same rule as
@@ -308,13 +313,15 @@ final class ConsentState {
     /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`). Asked for at
     /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). A void one (recorded
     /// after now, `standingAgreement`) any answer settles: the stored user decides then anyway (code review round 2, 5).
-    /// Not when `settles` is false (a withdrawal's own re-read: RYFT may record the `DELETE` after it). Asked for after
+    /// Not when `settles` is false (a withdrawal's own re-read: RYFT may record the `DELETE` after it), unless it shows no
+    /// consent: settling then only closes, and Privacy stops saying RYFT recorded one (security review round 3, N-b; code
+    /// review 1). Asked for after
     /// the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
     /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
     /// Asked for at or after a withdrawal that had no answer, it resolves that one, whatever it shows, `settles` or not
     /// (security review round 3, S-2): the stored user is RYFT's word on it from then on.
     func heard(_ user: User, askedAt: Date, settles: Bool = true) {
-        if settles, let env, let agreement, !agreement.settled,
+        if settles || user.consent == nil, let env, let agreement, !agreement.settled,
            askedAt >= agreement.at || agreement.at > env.clock.now() {
             write { $0.agreement?.settled = true }
             agreementSettled?()

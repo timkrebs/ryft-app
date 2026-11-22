@@ -737,11 +737,13 @@ final class SyncDetailsModel {
 
     /// Why the queued workouts wait, when a gate holds them: Today's words for a gate the user can pass, asked of
     /// onboarding first as the State row does (`SyncIdleState.held`). A hold no step answers says what it waits for by
-    /// its cause (code review S2; round 2, 6): RYFT's confirmation only while this phone's agreement is unsettled, the
-    /// policy in force, otherwise only that it's paused.
+    /// its cause (code review S2; round 2, 6): RYFT's confirmation only while this phone's agreement is unsettled and no
+    /// withdrawal holds instead (security review round 3, N-a), the policy in force, otherwise only that it's paused.
     var workoutsHeldText: String? {
         guard unsentWorkouts > 0, let hold = trainOutbox?.heldAt else { return nil }
-        let cause = SyncIdleState.PauseCause.of(hold, agreementUnsettled: env.consent.unsettledAgreement != nil)
+        // Not during a withdrawal, on its way or without an answer: nothing waits for a confirmation then (N-a).
+        let awaits = onboarding?.awaitsConfirmation ?? env.consent.awaitsConfirmation
+        let cause = SyncIdleState.PauseCause.of(hold, agreementUnsettled: awaits)
         switch SyncIdleState.held(at: hold, pendingGate: onboarding.map { $0.pendingGate }) {
         case .actionNeeded(let step)?: return SyncIdleState.actionNeeded(step).text
         case .paused? where cause == .policy:

@@ -85,9 +85,10 @@ enum SyncIdleState: Equatable, Sendable {
     }
 
     /// What a pause (`held` gave `.paused`) waits for, for the words that name it (security review round 2, N1; code
-    /// review round 2, 6): RYFT's word on the consent given here only while that agreement is unsettled
-    /// (`ConsentState.unsettledAgreement`); the policy in force; otherwise nothing named (the account not known yet, a
-    /// withdrawal on its way, a kept refusal no step answers).
+    /// review round 2, 6): RYFT's word on the consent given here only while that agreement is unsettled and no withdrawal,
+    /// on its way or without an answer, holds instead (`OnboardingCoordinator.awaitsConfirmation`; security review round
+    /// 3, N-a); the policy in force; otherwise nothing named (the account not known yet, a withdrawal, a kept refusal no
+    /// step answers).
     enum PauseCause: Equatable, Sendable {
         case confirmation, policy, other
 

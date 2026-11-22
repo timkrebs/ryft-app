@@ -55,8 +55,9 @@ final class ImportFlowModel: Identifiable {
         /// Onboarding's `pendingGate` (ScreenModels): whether a gate's hold is a step the user can take. Nil without a
         /// coordinator: the hold's own gate decides.
         var pendingGate: @MainActor () -> OnboardingCoordinator.Step?? = { nil }
-        /// This phone's consent agreement waits for RYFT's word (`ConsentState.unsettledAgreement`): only then does a
-        /// pause name RYFT's confirmation (`gatedPauseCause`).
+        /// This phone's consent agreement waits for RYFT's word, and no withdrawal holds instead (onboarding's
+        /// `awaitsConfirmation`, security review round 3, N-a): only then does a pause name RYFT's confirmation
+        /// (`gatedPauseCause`).
         var agreementUnsettled: @MainActor () -> Bool = { false }
     }
 

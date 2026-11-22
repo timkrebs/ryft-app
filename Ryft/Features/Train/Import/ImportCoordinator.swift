@@ -42,15 +42,20 @@ final class ImportCoordinator {
 
     /// Onboarding's `pendingGate`: whether the import's gate hold is a step the user can take (I8).
     private let pendingGate: @MainActor () -> OnboardingCoordinator.Step??
+    /// Onboarding's `awaitsConfirmation`: whether a gate pause waits for RYFT's confirmation (security review round 3,
+    /// N-a). Nil without a coordinator: `ConsentState.awaitsConfirmation`.
+    private let awaitsConfirmation: (@MainActor () -> Bool)?
 
     init(env: AppEnvironment, library: TrainLibrary, uploader: TrainImportUploader,
          pendingGate: @escaping @MainActor () -> OnboardingCoordinator.Step?? = { nil },
+         awaitsConfirmation: (@MainActor () -> Bool)? = nil,
          showStrain: @escaping @MainActor () -> Void, openRoute: @escaping @MainActor (TrainRoute) -> Void) {
         self.env = env
         self.library = library
         self.uploader = uploader
         mappings = ImportMappingStore(env: env)
         self.pendingGate = pendingGate
+        self.awaitsConfirmation = awaitsConfirmation
         self.showStrain = showStrain
         self.openRoute = openRoute
     }
@@ -203,7 +208,7 @@ final class ImportCoordinator {
             account: { env.isDemo ? ImportMappingStore.demoAccount : env.auth.accountID },
             isOnline: { env.connectivity.isOnline })
         deps.pendingGate = pendingGate
-        deps.agreementUnsettled = { env.consent.unsettledAgreement != nil }
+        deps.agreementUnsettled = { [awaitsConfirmation] in awaitsConfirmation?() ?? env.consent.awaitsConfirmation }
         #if DEBUG
         if let names = ImportDemoFiles.requested {
             deps.scriptedFiles = { ImportDemoFiles.load(names, now: env.clock.now()) }

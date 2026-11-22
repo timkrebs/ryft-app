@@ -225,6 +225,10 @@ final class OnboardingCoordinator {
     /// (`ConsentState.withdrawalUnresolvedSince`): every data upload waits for it (`Facts.withdrawing`).
     var withdrawalHolds: Bool { isWithdrawing || consent.withdrawalUnresolvedSince != nil }
 
+    /// A pause waits for RYFT's confirmation of this phone's agreement, not for a withdrawal on its way or without an
+    /// answer (security review round 3, N-a): Sync details' and the import's words (`SyncIdleState.PauseCause`).
+    var awaitsConfirmation: Bool { consent.awaitsConfirmation && !isWithdrawing }
+
     /// `GET /v1/me/sync` → `gate`; a `consent_required` only from a status that speaks for consent (R2: not one asked
     /// within the platform's cache time of this phone's consent `204`).
     private var serverGate: APIErrorCode? {
