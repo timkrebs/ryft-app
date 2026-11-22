@@ -1,3 +1,4 @@
+import Accessibility
 import Foundation
 import Observation
 import UIKit
@@ -153,7 +154,19 @@ final class ProfileViewModel {
     var accountError: String? { auth.errorMessage }
     var accountErrorDetails: String? { auth.errorDetails }
 
-    func logOut() async { await auth.signOut() }
+    /// Logs out, unless a consent withdrawal is on its way (D6, security review S-1): a sign-out would end it unsent. The
+    /// pill is held then too; the model doesn't count on its view ("Log out anyway" in a dialog shown before the hold).
+    func logOut() async {
+        guard !withdrawingConsent, !loggingOut else { return }
+        loggingOut = true
+        defer { loggingOut = false }
+        await auth.signOut()
+    }
+
+    /// From Log out until the session is gone. The sign-out first deletes the push registration while the session still
+    /// works (`AuthService.beforeSignOut`, on the default session), which can take a while: meanwhile the pill is busy and
+    /// a consent withdrawal can't start, because the sign-out would end it unsent (security review round 3, C).
+    private(set) var loggingOut = false
 
     /// Activities and nights on this iPhone the platform hasn't confirmed, recordings not saved: what logging out
     /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
@@ -184,16 +197,22 @@ final class ProfileViewModel {
         /// Another session by the time the queue was sent (the tapping account's ended, maybe someone else's
         /// began): nobody is logged out.
         case accountChanged
+        /// A consent withdrawal began while the queue went up (D6, security review S-1): nobody is logged out, and the
+        /// confirmation isn't asked again under a held Log out.
+        case held
     }
 
     /// "Send first", then log out once nothing is left (design.md §8.4): the queue goes up, waited for 10 s at most
     /// (it goes on after that). Only the account that tapped it is logged out: if its session ended meanwhile, or
-    /// another account signed in, nothing more happens.
+    /// another account signed in, nothing more happens. Nor while a consent withdrawal is on its way, begun before or
+    /// during the wait (`held`): the log-out would end it unsent.
     func sendFirstThenLogOut() async -> SendFirstOutcome {
         let account = auth.accountID, changes = auth.accountChanges
+        guard !withdrawingConsent else { return .held }
         guard account != nil, sendFirst == .available else { return .unsent(unconfirmedActivities) }
         await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit)
         guard auth.accountID == account, auth.accountChanges == changes else { return .accountChanged }
+        guard !withdrawingConsent else { return .held }
         let left = unconfirmedActivities
         guard left == 0 else { return .unsent(left) }
         await logOut()
@@ -240,12 +259,17 @@ final class ProfileViewModel {
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
-    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is.
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is; while a
+    /// withdrawal is on its way, that it is (D6).
     var consentDetail: String? {
         guard isSignedIn else { return nil }
         guard !env.isDemo else {
             return String(localized: "Demo data is on, so your account's consent isn't shown here. Turn Demo data off to see or withdraw it.",
                           comment: "Footer under Profile → Privacy with Demo data on while signed in.")
+        }
+        guard !withdrawingConsent else {
+            return String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.",
+                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way.")
         }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
@@ -253,15 +277,42 @@ final class ProfileViewModel {
         return String(localized: "Agreed on \(Fmt.date(c.grantedAt)) · policy \(c.policyVersion)")
     }
 
-    /// From the confirmation until the platform answered, a wait for a step's request included.
-    var withdrawingConsent: Bool { onboarding?.isWithdrawing ?? false }
+    /// From the confirmation until the platform's answer is recorded, a wait for a step's request included. Meanwhile the
+    /// Demo data switch and Log out are held (D6, security review N-2): either ends the withdrawal unsent (another platform,
+    /// or no session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, as soon as it is
+    /// recorded (the consent gone from the account: `storeConsentWithdrawn`), not after the re-check that follows (security
+    /// review N-3); or with a failure, or an account change that ended it unsent. A withdrawal starts only from a current
+    /// consent (`ProfileRows`), so the consent is there until it is recorded.
+    var withdrawingConsent: Bool { (onboarding?.isWithdrawing ?? false) && state.user?.consent != nil }
     var consentError: String? { onboarding?.errorMessage }
     /// Status and request ID of `consentError`, behind its Details.
     var consentErrorDetails: String? { onboarding?.errorDetails }
 
+    /// Why Demo data and Log out are dimmed while a withdrawal is on its way: the Demo data row's detail, the line under the
+    /// buttons row and Log out's VoiceOver hint, the same sentence in each place.
+    static var withdrawalHoldReason: String {
+        String(localized: "Waiting for your consent withdrawal to finish.",
+               comment: "Profile, a consent withdrawal on its way: why Demo data and Log out are dimmed (either would end it). Their detail, line, hint.")
+    }
+
+    /// What VoiceOver hears when the platform confirmed the withdrawal (a failure announces itself through its message).
+    static var consentWithdrawnAnnouncement: String {
+        String(localized: "Consent withdrawn. Syncing has stopped.",
+               comment: "VoiceOver announcement when the consent withdrawal was confirmed; Profile's consent row changes at the same time.")
+    }
+
+    /// How an announcement reaches VoiceOver; tests record it instead.
+    @ObservationIgnored var announce: @MainActor (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
+
     /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted. Never dropped: it waits for a step's request
-    /// still out, and a failure shows under Privacy (`consentError`).
-    func withdrawConsent() async { await onboarding?.withdrawConsent() }
+    /// still out, and a failure shows under Privacy (`consentError`). Confirmed, VoiceOver is told, as the hold ends (the
+    /// answer recorded, before the re-check: security review N-3); a failure or an account change that ended it unsent
+    /// says nothing here.
+    func withdrawConsent() async {
+        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. The row is disabled then too.
+        guard !loggingOut else { return }
+        await onboarding?.withdrawConsent(onRecorded: { [self] in announce(Self.consentWithdrawnAnnouncement) })
+    }
 
     /// The consent screen, again.
     func reviewConsent() { onboarding?.show(.consent) }
@@ -333,6 +384,8 @@ final class ProfileViewModel {
 
     /// The switch. Off is `endDemo()`: whoever turns it off has confirmed already, or has nothing to confirm.
     func setDemoMode(_ on: Bool) async {
+        // Held while a consent withdrawal is on its way (D6, security review S-1): another platform would end it unsent.
+        guard !withdrawingConsent else { return }
         guard on else {
             await endDemo()
             return
@@ -390,6 +443,8 @@ final class ProfileViewModel {
     ///    none of the demo's scoring state (review R7, R16);
     /// 5. the account's first read after the demo, the refresh.
     func endDemo() async {
+        // Held as `setDemoMode` is (D6).
+        guard !withdrawingConsent else { return }
         if let train, !train.discardDemoWorkouts() {
             demoExitError = Self.demoExitFailed
             return

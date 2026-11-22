@@ -10,6 +10,7 @@ struct ProfileView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showLogOutConfirm = false
     /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
@@ -60,7 +61,9 @@ struct ProfileView: View {
                             sendsFirst = true
                             let outcome = await model.sendFirstThenLogOut()
                             sendsFirst = false
-                            if case .unsent(let left) = outcome {
+                            // Asked again with what's left; never under a held Log out (D6: `.held`, or a withdrawal
+                            // that began as the wait ended).
+                            if case .unsent(let left) = outcome, !model.withdrawingConsent {
                                 unsentAtLogOut = left
                                 showLogOutConfirm = true
                             }
@@ -247,12 +250,20 @@ struct ProfileView: View {
                 .padding(.horizontal, GroupedListSpec.rowInset)
                 .groupedRowHairline()
         case .demoMode:
-            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run.
-            GroupedRow.toggle(Text("Demo data"), detail: Text("Show a realistic sample history instead of your server."),
+            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run. Held (no tap) while a
+            // consent withdrawal is on its way, the reason as its detail, which is part of its label (D6): the switch alone
+            // dims, the title and the reason stay at full ink so the sentence stays readable.
+            let held = model.withdrawingConsent
+            GroupedRow.toggle(Text("Demo data"),
+                              detail: held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason)
+                                  : Text("Show a realistic sample history instead of your server."),
                               identifier: id, isOn: demoSwitch)
                 .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
                     : Text("Turning it off discards the workouts logged with Demo data.",
                            comment: "Only while such workouts exist"))
+                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
+                .disabled(held)
+                .animation(Theme.Motion.respecting(reduceMotion), value: held)
         // Training
         case .jumpToNext:
             GroupedRow.toggle(Text("Advance to the next exercise",
@@ -294,6 +305,8 @@ struct ProfileView: View {
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
             }
+            // Not while Log out runs: its sign-out would end the withdrawal unsent (the model refuses it too).
+            .disabled(model.loggingOut)
         case .analytics:
             AnalyticsOptInRow()
         // Account
@@ -457,9 +470,12 @@ struct ProfileView: View {
 
     // MARK: the buttons row (§P5-6.1 row 4)
 
+    /// Log out is held while a consent withdrawal is on its way (D6): dimmed, no tap, the reason under the row (8 below it)
+    /// and as its VoiceOver hint; the line itself is hidden from VoiceOver, so the reason is read once.
     @ViewBuilder private func buttons(_ buttons: [ProfileButton]) -> some View {
         if !buttons.isEmpty {
             let stacked = typeSize.isAccessibilitySize
+            let held = model.withdrawingConsent && buttons.contains(.logOut)
             VStack(alignment: .leading, spacing: L.buttonsToMessage) {
                 let layout = stacked ? AnyLayout(VStackLayout(spacing: L.buttonsGap)) : AnyLayout(HStackLayout(spacing: L.buttonsGap))
                 layout {
@@ -473,20 +489,32 @@ struct ProfileView: View {
                             .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
                             .accessibilityIdentifier(button.identifier)
                         case .logOut:
-                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst) {
+                            // Busy while Send first waits, and while the sign-out deletes the push registration.
+                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst || model.loggingOut) {
                                 unsentAtLogOut = model.unconfirmedActivities
                                 showLogOutConfirm = true
                             }
                             // As wide as its title plus 22 a side beside Export; full width when the row stacks.
                             .fixedSize(horizontal: !stacked && buttons.count > 1, vertical: false)
+                            .disabled(held)
+                            .accessibilityHint(held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason) : Text(verbatim: ""))
                             .accessibilityIdentifier(button.identifier)
                         }
                     }
+                }
+                if held {
+                    Text(verbatim: ProfileViewModel.withdrawalHoldReason)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityHidden(true)
                 }
                 if let error = model.exportError {
                     InlineMessage(message: error, systemImage: "square.and.arrow.up")
                 }
             }
+            .animation(Theme.Motion.respecting(reduceMotion), value: held)
             .padding(.top, L.buttonsTop)
         }
     }
@@ -563,6 +591,9 @@ private struct ProfileDeveloperGroup: View {
     private let apiStatus = APIStatus.shared
 
     var body: some View {
+        // Held as Demo data is (D6, security review N-1): another platform or another credential mid-way would end the
+        // withdrawal unsent, or send it somewhere else.
+        let held = model.withdrawingConsent
         GroupedCard(GroupTitle(Text(verbatim: "Developer"))) {
             GroupedRow.push(Text(verbatim: "Component catalog"), identifier: ProfileRows.devCatalog, route: ProfileRoute.catalog)
             GroupedRow.push(Text(verbatim: "Feature flags"), identifier: ProfileRows.devFlags, route: ProfileRoute.flags)
@@ -570,20 +601,28 @@ private struct ProfileDeveloperGroup: View {
             field("API URL override") {
                 TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                     .keyboardType(.URL)
+                    .accessibilityIdentifier(ProfileRows.devAPIURL)
             }
+            .disabled(held)
             field("Ingest URL override (compose: :8081, needed with an API override)") {
                 TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
                           text: Bindable(settings).devIngestURLOverride)
                     .keyboardType(.URL)
-                    .accessibilityIdentifier("profile.dev.ingestURL")
+                    .accessibilityIdentifier(ProfileRows.devIngestURL)
             }
+            .disabled(held)
             GroupedRow.toggle(Text(verbatim: "API key mode"),
-                              detail: Text(verbatim: "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
-                              isOn: Bindable(settings).apiKeyMode)
+                              detail: Text(verbatim: held ? "Held while your consent withdrawal is on its way."
+                                                          : "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
+                              identifier: ProfileRows.devAPIKeyMode, isOn: Bindable(settings).apiKeyMode)
+                // Held, the switch alone dims, so "Held while…" stays readable (as Demo data's).
+                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
+                .disabled(held)
             if settings.apiKeyMode {
                 field("API key") {
                     SecureField("Bearer token", text: Bindable(settings).devAPIKey)
                 }
+                .disabled(held)
             }
             GroupedRow.toggle(Text(verbatim: "Show request IDs"), isOn: Bindable(settings).showRequestIDs)
             if settings.showRequestIDs {
@@ -665,6 +704,8 @@ private struct ProfileDeveloperGroup: View {
 private enum ProfilePreview {
     enum Case {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
+        /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
+        case withdrawing
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
@@ -674,10 +715,14 @@ private enum ProfilePreview {
         // Apple Health uploaded a minute ago: "up to date" needs it.
         settings.lastSync = demo ? nil : .now.addingTimeInterval(-60)
         let api = MockPlatformAPI(activities: .demoSource())
+        let withdrawing = kind == .withdrawing
+        // Never answered while the preview is open; on a clock that stands still, so `SettingsWrite.deadline` never ends it.
+        if withdrawing { api.beforeRevokeConsent = { try? await Task.sleep(for: .seconds(86_400)) } }
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
-                                 persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
+                                 persistence: TrainStore(inMemory: true),
+                                 clock: withdrawing ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
@@ -692,6 +737,8 @@ private enum ProfilePreview {
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                    store: TrainPreview.store, library: TrainPreview.library)
         return ProfileView()
+            // The confirmation's Withdraw consent, tapped.
+            .task { if withdrawing { await screens.profile.withdrawConsent() } }
             .environment(\.appEnvironment, env)
             .environment(screens)
             .environment(settings)
@@ -747,6 +794,8 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
+#Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
+#Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
 #Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }
 #Preview("Profile · exporting · AX3", traits: .sizeThatFitsLayout) {
     DarkPreview { ProfileButtonsPreview() }.environment(\.dynamicTypeSize, .accessibility3)

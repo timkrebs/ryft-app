@@ -54,6 +54,14 @@ struct WindowPixels {
         return n
     }
 
+    /// The brightest channel of any pixel in `rect`, 0…1: a text's or a control's ink as drawn (its opacity included).
+    func brightest(in rect: CGRect) -> Double {
+        let (xs, ys) = pixels(in: rect)
+        var value = 0.0
+        for iy in ys { for ix in xs { let p = px(ix, iy); value = max(value, p.r, p.g, p.b) } }
+        return value
+    }
+
     /// The box (points) around the pixels in `rect` for which `match` holds; nil when none does.
     func box(in rect: CGRect, where match: (RGBA) -> Bool) -> CGRect? {
         let (xs, ys) = pixels(in: rect)
