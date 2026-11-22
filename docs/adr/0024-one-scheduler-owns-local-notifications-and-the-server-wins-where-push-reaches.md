@@ -1,6 +1,6 @@
 # 0024 — One scheduler owns RYFT's local notifications, and the server's "not syncing" wins where push reaches
 
-- Status: proposed (2026-11-22, N0 of `docs/work/2026-11-22-notifications/plan.md`)
+- Status: accepted (2026-11-22, N0 of `docs/work/2026-11-22-notifications/plan.md`; lead decisions there)
 - Deciders: ios-lead; proposed by ios-architect; sync-engineer builds it (N3). Q1, Q2 and Q4 of the design note are the
   user's and the security-privacy reviewer's to confirm.
 - Designed in `docs/work/2026-11-22-notifications/design.md` (§2, §3, §5.2, §9).
