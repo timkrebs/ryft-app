@@ -27,8 +27,8 @@ Store "What's New".
 - When RYFT hasn't synced for about 20 hours (and again after about three days), your iPhone says so, between 09:00 and
   21:00 and outside quiet hours, unless RYFT's server can already reach this iPhone with that notification. Not switched
   on yet.
-- Signing out, or a session that ends, removes RYFT's notifications from Notification Center and stops this iPhone
-  receiving that account's alerts. With previews hidden, each notification says only what kind it is.
+- Signing out, or a session that ends, removes RYFT's notifications from Notification Center and unregisters this
+  iPhone from push notifications. With previews hidden, each notification says only what kind it is.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
 - Account with Sign in with Apple or email, data export and account deletion.

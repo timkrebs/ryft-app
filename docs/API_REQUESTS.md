@@ -141,16 +141,30 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **Today:** the switch and the time live on the phone, per account. They survive a session expiry, and a sign-out clears them.
    - **Later:** if users ask for the setting to follow them across devices, `NotificationPrefs` could gain `journal_reminder: {on: bool, minute: int}`.
    - **Status:** nothing is needed now. This is filed so the shape is agreed before anyone builds it.
-7. **NT7 (low): an expired session's push token.**
+7. **NT7 (P1, before `push.enabled` widens): a push token the account that left still holds.**
    - **Today:** sign-out and account deletion send `DELETE /v1/devices/{id}/push` while the session still authorises
      it. A session that expired can't, so the platform keeps that iPhone's token under the account. The app then
-     unregisters from APNs and removes what Notification Center holds. Whoever signs in next registers a fresh token
-     (`POST /v1/devices/{id}/push`).
-   - **What happens to the old token:** the platform drops a token when APNs answers `410` or `Unregistered`. Until then,
-     `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` for the account are still sent to it.
-   - **Request:** state this in API.md → `POST /v1/devices/{id}/push`. Please also confirm that a new `POST` for the
-     same `{id}` replaces the token it held, so the stale token doesn't stay beside the new one.
-   - **Status:** nothing blocks the app. This is filed so the contract says what happens after an expiry.
+     removes what Notification Center holds and unregisters from APNs.
+   - **Why that isn't enough:** unregistering only stops delivery until the app registers again. When the next account
+     on this iPhone registers, iOS often hands back the **same** token, and the platform moves a token only on an
+     accepted `POST /v1/devices/{id}/push`. Until then the token is live and still the old account's, so its
+     `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` reach the new account's lock screen. That `POST` is
+     refused behind the invite gate (`403 invite_required`), and it fails offline or on a `5xx`. Server alerts carry no
+     `ryft.account` yet (NT1), so the app can't tell them apart or clear them.
+   - **The same with a failed `DELETE`:** a sign-out whose `DELETE` failed (offline, a `5xx`) leaves the token under
+     the account in the same way. The app logs the failure and carries on with the sign-out.
+   - **What the platform does already:** it drops a token when APNs answers `410` or `Unregistered`. Once iOS hands
+     the same token to the next registration, APNs has no reason to answer that, so this path doesn't end it.
+   - **What the app does meanwhile:** it doesn't register with APNs while the account is invite-blocked, and after a
+     refused `POST` with nothing accepted for the account it unregisters again until the next try.
+   - **Request (one of these):**
+     - when an account authenticates with `X-RYFT-Device-ID: D`, drop the tokens other accounts registered for `D`; or
+     - exempt `POST /v1/devices/{id}/push` from the invite gate, so the registration moves the token at once.
+
+     The first also covers the failed-`DELETE` case and an offline `POST`. Please also confirm that a `POST` for the
+     same `{id}` replaces the token it held, and state the outcome in API.md → `POST /v1/devices/{id}/push`.
+   - **Status:** the app's side is in N3 (round 3). Until the platform's side lands, a shared iPhone can show the
+     previous account's server alerts after an expiry.
 
 ## App Attest (answered, 2026-11-20)
 

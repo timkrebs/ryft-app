@@ -46,9 +46,12 @@ final class PushRegistrar {
     private var revision = 0
     /// The accepted registration was saved or removed: where "not syncing" is said may change (`ReminderScheduler`).
     @ObservationIgnored var onRecordChanged: (@MainActor () -> Void)?
+    /// The invite gate as `APIClient` enforces it (the app's shared one by default).
+    @ObservationIgnored private let apiStatus: APIStatus
 
-    init(env: AppEnvironment) {
+    init(env: AppEnvironment, apiStatus: APIStatus? = nil) {
         self.env = env
+        self.apiStatus = apiStatus ?? .shared
     }
 
     private var defaults: UserDefaults { env.defaults }
@@ -88,12 +91,21 @@ final class PushRegistrar {
 
     /// At launch, on every return to the app and after sign-in: picks up a change
     /// in Settings and re-registers, so a new token or language reaches the platform.
+    /// Not behind the invite gate, where the platform refuses the `POST` (review S-1).
     func refresh() async {
         status = await env.notifier.authorizationStatus()
         env.notifier.setCategories(PushCategories.all)
-        guard isEnabled, env.auth.isSignedIn, isAllowed else { return }
+        guard isEnabled, env.auth.isSignedIn, isAllowed, !isInviteBlocked else { return }
         env.notifier.registerForRemoteNotifications()
         await send()
+    }
+
+    /// The account is behind the invite gate: `APIClient` holds every call but onboarding's, or a refusal stands
+    /// (`ConsentState`, also in a process that hasn't sent anything yet). iOS often hands the next account the token an
+    /// expired session left registered under the previous one (NT7), so registering here would bring that account's
+    /// alerts back with nothing to move the token.
+    private var isInviteBlocked: Bool {
+        apiStatus.inviteBlocked || env.consent.refusals.contains(.inviteRequired)
     }
 
     /// The coordinator finished a sync; the question may show from now on.
@@ -153,6 +165,12 @@ final class PushRegistrar {
         } catch {
             lastError = error.localizedDescription
             lastResult = "POST failed · \(error.diagnosticDetails ?? error.localizedDescription)"
+            // Refused (the invite gate, a 5xx, offline) with nothing accepted for this account: the token isn't this
+            // account's on the platform, and may still be an expired session's (NT7), whose alerts it would bring
+            // back. APNs again until a trigger registers and the platform accepts it (`refresh`: launch, app active).
+            if account == self.account, env.persistence.document(Record.self, key: Self.recordKey)?.account != account {
+                env.notifier.unregisterForRemoteNotifications()
+            }
         }
     }
 

@@ -355,6 +355,54 @@ struct PushRegistrarTests {
         #expect(notifier.categories.count == 8)
     }
 
+    /// Review S-1: behind the invite gate the platform refuses the `POST`, and the token iOS hands over may still be an
+    /// expired session's on the platform (NT7). Nothing registers until the gate is passed.
+    @Test("Behind the invite gate (APIClient's block, or a standing refusal) the launch doesn't register with APNs")
+    func theInviteGateHoldsTheRegistration() async {
+        notifier.status = .authorized
+        let status = APIStatus()
+        let push = PushRegistrar(env: env, apiStatus: status)
+        status.observe([.inviteRequired], enforced: true)
+        await push.refresh()
+        #expect(!notifier.registeredForRemote, "blocked in this process")
+        status.resolved(.inviteRequired)
+        await push.refresh()
+        #expect(notifier.registeredForRemote, "passed: registered")
+
+        notifier.unregisterForRemoteNotifications()
+        env.consent.refused(.inviteRequired, at: env.clock.now())
+        #expect(env.consent.refusals.contains(.inviteRequired))
+        await push.refresh()
+        #expect(!notifier.registeredForRemote, "a refusal stands (a process that hasn't sent anything yet)")
+        env.consent.cleared(.inviteRequired)
+        await push.refresh()
+        #expect(notifier.registeredForRemote)
+        #expect(api.count("registerPush") == 0, "no token yet: nothing sent either way")
+    }
+
+    @Test("A refused registration unregisters from APNs again until one is accepted for this account; a cancelled one doesn't")
+    func aRefusalUnregisters() async throws {
+        notifier.status = .authorized
+        let push = PushRegistrar(env: env, apiStatus: APIStatus())
+        await push.refresh()
+        #expect(notifier.registeredForRemote)
+        api.failNext = APIError.http(403, "invite required", code: .inviteRequired)
+        await push.didRegister(deviceToken: token)
+        #expect(push.lastError != nil && !notifier.registeredForRemote, "refused, nothing accepted: unregistered")
+
+        // The next app active registers and sends again; this time the send is cancelled.
+        api.failNext = CancellationError()
+        await push.refresh()
+        #expect(api.count("registerPush") == 2 && notifier.registeredForRemote, "cancelled: the next trigger sends it")
+
+        await push.send()
+        #expect(api.count("registerPush") == 3 && push.lastError == nil && notifier.registeredForRemote)
+        api.failNext = APIError.http(503, "")
+        await push.didRegister(deviceToken: Data([0x01, 0x02]))
+        #expect(api.count("registerPush") == 4 && push.lastError != nil)
+        #expect(notifier.registeredForRemote, "this account's registration was accepted: kept")
+    }
+
     @Test func signOutDeletesTheRegistration() async {
         let push = PushRegistrar(env: env)
         await push.didRegister(deviceToken: token)

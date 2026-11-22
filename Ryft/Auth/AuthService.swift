@@ -1014,8 +1014,13 @@ final class AuthService {
     /// The wipe's notification step, for every reason (design.md §9.1): every notification of the account's, pending and
     /// delivered (its server alerts in Notification Center too, its wake notifications below iOS 26), and whose they were
     /// (`ReminderScheduler.wipe`), and the journal reminder's settings, but a session expiry's account keeps its own (review
-    /// S-4); then APNs, so an ended session's server alerts stop reaching this iPhone (S-2) and the next account registers
-    /// afresh. The accepted registration's record goes with the store. AlarmKit's wake alarms go beside it (iOS 26).
+    /// S-4); then APNs: this iPhone gets no remote notification until the app registers again. That ends nothing on the
+    /// platform. A sign-out sent `DELETE /v1/devices/{id}/push` before this (a failure is ignored), and an expired session
+    /// can't, so the platform may still hold this iPhone's token for the account that left. iOS often hands the next
+    /// registration the same token, and the platform moves it only on an accepted `POST`: until then that account's
+    /// alerts can reach this iPhone again (review S-1, API_REQUESTS NT7). `PushRegistrar` doesn't register behind the
+    /// invite gate, and unregisters again after a refused `POST`. The accepted registration's record goes with the
+    /// store. AlarmKit's wake alarms go beside it (iOS 26).
     static func notificationStep(_ wipe: Wipe, center: NotificationWiping, defaults: UserDefaults, unregister: () -> Void) {
         ReminderScheduler.wipe(center, defaults: defaults, parking: wipe.parking)
         unregister()
