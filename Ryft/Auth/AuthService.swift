@@ -256,6 +256,8 @@ final class AuthService {
     /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes. False when the store may still hold
     /// the data: the ledger's entry then stays, and no session is published over it.
     private let wipeLocalData: @MainActor (Wipe) -> Bool
+    /// The notification step on its own (`liveNotificationStep`), for a wipe the launch leaves for after the first frame.
+    private let launchNotificationStep: @MainActor (Wipe) -> Void
     /// The wipe that was started and hasn't finished.
     private let ledger: WipeLedger
     /// Dates the ledger's entries.
@@ -282,6 +284,7 @@ final class AuthService {
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
          wipeLocalData: @escaping @MainActor (Wipe) -> Bool = AuthService.wipeSharedLocalData,
+         launchNotificationStep: @escaping @MainActor (Wipe) -> Void = AuthService.liveNotificationStep,
          deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
          postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) },
          ledger: WipeLedger? = nil, now: @escaping () -> Date = { Date() }) {
@@ -289,6 +292,7 @@ final class AuthService {
         self.settings = settings
         self.defaults = defaults
         self.wipeLocalData = wipeLocalData
+        self.launchNotificationStep = launchNotificationStep
         self.deleteRemoteAccount = deleteRemoteAccount
         self.postAppleAuthorization = postAppleAuthorization
         self.ledger = ledger ?? WipeLedger(file: nil)
@@ -931,6 +935,11 @@ final class AuthService {
             ledger.forStoreStep = owed
             resumedOwedWipe = true
             endingStoredSession = endSession
+            // The parked rows wait for the first frame; the notification step touches none of them, so it runs now,
+            // unless it ran before the kill (review N-1). A background launch shows no frame, and would otherwise keep
+            // the ended session's notifications and APNs registration until a foreground one. The retry after the frame
+            // runs the device steps again with the rest, this one included: it's idempotent.
+            if !owed.deviceStepsDone { launchNotificationStep(owed.wipe) }
             return (endSession ? nil : stored, endSession)
         case .wipeNow(let narrow, let endSession):
             if narrow { ledger.update { $0.wipe.reason = nil } }
@@ -953,9 +962,10 @@ final class AuthService {
     func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
         guard finishOwedWipe() else { return }
         train.accountChanged()
-        // A resumed wipe is `storeOnly`: its device step (every notification, the owner key, APNs) ran before the kill.
-        // The reminders drop this side's ledger and plan for whoever is current; the owner check takes anything another
-        // account's that's left (design.md §9.3).
+        // The resumed wipe's notification step (every notification, the owner key, APNs) has run: before the kill, or at
+        // this launch (`resumeOwedWipe`, review N-1). The retry just now ran any device step the kill left (it's
+        // `storeOnly` only when they had all run). The reminders drop this side's ledger and plan for whoever is
+        // current; the owner check takes anything another account's that's left (design.md §9.3).
         await bedtime.reminders.accountChanged()
         await bedtime.accountChanged()
     }
@@ -990,9 +1000,7 @@ final class AuthService {
             // The usage analytics answer is the person's: whoever signs in next is asked, with a new id. Here too, not
             // only in `AppState.wiped`, because a wipe resumed at launch runs before that hook is bound.
             Analytics.forgetAnswer(defaults: .standard)
-            // Never through `AppEnvironment.live` (ADR 0020).
-            notificationStep(wipe, center: UNUserNotificationCenter.current(), defaults: .standard,
-                             unregister: { UIApplication.shared.unregisterForRemoteNotifications() })
+            liveNotificationStep(wipe)
             #if canImport(AlarmKit)
             if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
             #endif
@@ -1024,6 +1032,13 @@ final class AuthService {
     static func notificationStep(_ wipe: Wipe, center: NotificationWiping, defaults: UserDefaults, unregister: () -> Void) {
         ReminderScheduler.wipe(center, defaults: defaults, parking: wipe.parking)
         unregister()
+    }
+
+    /// The step on the app's own centre and defaults: in every wipe's device step, and at launch for a wipe resumed after
+    /// the first frame. Never through `AppEnvironment.live` (ADR 0020).
+    static func liveNotificationStep(_ wipe: Wipe) {
+        notificationStep(wipe, center: UNUserNotificationCenter.current(), defaults: .standard,
+                         unregister: { UIApplication.shared.unregisterForRemoteNotifications() })
     }
 
     /// A retry (`storeOnly`) leaves the device steps alone, so it doesn't restart the backfill.
