@@ -987,7 +987,7 @@ struct SyncCheckTests {
         #expect(rows(check)[.sleepStages] == .notSeenYet) // nothing to judge without a night
         #expect(check.overall == .needsFix && check.needsFix == 1 && check.expected == 5 && check.arriving == 4)
         #expect(text.fixLead(check)
-            == String(localized: "RYFT can read \("sleep"), but none came from \("Garmin Connect") in the last 2 days."))
+            == String(localized: "RYFT can read \("sleep"), but none came from \("Garmin Connect") in the last 2\u{00A0}days."))
         // Nobody's sleep visible: RYFT can't tell "not allowed to read" from "not written", so it says both.
         store.visible.remove(.sleep)
         check = try classify("garmin", store)
@@ -1087,7 +1087,7 @@ struct SyncCheckTests {
             No data from your Apple Watch yet. Wear it and keep it near your iPhone so it syncs, then tap Check again.
             """))
         #expect(text.silent(silentPhone) == String(localized: """
-            Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again.
+            Nothing from this iPhone in the last 2\u{00A0}days. Carry it with you for a while, then tap Check again.
             """))
         #expect(![text.silent(silentWatch), text.silent(silentPhone)].contains { $0.contains(String(localized: "Open \("Watch")")) })
     }
@@ -1355,7 +1355,7 @@ struct SyncCheckTests {
                                 trackers: devices.selection.trackers).run()
         devices.reloadCheck()
         #expect(devices.status(of: garmin) == String(localized: "Needs a fix"))
-        #expect(devices.status(of: oura) == String(localized: "Nothing in the last 2 days"))
+        #expect(devices.status(of: oura) == String(localized: "Nothing in the last 2\u{00A0}days"))
         #expect(devices.lastCheckedText == String(localized: "Last checked \(SyncLine.dataTime(now, now: now))"))
         devices.selection.markLater("oura")
         #expect(devices.status(of: oura) == String(localized: "Set up later"))

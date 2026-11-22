@@ -488,11 +488,10 @@ import Testing
         #expect(M.circleButton == 40 && M.minHitTarget == 44 && M.pillHeight == 52 && M.itemSpacing == 12)
     }
 
-    @Test("Spec 12: the old metrics keep their values until PRs 4–5 move their callers")
-    func oldMetricsAreUntouched() {
+    @Test("Spec 12: the layout metrics that stay (the 18 and 16 pt card radii went with the gate's D8)")
+    func layoutMetrics() {
         typealias M = Theme.Metrics
-        #expect(M.cardRadius == 18 && M.tileRadius == 16 && M.screenPadding == 20)
-        #expect(M.cardPadding == 18 && M.sectionSpacing == 24 && M.hairline == 1)
+        #expect(M.screenPadding == 20 && M.sectionSpacing == 24 && M.hairline == 1)
     }
 
     @Test("Spec 12: the glow radii are the tokens")

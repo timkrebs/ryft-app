@@ -80,8 +80,8 @@ struct PlanRowContent: Equatable, Identifiable {
 enum PlanSpeech {
     /// "Strength, 3 days a week, 12 weeks".
     static func summary(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> String {
-        let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
-        let days = String(localized: "\(daysPerWeek) days a week",
+        let length = weeks.map { String(localized: "\($0)\u{00A0}weeks") } ?? String(localized: "repeating")
+        let days = String(localized: "\(daysPerWeek)\u{00A0}days a week",
                           comment: "VoiceOver, a plan's summary: how many days a week it trains (\"4 days/week\" on screen).")
         return [goal.title, days, length].joined(separator: ", ")
     }
@@ -99,7 +99,7 @@ enum PlanSpeech {
             ? "\(e.repsMin)"
             : String(localized: "\(e.repsMin) to \(e.repsMax)",
                      comment: "VoiceOver, a plan exercise's rep range (\"10 to 12\"; \"10–12\" on screen).")
-        var prescription = String(localized: "\(e.sets) sets of \(reps)",
+        var prescription = String(localized: "\(e.sets)\u{00A0}sets of \(reps)",
                                   comment: "VoiceOver, a plan exercise: sets and reps (\"5 sets of 5\"; \"5 × 5\" on screen).")
         if let target = target(e, locale: locale) { prescription += " " + target }
         let rest = String(localized: "rest \(restDuration(e.restSec, locale: locale))",
@@ -122,7 +122,7 @@ enum PlanSpeech {
         case .rpe:
             return String(localized: "at RPE \(Fmt.kgNumber(v))", comment: "VoiceOver, a plan exercise's target effort (\"at RPE 8\").")
         case .pct1rm:
-            return String(localized: "at \(Fmt.kgNumber(v)) percent of one-rep max",
+            return String(localized: "at \(Fmt.kgNumber(v))\u{00A0}percent of one-rep max",
                           comment: "VoiceOver, a plan exercise's target as a share of the one-rep max (\"75 % 1RM\" on screen).")
         case .bodyweight:
             return String(localized: "bodyweight plus \(kg)",

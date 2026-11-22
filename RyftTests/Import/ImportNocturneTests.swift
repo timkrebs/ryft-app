@@ -415,7 +415,7 @@ struct ImportNocturneTests {
             let workouts = try #require(nodes.first { $0.label == "Workouts imported" })
             #expect(workouts.value == "\(MockTrainImport.leftAsIsDone.sessionsImported)", "\(workouts.value ?? "nil")")
             let plans = try #require(nodes.first { $0.label == "Plans imported" }, "the plan was written")
-            #expect(plans.value == "1, Upper/Lower · 6 weeks", "\(plans.value ?? "nil")")
+            #expect(plans.value == "1, Upper/Lower · 6\u{00A0}weeks", "\(plans.value ?? "nil")")
             let left = try #require(nodes.first { $0.label == "Left as it is in RYFT" })
             #expect(left.value?.hasPrefix("3") == true, "\(left.value ?? "nil")")
             #expect(nodes.contains { $0.label.hasPrefix("Past strain on these days is being recalculated") })

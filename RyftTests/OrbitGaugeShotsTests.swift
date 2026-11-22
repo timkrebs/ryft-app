@@ -50,7 +50,7 @@ import UIKit
         switch part {
         case .strainRing, .strainDot: return Theme.metricStrain
         case .sleepArc, .sleepDot: return Theme.metricSleep
-        case .recoveryArc, .recoveryDot, .readinessRing: return Theme.accent
+        case .recoveryArc, .recoveryDot, .readinessRing: return Theme.recovery
         }
     }
 
@@ -130,14 +130,14 @@ import UIKit
                     OrbitGauge(mode: .pending(previous: .previewScored), size: .medium)
                 }
             }
-            // The 44 pt check: the app icon's tile (mark on Graphite / Mist, as scripts/icon-spec.swift) beside the
+            // The 44 pt check: the app icon's tile (mark on Background, as scripts/icon-spec.swift) beside the
             // gauge at 44 pt and at 88 pt, and the icon at both.
             write("icon-44", scheme: scheme, dir: dir) {
                 let tile = { (side: CGFloat) in
                     RoundedRectangle(cornerRadius: side * 0.2237, style: .continuous)
                         .strokeBorder(Theme.separator, lineWidth: 0.5)
                         .background(RoundedRectangle(cornerRadius: side * 0.2237, style: .continuous)
-                            .fill(scheme == .dark ? Theme.graphite : Theme.mist))
+                            .fill(Theme.background))
                         .frame(width: side, height: side)
                         .overlay(ZStack {
                             // The icon's gauge colours (scripts/icon-spec.swift reads the same colour sets).

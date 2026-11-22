@@ -11,8 +11,8 @@ struct WakeAlarmLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AlarmAttributes<WakeAlarmMetadata>.self) { context in
             SnoozeLockScreen(fireDate: context.state.snoozeFireDate)
-                .activityBackgroundTint(Brand.graphite)
-                .activitySystemActionForegroundColor(Brand.mist)
+                .activityBackgroundTint(Brand.background)
+                .activitySystemActionForegroundColor(Brand.textPrimary)
         } dynamicIsland: { context in
             let fireDate = context.state.snoozeFireDate
             return DynamicIsland {
@@ -30,7 +30,7 @@ struct WakeAlarmLiveActivity: Widget {
             } minimal: {
                 SnoozeGlyph()
             }
-            .keylineTint(Brand.mist.opacity(WorkoutActivityLook.keylineOpacity))
+            .keylineTint(Brand.textPrimary.opacity(WorkoutActivityLook.keylineOpacity))
         }
     }
 }
@@ -66,7 +66,7 @@ struct SnoozeLockScreen: View {
         }
         .padding(WorkoutActivityLook.padding)
         .dynamicTypeSize(...WorkoutActivityLook.largestType)
-        .background(Brand.graphite)
+        .background(Brand.background)
         .accessibilityElement(children: .combine)
     }
 }

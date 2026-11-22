@@ -71,7 +71,7 @@ struct SleepSummaryTests {
         #expect(board.caption == String(localized: "Asleep · \(87)\u{00A0}% of your need"))
         let tiles = Dictionary(uniqueKeysWithValues: board.tiles.map { ($0.kind, $0) })
         #expect(tiles[.consistency]?.value == "81")
-        #expect(tiles[.restorative]?.spokenValue.contains(String(localized: "\(100) percent of the target")) == true)
+        #expect(tiles[.restorative]?.spokenValue.contains(String(localized: "\(100)\u{00A0}percent of the target")) == true)
     }
 
     @Test func rangeSummaryUsesThePlatformsConsistency() throws {
@@ -206,7 +206,7 @@ struct SleepBaselineTests {
 
         #expect(!(await e.setSleepBase(500)))
 
-        #expect(e.error == String(localized: "RYFT takes a baseline between 4 and 12 hours."))
+        #expect(e.error == String(localized: "RYFT takes a baseline between 4 and 12\u{00A0}hours."))
         #expect(e.errorDetails?.contains("rid-422") == true)
         #expect(e.sleepBase == MockData.user.sleepBaseMin && !e.savedChange)
         #expect(state.refreshIssue == nil) // not Today's card: the sheet's
@@ -247,7 +247,7 @@ struct SleepBaselineTests {
         clock.advance(by: SyncService.rescoreDelay)
         await run.value
         #expect(!e.rescoring && !e.savedChange)
-        #expect(e.rescoreStatus == String(localized: "The last 90 days are rescored with your settings."))
+        #expect(e.rescoreStatus == String(localized: "The last 90\u{00A0}days are rescored with your settings."))
     }
 
     @Test func anotherFailureSaysWhatWentWrongInTheForm() async {

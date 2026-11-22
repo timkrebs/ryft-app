@@ -628,8 +628,8 @@ final class SyncDetailsModel {
         if let activity = sync.activity { return activity.text }
         if sync.waitingForUnlock { return String(localized: "Waiting for you to unlock your iPhone") }
         switch engine.phase {
-        case .recent: return String(localized: "First score: the last 3 days")
-        case .backfill: return String(localized: "Importing the last 90 days")
+        case .recent: return String(localized: "First score: the last 3\u{00A0}days")
+        case .backfill: return String(localized: "Importing the last 90\u{00A0}days")
         case .incremental: return String(localized: "Only what's new")
         case .idle: return idleState.text
         }
@@ -716,7 +716,7 @@ final class SyncDetailsModel {
             return pending.isEmpty ? String(localized: "Nothing waiting")
                 : String(localized: "Pending: \(pending.joined(separator: ", "))")
         }
-        return String(localized: "Waiting since \(Fmt.time(since)) · usually \(expectedScoringSec) s")
+        return String(localized: "Waiting since \(Fmt.time(since)) · usually \(expectedScoringSec)\u{00A0}s")
     }
 
     /// The same rule as Today's "Taking longer than usual" (`TodayStates.scoringSlow`).
@@ -1106,7 +1106,7 @@ final class BodySettingsEditor {
     func setSleepBase(_ minutes: Int) async -> Bool {
         let value = min(max(minutes, Self.sleepBaseRange.lowerBound), Self.sleepBaseRange.upperBound)
         return await save(UserPatch(sleepBaseMin: value), as: .value(.sleepBase, value),
-                          refused: String(localized: "RYFT takes a baseline between 4 and 12 hours.")) {
+                          refused: String(localized: "RYFT takes a baseline between 4 and 12\u{00A0}hours.")) {
             $0.sleepBaseMin == value && $0.sleepBaseSource == .manual
         }
     }
@@ -1159,7 +1159,7 @@ final class BodySettingsEditor {
     func setMaxHR(_ bpm: Int) async -> Bool {
         let value = min(max(bpm, Self.maxHRRange.lowerBound), Self.maxHRRange.upperBound)
         return await save(UserPatch(maxHr: value), as: .value(.maxHR, value),
-                          refused: String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm.")) {
+                          refused: String(localized: "RYFT takes a maximum heart rate between 100 and 230\u{00A0}bpm.")) {
             $0.maxHr == value && $0.maxHrSource == .manual
         }
     }
@@ -1232,7 +1232,7 @@ final class BodySettingsEditor {
             // Today's own numbers too, as the reload did (not part of what's said).
             _ = try? await state.repository.refreshDay(today, mode: .changed(since: accepted))
             guard owns(owner) else { return }
-            rescoreStatus = String(localized: "The last 90 days are rescored with your settings.")
+            rescoreStatus = String(localized: "The last 90\u{00A0}days are rescored with your settings.")
             rescored = true
             savedWrite = nil
         } catch where error.isCancellation {
@@ -1780,7 +1780,7 @@ struct TrackerCheckText {
             return s("Several signals should arrive and don't. The cause is usually one permission in \(app).")
         }
         if row.check == .missing(visible: true) {
-            return s("RYFT can read \(phrase(row.signal)), but none came from \(app) in the last 2 days.")
+            return s("RYFT can read \(phrase(row.signal)), but none came from \(app) in the last 2\u{00A0}days.")
         }
         return s("RYFT doesn't see any \(phrase(row.signal)) in Apple Health. Either RYFT isn't allowed to read it, or \(app) isn't writing it.")
     }
@@ -1789,7 +1789,7 @@ struct TrackerCheckText {
     func silent(_ check: TrackerCheck) -> String {
         switch check.trackerID {
         case "iphone":
-            return s("Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again.")
+            return s("Nothing from this iPhone in the last 2\u{00A0}days. Carry it with you for a while, then tap Check again.")
         case "apple_watch":
             return s("No data from your Apple Watch yet. Wear it and keep it near your iPhone so it syncs, then tap Check again.")
         default:
@@ -2912,7 +2912,7 @@ final class DevicesViewModel {
         case .ok?: return String(localized: "Data arrives")
         case .needsFix?: return String(localized: "Needs a fix")
         case .nightMissing?: return String(localized: "Last night missing")
-        case .silent?: return String(localized: "Nothing in the last 2 days")
+        case .silent?: return String(localized: "Nothing in the last 2\u{00A0}days")
         case .cantRead?: return String(localized: "Can't be read on iPhone")
         case .unknownTracker?, .unidentified?: return String(localized: "Checked")
         case .checking?, nil: return String(localized: "Not checked yet")

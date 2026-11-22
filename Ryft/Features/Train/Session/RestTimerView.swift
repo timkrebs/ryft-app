@@ -172,7 +172,7 @@ struct PlateCalculatorSheet: View {
                     BarView(load: load)
                         .frame(height: 120)
                     GroupedCard(footer: load.total == target ? nil
-                                : Text("\(Fmt.kg(target)) can't be loaded with 2.5–25 kg plates; this is the closest below.")) {
+                                : Text("\(Fmt.kg(target)) can't be loaded with 2.5–25\u{00A0}kg plates; this is the closest below.")) {
                         GroupedRow.value(Text("Each side"), value: Text(verbatim: perSideText))
                         GroupedRow.value(Text("Bar"), value: Text(verbatim: Fmt.kg(load.bar)))
                         GroupedRow.value(Text("Loaded"), value: Text(verbatim: Fmt.kg(load.total)))
@@ -181,6 +181,7 @@ struct PlateCalculatorSheet: View {
                 .padding(Theme.Metrics.screenPadding)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .underPinnedHeader()
             if let onUse {
                 PillButton(Text("Use \(Fmt.kg(load.total))")) {
                     onUse(load.total)
@@ -209,7 +210,7 @@ struct PlateCalculatorSheet: View {
                 .outlinedKey()
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(Text(delta > 0 ? "Add 2.5 kilograms" : "Remove 2.5 kilograms"))
+        .accessibilityLabel(Text(delta > 0 ? "Add 2.5\u{00A0}kilograms" : "Remove 2.5\u{00A0}kilograms"))
     }
 }
 

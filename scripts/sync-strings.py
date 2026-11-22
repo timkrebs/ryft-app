@@ -41,8 +41,14 @@ TARGETS = {
 
 def skipped_lines(source: str) -> set[int]:
     """Lines whose strings the catalog leaves out, as Xcode's sync does: inside
-    `#if DEBUG` (up to its `#else` / `#endif`), Debug-only UI; and `#Preview` lines,
-    where every string in a preview's body is reported."""
+    `#if DEBUG` (up to its `#else` / `#endif`), Debug-only UI; and the `#Preview` line.
+
+    The `#Preview` line alone is enough for a preview's body: Xcode reports every string
+    in the body at the line of the `#Preview` macro (checked on Xcode 27.2: every entry in
+    the preview blocks of Ryft/, 77 of 77, sits on a `#Preview` line). This function does
+    not parse the body. A helper a preview calls (a private func, not a `#Preview`) is not
+    skipped: its strings are catalogued like any other code's, as the sample VoiceOver
+    values in RulerScale's `rulersAtSize` are."""
     lines: set[int] = set()
     stack: list[bool] = []  # per open #if: is this branch Debug-only?
     try:

@@ -34,8 +34,8 @@ formats themselves.
 
 ## Reference layers
 
-- **Baseline**: a dashed `RuleMark` in Mist (dark) or Graphite (light) at 40 %. Its
-  label sits at the leading end ("baseline 52 ms"), on the card surface.
+- **Baseline**: a dashed `RuleMark` in the ink (`textPrimary`) at 40 % (`ChartStyle.reference`; dark only, ADR 0016).
+  Its label sits at the leading end ("baseline 52 ms"), on the card surface.
 - **Range band**: a `RectangleMark` at 10 % of the metric colour. It shows the 30-day
   min–max until the API serves σ (`API_REQUESTS.md`).
 - **Thresholds**: scores keep a fixed scale (0–100, 0–21). Their band thresholds (33 / 67

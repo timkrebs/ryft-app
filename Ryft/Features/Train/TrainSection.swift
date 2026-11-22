@@ -93,7 +93,8 @@ enum StartOptionSpec {
     nonisolated static let detailLines = 2
 }
 
-/// Start workout (PR 6 B §3.3, `b-01`): the sheet's own header (Close at the leading edge), then the options 12 apart: from
+/// Start workout (PR 6 B §3.3, `b-01`): the sheet's own header (Close at the leading edge), pinned, with the options scrolling
+/// under it to the pinned bar's edge (Nocturne gate D4 rule 5); then the options 12 apart: from
 /// today's plan (the prominent one, an ink fill with a dark glyph circle and an arrow circle), repeat the last session, a
 /// day from the plan (it opens its days inline), an empty session. Without a plan day the empty session is first and
 /// prominent, so the sheet always has one primary. While the last session and the plan load, their rows are outlines.
@@ -110,19 +111,22 @@ struct StartWorkoutSheet: View {
     private var plan: Plan? { model.activePlan }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                SheetHeader(Text("Start workout"))
+        VStack(spacing: 0) {
+            SheetHeader(Text("Start workout"))
+                .padding(.horizontal, SheetHeaderSpec.sidePadding)
+                .padding(.top, SheetHeaderSpec.topInset)
+            ScrollView {
                 VStack(spacing: StartOptionSpec.optionGap) {
                     options
                 }
+                .padding(.horizontal, SheetHeaderSpec.sidePadding)
                 .padding(.top, StartOptionSpec.headerGap)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, SheetHeaderSpec.sidePadding)
-            .padding(.top, SheetHeaderSpec.topInset)
-            .padding(.bottom, 24)
+            .scrollIndicators(.hidden)
+            // The options start 8 under the header: the edge's gap, so the first scroll hides nothing at once.
+            .underPinnedHeader(gap: StartOptionSpec.headerGap)
         }
-        .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)
         .presentationDragIndicator(.visible)
@@ -188,7 +192,7 @@ struct StartWorkoutSheet: View {
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
-                Text("\(day.exercises.count) · ~\(SessionEstimate.minutes(for: day.exercises)) min")
+                Text("\(day.exercises.count) · ~\(SessionEstimate.minutes(for: day.exercises))\u{00A0}min")
                     .font(.ryft(.caption))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textTertiary)

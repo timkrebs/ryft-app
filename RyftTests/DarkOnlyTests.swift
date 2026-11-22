@@ -1,5 +1,7 @@
 import Foundation
+import SwiftUI
 import Testing
+import UIKit
 @testable import Ryft
 
 /// NOCTURNE_STYLE §1, plan.md criterion 3: the app is dark in every context, whatever the system setting, and has no
@@ -13,6 +15,19 @@ struct DarkOnlyTests {
     @Test func infoPlistForcesDark() {
         #expect(Bundle.main.infoDictionary?["UIUserInterfaceStyle"] as? String == "Dark",
                 "Ryft/Info.plist: UIUserInterfaceStyle must be Dark")
+    }
+
+    /// The launch screen's colour (`UILaunchScreen.UIColorName`) names an asset that exists and is `Theme.background`, so
+    /// the system's launch screen and `LaunchHost`'s first frame are the same pixels. Gate part 2 deleted `Graphite`, which
+    /// the key still named: iOS then falls back to the system background and the hand-off shows a seam.
+    @MainActor @Test func launchScreenColourIsTheBackground() throws {
+        let launchScreen = try #require(Bundle.main.infoDictionary?["UILaunchScreen"] as? [String: Any],
+                                        "Ryft/Info.plist: UILaunchScreen")
+        let name = try #require(launchScreen["UIColorName"] as? String, "UILaunchScreen.UIColorName")
+        let colour = try #require(UIColor(named: name, in: .main, compatibleWith: nil), "no colour set named \(name) in the app")
+        let launch = NocturneTokenTests.resolve(Color(uiColor: colour)), screen = NocturneTokenTests.resolve(Theme.background)
+        #expect(NocturneTokenTests.matches(launch, screen),
+                "\(name) is \(NocturneTokenTests.describe(launch)), the screen \(NocturneTokenTests.describe(screen))")
     }
 
     /// An earlier version stored `appearance` (dark, light or system). Nothing reads it any more: Settings loads as usual

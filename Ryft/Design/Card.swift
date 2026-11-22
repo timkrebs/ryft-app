@@ -279,7 +279,7 @@ struct CapabilityRow: View {
     DarkPreview {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
+                CardHeader(title: "Trends", trailing: "7\u{00A0}days", showsChevron: true)
                 StatRow(title: "Bedtime", value: "22:50")
                 StatRow(title: "Sleep debt", value: "25m", detail: "Need 8h 06m", valueColor: Theme.warning)
             }

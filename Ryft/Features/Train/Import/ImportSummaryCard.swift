@@ -50,7 +50,7 @@ enum ImportSummaryText {
     static func planParts(_ summary: ImportSummary) -> [String]? {
         guard summary.plans > 0 else { return nil }
         var parts = [String(localized: "\(summary.plans) plans", comment: "Training import: a count of plans.")]
-        if summary.days > 0 { parts.append(String(localized: "\(summary.days) days", comment: "Training import: a count of plan days.")) }
+        if summary.days > 0 { parts.append(String(localized: "\(summary.days)\u{00A0}days", comment: "Training import: a count of plan days.")) }
         if summary.exercises > 0 {
             parts.append(String(localized: "\(summary.exercises) exercises"))
         }

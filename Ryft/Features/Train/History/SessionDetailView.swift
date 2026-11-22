@@ -100,8 +100,8 @@ struct SessionDetailContent: Equatable {
                 spoken.append(Fmt.spokenDuration(minutes: minutes, locale: locale))
             }
             if let sets {
-                shown.append(String(localized: "\(sets) sets"))
-                spoken.append(String(localized: "\(sets) sets"))
+                shown.append(String(localized: "\(sets)\u{00A0}sets"))
+                spoken.append(String(localized: "\(sets)\u{00A0}sets"))
             }
             subtitleParts = shown
             spokenSubtitle = spoken.joined(separator: ", ")
@@ -159,9 +159,9 @@ struct SessionDetailContent: Equatable {
     /// "5 reps at 80 kilograms", "8 reps", "80 kilograms"; a timed set "45 seconds", a distance "3.1 miles, 25 minutes".
     static func spoken(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
         switch (s.reps, s.weightKg) {
-        case let (r?, kg?): return String(localized: "\(r) reps at \(Fmt.kgNumber(kg, locale: locale)) kilograms")
-        case let (r?, nil): return String(localized: "\(r) reps")
-        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg, locale: locale)) kilograms")
+        case let (r?, kg?): return String(localized: "\(r)\u{00A0}reps at \(Fmt.kgNumber(kg, locale: locale))\u{00A0}kilograms")
+        case let (r?, nil): return String(localized: "\(r)\u{00A0}reps")
+        case let (nil, kg?): return String(localized: "\(Fmt.kgNumber(kg, locale: locale))\u{00A0}kilograms")
         default:
             let time = s.durationSec.map { spokenDuration(seconds: $0, locale: locale) }
             if let m = s.distanceM, m > 0 {

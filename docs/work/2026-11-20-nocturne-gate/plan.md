@@ -117,3 +117,18 @@ To fit a merge window the gate ships in two PRs:
 The 16:00 grant ran out before part 1 was ready. #132 was merged in time; part 1 waits for the user's go.
 Also for part 2: `sync-strings.py` extracts the sample VoiceOver values in `#Preview` bodies (its docstring says it
 skips them). Decide whether to fix the script or the docstring.
+
+## Status (2026-11-22)
+- **Part 1:** #133, green, waiting for the user's merge.
+- **Part 2** (`feat/nocturne-gate-2`):
+  - G4, G5, G6 and three review rounds are done (`review.md`);
+  - opened against `main` once #133 is merged.
+- **F2:** #134.
+- **Follow-ups from the reviews:**
+  - S-3: a sign-out started by the auth system during a withdrawal. It needs an ios-architect note.
+  - The % spacing ("86%" vs "60 %") and the separators that start a line.
+  - "%lld s" in VoiceOver.
+  - TrainHistory's subtitle outside the catalog.
+  - The 24-hour notification hours.
+  - Routes in `screenshots.sh` for Train, the trackers and signed out.
+  - The Max HR caption's separator at AX sizes.

@@ -42,11 +42,11 @@ struct TonightBoardTests {
         #expect(board.goals.map(\.title) == ["Peak · 100\u{00A0}%", "Perform · 85\u{00A0}%", "Get by · 70\u{00A0}%"])
         #expect(board.goals.map { plain($0.time) } == ["10:41 PM", "11:19 PM", "12:08 AM"])
         #expect(board.goals.map(\.isGoal) == [true, false, false])
-        #expect(plain(board.goals[0].spoken) == "Peak, 100 percent, 10:41 PM, your goal")
-        #expect(plain(board.goals[1].spoken) == "Perform, 85 percent, 11:19 PM")
+        #expect(plain(board.goals[0].spoken) == "Peak, 100\u{00A0}percent, 10:41 PM, your goal")
+        #expect(plain(board.goals[1].spoken) == "Perform, 85\u{00A0}percent, 11:19 PM")
         #expect(board.asOf == nil, "a fresh plan has no As of")
         let need = Fmt.spokenDuration(minutes: 498, locale: enUS)
-        #expect(plain(board.spoken).hasPrefix("In bed by 10:41 PM, for 100 percent of your need. Wake 6:30 AM, need \(need). Peak, "),
+        #expect(plain(board.spoken).hasPrefix("In bed by 10:41 PM, for 100\u{00A0}percent of your need. Wake 6:30 AM, need \(need). Peak, "),
                 "\(plain(board.spoken))")
         #expect(board.plan == tonightsPlan && board.problem == nil && board.summary == BedtimePlanner.summary(.default, locale: enUS))
     }

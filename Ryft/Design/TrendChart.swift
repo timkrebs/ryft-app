@@ -169,7 +169,7 @@ struct TrendChart: View {
     private func accessibilitySummary(_ data: [Plotted]) -> String {
         guard let last = data.last else { return String(localized: "No data") }
         let avg = data.map(\.value).reduce(0, +) / Double(data.count)
-        return String(localized: "Latest \(spec.text(last.value)), average \(spec.text(avg)) over \(data.count) days")
+        return String(localized: "Latest \(spec.text(last.value)), average \(spec.text(avg)) over \(data.count)\u{00A0}days")
     }
 }
 

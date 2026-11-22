@@ -160,22 +160,22 @@ import Testing
         func say(_ signal: OrbitGaugeCalibration.Signal, nights: Int = 3) -> String {
             OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: nights, signal: signal))
         }
-        #expect(say(.anyNight) == "3 of 7 nights. Readiness appears once the baselines are complete.")
+        #expect(say(.anyNight) == "3 of 7\u{00A0}nights. Readiness appears once the baselines are complete.")
         #expect(say(.heartRateNights)
-                == "3 of 7 nights with heart-rate data. Readiness appears once the baselines are complete.")
-        #expect(say(.hrv) == "3 of 7 nights with HRV.")
-        #expect(say(.restingHR) == "3 of 7 nights with resting heart rate.")
+                == "3 of 7\u{00A0}nights with heart-rate data. Readiness appears once the baselines are complete.")
+        #expect(say(.hrv) == "3 of 7\u{00A0}nights with HRV.")
+        #expect(say(.restingHR) == "3 of 7\u{00A0}nights with resting heart rate.")
     }
 
     @Test func calibratingSpeaksTheClampedCount() {
-        #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 9, signal: .hrv)) == "7 of 7 nights with HRV.")
-        #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: -1, signal: .hrv)) == "0 of 7 nights with HRV.")
+        #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 9, signal: .hrv)) == "7 of 7\u{00A0}nights with HRV.")
+        #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: -1, signal: .hrv)) == "0 of 7\u{00A0}nights with HRV.")
     }
 
     /// No closing full stop: the gauge appends its note with ". " (design.md writes the sentence with one).
     @Test func pendingWithADayBeforeSaysWhatWasLastScored() {
         let spoken = normalised(OrbitGauge.spokenPending(.previewScored))
-        #expect(spoken == "Not scored yet. Last scored: 71. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+        #expect(spoken == "Not scored yet. Last scored: 71. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9.6 of 21")
     }
 
     @Test func pendingLeavesOutTheBandWordForTheDayBefore() {
@@ -190,7 +190,7 @@ import Testing
 
     @Test func scoredSpeechIsUnchanged() {
         let spoken = normalised(OrbitGauge.spokenValue(.previewScored))
-        #expect(spoken == "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+        #expect(spoken == "71, High. Recovery 71\u{00A0}percent, Sleep 88\u{00A0}percent, Strain 9.6 of 21")
         #expect(OrbitGauge.spokenValue(OrbitGaugeValues()) == "No data")
     }
 

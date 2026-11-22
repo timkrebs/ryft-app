@@ -54,7 +54,7 @@ struct SleepBedtimeBoard: Equatable {
     let ruler: SleepRuler?
     /// What the ruler says without a plan (not Day's "No time asleep yet").
     static var rulerPlaceholder: String {
-        String(localized: "No plan yet, on a scale from 0 to 10 hours.",
+        String(localized: "No plan yet, on a scale from 0 to 10\u{00A0}hours.",
                comment: "VoiceOver on Sleep → Bedtime's ruler (\"Planned sleep\") while tonight's plan is loading, failed or offline.")
     }
     /// "wake 7:00 AM" in the tile's head.
@@ -122,7 +122,7 @@ struct SleepBedtimeBoard: Equatable {
             let time = Fmt.time(option.bedtime(in: plan), locale: locale)
             let minutes = Self.sleepMin(plan, goal: option)
             let asleep = String(localized: "\(Fmt.duration(minutes: minutes)) asleep")
-            let spokenShare = String(localized: "\(option.rawValue) percent of your need")
+            let spokenShare = String(localized: "\(option.rawValue)\u{00A0}percent of your need")
             var spoken = [time, spokenShare,
                           String(localized: "\(Fmt.spokenDuration(minutes: minutes, locale: locale)) asleep")]
             if option == goal {

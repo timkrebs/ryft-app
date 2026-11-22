@@ -72,8 +72,9 @@ strings: build
 # String catalogs English only and complete, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
 # where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
-# the mark's SVG matches the Swift geometry (needs swiftc, i.e. macOS); no retired or misplaced teal, coral or Volt in Train,
-# My Day, Activities and the Journal card (scripts/check-accent-use.py, with its own self-test).
+# the mark's SVG matches the Swift geometry (needs swiftc, i.e. macOS); no retired colour or button in the app, the widget
+# or Shared/, no misplaced amber or coral in Train, My Day, Activities and the Journal card, and Volt only in its marks
+# (scripts/check-accent-use.py, with its own self-test).
 lint: check-entitlements check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py

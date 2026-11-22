@@ -274,7 +274,7 @@ private struct HistoryWeekHeader: View {
 enum SetText {
     /// "100 kg × 5", "× 8", "45 s".
     static func short(_ s: SessionSet, locale: Locale = .autoupdatingCurrent) -> String {
-        if let d = s.durationSec, s.reps == nil { return String(localized: "\(d) s") }
+        if let d = s.durationSec, s.reps == nil { return String(localized: "\(d)\u{00A0}s") }
         switch (s.weightKg, s.reps) {
         case let (kg?, r?): return "\(Fmt.kg(kg, locale: locale)) × \(r)"
         case let (nil, r?): return "× \(r)"

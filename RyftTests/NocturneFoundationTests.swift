@@ -131,7 +131,7 @@ struct NocturneFoundationTests {
     @Test("Arrived, 'Arrives', a neutral banner and the step badge are ink: no teal left in the restyled parts")
     func noTeal() {
         let ink = Tokens.resolve(Theme.textPrimary)
-        let teal = Tokens.resolve(Theme.accent)
+        let teal = Tokens.resolve(Theme.recovery)
         for (name, colour) in [("CheckRow.ok", CheckRow.Kind.ok.color), ("CapabilityState.yes", CapabilityState.yes.tint),
                                ("InlineMessage.neutral", InlineMessage.Severity.neutral.glyphColor)] {
             let c = Tokens.resolve(colour)

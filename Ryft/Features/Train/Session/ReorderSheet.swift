@@ -54,6 +54,8 @@ struct ReorderSheet: View {
             .contentMargins(.top, Self.topGap, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .tint(Theme.textPrimary)
+            // The header is pinned: while a row is under it, the list stops 12 below it at the pinned bar's rule.
+            .underPinnedHeader(gap: Self.topGap)
         }
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)

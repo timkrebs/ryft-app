@@ -1,6 +1,6 @@
 #!/bin/sh
 # Renders the training import's screens (RyftTests/Import/ImportScreenshotTests.swift) in English and exports the PNGs to
-# OUT_DIR/<screen>-<state>-<lang>-<light|dark>-<default|ax3|ax5>.png. `make ui-shots` runs it.
+# OUT_DIR/<screen>-<state>-<lang>-dark-<default|ax3|ax5>.png (dark only, ADR 0016). `make ui-shots` runs it.
 #
 #   scripts/ui-shots.sh ["iPhone 18 Pro"] [OUT_DIR] [DERIVED_DATA]
 #

@@ -110,7 +110,7 @@ extension MetricSpec {
                                 polarity: .lowerIsBetter)
     static let respRate = MetricSpec(title: String(localized: "Respiratory rate"), unit: "rpm",
                                      color: Theme.accentSecondary, fractionDigits: 1)
-    /// SpO₂ in Mist; in light mode Mist would vanish, so the secondary ink stands in.
+    /// SpO₂ in the secondary ink (`textSecondary`): it has no legend colour of its own.
     static let spo2 = MetricSpec(title: String(localized: "Blood oxygen"), unit: "%", color: Theme.textSecondary,
                                  polarity: .higherIsBetter, fractionDigits: 1)
     static let steps = MetricSpec(title: String(localized: "Steps"), color: Theme.accentSecondary,

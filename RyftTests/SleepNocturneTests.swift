@@ -174,8 +174,8 @@ struct SleepSummaryCopyTests {
         #expect(subtitle(.day, "2026-11-15") == "Last night · Sun, Nov 15")
         #expect(subtitle(.day, "2026-11-14") == "Yesterday · Sat, Nov 14")
         #expect(subtitle(.day, "2026-11-11") == "Wed, Nov 11")
-        #expect(subtitle(.week, "2026-11-11") == "Last 7 nights")
-        #expect(subtitle(.month, "2026-11-11") == "Last 30 nights")
+        #expect(subtitle(.week, "2026-11-11") == "Last 7\u{00A0}nights")
+        #expect(subtitle(.month, "2026-11-11") == "Last 30\u{00A0}nights")
         #expect(subtitle(.plan, "2026-11-11") == "Tonight")
     }
 
@@ -275,14 +275,14 @@ struct SleepRulerTests {
         #expect(abs(zone.lowerBound - 7.47) < 0.001 && abs(zone.upperBound - 8.3) < 0.001)
         #expect(RulerScale.zoneTickIndices(count: RulerScale.Ticks.sleep, range: SleepRuler.range, zone: zone) == [45, 46, 47, 48, 49])
         #expect(ruler.value == 7.8)
-        #expect(ruler.labels == ["0 h", "need 8:18", "10 h"])
-        #expect(ruler.spokenValue.contains("on a scale from 0 to 10 hours") && ruler.spokenValue.contains("Your need is"))
+        #expect(ruler.labels == ["0\u{00A0}h", "need 8:18", "10\u{00A0}h"])
+        #expect(ruler.spokenValue.contains("on a scale from 0 to 10\u{00A0}hours") && ruler.spokenValue.contains("Your need is"))
     }
 
     @Test func withoutANeedNoZoneNoMiddleLabel() {
         for need in [nil, 0] as [Int?] {
             let ruler = SleepRuler(totalMin: 468, needMin: need, locale: enUS)
-            #expect(ruler.zone == nil && ruler.labels == ["0 h", "10 h"])
+            #expect(ruler.zone == nil && ruler.labels == ["0\u{00A0}h", "10\u{00A0}h"])
             #expect(!ruler.spokenValue.contains("Your need"))
         }
     }
@@ -315,7 +315,7 @@ struct SleepTileTests {
         #expect(tile.value == "86" && tile.unit == "%")
         #expect(tile.marks == [.full, .full, .noData, .missed, .full, .full, .today])
         // 78, 64, 71, 80 and the night shown (86) are regular, 52 isn't, one has no value.
-        #expect(tile.spokenValue.hasPrefix("86 percent. 5 of the last 7 nights were regular"))
+        #expect(tile.spokenValue.hasPrefix("86\u{00A0}percent. 5 of the last 7\u{00A0}nights were regular"))
         #expect(tile.spokenValue.hasSuffix("the last is the night shown"))
         // The threshold is inclusive; a short week is padded with no-data nights at the start.
         #expect(SleepTile.consistency(60, week: [59, 60], locale: enUS).marks
@@ -351,7 +351,7 @@ struct SleepTileTests {
                                          StageShare(stage: .light, min: 268)], restorative: 100)
         let tile = SleepTile.restorative(sleep, locale: enUS)
         #expect(tile.value == "3:20" && tile.unit == "h" && tile.notes.map(\.text) == ["Deep + REM"])
-        #expect(tile.spokenValue.hasSuffix("100 percent of the target"))
+        #expect(tile.spokenValue.hasSuffix("100\u{00A0}percent of the target"))
         sleep.hasStages = false
         #expect(SleepTile.restorative(sleep, locale: enUS).value == "–")
     }

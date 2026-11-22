@@ -260,9 +260,9 @@ struct WidgetNocturneTests {
         #expect(WidgetInk.primary.opacity == 1)
         #expect(abs(T.resolve(Theme.textSecondary).a - WidgetInk.secondary.opacity) < 0.005)
         #expect(abs(T.resolve(Theme.textTertiary).a - WidgetInk.tertiary.opacity) < 0.005)
-        // Over the widget's graphite: the 11 pt caption reads at 4.5:1, the dimmed number (17 pt and up) at 3:1.
-        let mist = T.rgba(0xF2F1EC), graphite = T.rgba(0x0A0C0B)
-        func on(_ ink: WidgetInk) -> Double { T.ratio(T.RGBA(r: mist.r, g: mist.g, b: mist.b, a: ink.opacity), on: graphite) }
+        // Over the widget's background: the 11 pt caption reads at 4.5:1, the dimmed number (17 pt and up) at 3:1.
+        let text = T.rgba(0xF2F1EC), background = T.rgba(0x0A0C0B)
+        func on(_ ink: WidgetInk) -> Double { T.ratio(T.RGBA(r: text.r, g: text.g, b: text.b, a: ink.opacity), on: background) }
         #expect(on(.secondary) >= 4.5)
         #expect(on(.tertiary) >= 3)
     }
