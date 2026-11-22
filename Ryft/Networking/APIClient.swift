@@ -621,7 +621,7 @@ final class APIClient: RyftDataSource {
             case 429 where retriesRateLimit && !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
-                APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")
+                APIStatus.log.notice("429 on \(method, privacy: .public) \(signpostRoute(path), privacy: .public); retrying in \(wait) s")
                 try await retryStep { try await sleep(wait) }
                 continue
             case 503 where unavailable < unavailableRetries && !single:
@@ -643,7 +643,7 @@ final class APIClient: RyftDataSource {
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
             let error = APIError.http(code, message, requestID: requestID, code: body?.code, retryAfter: retryAfter)
-            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(redactedPath(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
+            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(signpostRoute(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
             if let gate = error.gate { await status.observe([gate], enforced: true, epoch: epoch) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
                                       code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs), epoch: epoch)
