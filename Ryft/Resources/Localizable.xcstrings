@@ -1594,6 +1594,9 @@
     "Available once this day has loaded." : {
       "comment" : "VoiceOver hint of the Journal sheet's Save while the day is still loading."
     },
+    "Available when this iPhone is online." : {
+      "comment" : "VoiceOver hint on Profile → Privacy → Check with RYFT, dimmed while offline."
+    },
     "Average" : {
       "comment" : "A workout's heart-rate chart: the label of the rule at the average heart rate."
     },
@@ -3102,6 +3105,17 @@
       "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset."
     },
     "Superset with %@" : {},
+    "syncdetails.workouts.paused" : {
+      "comment" : "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused"
+          }
+        }
+      }
+    },
     "Tab %lld of %lld" : {
       "comment" : "VoiceOver value of a tab: its position. First %lld: this tab's position, second %lld: the number of tabs, e.g. \"Tab 2 of 5\"."
     },
