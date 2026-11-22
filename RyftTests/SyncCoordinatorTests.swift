@@ -119,6 +119,13 @@ private final class FakeSteps: SyncSteps {
     var lastStatus: (status: SyncStatus, readAt: Date)?
     /// Bumped by an account change or the demo switch.
     var ledgerGeneration = 0
+    /// A status's `consent_required` counts (`scoringGate(of:)`); false: asked within the platform's cache time of this
+    /// phone's consent `204`, so the status door's R2 says there's none (code review N2).
+    var consentGateCounts = true
+
+    func scoringGate(of status: SyncStatus) -> APIErrorCode? {
+        status.gate == .consentRequired && !consentGateCounts ? nil : status.gate
+    }
 
     func count(_ name: String) -> Int { events.filter { $0 == name }.count }
 }
@@ -212,6 +219,23 @@ struct SyncCoordinatorTests {
         offline.statusFails = true
         _ = await SyncCoordinator(steps: offline, clock: clock).run(.appActive)
         #expect(offline.events == ["upload", "poll", "stale"])
+    }
+
+    @Test func aConsentGateTheStatusRuleDoesntCountKeepsTheDaysOfARunThatSentNothing() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"]
+        steps.scored = [false, true]
+        steps.gate = .consentRequired
+        steps.consentGateCounts = false // asked within the cache time of this phone's 204: not a gate (code review N2)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 && steps.phases.contains(.awaitingScores) },
+                "it waits for the day: \(steps.events)")
+        clock.advance(by: .seconds(10))
+        let outcome = await run.value
+        #expect(outcome.polls == 1 && outcome.touched == ["2026-10-19"])
     }
 
     @Test func aSilentPushMarksItsDaysScoredBeforeTheRefresh() async {
@@ -1251,6 +1275,22 @@ struct SyncCoordinatorScoringTests {
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: .seconds(10))
         #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(20))
+        #expect(await run.value.polls == 2)
+    }
+
+    @Test func aConsentGateTheStatusRuleDoesntCountDoesNotEndTheWait() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = [false, true]
+        steps.gate = .consentRequired
+        steps.consentGateCounts = false // asked within the cache time of this phone's 204: not a gate (code review N2)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        #expect(await eventually(timeout: .seconds(5)) { clock.pendingSleeps == 1 && steps.count("poll") == 1 },
+                "still waiting after the first answer: \(steps.events)")
         clock.advance(by: .seconds(20))
         #expect(await run.value.polls == 2)
     }
