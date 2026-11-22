@@ -3,6 +3,16 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Consent and the sync status cache (open, 2026-11-22)
+
+1. **`GET /v1/me/sync` → `gate` is always current.**
+   - **The problem:** the answer is cached for 10 s per user (API.md; `syncstatus.go:84-143`). Nothing drops it on `POST` or `DELETE /v1/me/consent`, or on `POST /v1/me/invite`. So a status read right after a consent still says `consent_required`.
+   - **Proposal:**
+     - Cache the rest of the status, but set `gate` from the request's user on every answer (`gateFor(userOf(r))`). The auth middleware has already loaded that row.
+     - Unlike deleting the cache entry on consent, this also holds when several API instances run, each with its own cache.
+     - API.md would read: "Cheap to call (cached 10 s per user); `gate` is always current."
+   - **Until then:** the app ignores `consent_required` and `null` in a status asked within 10 s of its own consent `204`. It relies on `GET /v1/me` and on the uploads' own `403` / `X-RYFT-Gate` instead. See `docs/work/2026-11-22-consent-agree-lag/design.md` §4.4 R2 and ADR 0025.
+
 ## Notifications (open, 2026-11-22)
 
 From the notifications plan (`docs/work/2026-11-22-notifications/plan.md`, decision 3; ticket N2). Today only a Train
