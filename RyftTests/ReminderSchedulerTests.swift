@@ -434,7 +434,7 @@ struct ReminderAccountTests {
         #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountB.uuidString)
     }
 
-    @Test("Another owner at the first pass, or none: every request of ours goes, bedtime's too; a wake alarm stays")
+    @Test("Another owner at the first pass, or none and another account's requests: they go, bedtime's too; a wake alarm stays")
     func theOwnerCheck() async throws {
         for owner in [accountB.uuidString, nil] {
             let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
@@ -994,5 +994,54 @@ struct ReminderJournalSettingTests {
         await rig.settle()
         await rig.auth.signOut()
         #expect(rig.scheduler.journalSettings.settings(for: accountA.uuidString) == .default)
+    }
+}
+
+// MARK: - round 2, S1: the first launch after the update
+
+@MainActor
+@Suite("Reminders: the first launch after the update (no owner key)")
+struct ReminderUpgradeTests {
+    /// What a build before N3 put on iOS for tonight and tomorrow: a bedtime reminder without `ryft.account` or a day.
+    private func earlierBuilds(_ rig: ReminderRig) async throws {
+        for (day, fire) in [("2026-11-23", Berlin.wall(2026, 11, 22, 22, 10)), ("2026-11-24", Berlin.wall(2026, 11, 23, 22, 10))] {
+            let content = UNMutableNotificationContent()
+            content.title = "Wind down"
+            content.categoryIdentifier = PushCategories.bedtime
+            try await rig.notifier.add(UNNotificationRequest(identifier: "bedtime.\(day)", content: content,
+                                                             trigger: UNCalendarNotificationTrigger(dateMatching: fire,
+                                                                                                     repeats: false)))
+        }
+    }
+
+    @Test("A sync-started pass keeps an earlier build's bedtime reminders and Notification Center; the planner's first offer replaces them")
+    func earlierBedtime() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        try await earlierBuilds(rig)
+        rig.notifier.deliver("morning-score-2026-11-22")
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == nil)
+        rig.watch()
+        rig.env.settings.lastSync = rig.clock.now()
+        #expect(await eventually { rig.ids(.syncStale).count == 2 })
+        #expect(rig.ids(.bedtime) == ["bedtime.2026-11-23", "bedtime.2026-11-24"])
+        #expect(rig.notifier.deliveredIDs == ["morning-score-2026-11-22"], "the upgrade removes nothing delivered")
+        #expect(rig.defaults.string(forKey: ReminderScheduler.ownerKey) == accountA.uuidString)
+
+        await rig.offerBedtime([bedtimeReminder("2026-11-24", fire: Berlin.wall(2026, 11, 23, 22, 10))])
+        #expect(rig.ids(.bedtime) == ["bedtime.2026-11-24"])
+        #expect(rig.reminder("bedtime.2026-11-24")?.account == accountA.uuidString, "replaced with whose it is")
+    }
+
+    @Test("No owner key: each request's own account decides; this account's stay, another's go")
+    func perRequest() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        try await rig.seed([journalReminder("2026-11-22", fire: Berlin.wall(2026, 11, 23, 9)),
+                            journalReminder("2026-11-23", fire: Berlin.wall(2026, 11, 24, 9), account: accountB),
+                            bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10), account: accountB)],
+                           owner: nil)
+        let removals = rig.notifier.removals
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.bedtime).isEmpty && rig.ids(.journal) == ["journal.2026-11-22"])
+        #expect(rig.notifier.removals == removals + 1, "another's in one call")
     }
 }

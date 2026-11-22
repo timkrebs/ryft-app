@@ -316,12 +316,19 @@ final class ReminderScheduler {
         clearedSignedOut = false
         let owner = defaults.string(forKey: Self.ownerKey)
         if owner != account {
-            // Another account's, or nobody knows whose (a wipe resumed store-only, a restore): ours go first. Another
-            // account's alerts in Notification Center too; with no owner at all (an upgrade, a first launch), only ours.
             // Not while locked, when the owner key may only read empty.
             guard isProtectedDataAvailable() else { return }
-            removed += tearDown()
-            if owner != nil { env.notifier.removeAllDelivered() }
+            if owner == nil {
+                // Nobody's yet (the first launch after the update that brought the key, a first sign-in): each request's
+                // own account says whose it is. An earlier build's bedtime reminders carry none: they're bedtime's not
+                // known yet, and stay until the planner's first offer replaces them (review S1). Notification Center
+                // is left alone.
+                removed += removeOthers(than: account)
+            } else {
+                // Another account's: all of ours go, and its alerts in Notification Center.
+                removed += tearDown()
+                env.notifier.removeAllDelivered()
+            }
             defaults.set(account, forKey: Self.ownerKey)
         }
         // Demo data: the account's stay exactly as they are.
@@ -402,6 +409,17 @@ final class ReminderScheduler {
         env.notifier.removePending(ids: ids.sorted())
         ledger = [:]
         return ids.count
+    }
+
+    /// Removes the ledger's requests that aren't `account`'s, in one call, but an earlier build's bedtime reminders (no
+    /// account): returns how many.
+    private func removeOthers(than account: String) -> Int {
+        let others = (ledger ?? [:]).values.filter { $0.account != account && !($0.kind == .bedtime && $0.account.isEmpty) }
+            .map(\.id).sorted()
+        guard !others.isEmpty else { return 0 }
+        env.notifier.removePending(ids: others)
+        for id in others { ledger?[id] = nil }
+        return others.count
     }
 
     /// A delivered journal reminder about a day other than yesterday says "yesterday" about the wrong day (ui.md §10).
