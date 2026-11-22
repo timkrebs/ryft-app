@@ -42,3 +42,4 @@
 - [Split ordered commits](project_split_commits_from_ahead_tree.md) — stage script per commit; stash --keep-index builds the index; pop by sha
 - [MockNotifier authorization](project_mock_notifier_authorization.md) — starts .notDetermined; scheduler adds only when allowed; bedtime tests authorize; run full Unit
 - [Protected data guard](project_protected_data_guard.md) — isProtectedDataAvailable is false whenever locked; guard only destructive branches
+- [Wire precision for Go rules](project_wire_precision_go_rules.md) — mirror platform checks on encoded values: whole seconds, distantPast = Go zero, bytes after NUL strip
