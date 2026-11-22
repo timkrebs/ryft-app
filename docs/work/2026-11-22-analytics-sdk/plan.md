@@ -92,8 +92,10 @@ AnalyticsSink` (from the protocol). Its `init(root: URL = PostHogSink.defaultRoo
   - `isFirstRun` (this account hasn't reached the tabs on this phone);
   - `flowStep == nil` (invite, consent, about you and wear are done);
   - not demo, signed in;
-  - Apple Health not answered yet (`!settings.healthIntroDone`);
   - `env.analytics.showsPrompt` (not answered, a sink that can send, the flag on, a valid `analytics`).
+
+  Review change: an Apple Health condition (`!settings.healthIntroDone`) was dropped. That flag is per install and turns
+  true by itself on a phone where iOS already asked, so a second account would never have been asked.
 
   RootView's `content` switch gets a case between `flowStep` and `needsHealthIntro`, a full-screen
   `AnalyticsOptInStepView`, with the same fade and `LaunchSignpost.screenAppeared`. The order:

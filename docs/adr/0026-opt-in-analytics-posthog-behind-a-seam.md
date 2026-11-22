@@ -54,8 +54,9 @@
    `previous_build`, `from_background`). Every other key is removed, `$device_id`, `$device_name`, `$locale` and
    `$timezone` included. A key a later SDK version adds is dropped until someone reviews it.
 8. **The URLProtocol fence.** `PostHogFence` sits first in the SDK's `protocolClasses`, and every SDK request goes
-   through that one session. It refuses every request unless the fence is open **and** the host is exactly
-   `eu.i.posthog.com`. It's open only between `start` and `stop`. So the remote-config `GET` to
+   through that one session. It refuses every request unless the fence is open **and** the request is exactly
+   `https://eu.i.posthog.com/batch` (no port, user or query): `/flags` (it carries `$device_id`), push subscriptions,
+   logs and replay are refused even on that host. It's open only between `start` and `stop`. So the remote-config `GET` to
    `eu-assets.i.posthog.com` at setup is refused, and nothing the SDK does after `stop` leaves the phone.
 9. **Our own deletion, because the SDK's isn't enough.** `close()` flushes a batch first and keeps the rest on disk;
    `reset()` keeps `$device_id`. So `stop()` closes the fence, deletes the queue, replay, logs and opt-out files under
@@ -87,9 +88,12 @@
   opt-out. It was captured while the user was opted in.
 - **The kill switch is as fast as the config refresh**: launch, app active when due, `ttl_sec` (6 h).
 - **Counts are per opt-in, not per person.** Every new id (opt-out, sign-out, opting in again) is a new anonymous
-  user. `Application Installed` fires once per install, not per id: the SDK keeps the last version and build in
-  `UserDefaults.standard` (`PHGVersionKey`, `PHGBuildKeyV2`), which our file deletion doesn't touch (no id in them).
-  A new id after that starts with `Application Opened`; `Application Updated` is dropped by the allow-list.
+  user. `Application Installed` fires at the install's **first opt-in**, not at install (the lifecycle integration
+  records the version only once it's installed, i.e. at `start`), so an upgraded install that opts in reports
+  "Installed". After that, never again on that install: the SDK keeps the last version and build in
+  `UserDefaults.standard` (`PHGVersionKey`, `PHGBuildKeyV2`, no id in them), which our file deletion doesn't touch.
+  A `start` mid-session sends no `Application Opened` (the integration treats the app as already foreground); the
+  next foreground does. `Application Updated` is dropped by the allow-list.
 - **App Store answers change** (`docs/APP_STORE.md`): Product Interaction and Other Usage Data, not linked, not used
   for tracking, purpose Analytics. Still no tracking, no ATT, no tracking domains. The binary contains a crash
   reporter that is never turned on, and its manifest shows up in Xcode's privacy report.

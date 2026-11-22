@@ -78,7 +78,9 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
-		<!-- A random per-install id sent with each sync and session (tells devices apart). -->
+		<!-- A random per-install id sent with each sync and session (tells devices apart). Analytics: after the
+		     opt-in, the analytics SDK's own random install id (ADR 0026), never the account's and never this
+		     one; one entry per type, and the type stays linked because of the sync's id. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
@@ -89,6 +91,7 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<!-- Free-text workout notes, custom exercise names, journal answers and feedback text
@@ -112,7 +115,8 @@
 		     flags, with tracker setup on the tracker ids chosen (RYFT's catalog ids, never a device's
 		     name), and the last Check sync: its day and, per tracker, a result code per data type (no
 		     values, times or source names). No health values. Request durations are network diagnostics for support (this type),
-		     not Performance Data. -->
+		     not Performance Data. Analytics: after the opt-in, `error_shown` (the HTTP status bucket and the
+		     error code of an error the app showed; ADR 0026). -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
@@ -123,6 +127,7 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<!-- Opt-in usage analytics (PostHog EU, ADR 0026): which screens and features are used, onboarding
@@ -141,7 +146,7 @@
 			</array>
 		</dict>
 		<!-- The same opt-in analytics, as the PostHog SDK's own manifest declares it: app version and build,
-		     OS version, device type, and the error status codes shown (`error_shown`). -->
+		     OS version, device type, the session id, and when the app is opened and backgrounded. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>

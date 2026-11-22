@@ -20,6 +20,8 @@ final class PostHogSink: AnalyticsSink {
     /// nil while stopped.
     private var sdk: PostHogSDK?
 
+    /// `start` and `stop` do their file work (the SDK's setup, our deletions) on the main actor, as `Analytics` calls
+    /// them: a few small files, once per opt-in, opt-out or config change, never per event.
     init(root: URL = PostHogSink.defaultRoot) {
         self.root = root
     }
