@@ -287,11 +287,12 @@ final class ConsentState {
     }
 
     /// A `GET /v1/me` answer, asked for at `askedAt`, was written (`Repository.store(fetchedUser:askedAt:)`). Asked for at
-    /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). Asked for after the
-    /// withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
-    /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
-    func heard(_ user: User, askedAt: Date) {
-        if let agreement = pendingAgreement, askedAt >= agreement.at {
+    /// or after this phone's agreement, it settles it: the stored user decides from now on (R3). Not when `settles` is
+    /// false (a withdrawal's own re-read: RYFT may record the `DELETE` after it). Asked for after the withdrawal and
+    /// showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on another device).
+    /// One asked for before either may be from before it, and an older policy's consent isn't one.
+    func heard(_ user: User, askedAt: Date, settles: Bool = true) {
+        if settles, let agreement = pendingAgreement, askedAt >= agreement.at {
             write { $0.agreement?.settled = true }
             agreementSettled?()
         }

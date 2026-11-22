@@ -281,8 +281,8 @@ final class ProfileViewModel {
                           comment: "Footer under Profile → Privacy with Demo data on while signed in.")
         }
         guard !withdrawingConsent else {
-            return String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.",
-                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way.")
+            return String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.",
+                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way: every upload waits meanwhile.")
         }
         if consentAwaitsConfirmation {
             return String(localized: "You agreed on this iPhone. Syncing starts once RYFT confirms it.",

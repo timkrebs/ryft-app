@@ -439,11 +439,12 @@ final class Repository {
 
     /// `refreshUser(mode: .changed(since:))` for a page that reads its save back: `true` when a `GET /v1/me` started at or
     /// after `since` answered (and was stored), `false` when nothing was sent (offline, or `.me` waits out a retry-after),
-    /// so the cached user may be older than `since`.
-    func readUserBack(since: Date) async throws -> Bool {
+    /// so the cached user may be older than `since`. `settles`: whether the answer, when this read's store is the
+    /// flight's, may settle this phone's consent agreement (`ConsentState.heard`; a withdrawal's re-read doesn't).
+    func readUserBack(since: Date, settles: Bool = true) async throws -> Bool {
         try await env.reads.run(ReadKey(.me), mode: .changed(since: since),
                                 storeAsked: { [weak self] (user: User, asked: Date) in
-                                    await self?.store(fetchedUser: user, askedAt: asked).committed()
+                                    await self?.store(fetchedUser: user, askedAt: asked, settles: settles).committed()
                                 }, { [env] in try await env.api.me() }) != nil
     }
 
@@ -816,12 +817,13 @@ final class Repository {
 
     /// A `GET /v1/me` answer, asked for at `askedAt` (its flight's start). Dropped, unwritten, when this phone changed
     /// the user after that (`lastUserChange`): the platform may have read the user before the change, and a withdrawn
-    /// consent would come back with it. One that's written may end this phone's withdrawal (`ConsentState.heard`).
+    /// consent would come back with it. One that's written may end this phone's withdrawal, and settle its agreement
+    /// unless `settles` is false (`ConsentState.heard`).
     @discardableResult
-    func store(fetchedUser user: User, askedAt: Date) -> WriteTicket {
+    func store(fetchedUser user: User, askedAt: Date, settles: Bool = true) -> WriteTicket {
         if let changed = lastUserChange, askedAt < changed { return .dropped }
         let ticket = store(user: user)
-        env.consent.heard(user, askedAt: askedAt)
+        env.consent.heard(user, askedAt: askedAt, settles: settles)
         return ticket
     }
 

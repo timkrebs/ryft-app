@@ -74,6 +74,9 @@ final class OnboardingCoordinator {
         var policyFresh = false
         /// The consent record could be read (`ConsentState.isRecordReadable`; false before the first unlock).
         var recordReadable = true
+        /// Profile's Withdraw consent is on its way (`isWithdrawing`): data waits, whatever RYFT's word meanwhile (security
+        /// review round 2, S-1). A local fact that only closes (ADR 0008); the flow's steps don't count it.
+        var withdrawing = false
     }
 
     /// The missing steps, in order. Invite only when the platform says its gate applies
@@ -108,11 +111,15 @@ final class OnboardingCoordinator {
     /// - While this phone's agreement waits for RYFT's word (`agreedVersion`), data waits too, whatever the stored user
     ///   says: a consent cached from before may be one the `204` didn't renew (a refusal it cleared, code review S3).
     ///   Only a `GET /v1/me` asked for after the `204` and stored opens it (ADR 0025, decision 3).
+    /// - While a withdrawal is on its way (`withdrawing`), data waits too: an answer heard meanwhile (Check with RYFT, a
+    ///   reconnect, Agree's re-read) may settle the agreement, and the withdrawal is the last word (security review round
+    ///   2, S-1). Only closing: once it ends, the rest decides.
     nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate? {
         if f.demo { return path == .healthKit ? .demo : nil }
         guard f.recordReadable else { return .policyUnknown }
         if f.inviteBlocked { return .gate(.inviteRequired) }
         if write == .erasure { return nil }
+        if f.withdrawing { return .gate(.consentRequired) }
         guard f.userKnown, f.agreedVersion == nil else { return .gate(.consentRequired) }
         if missing(f).contains(.consent) { return .gate(.consentRequired) }
         guard f.policyFresh else { return .policyUnknown }
@@ -134,7 +141,7 @@ final class OnboardingCoordinator {
     var inviteCode = ""
     private(set) var isWorking = false
     /// Profile's Withdraw consent, from the confirmation until the platform answered, a wait for a step's request
-    /// included (`withdrawConsent()`).
+    /// included (`withdrawConsent()`). Every data upload waits meanwhile (`Facts.withdrawing`).
     private(set) var isWithdrawing = false
     /// One sentence for the step on screen, and its status and request ID.
     private(set) var errorMessage: String?
@@ -206,7 +213,8 @@ final class OnboardingCoordinator {
                      reported: reported, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
                      aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup),
                      demo: env.isDemo, inviteBlocked: apiStatus.inviteBlocked || refusals.contains(.inviteRequired),
-                     policyFresh: consent.isPolicyFresh(at: env.clock.now()), recordReadable: consent.isRecordReadable)
+                     policyFresh: consent.isPolicyFresh(at: env.clock.now()), recordReadable: consent.isRecordReadable,
+                     withdrawing: isWithdrawing)
     }
 
     /// `GET /v1/me/sync` → `gate`; a `consent_required` only from a status that speaks for consent (R2: not one asked
@@ -748,7 +756,8 @@ final class OnboardingCoordinator {
                 try self.answered(sent)
                 let wasDeferred = self.deferred.contains(.consent)
                 self.deferred.insert(.consent)
-                let read = await self.askAgain(since: sentAt)
+                // Its answer settles no agreement (security review round 2, S-1): RYFT may record the DELETE after it.
+                let read = await self.askAgain(since: sentAt, settles: false)
                 try self.answered(sent)
                 // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal
                 // is idempotent).
@@ -784,11 +793,12 @@ final class OnboardingCoordinator {
     /// asked for at or after `since` (`Repository.readUserBack`), waited for at most `checkTimeout`, as the first run
     /// waits (code review S1: on its own, the read's three attempts could keep the step busy for over a minute). True
     /// when that read answered in time. Only the wait ends: the read goes on in the read pipeline, which stores its
-    /// answer inside the flight, so a late one still lands and the next check sees it.
-    private func askAgain(since: Date) async -> Bool {
+    /// answer inside the flight, so a late one still lands and the next check sees it. `settles`: whether that answer
+    /// may settle this phone's agreement (a withdrawal's doesn't).
+    private func askAgain(since: Date, settles: Bool = true) async -> Bool {
         let repository = state.repository, clock = env.clock
         return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { (try? await repository.readUserBack(since: since)) ?? false }
+            group.addTask { (try? await repository.readUserBack(since: since, settles: settles)) ?? false }
             group.addTask {
                 try? await clock.sleep(for: Self.checkTimeout)
                 return nil

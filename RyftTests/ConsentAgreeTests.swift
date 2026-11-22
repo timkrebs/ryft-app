@@ -759,7 +759,8 @@ struct ConsentAgreeTests {
 
     // MARK: Security review N-1: no first sync while a withdrawal is on its way
 
-    @Test("T9b: RYFT's word comes while a withdrawal is on its way: no first sync", .timeLimit(.minutes(1)))
+    @Test("T9b: RYFT's word comes while a withdrawal is on its way: no first sync, and every data path waits",
+          .timeLimit(.minutes(1)))
     func noFirstSyncDuringAWithdrawal() async throws {
         let h = H()
         try await h.ready()
@@ -775,11 +776,22 @@ struct ConsentAgreeTests {
         #expect(await agreeing.value)
         #expect(h.consent.agreement?.settled == true, "RYFT's word came first")
         #expect(h.starts.runs == 0, "no sync while the withdrawal is on its way")
+        // Settled, and still nothing goes while the DELETE is out (security review round 2, S-1); erasure does.
+        for path in [UploadPath.healthKit, .activities, .train, .trainImport] {
+            #expect(h.onboarding.uploadGate(for: path) != nil, "\(path) waits for the withdrawal")
+        }
+        #expect(h.onboarding.uploadGate(for: .activities, write: .erasure) == nil, "erasure goes")
+        #expect(!h.onboarding.missing.contains(.consent), "the flow doesn't count it: \(h.onboarding.missing)")
+        let end = h.clock.now()
+        try #require(h.env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900), end: end)) != nil)
+        await h.env.uploader.flush()
+        #expect(h.api.count("putActivity") == 0, "nothing went: \(h.api.calls)")
 
         delete.release()
         #expect(await withdrawing.value)
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.starts.runs == 0)
+        #expect(h.api.count("putActivity") == 0)
     }
 
     // MARK: Security review N-3: an agreement from after now is void
@@ -864,6 +876,7 @@ struct ConsentAgreeTests {
         let withdrawing = Task { await profile.withdrawConsent() }
         #expect(await eventually { delete.waiting == 1 })
         #expect(profile.withdrawingConsent, "Demo data and Log out are held")
+        #expect(profile.consentDetail == String(localized: "Withdrawing your consent. Nothing syncs while it's on its way."))
         delete.release()
         await withdrawing.value
         #expect(h.consent.withdrawnAt != nil && h.consent.agreement == nil)
@@ -976,4 +989,28 @@ struct ConsentAgreeTests {
         #expect(steps.scoringGate(of: late) == .consentRequired)
         #expect(steps.scoringGate(of: h.cachedStatus(gate: .inviteRequired)) == .inviteRequired, "not consent's: as it is")
     }
+    // MARK: Review round 2, security S-1: the withdrawal's hold
+
+    @Test("S-1: a withdrawal's own re-read settles nothing: RYFT may record the DELETE after it", .timeLimit(.minutes(1)))
+    func aWithdrawalsReReadSettlesNothing() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let delete = Gate()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        let reads = h.api.count("me")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await withdrawing.value == false)
+        #expect(h.api.count("me") == reads + 1, "asked again: \(h.api.calls)")
+        #expect(h.state.repository.user()?.consent?.policyVersion == H.version, "RYFT still shows the consent")
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        #expect(h.consent.unsettledAgreement == H.version, "the re-read settled nothing")
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.starts.runs == 0)
+        await delete.open()
+    }
+
 }
