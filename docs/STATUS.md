@@ -2,14 +2,20 @@
 
 ## 2026-11-22: Agree moves on at the consent's 204 (`fix/consent-agree-lag`, ADR 0025)
 
-- Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), and
-  for a withdrawal on its way; Profile → Privacy says "Given" with Check with RYFT; pauses name their cause
-  (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–3 in `review.md`).
+- Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), for
+  a withdrawal on its way, and for one sent without an answer, also after a relaunch, until a `/v1/me` asked later is
+  in; Profile → Privacy says "Given" with Check with RYFT, whose failure says what came back, with Details; pauses
+  name their cause (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–3 in `review.md`).
 - Verified: unit tests and the simulator only; the agree line on a device is on the user's list (design.md §6).
 - Open: **the journal's writes and the upload gate**: a scoping decision in ADR 0008, with the platform
   (ios-architect). `PUT /v1/journal/{day}` and the behaviour writes never ask the gate (ADR 0008 decision 1 leaves
   them out; the platform gates only `/v1/sync` and `/v1/train/import`), and habits like alcohol may be Art. 9 data
   (security review round 2; see also P2 follow-ups below).
+- Open (low): `Push/PushRegistrar.swift:165` and `Features/Train/TrainCoordinator.swift:650` (and `:663`) log
+  `error.localizedDescription` as `.public`, which can carry a server's words or a URL; log the status and request ID
+  instead (code review round 3). Their owners: notifications and Train.
+- Open (low): the shared "Given" key needs a comment for translators (it's also the Privacy row's value); add it with
+  the next strings batch (localization-editor).
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 

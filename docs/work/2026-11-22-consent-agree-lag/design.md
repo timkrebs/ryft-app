@@ -354,10 +354,19 @@ The suite is `ConsentAgreeTests` (Swift Testing, synthetic data). It uses these 
   T0 + 10 s" stays silent until the clock passes it. Uploads' own refusals (R4) still count, as `ScoringWord` accepts.
 - **RYFT's word during a withdrawal.** A `/v1/me` answer that lands while the `DELETE` is out (Check with RYFT, a
   reconnect, Agree's re-read) may settle the agreement; `gate` holds data until the withdrawal ends
-  (`Facts.withdrawing`, security review round 2, S-1), and the withdrawal's own re-read settles nothing. T9b pins it.
+  (`Facts.withdrawing`, security review round 2, S-1), and the withdrawal's own re-read settles nothing, unless it
+  shows no consent (closing is always safe, round 3, N-b). T9b pins it.
+- **A withdrawal without an answer** (security review round 3, S-2). The `DELETE` may have landed with its `204` lost,
+  and the stored user still shows the consent. `ConsentState.withdrawalUnresolvedSince`, kept in defaults beside
+  `withdrawnAt`, holds data meanwhile, also after a relaunch and in a background launch. It ends on a `/v1/me` asked
+  for after the attempt ended and stored, an answered withdrawal, a new Agree or another account. The re-read asks
+  since the cancellation, and every check and a reconnect ask while it's unresolved. A pause meanwhile names nothing
+  (N-a). What's left: RYFT may record the `DELETE` after a `/v1/me` that still showed the consent. The gate then
+  opens on that word, as it would after a withdrawal on another device (ADR 0008), and Train's session `PUT`, which
+  the platform doesn't gate, can go once.
 - **A late answer after the 10 s deadline** (S1). The read goes on and lands: Agree's sentence goes once the consent
-  step does, and a withdrawal not read in time keeps the consent sheet deferred, so a late answer without the consent
-  doesn't open it over Profile (code review round 2, 1 and 2).
+  step does, and a withdrawal without an answer keeps the consent sheet deferred however its re-read ends, so a later
+  answer without the consent doesn't open it over Profile (code review round 2, 1 and 2; round 3, 3).
 - **Rule drift.** R2 must stay in both status doors; T3b covers both. D8 makes R2 moot, but it keeps working.
 - **#134's withdrawal** no longer waits for an agree re-check (§4.3, item 4). T9 pins that the withdrawal still wins.
 
