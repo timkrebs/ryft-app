@@ -433,7 +433,8 @@ final class BedtimePlanner {
 
     init(state: AppState, alarms: WakeAlarms? = nil) {
         self.state = state
-        self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier)
+        self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier,
+                                                 account: { [weak env = state.env] in env?.auth.accountID })
         systemAccount = state.env.auth.accountID
         load()
     }
@@ -1348,9 +1349,12 @@ extension WakeAlarms {
 
 final class SystemWakeAlarms: WakeAlarms {
     private let notifier: Notifier
+    /// Whose the notifications below iOS 26 are (`ryft.account`): the signed-in account when they're set.
+    private let account: @MainActor () -> String?
 
-    init(notifier: Notifier) {
+    init(notifier: Notifier, account: @escaping @MainActor () -> String? = { nil }) {
         self.notifier = notifier
+        self.account = account
     }
 
     var ringsLikeAnAlarm: Bool {
@@ -1387,23 +1391,34 @@ final class SystemWakeAlarms: WakeAlarms {
         }
         #endif
         // Below iOS 26: a notification at each weekday's wake time (it won't ring like an alarm).
-        // Time Sensitive breaks through Focus once the capability is added in Xcode; without it
-        // iOS delivers it as an ordinary notification.
+        let account = account() ?? ""
         for (i, hhmm) in times.enumerated() {
-            let parts = hhmm.split(separator: ":").compactMap { Int($0) }
-            guard parts.count == 2 else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = String(localized: "Time to get up")
-            content.body = String(localized: "Your wake time from Bedtime & wake.")
-            content.sound = .default
-            content.interruptionLevel = .timeSensitive
-            // Calendar weekday: Sunday 1 … Saturday 7; index 0 is Monday.
-            let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: parts[0], minute: parts[1],
-                                                                                     weekday: (i + 1) % 7 + 1),
-                                                        repeats: true)
-            try await notifier.add(UNNotificationRequest(identifier: BedtimePlanner.wakePrefix + "\(i)", content: content,
-                                                         trigger: trigger))
+            guard let request = Self.request(index: i, at: hhmm, account: account) else { continue }
+            try await notifier.add(request)
         }
+    }
+
+    /// Weekday `index`'s wake notification (Monday 0) at "HH:MM", below iOS 26; nil for a malformed time. Time Sensitive
+    /// breaks through Focus once the capability is added in Xcode; without it iOS delivers it as an ordinary notification.
+    /// Shaped like RYFT's other local requests (`ryft: {category, day, account}`, the thread is the category), so it
+    /// presents while RYFT is open for the account it was set for (review S-3), and with previews hidden its category's
+    /// placeholder stands in.
+    static func request(index: Int, at hhmm: String, account: String) -> UNNotificationRequest? {
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Time to get up")
+        content.body = String(localized: "Your wake time from Bedtime & wake.")
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = PushCategories.wake
+        content.threadIdentifier = PushCategories.wake
+        content.userInfo = ["ryft": ["category": PushCategories.wake, "day": "", "account": account]]
+        // Calendar weekday: Sunday 1 … Saturday 7; index 0 is Monday.
+        let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: parts[0], minute: parts[1],
+                                                                                 weekday: (index + 1) % 7 + 1),
+                                                    repeats: true)
+        return UNNotificationRequest(identifier: BedtimePlanner.wakePrefix + "\(index)", content: content, trigger: trigger)
     }
 
     /// The wake notifications have fixed ids (one per weekday): removed by name, without reading iOS's pending set.

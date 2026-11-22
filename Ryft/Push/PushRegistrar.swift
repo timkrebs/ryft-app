@@ -228,10 +228,12 @@ extension PushEnvironment {
     }
 }
 
-/// The notification categories the app registers. The four remote ones come
-/// from the platform (`NotificationCategory`); `BEDTIME` is the local reminder.
+/// The notification categories the app registers. The remote ones come from the platform (`NotificationCategory`);
+/// `BEDTIME`, `JOURNAL_REMINDER` and `WAKE` are local.
 enum PushCategories {
     static let bedtime = "BEDTIME"
+    /// Bedtime & wake's wake notification below iOS 26 (AlarmKit rings from 26 on).
+    static let wake = "WAKE"
     /// The journal reminder (local, ADR 0024).
     static let journalReminder = "JOURNAL_REMINDER"
     /// NT1's alert for a scored activity: registered before the platform sends it (design.md §6), so its placeholder is
@@ -241,7 +243,7 @@ enum PushCategories {
     /// Every category RYFT shows, the server's and the local ones. No actions: a tap already does the one thing each is for
     /// (design.md §7.1).
     static var ids: [String] {
-        NotificationCategory.allCases.map(\.rawValue) + [activityScored, bedtime, journalReminder]
+        NotificationCategory.allCases.map(\.rawValue) + [activityScored, bedtime, journalReminder, wake]
     }
 
     /// With previews hidden iOS shows only this under the app name (no title, no body): what kind it is, never a value, a
@@ -275,6 +277,9 @@ enum PushCategories {
                    comment: "Lock screen with previews hidden: the journal reminder. No habit names.")
         // Locked with previews hidden: no sleep need or goal on the lock screen.
         case bedtime: String(localized: "Bedtime reminder")
+        case wake:
+            String(localized: "HIDDEN_PREVIEW_WAKE", defaultValue: "Wake-up time",
+                   comment: "Lock screen with previews hidden: Bedtime & wake's wake notification (below iOS 26). No time.")
         default: nil
         }
     }
@@ -305,7 +310,7 @@ enum PushPresentation {
     static func options(category: String, isLocal: Bool, accountMatches: Bool) -> UNNotificationPresentationOptions {
         guard accountMatches else { return [] }
         switch category {
-        case NotificationCategory.morningScore.rawValue, PushCategories.bedtime:
+        case NotificationCategory.morningScore.rawValue, PushCategories.bedtime, PushCategories.wake:
             return [.banner, .list, .sound]
         case NotificationCategory.syncStale.rawValue:
             // The open app syncs, so this iPhone's hint has moved instead; the server's still says it (the gap is data).

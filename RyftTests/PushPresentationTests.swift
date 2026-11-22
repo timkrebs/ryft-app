@@ -9,7 +9,7 @@ struct PushCategoryPlaceholderTests {
     @Test("Every category has a placeholder saying what kind it is, with no number in it; no actions, no title shown")
     func placeholders() throws {
         #expect(Set(PushCategories.ids) == ["MORNING_SCORE", "SESSION_SCORED", "PR", "SYNC_STALE", "ACTIVITY_SCORED",
-                                            "BEDTIME", "JOURNAL_REMINDER"])
+                                            "BEDTIME", "JOURNAL_REMINDER", "WAKE"])
         for category in PushCategories.all {
             let text = category.hiddenPreviewsBodyPlaceholder
             #expect(!text.isEmpty, "\(category.identifier)")
@@ -19,6 +19,7 @@ struct PushCategoryPlaceholderTests {
         #expect(PushCategories.placeholder("BEDTIME") == String(localized: "Bedtime reminder"))
         #expect(PushCategories.placeholder("JOURNAL_REMINDER") == "Journal reminder")
         #expect(PushCategories.placeholder("SYNC_STALE") == "Your data may be behind")
+        #expect(PushCategories.placeholder("WAKE") == "Wake-up time")
         #expect(PushCategories.placeholder("UNKNOWN") == nil)
     }
 
@@ -45,7 +46,7 @@ struct PushPresentationTests {
         #expect(options("ACTIVITY_SCORED", local: false) == quiet)
         #expect(options("SYNC_STALE", local: false) == quiet, "the server's: the gap is data")
         #expect(options("SYNC_STALE", local: true) == [], "this iPhone's: the open app syncs, so it moved instead")
-        #expect(options("BEDTIME", local: true) == all)
+        #expect(options("BEDTIME", local: true) == all && options("WAKE", local: true) == all)
         #expect(options("JOURNAL_REMINDER", local: true) == quiet)
         #expect(PushPresentation.options(category: "BEDTIME", isLocal: true, accountMatches: false) == [])
     }
@@ -118,5 +119,35 @@ struct JournalRouteTests {
         #expect(JournalSheetModel.offers("2026-11-08", yesterday: "2026-11-21"))
         #expect(!JournalSheetModel.offers("2026-11-07", yesterday: "2026-11-21"))
         #expect(!JournalSheetModel.offers("2026-11-22", yesterday: "2026-11-21"))
+    }
+}
+
+/// Review S-3: below iOS 26 the wake notification is a local request like the others, so it presents while RYFT is open.
+@MainActor
+struct WakeNotificationTests {
+    @Test("Monday's wake notification: its id, weekday and time, its category and thread, and whose it is")
+    func shape() throws {
+        let request = try #require(SystemWakeAlarms.request(index: 0, at: "06:45", account: "acct-a"))
+        #expect(request.identifier == "wake.0" && request.content.interruptionLevel == .timeSensitive)
+        #expect(request.content.categoryIdentifier == "WAKE" && request.content.threadIdentifier == "WAKE")
+        let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+        #expect(trigger.repeats && trigger.dateComponents == DateComponents(hour: 6, minute: 45, weekday: 2))
+        #expect(PushPresentation.account(in: request.content.userInfo) == "acct-a")
+        #expect(SystemWakeAlarms.request(index: 6, at: "07:30", account: "acct-a")?.identifier == "wake.6")
+        #expect(SystemWakeAlarms.request(index: 1, at: "7", account: "acct-a") == nil)
+    }
+
+    @Test("Open on its account: shown with its sound; another account's, or with Demo data on, not shown, and its tap opens Today")
+    func presents() throws {
+        let request = try #require(SystemWakeAlarms.request(index: 2, at: "06:00", account: "acct-a"))
+        let account = PushPresentation.account(in: request.content.userInfo)
+        let mine = PushPresentation.accountMatches(isLocal: true, account: account, currentAccount: "acct-a", isDemo: false)
+        #expect(mine && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: mine) == [.banner, .list, .sound])
+        for (current, demo) in [("acct-b", false), ("acct-a", true)] {
+            let matches = PushPresentation.accountMatches(isLocal: true, account: account, currentAccount: current, isDemo: demo)
+            #expect(!matches && PushPresentation.options(category: "WAKE", isLocal: true, accountMatches: matches) == [])
+        }
+        let message = PushMessage(userInfo: request.content.userInfo)
+        #expect(PushPresentation.route(message: message, category: "WAKE", accountMatches: mine) == .today)
     }
 }
