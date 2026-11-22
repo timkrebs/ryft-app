@@ -143,6 +143,8 @@ final class ReminderScheduler {
     func offerBedtime(_ wish: ReminderWish, owner: BedtimePlanner.Owner) async {
         guard owner.account.isCurrent(in: env), owner.epoch == env.persistence.epoch.current else { return }
         bedtime = (wish, owner.account)
+        // Not allowed when last read: turning the reminder on may just have asked, so iOS's answer is read again.
+        if allowed != true { authorization = nil }
         await passNow()
     }
 
@@ -374,6 +376,10 @@ final class ReminderScheduler {
             removed += remove.count
         }
         self.ledger = ledger
+        // Not allowed (denied, or not asked yet): iOS would refuse each add, a throw and a log line, up to seven bedtime
+        // ones a pass (review S3). Removals still apply; app active and bedtime's next offer read the status again, and
+        // an allowed pass adds what's missing.
+        if allowed == false { add = [] }
         var landed: [LocalReminder] = []
         for reminder in add.sorted(by: soonest) {
             guard current() else { break }

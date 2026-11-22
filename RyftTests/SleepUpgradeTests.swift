@@ -7,7 +7,10 @@ import UserNotifications
 private func makeState(api: MockPlatformAPI = MockPlatformAPI(), flags: [FeatureFlag: Bool] = [:],
                        online: Bool = true) -> (AppState, TestClock) {
     let clock = TestClock()
-    return (AppState(env: .test(api: api, clock: clock, flags: flags, online: online)), clock)
+    let state = AppState(env: .test(api: api, clock: clock, flags: flags, online: online))
+    // Notifications allowed: bedtime's reminders reach iOS only then (review S3).
+    (state.env.notifier as? MockNotifier)?.status = .authorized
+    return (state, clock)
 }
 
 // MARK: - need breakdown
@@ -711,6 +714,7 @@ struct BedtimeAndWakeTests {
     @Test func remindersAskForNotificationsWhenTurnedOn() async throws {
         let (state, _) = makeState()
         let notifier = try #require(state.env.notifier as? MockNotifier)
+        notifier.status = .notDetermined
         let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
         notifier.grants = false
         #expect(!(await planner.allowReminders()) && notifier.authorizationPrompts == 1)

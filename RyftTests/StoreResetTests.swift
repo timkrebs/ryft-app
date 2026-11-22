@@ -1156,6 +1156,7 @@ struct OwedWipeLaunchTests {
 
     /// A's reminder, scheduled by the app before the kill.
     private func scheduleReminders(_ rig: WipingAuth, notifier: MockNotifier, clock: TestClock) async throws {
+        notifier.status = .authorized
         clock.set(try #require(Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: clock.now())))
         let planner = BedtimePlanner(state: AppState(env: .test(clock: clock, notifier: notifier, auth: rig.auth)),
                                      alarms: MockWakeAlarms())

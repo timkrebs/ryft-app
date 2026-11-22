@@ -703,6 +703,7 @@ struct ReminderBedtimeTests {
         let clock = TestClock()
         clock.set(Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: clock.now()) ?? clock.now())
         let notifier = MockNotifier()
+        notifier.status = .authorized
         let state = AppState(env: .test(api: api, clock: clock, notifier: notifier, flags: [.sleepPlanner: true]))
         let shift = ShiftBox(), now = clock.now()
         api.planFor = { _ in
@@ -1086,5 +1087,34 @@ struct ReminderTimeZoneTests {
         rig.center.post(name: UIApplication.significantTimeChangeNotification, object: nil)
         await rig.afterDebounce()
         #expect(rig.scheduler.passes > passes)
+    }
+}
+
+// MARK: - round 2, S3: notifications not allowed
+
+@MainActor
+@Suite("Reminders: notifications not allowed")
+struct ReminderDeniedTests {
+    @Test("Denied: no add is tried, bedtime's offer neither; a removal still goes; allowed again, they're added")
+    func denied() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        await rig.offerBedtime([bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10))])
+        #expect(rig.ids(.bedtime) == ["bedtime.2026-11-23"])
+
+        rig.notifier.status = .denied
+        rig.scheduler.reschedule(.appActive)
+        await rig.afterDebounce()
+        var tried = 0
+        rig.notifier.beforeAdd = { _ in tried += 1 }
+        let tonight = bedtimeReminder("2026-11-24", fire: Berlin.wall(2026, 11, 23, 22, 10))
+        await rig.offerBedtime([tonight])
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        #expect(tried == 0 && rig.notifier.requests.isEmpty, "nothing tried; the bedtime one not wanted any more went")
+
+        rig.notifier.status = .authorized
+        rig.scheduler.reschedule(.appActive)
+        await rig.afterDebounce()
+        #expect(tried == 3 && rig.ids(.bedtime) == ["bedtime.2026-11-24"] && rig.ids(.syncStale).count == 2)
     }
 }
