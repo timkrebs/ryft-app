@@ -1353,3 +1353,67 @@ struct PushTokenForgetterTests {
         #expect(push.token == nil, "a sign-in from signed out")
     }
 }
+
+// MARK: - round 3, code 6–7
+
+@MainActor
+@Suite("Reminders: the unlock's consent read, bedtime's re-read, a second sign-out")
+struct ReminderRoundThreeTests {
+    /// Before the first unlock the consent record can't be read: the two kinds aren't known, so nothing of theirs moves.
+    /// The unlock reloads the record (`ConsentState.reload`, which bumps `revision`), and the watch plans again.
+    @Test("Locked, the consent gate isn't known and theirs wait; the unlock's reload brings them")
+    func unlockRetries() async {
+        let rig = await LiveMorning.rig()
+        rig.env.consent.isProtectedDataAvailable = { false }
+        rig.env.consent.reload()
+        #expect(!rig.env.consent.isRecordReadable)
+        rig.watch()
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.journal).isEmpty && rig.ids(.syncStale).isEmpty, "not known: nothing of theirs")
+
+        rig.env.consent.isProtectedDataAvailable = { true }
+        let revision = rig.env.consent.revision
+        rig.env.consent.reload()
+        #expect(rig.env.consent.revision == revision + 1)
+        await rig.afterDebounce()
+        #expect(rig.ids(.journal).count == 3 && rig.ids(.syncStale).count == 2)
+    }
+
+    /// Turning the bedtime reminder on may just have asked iOS: an offer after a pass that read "not allowed" reads the
+    /// status again. Allowed when read, an offer doesn't read it again.
+    @Test("Bedtime's offer reads iOS's answer again while it wasn't allowed, and only then")
+    func offerReadsAgain() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.notifier.status = .notDetermined
+        await rig.scheduler.rescheduleNow()
+        rig.notifier.status = .authorized
+        let reads = rig.notifier.statusReads
+        await rig.offerBedtime([bedtimeReminder("2026-11-23", fire: Berlin.wall(2026, 11, 22, 22, 10))])
+        #expect(rig.notifier.statusReads == reads + 1 && rig.ids(.bedtime) == ["bedtime.2026-11-23"])
+
+        await rig.offerBedtime([bedtimeReminder("2026-11-24", fire: Berlin.wall(2026, 11, 23, 22, 10))])
+        #expect(rig.notifier.statusReads == reads + 1 && rig.ids(.bedtime) == ["bedtime.2026-11-24"], "allowed: not again")
+    }
+
+    /// Notification Center is cleared once per signed-out spell: a sign-in ends the spell, so the next sign-out's first
+    /// signed-out pass clears it again without waiting for an app active.
+    @Test("Signed out, in again, out again: the second spell clears Notification Center as the first did")
+    func secondSignOutClears() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        await rig.scheduler.rescheduleNow()
+        await rig.settle()
+        await rig.auth.signOut(reason: .sessionExpired)
+        rig.notifier.deliver("morning-score-2026-11-23")
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.deliveredIDs.isEmpty, "the first spell")
+
+        rig.client.emit(.signedIn, .preview(id: accountA))
+        #expect(await eventually { rig.auth.accountID == accountA.uuidString })
+        await rig.scheduler.rescheduleNow()
+        await rig.settle()
+        await rig.auth.signOut(reason: .sessionExpired)
+        rig.notifier.deliver("morning-score-2026-11-24")
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.notifier.deliveredIDs.isEmpty, "the second spell")
+    }
+}
