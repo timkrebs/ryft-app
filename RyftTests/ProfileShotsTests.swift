@@ -25,11 +25,12 @@ struct ProfileShotsTests {
                 let data = try #require(image.pngData())
                 try data.write(to: URL(fileURLWithPath: "\(dir)/profile-\(name)-\(size).png"))
             }
+            await graph.releaseWithdrawal()
             graph.tearDown()
         }
     }
 
-    nonisolated static let names = ["signed-in", "demo", "signed-out", "sync-issue", "demo-exit-error"]
+    nonisolated static let names = ["signed-in", "demo", "signed-out", "sync-issue", "demo-exit-error", "withdrawing"]
 }
 
 /// Thrown by a Train store that can't be read: the demo exit's refusal (review R12).
@@ -46,6 +47,10 @@ struct ProfileShotGraph {
     let screens: ScreenModels
     /// Kept alive for the demo-exit state: its coordinator is the one Profile asks.
     let rig: DemoTrainRig?
+    /// The session's client: a test signs another account in through it.
+    let client: MockAuthClient
+    /// The "withdrawing" state's `DELETE /v1/me/consent`, held open until `releaseWithdrawal()`.
+    var withdrawal: Gate?
 
     var view: AnyView {
         AnyView(ProfileView()
@@ -68,9 +73,17 @@ struct ProfileShotGraph {
         state.env.defaults.removePersistentDomain(forName: suite)
     }
 
-    static func make(_ name: String) async throws -> ProfileShotGraph {
+    /// Lets the held withdrawal answer and waits until Profile says so (nothing to do for the other states).
+    func releaseWithdrawal() async {
+        guard let withdrawal else { return }
+        await withdrawal.open()
+        #expect(await eventually { !screens.profile.withdrawingConsent }, "the held withdrawal answered")
+    }
+
+    /// `clock`: the signed-in graph's (a test that holds a withdrawal passes one that stands still).
+    static func make(_ name: String, clock: AppClock = SystemClock()) async throws -> ProfileShotGraph {
         switch name {
-        case "signed-in": return graph(demo: false, signedIn: true, lastSync: .now)
+        case "signed-in": return graph(demo: false, signedIn: true, lastSync: .now, clock: clock)
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         case "demo": return graph(demo: true, signedIn: true, provider: "apple")
         case "signed-out": return graph(demo: true, signedIn: false)
@@ -90,6 +103,19 @@ struct ProfileShotGraph {
             rig.sync.fetchSessions = { _, _ in throw UnreadableStore() }
             _ = g.screens.profile.switchingDemoOff()
             return g
+        case "withdrawing":
+            // D6: the confirmation's Withdraw consent tapped, the request on its way: Demo data and Log out held. On a
+            // clock that stands still, so the hold outlasts `SettingsWrite.deadline` (25 s) however long the shots take.
+            var g = graph(demo: false, signedIn: true, lastSync: .now, clock: TestClock(now: .now))
+            let gate = Gate()
+            g.withdrawal = gate
+            let api = try #require(g.state.env.api as? MockPlatformAPI)
+            api.beforeRevokeConsent = { await gate.wait() }
+            let profile = g.screens.profile
+            Task { await profile.withdrawConsent() }
+            let held = await eventually { profile.withdrawingConsent }
+            try #require(held, "the withdrawal is on its way")
+            return g
         default:
             throw UnreadableStore()
         }
@@ -98,7 +124,7 @@ struct ProfileShotGraph {
     private static func graph(demo: Bool, signedIn: Bool, provider: String = "email", lastSync: Date? = nil,
                               health: MockHealthStore = MockHealthStore(),
                               api: MockPlatformAPI = MockPlatformAPI(activities: .demoSource()),
-                              rig: DemoTrainRig? = nil) -> ProfileShotGraph {
+                              rig: DemoTrainRig? = nil, clock: AppClock = SystemClock()) -> ProfileShotGraph {
         let suite = "ryft.test.profile-shots.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let settings = Settings(defaults: defaults)
@@ -106,16 +132,20 @@ struct ProfileShotGraph {
         // Apple Health's last good upload: "up to date" needs one.
         settings.lastSync = lastSync
         // `AuthService.preview`'s session in the graph's own defaults: a sign-out here leaves nothing for other suites.
-        let auth = AuthService(client: MockAuthClient(session: signedIn ? .preview(provider: provider) : nil), defaults: defaults,
+        let client = MockAuthClient(session: signedIn ? .preview(provider: provider) : nil)
+        let auth = AuthService(client: client, defaults: defaults,
                                wipeLocalData: { _ in true },
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
         let env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: api,
                                  auth: auth, persistence: TrainStore(inMemory: true),
-                                 clock: SystemClock(), notifier: MockNotifier(),
+                                 clock: clock, notifier: MockNotifier(),
                                  flags: StaticFlags([.devicesSetup: true, .trainImport: true]),
                                  connectivity: .preview(online: true), defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
+        // A clock that stands still never refills the read budget (5 starts a second on `env.clock`): a later read would
+        // wait for ever. As `.test` does.
+        if clock is TestClock { env.reads.budget = RequestBudget(clock: clock, maxStarts: .max) }
         let state = AppState(env: env)
         state.repository.widgetFile = nil
         state.history = MockData.history
@@ -128,7 +158,8 @@ struct ProfileShotGraph {
                                    library: TrainPreview.library, apiStatus: APIStatus(), train: rig?.coordinator)
         // The policy in force is the demo account's: its consent is current.
         sync.gate = { nil }
-        return ProfileShotGraph(suite: suite, state: state, settings: settings, sync: sync, screens: screens, rig: rig)
+        return ProfileShotGraph(suite: suite, state: state, settings: settings, sync: sync, screens: screens, rig: rig,
+                                client: client)
     }
 
     private static func heartRate(_ n: Int) -> HealthDelta {

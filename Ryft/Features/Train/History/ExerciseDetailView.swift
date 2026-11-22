@@ -176,10 +176,21 @@ struct ExerciseDetailPage: View {
              comment: "VoiceOver: the exercise page's outlines while its history loads the first time.")
     }
 
-    /// A failed read with nothing cached (the session detail's words).
-    static var failureText: String {
+    /// A failed read with nothing cached, the iPhone offline (the session detail's words).
+    static var offlineFailureText: String {
         String(localized: "This exercise's history couldn't be loaded. Try again when you're online.",
                comment: "The exercise page: the platform couldn't be reached and nothing is cached.")
+    }
+
+    /// A failed read with nothing cached while online (RYFT answered with an error, or not in time).
+    static var onlineFailureText: String {
+        String(localized: "This exercise's history couldn't be loaded. Try again.",
+               comment: "The exercise page: the read failed online and nothing is cached. Try again and Details are under it.")
+    }
+
+    /// The failed state's sentence (`TrainReadFailure`).
+    static func failureText(offline: Bool, heldBack: Bool) -> String {
+        TrainReadFailure.text(offline: offline, heldBack: heldBack, whenOffline: offlineFailureText, whenFailed: onlineFailureText)
     }
 
     /// The estimate leads (hero, chart); a bodyweight exercise without added weight shows the unlit hero and why; a timed or
@@ -590,9 +601,9 @@ struct E1RMChart: View {
 enum ExerciseDetailPreview {
     /// The page as loaded with `history`, Bench press's by default; `fresh` false is the copy on this phone, offline.
     static func model(_ history: ExerciseHistory?, exercise: UUID = MockTrain.bench.id, fresh: Bool = true,
-                      fetchedAt: Date? = nil) -> ExerciseDetailViewModel {
+                      fetchedAt: Date? = nil, offline: Bool = true) -> ExerciseDetailViewModel {
         ExerciseDetailViewModel(exerciseID: exercise, history: history, library: TrainPreview.library, clock: SystemClock(),
-                                fresh: fresh, fetchedAt: fetchedAt)
+                                fresh: fresh, fetchedAt: fetchedAt, offline: offline)
     }
 
     /// A history of `exercise` without estimates (a plank's holds, pull-ups without added weight): two sessions of `sets`.
@@ -633,6 +644,11 @@ enum ExerciseDetailPreview {
 
 #Preview("Exercise page · failed") {
     NavigationStack { ExerciseDetailPage(model: ExerciseDetailPreview.model(nil, fresh: false)) }
+        .previewEnvironment()
+}
+
+#Preview("Exercise page · failed online") {
+    NavigationStack { ExerciseDetailPage(model: ExerciseDetailPreview.model(nil, fresh: false, offline: false)) }
         .previewEnvironment()
 }
 

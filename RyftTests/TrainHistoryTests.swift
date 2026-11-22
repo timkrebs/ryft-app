@@ -414,7 +414,10 @@ struct TrainHistoryTests {
     /// title's outline goes where the title will be, from the leading inset under Back: it was centred over the whole stacked
     /// header, between Back's line and the title's.
     @Test func theLoadingTitlesOutlineSitsUnderBackAtAX3() async throws {
-        let view = NavigationStack { SessionDetailPage(content: SessionDetailContent(summary: nil, session: nil, loaded: false)) }
+        let view = NavigationStack {
+            SessionDetailPage(content: SessionDetailContent(summary: nil, session: nil, loaded: false),
+                              failureText: SessionDetailPage.failureText(offline: false, heldBack: false))
+        }
         try await HostedWindow.run(width: Self.width, height: 1_400, bottomInset: 0, typeSize: .accessibility3,
                                    category: .accessibilityExtraLarge, view) { w in
             try await w.wait("the header") { ids(w).contains("sessionDetail.header") }
