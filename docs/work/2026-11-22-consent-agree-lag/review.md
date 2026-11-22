@@ -90,3 +90,13 @@ All of S-1, code 1–9, N1–N3 hold. The developer's six notes are sound.
 | 5 | Sync details reuses Plans' "Paused" key. | **Fix:** its own keyed string with its own comment. |
 | 6 | The `ScreenModels.swift:81` wiring (`requestedAt`) is untested. | **Fix:** a wiring test. |
 | 7 | ADR 0025 decision 3 needs "except while the agreement is void". | **Fix.** |
+
+### ui-validator: pass, two nits
+Shots: `scratchpad/uiv-consent/shots/` (not in the repo). "Given" is neutral grey, there's no teal outside recovery, the footers and Step 6's pause texts wrap at AX3, and the row order is sensible. Lead spot-check: Profile unconfirmed (default) and Step 6 policy pause (default) match their neighbours.
+
+| # | Finding | Lead decision |
+|---|---|---|
+| 1 | The busy Check row is dimmed by `.disabled`, so its spinner is faint (Withdraw's busy row stays bright). | **Fix:** block taps while busy with `allowsHitTesting(!busy)`; keep `.disabled` for offline. |
+| 2 | The Check row has no trailing glyph next to "Sync now"'s refresh. "Read the policy" wraps mid-link in the withdrawing footer. | **Fix:** the refresh glyph, and a no-break space inside the link text. |
+| — | No VoiceOver hint says why Check is dimmed offline. | **Fix:** an accessibility hint. |
+| — | No preview covers Check busy or failed, or Sync details' Workouts paused for consent (`MockDevicesStates` has `train.gate == nil`). | **Fix:** add the previews (CLAUDE.md: every state gets one). |
