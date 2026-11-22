@@ -1356,4 +1356,37 @@ struct ConsentAgreeTests {
         #expect(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(a)) == nil)
         #expect(h.consent.withdrawalUnresolvedSince == nil)
     }
+
+    // MARK: Review round 3, code 3: the sheet stays deferred
+
+    @Test("Code 3: a withdrawal without an answer whose re-read still shows the consent: the sheet stays deferred",
+          .timeLimit(.minutes(1)))
+    func anUnansweredWithdrawalKeepsTheSheetDeferred() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        h.onboarding.reachedTabs()
+        try #require(!h.onboarding.isFirstRun && !h.onboarding.deferred.contains(.consent))
+        let delete = Gate()
+        // The DELETE's answer never comes, and RYFT hasn't recorded it yet: the re-read, in time, shows the consent.
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await withdrawing.value == false)
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        #expect(h.state.repository.user()?.consent != nil, "RYFT showed the consent")
+        #expect(h.onboarding.deferred.contains(.consent), "still deferred")
+
+        // RYFT records the DELETE after the re-read: the next check shows the step, and no sheet opens on its own.
+        h.api.accountConsent = nil
+        await h.onboarding.check(force: true)
+        #expect(h.onboarding.missing.contains(.consent), "\(h.onboarding.missing)")
+        #expect(h.onboarding.sheetStep == nil, "no consent sheet over Profile on its own")
+        h.onboarding.show(.consent)
+        #expect(h.onboarding.sheetStep == .consent, "asked for, it shows")
+        await delete.open()
+    }
 }

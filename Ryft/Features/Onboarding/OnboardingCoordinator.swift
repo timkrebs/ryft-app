@@ -793,7 +793,7 @@ final class OnboardingCoordinator {
                 // `isWithdrawing` ends, so the hold never lapses in between.
                 let cancelledAt = self.env.clock.now()
                 self.consent.withdrawalUnresolved(since: cancelledAt)
-                let wasDeferred = self.deferred.contains(.consent)
+                // The consent sheet waits, and stays deferred however the re-read ends (code review round 3, 3).
                 self.deferred.insert(.consent)
                 // Asked for after the attempt ended: one asked earlier may be from before RYFT recorded the DELETE. Its
                 // answer settles no agreement (security review round 2, S-1): RYFT may record the DELETE after it.
@@ -802,13 +802,10 @@ final class OnboardingCoordinator {
                 let user = read ? self.state.repository.user() : nil
                 // The consent still there, or not read: it may still arrive, and trying again makes sure (a withdrawal
                 // is idempotent).
-                guard let user, user.consent == nil else {
-                    // The sheet may ask again only when RYFT answered and still shows the consent. Not read in time,
-                    // the read's late answer may show the withdrawal arrived, and the consent sheet mustn't open over
-                    // Profile on its own (code review round 2, 1).
-                    if user != nil, !wasDeferred { self.deferred.remove(.consent) }
-                    throw Unanswered()
-                }
+                // Either way the sheet doesn't ask on its own: not read in time, the late answer may show the withdrawal
+                // arrived (code review round 2, 1); read with the consent, RYFT may record the DELETE after it (round 3,
+                // 3). Today's action and Privacy's Review and agree still offer the step.
+                guard let user, user.consent == nil else { throw Unanswered() }
                 // Gone: it arrived. Recorded as an answered one, with the re-read already done.
                 reread = true
             }
