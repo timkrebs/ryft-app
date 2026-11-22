@@ -65,9 +65,9 @@ Store "What's New".
 - Optional usage analytics, off unless you opt in, never with health data (not active yet).
 
 ### Changed
-- Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once RYFT confirms it; until
-  then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is given and not
-  confirmed yet, with Check with RYFT and Withdraw consent.
+- Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once this iPhone hears back
+  from RYFT; until then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is
+  given, with Check with RYFT and Withdraw consent. While a withdrawal is on its way, nothing syncs.
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.
 - RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,

@@ -7,12 +7,14 @@
   - Decision 5: the consent record also keeps this phone's agreement.
   - Decision 7: a `GET /v1/me/sync` asked within `statusCacheTime` of this phone's consent records nothing about consent.
 - Applies to:
-  - `Ryft/Environment/ConsentState.swift`: `Record.agreement`, `consented`, `heard`, `withdrew`, `unsettledAgreement`,
-    `statusSpeaksForConsent`.
-  - `OnboardingCoordinator`: `Facts.agreedVersion`, `missing`, `gate`, `facts.serverGate`, `check`, `agree`.
-  - `SyncCoordinator.syncStatus(userInitiated:)`, and `Repository.readUserBack(since:)` /
-    `store(fetchedUser:askedAt:)`.
-  - Devices & sync's idle state.
+  - `Ryft/Environment/ConsentState.swift`: `Record.agreement`, `consented`, `heard`, `withdrew`, `standingAgreement`
+    (an agreement dated after now is void), `pendingAgreement`, `unsettledAgreement`, `statusSpeaksForConsent`.
+  - `OnboardingCoordinator`: `Facts.agreedVersion` (the flow counts it; `gate` holds on it, code review S3),
+    `Facts.withdrawing`, `missing`, `gate`, `facts.serverGate`, `check`, `agree`, `withdrawConsent`,
+    `confirmAgreement`.
+  - `SyncCoordinator`: `LiveSyncSteps.syncStatus(userInitiated:)` and `scoringGate(of:)`; `AppState.syncStatusAskedAt`;
+    `Repository.readUserBack(since:settles:)` / `store(fetchedUser:askedAt:settles:)`.
+  - Devices & sync's idle state, Profile → Privacy, the training import's pause.
   - Every future reader of `GET /v1/me/sync` → `gate`.
 
 ## Context
@@ -43,8 +45,13 @@
    - Only three writers touch it:
      - `consented(to:at:)` records a new, unsettled one.
      - `heard(_:askedAt:)` settles it once a `GET /v1/me` asked for at or after that time is stored. From then on the
-       stored user decides.
+       stored user decides. A withdrawal's own re-read settles nothing: RYFT may record the `DELETE` after it.
      - `withdrew(at:)` removes it.
+   - **One dated after now is void** (the clock was set back since; security review N-3, `standingAgreement`):
+     - nothing waits for it: the flow, the gate and the status rule decide as if there were none, and the stored user
+       decides;
+     - a `GET /v1/me` heard meanwhile settles it, whenever it was asked for: the stored user decides then anyway;
+     - otherwise it counts again once the clock passes it.
 2. **The agreement moves onboarding.**
    - While it's unsettled, `missing` counts it as consent to the policy in force, for the consent step's "hasn't
      agreed" clause only.
@@ -52,7 +59,12 @@
    - The next step shows once the `204` is recorded. The re-read runs outside the step's request and never holds
      `isWorking`.
 3. **The agreement never opens an upload.**
-   - `gate(_:path:write:)` decides as if there were no agreement.
+   - While it's unsettled, `gate(_:path:write:)` holds every data path at the consent gate, whatever the stored user
+     says (code review S3): a consent cached from before may be one the `204` didn't renew, such as one under a refusal
+     it cleared. Erasures still go.
+   - While a withdrawal is on its way, `gate` holds data too (`Facts.withdrawing`; security review round 2, S-1): an
+     answer heard meanwhile may settle the agreement, and the withdrawal is the last word. Like every fact the phone
+     keeps itself, it only closes.
    - A data gate opens only when the platform's own user shows consent to the fresh policy: stored from a `GET /v1/me`
      asked for at or after the `204`, with no refusal counted.
    - Writes the phone makes itself still only close the gate.
@@ -86,6 +98,9 @@
    - What the user has to do comes from the coordinator's `pendingGate`, and an unsettled agreement doesn't count as a
      pending gate.
    - A sync held during an unsettled agreement says "Paused", never "Action needed": in Devices & sync as on Today.
+   - A pause names its cause: RYFT's confirmation only while the agreement is unsettled, the privacy policy while it
+     isn't known, otherwise nothing (security review round 2, N1). Profile → Privacy says "Given": RYFT recorded the
+     consent at the `204`, and only this iPhone's uploads wait (N2).
 
 Not decided here: which session the POST uses. It is sent fail-fast, with "ask again" when no answer comes, as #134 does
 for the withdrawal (design.md D6, `SettingsWrite`).
@@ -105,8 +120,9 @@ for the withdrawal (design.md D6, `SettingsWrite`).
 - **One more rule.** The record gains a field, and consent has a second rule, the status window. It has to hold in
   every reader of `gate`; tests pin both readers (design.md T3b).
 - **An unsettled agreement holds uploads** until a `/v1/me` answers. Offline for days, the sync stays paused.
-- **A clock set back after agreeing** keeps statuses silent on consent until the clock passes the window again. The
-  uploads' own refusals still count.
+- **A clock set back after agreeing** voids the agreement while it's dated after now (decision 1): the stored user
+  decides, statuses speak for consent again, and a `GET /v1/me` heard meanwhile settles it. Set back by less than
+  that, statuses stay silent on consent until the clock passes the window. The uploads' own refusals still count.
 - **A refusal can be missed for up to 10 s.** Say the consent is withdrawn on another device within 10 s of agreeing
   here. If the re-read was asked before that withdrawal, the gate opens, and the next upload meets the platform's own
   `403` or `X-RYFT-Gate`. That is the exposure ADR 0008 already bounds: at most one page per withdrawal made elsewhere.

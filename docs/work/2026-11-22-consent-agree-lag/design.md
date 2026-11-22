@@ -348,8 +348,16 @@ The suite is `ConsentAgreeTests` (Swift Testing, synthetic data). It uses these 
 - **An agreement that never settles** (offline for days). The flow stays advanced and uploads are held. This is honest:
   Today shows no action, and Devices & sync must say "Paused", not "Action needed" (§4.5). The line shows `confirmed
   none`.
-- **The clock set back after agreeing.** A status "asked before T0 + 10 s" stays silent until the clock passes it.
-  Uploads' own refusals (R4) still count, as `ScoringWord` accepts.
+- **The clock set back after agreeing.** An agreement dated after now is void (security review N-3,
+  `ConsentState.standingAgreement`): nothing waits for it, the stored user decides, every status speaks for consent,
+  and a `/v1/me` heard meanwhile settles it (code review round 2, 5). Set back by less than that, a status "asked before
+  T0 + 10 s" stays silent until the clock passes it. Uploads' own refusals (R4) still count, as `ScoringWord` accepts.
+- **RYFT's word during a withdrawal.** A `/v1/me` answer that lands while the `DELETE` is out (Check with RYFT, a
+  reconnect, Agree's re-read) may settle the agreement; `gate` holds data until the withdrawal ends
+  (`Facts.withdrawing`, security review round 2, S-1), and the withdrawal's own re-read settles nothing. T9b pins it.
+- **A late answer after the 10 s deadline** (S1). The read goes on and lands: Agree's sentence goes once the consent
+  step does, and a withdrawal not read in time keeps the consent sheet deferred, so a late answer without the consent
+  doesn't open it over Profile (code review round 2, 1 and 2).
 - **Rule drift.** R2 must stay in both status doors; T3b covers both. D8 makes R2 moot, but it keeps working.
 - **#134's withdrawal** no longer waits for an agree re-check (§4.3, item 4). T9 pins that the withdrawal still wins.
 

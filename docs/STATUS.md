@@ -1,4 +1,15 @@
-# Status — 2026-11-20
+# Status — 2026-11-22
+
+## 2026-11-22: Agree moves on at the consent's 204 (`fix/consent-agree-lag`, ADR 0025)
+
+- Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), and
+  for a withdrawal on its way; Profile → Privacy says "Given" with Check with RYFT; pauses name their cause
+  (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–3 in `review.md`).
+- Verified: unit tests and the simulator only; the agree line on a device is on the user's list (design.md §6).
+- Open: **the journal's writes and the upload gate**: a scoping decision in ADR 0008, with the platform
+  (ios-architect). `PUT /v1/journal/{day}` and the behaviour writes never ask the gate (ADR 0008 decision 1 leaves
+  them out; the platform gates only `/v1/sync` and `/v1/train/import`), and habits like alcohol may be Art. 9 data
+  (security review round 2; see also P2 follow-ups below).
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
