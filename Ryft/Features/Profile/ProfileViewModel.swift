@@ -359,6 +359,13 @@ final class ProfileViewModel {
     /// iPhone asks again once it's back online (code review round 2, 3).
     var canCheckConsent: Bool { consentAwaitsConfirmation && env.connectivity.isOnline && !withdrawingConsent }
 
+    /// Check with RYFT's VoiceOver hint while it's dimmed offline: why (UI validation round 3).
+    var checkConsentHint: String? {
+        guard consentAwaitsConfirmation, !env.connectivity.isOnline else { return nil }
+        return String(localized: "Available when this iPhone is online.",
+                      comment: "VoiceOver hint on Profile → Privacy → Check with RYFT, dimmed while offline.")
+    }
+
     /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again, as the person's own read
     /// (`OnboardingCoordinator.confirmAgreement`: `/v1/me` asked for after the agreement, not held by a `Retry-After`).
     /// Its answer decides the row: confirmed, "Given" without the line; without the consent, "Not given" and Review and

@@ -1510,4 +1510,25 @@ struct ConsentAgreeTests {
         screens.onboarding.statusReceived?(status, written.addingTimeInterval(ScoringWord.statusCacheTime))
         #expect(sync.scoringLedger[day] == nil, "asked after it: the write is answered")
     }
+
+    // MARK: UI validation round 3
+
+    @Test("UI: offline, Check with RYFT's VoiceOver hint says why it's dimmed; online, none", .timeLimit(.minutes(1)))
+    func theCheckSaysWhyItsDimmed() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        #expect(profile.canCheckConsent && profile.checkConsentHint == nil)
+        h.connectivity.update(false)
+        #expect(!profile.canCheckConsent)
+        #expect(profile.checkConsentHint == String(localized: "Available when this iPhone is online."))
+    }
+
+    @Test("UI: Sync details' preview of workouts waiting for RYFT's confirmation names it", .timeLimit(.minutes(1)))
+    func theWorkoutsPreviewNamesTheConfirmation() async {
+        let g = MockDevicesStates.graph(demo: false, workoutsAwaitConfirmation: true, clock: TestClock())
+        _ = await g.train.finish(SessionFactory.empty(in: g.store))
+        #expect(g.train.pendingCount > 0 && g.train.heldAt == .gate(.consentRequired))
+        #expect(g.details.workoutsHeldText == String(localized: "Waiting for RYFT to confirm your consent"))
+    }
 }
