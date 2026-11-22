@@ -2192,6 +2192,12 @@ struct ReportProblemTests {
 
         #expect(Set(d.keys) == FeedbackPayload.keys)
         #expect(d["trackers"] == "garmin,oura") // ids, never a device's name
+        // The agree line: durations, statuses and counts; no day, no time of day, no ID.
+        let mark = #"(?:\+\d+|-)"#
+        let agreeLine = try Regex(#"sent \#(mark) · answered \#(mark)(?: \(\d+; attempts (?:-|\d+/(?:\d+|-)(?:,\d+/(?:\d+|-))*)\))?"#
+            + #" · step \#(mark) · shown \#(mark) · confirmed (?:\+\d+ )?(?:ok|no_consent|none|failed \d+|dropped|-)"#
+            + #" · committed \#(mark) · session (?:fail_fast|default) · policy_read (?:yes|no) · busy_taps \d+"#,
+            as: Substring.self)
         let templates: [String: [Regex<Substring>]] = [
             "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z(?: \d+ms)?/],
             "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
@@ -2205,8 +2211,7 @@ struct ReportProblemTests {
             "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
             "trackers": [/-|[a-z][a-z0-9_]*(?:,[a-z][a-z0-9_]*)*/],
             "sync_check": [/checked \d{4}-\d{2}-\d{2}/, /[a-z_]+ [a-z_]+(?: [a-z0-9_]+=[a-z_]+)+/],
-            // Durations, statuses and counts: no day, no time of day, no ID.
-            "agree": [/sent (?:\+\d+|-) · answered (?:\+\d+|-)(?: \(\d+; attempts (?:-|\d+\/(?:\d+|-)(?:,\d+\/(?:\d+|-))*)\))? · step (?:\+\d+|-) · shown (?:\+\d+|-) · confirmed (?:\+\d+ )?(?:ok|no_consent|none|failed \d+|dropped|-) · committed (?:\+\d+|-) · session (?:fail_fast|default) · policy_read (?:yes|no) · busy_taps \d+/],
+            "agree": [agreeLine],
         ]
         for (key, value) in d {
             let patterns = try #require(templates[key])
