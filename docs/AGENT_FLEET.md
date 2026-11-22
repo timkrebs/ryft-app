@@ -44,8 +44,8 @@ flowchart TB
 | --- | --- | --- | --- | --- |
 | `ios-lead` | Tech lead / EM | glue only | session's | any brief spanning > 1 specialist |
 | `ios-architect` | Staff engineer | `docs/work`, `docs/adr` only | opus | changes to Sync/, Persistence/, Environment/, StateMachines/, concurrency |
-| `ios-developer` | Feature engineer | yes | session's | screens, view models, Train, Profile, onboarding |
-| `sync-engineer` | Platform/data engineer (client) | yes | session's | Health/, Sync/, Networking/, Persistence/, sessions |
+| `ios-developer` | Feature engineer | yes | sonnet | screens, view models, Train, Profile, onboarding |
+| `sync-engineer` | Platform/data engineer (client) | yes | opus | Health/, Sync/, Networking/, Persistence/, sessions |
 | `api-contract-keeper` | API owner | Models, PlatformAPI, fixtures | sonnet | `../plattform/docs/API.md` changed |
 | `ui-designer` | Product designer | specs, `Design/` primitives | sonnet | new screen or state, off-brand view |
 | `localization-editor` | UX writer / localiser | strings | haiku | any user-facing text |
@@ -56,6 +56,11 @@ flowchart TB
 | `performance-profiler` | Performance engineer | targeted fixes | sonnet | sync, launch, lists, charts, background |
 | `debugger` | On-call engineer | minimal fixes | sonnet | red build/CI, crash, wrong numbers |
 | `release-manager` | Release engineer | release files | sonnet | TestFlight / App Store / hotfix |
+
+**Models.** Opus where a wrong call costs most and is hardest to see: design (`ios-architect`), the data path from
+Apple Health to the platform (`sync-engineer`), and the two reviewers. Sonnet for feature and UI work, tests,
+contract mirroring, profiling, debugging and releases; their work always passes the Opus reviewers. Haiku for strings,
+which are targeted catalog edits checked by script. `ios-lead` follows the session's model.
 
 Adapted from agents in [lecole/claude-code-agents](https://github.com/lecole/claude-code-agents)
 (MIT © Seth Hobson) — `ios-developer`, `ui-ux-designer`, `ui-visual-validator`, `test-automator`,
