@@ -1,4 +1,22 @@
-# Status — 2026-11-20
+# Status — 2026-11-22
+
+## 2026-11-22: analytics phase 2 (#137, the PostHog SDK and decision B)
+
+- **#137, "analytics: the PostHog SDK and the opt-in in the onboarding (A1 phase 2)"** (`docs/work/2026-11-22-analytics-sdk/`, ADR 0026):
+  - What's in it:
+    - posthog-ios **exact 3.98.2** in the `Ryft` target only. `PostHogSink` turns everything off but lifecycle and lets through only an allow-list of events and properties.
+    - `PostHogFence` lets requests through only to `https://eu.i.posthog.com/batch`, and only while started.
+    - `stop()` and `forgetID()` delete the SDK's queue and id files themselves.
+  - **Decision B:** the opt-in is its own first-run step right before Apple Health ("Share usage analytics" / "Not now", equal weight, a link to the privacy policy). The post-onboarding sheet is gone.
+  - Also: the privacy manifest (Product Interaction and Other Usage Data, not linked, Analytics; the Analytics purpose on Device ID and Other Diagnostic Data; SystemBootTime 35F9.1), the licences, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and dependabot ignores posthog-ios.
+  - Still dark: the `analytics.enabled` flag is off by default.
+  - **Verification: simulator and unit tests only.** The simulator always gets the no-op sink, so nothing has reached PostHog yet. The first real check is a Debug device build launched with `-RyftAnalytics`, with the flag on and `analytics` in the config: watch PostHog's live events. Then turn the toggle off and check that nothing more arrives.
+  - Open for the user:
+    - App Store Connect App Privacy (`docs/APP_STORE.md` → "App Store Connect steps").
+    - The privacy policy names PostHog EU.
+    - The platform's licence snapshot.
+    - The `.claude` conventions skill, rule 4 (not committed).
+    - `Application Installed` fires at an install's first opt-in, not at install (ADR 0026).
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
@@ -10,7 +28,7 @@
   - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle (a Nocturne row after #127), the events, and 99 tests.
   - Decision B: in phase 2 the opt-in becomes an onboarding step before `health`; the post-onboarding sheet can go then.
   - Nobody sees it until phase 2: the no-op sink can't send.
-  - Phase 2 (a follow-up session) needs the package added in Xcode first. Then it writes `PostHogSink`, `PrivacyInfo.xcprivacy`, the ADR for the second dependency, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and a `LicensesView` entry.
+  - Phase 2 is #137 (above).
   - Right after phase 2 merges, the platform refreshes `web/config/app-packages.json` (`npm run licenses -- --sync`) with `posthog-ios` 3.98.2. The privacy text has to name PostHog EU as a processor.
 
 ## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
