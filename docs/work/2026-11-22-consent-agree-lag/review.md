@@ -24,3 +24,9 @@ No path uploads or starts a HealthKit sync on the local agreement alone. No App 
 | N2 | The scoring wait reads the raw `status.gate` (`SyncCoordinator.swift:543`, `:598`), so a cached `consent_required` ends it early. | **Fix:** the same R2 helper there. |
 | N3 | The agree line's `dropped` is documented as "a withdrawal meanwhile"; a tz or birth-year `PATCH` also drops it. | **Fix the wording.** |
 | N4 | STATUS isn't written yet. | Lead, at close. |
+
+## Round 2 (085a945..8a1f5c8, merge 93d4a4f, strings 9514686)
+
+### localization-editor: five keys added as written
+- **Open:** "It continues by itself once RYFT confirms your consent. Nothing to do here." also shows for the import's `policyUnknown` hold, where RYFT's privacy policy is awaited, not consent (Sync details says "Waiting for the privacy policy" for the same hold). **Lead decision:** a sixth key for the policy case, worded like Sync details' line, in the next fix round.
+- **Open:** in `ImportResultView.swift` (about line 485), the "kept on this iPhone" (privacy S2) doc comment now sits above `gatedWaiting`, and `keptLimits` lost its doc. **Lead decision:** move it back in the same round.
