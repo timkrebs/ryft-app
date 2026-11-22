@@ -42,3 +42,20 @@ No upload leaves before RYFT confirms the consent: `gate` holds all four data pa
 | N3 | ADR 0025 says `gate` decides as if there were no agreement; the code now holds (S3). The N-3 rule (an agreement dated after now is void) isn't in the ADR. | **Fix** in ADR 0025: decision 1 and "Applies to". |
 | Outside | The journal's `PUT /v1/journal/{day}` and behaviour writes never ask the upload gate (ADR 0008 decision 1 leaves them out; the platform gates only `/v1/sync` and `/v1/train/import`). Habits like alcohol may be Art. 9 data. | **Follow-up, not this PR:** a scoping decision in ADR 0008 (ios-architect) with the platform. Into STATUS as open. |
 | Outside | `APIClient.swift:624`, `:646` log `redactedPath` at `.public`, which keeps the day. | **Fix in this PR:** those two lines use `signpostRoute`. Small, and consistent with §6.5. |
+
+### code-reviewer: mergeable after should-fixes 1–3 (and the test gap 4), no blockers
+Every round-1 finding is fixed; no path uploads or starts a sync on the local agreement alone. The new problems come from S1's deadline: RYFT's late answer lands after the screen decided.
+
+| # | Finding | Lead decision |
+|---|---|---|
+| 1 | **A late withdrawal answer opens the consent sheet over Profile.** On `Unanswered`, `deferred.remove(.consent)` also runs when the re-read only missed the 10 s; the read lands later with `consent: nil` and "Agree and continue" appears unasked right after the withdrawal (`OnboardingCoordinator.swift:749-757`). | **Fix:** un-defer only when RYFT answered and still shows the consent. Test: the `DELETE` lands, `/v1/me` held past the deadline, then released; `sheetStep == nil`. |
+| 2 | **Agree's "try again" message outlives its cause.** After the late answer resolves it, About you (or Privacy under "Given") still says "RYFT didn't answer in time…". | **Fix:** the message belongs to the consent step; clear it when `.consent` leaves `missing`. Assert `errorMessage == nil` at the end of the S1 test. |
+| 3 | **"Check with RYFT" is silent offline and on failure**, and inside a Retry-After window it sends nothing. (Disagrees with the developer's note.) | **Agree with the reviewer.** Offline the row is disabled and the footer says RYFT is asked again when the iPhone is back online. After a failed check, one line says so. The check's read is user-initiated. |
+| 4 | N2's two call sites (`SyncCoordinator.swift:549`, `:604`) are untested: reverting either keeps the suite green. | **Fix:** a test through `SyncCoordinator` with a fake `scoringGate` returning nil for a `consent_required` status; the wait keeps the days. |
+| 5 | A void (future-dated) agreement comes back and holds the gate until the next foreground check. | **Fix:** a `/v1/me` heard during the void settles it (the stored user decides then anyway, no extra exposure). |
+| 6 | The paused words assume consent. | Same as security N1 and the localization-editor's note: words by cause. |
+| 7 | Withdraw stays enabled while Check runs; a Check answer handled after the `DELETE` on the server can end #134's Demo / Log out hold early. | **Fix:** Withdraw disabled while `checkingConsent`. |
+| 8 | ADR 0025 decision 3's first bullet and its clock-set-back bullet under Costs, and design.md §8, no longer match. | **Fix** together with security N3. |
+| 9 | Onboarding's status reaches the scoring wait with its arrival time, not its asked time. | **Fix:** pass `statusAskedAt` through; it's available in `check()`. |
+
+The post-merge run at 9514686: strict build 0 warnings, strings 0, lint OK. The test run failed at launch because the disk was full (the app couldn't start in the simulator), not on code; round 3 re-runs it.
