@@ -16,6 +16,7 @@ struct ProfileWithdrawalHoldTests {
     private static let demo = ProfileRow.demoMode.identifier
     private static let logOut = ProfileButton.logOut.identifier
     private static let export = ProfileButton.export.identifier
+    private static let withdraw = ProfileRow.withdrawConsent.identifier
 
     private static var shotFormat: UIGraphicsImageRendererFormat {
         let format = UIGraphicsImageRendererFormat()
@@ -232,6 +233,35 @@ struct ProfileWithdrawalHoldTests {
             await check.open()
             await withdrawing.value
             #expect(!onboarding.isWithdrawing && spoken.lines.count == 1)
+        }
+    }
+
+    @Test("Logging out (the push registration still being deleted): Log out busy, Withdraw consent disabled, nothing sent (round 3, C)",
+          .timeLimit(.minutes(2)))
+    func noWithdrawalWhileLoggingOut() async throws {
+        let graph = try await ProfileShotGraph.make("signed-in")
+        defer { graph.tearDown() }
+        let api = try #require(graph.state.env.api as? MockPlatformAPI)
+        let signOut = Gate()
+        graph.state.env.auth.beforeSignOut = { await signOut.wait() }
+        let profile = graph.screens.profile
+        try await HostedWindow.run(width: 390, height: Self.height, graph.view) { w in
+            try await w.settle()
+            #expect(try node(w, Self.withdraw).isEnabled)
+            let loggingOut = Task { await profile.logOut() }
+            let busy = String(localized: "In progress")
+            try await w.wait("busy") { find(w, Self.logOut)?.value == busy }
+            try await w.settle()
+            #expect(try node(w, Self.withdraw).isEnabled == false, "Withdraw consent takes no tap")
+            try node(w, Self.withdraw).activate()
+            try await w.settle()
+            #expect(w.presentedView == nil, "no withdrawal confirmation")
+            await profile.withdrawConsent()
+            #expect(api.count("revokeConsent") == 0, "\(api.calls)")
+
+            await signOut.open()
+            await loggingOut.value
+            #expect(!graph.state.env.auth.isSignedIn)
         }
     }
 

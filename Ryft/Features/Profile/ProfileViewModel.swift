@@ -157,9 +157,16 @@ final class ProfileViewModel {
     /// Logs out, unless a consent withdrawal is on its way (D6, security review S-1): a sign-out would end it unsent. The
     /// pill is held then too; the model doesn't count on its view ("Log out anyway" in a dialog shown before the hold).
     func logOut() async {
-        guard !withdrawingConsent else { return }
+        guard !withdrawingConsent, !loggingOut else { return }
+        loggingOut = true
+        defer { loggingOut = false }
         await auth.signOut()
     }
+
+    /// From Log out until the session is gone. The sign-out first deletes the push registration while the session still
+    /// works (`AuthService.beforeSignOut`, on the default session), which can take a while: meanwhile the pill is busy and
+    /// a consent withdrawal can't start, because the sign-out would end it unsent (security review round 3, C).
+    private(set) var loggingOut = false
 
     /// Activities and nights on this iPhone the platform hasn't confirmed, recordings not saved: what logging out
     /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
@@ -302,6 +309,8 @@ final class ProfileViewModel {
     /// answer recorded, before the re-check: security review N-3); a failure or an account change that ended it unsent
     /// says nothing here.
     func withdrawConsent() async {
+        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. The row is disabled then too.
+        guard !loggingOut else { return }
         await onboarding?.withdrawConsent(onRecorded: { [self] in announce(Self.consentWithdrawnAnnouncement) })
     }
 

@@ -126,6 +126,26 @@ struct WithdrawalHoldModelTests {
         #expect(!g.auth.isSignedIn, "live again: Log out logs out")
     }
 
+    // MARK: round 3, C: no withdrawal while Log out runs
+
+    @Test("Log out still deleting the push registration: a withdrawal is refused and sends nothing", .timeLimit(.minutes(1)))
+    func noWithdrawalWhileLoggingOut() async throws {
+        let g = Graph()
+        await g.onboarding.check()
+        let signOut = Gate()
+        g.auth.beforeSignOut = { await signOut.wait() }
+
+        let loggingOut = Task { await g.profile.logOut() }
+        #expect(await eventually { g.profile.loggingOut }, "the sign-out waits for the push registration")
+        await g.profile.withdrawConsent()
+        #expect(g.api.count("revokeConsent") == 0 && !g.onboarding.isWithdrawing, "nothing sent: \(g.api.calls)")
+        #expect(g.auth.isSignedIn)
+
+        await signOut.open()
+        await loggingOut.value
+        #expect(!g.auth.isSignedIn && !g.profile.loggingOut)
+    }
+
     // MARK: N-3: it ends when the answer is recorded
 
     @Test("The hold ends once the withdrawal is recorded, while its re-check is still out: Log out works, VoiceOver heard it",

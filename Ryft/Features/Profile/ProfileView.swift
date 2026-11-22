@@ -305,6 +305,8 @@ struct ProfileView: View {
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
             }
+            // Not while Log out runs: its sign-out would end the withdrawal unsent (the model refuses it too).
+            .disabled(model.loggingOut)
         case .analytics:
             AnalyticsOptInRow()
         // Account
@@ -487,7 +489,8 @@ struct ProfileView: View {
                             .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
                             .accessibilityIdentifier(button.identifier)
                         case .logOut:
-                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst) {
+                            // Busy while Send first waits, and while the sign-out deletes the push registration.
+                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst || model.loggingOut) {
                                 unsentAtLogOut = model.unconfirmedActivities
                                 showLogOutConfirm = true
                             }
