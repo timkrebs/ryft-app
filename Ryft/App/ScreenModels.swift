@@ -83,7 +83,7 @@ final class ScreenModels {
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         let push = PushRegistrar(env: state.env)
         self.push = push
-        // Its APNs token goes with the wipe's APNs registration, whatever the reason (review S-2).
+        // Its APNs token goes with every side the state forgets: an account change, a wipe, a Demo switch (review S-2).
         state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)

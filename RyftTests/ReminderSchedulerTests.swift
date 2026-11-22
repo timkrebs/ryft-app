@@ -1314,3 +1314,42 @@ struct ReminderRoundTwoTests {
         #expect(writes == afterSignOut)
     }
 }
+
+// MARK: - round 3, code 3: the APNs token's forgetter
+
+@MainActor
+@Suite("Push: the APNs token goes with every side the state forgets")
+struct PushTokenForgetterTests {
+    /// Review code 3: `ScreenModels` connects `PushRegistrar.forgetAccount` as an account-state forgetter. A Demo switch
+    /// either way, a sign-out's wipe and a sign-in from signed out each drop the token APNs handed over.
+    @Test("A Demo switch either way, a sign-out and a sign-in from signed out each drop the token")
+    func forgetsTheToken() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        let sync = SyncService(env: rig.env)
+        let screens = ScreenModels(state: rig.state, sync: sync,
+                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: rig.state, sync: sync),
+                                                                clock: rig.clock),
+                                   store: TrainPreview.store, library: TrainPreview.library, apiStatus: APIStatus())
+        let push = screens.push
+        func register(_ step: String) async {
+            await push.didRegister(deviceToken: Data([0x0a, 0x0b]))
+            #expect(push.token != nil, "\(step)")
+        }
+        await register("signed in")
+        rig.switchDemo(on: true)
+        #expect(push.token == nil, "Demo data on")
+        await register("in Demo data")
+        rig.switchDemo(on: false)
+        #expect(push.token == nil, "Demo data off")
+
+        await register("signed in again")
+        await rig.settle()
+        await rig.auth.signOut()
+        #expect(push.token == nil, "the sign-out's wipe")
+
+        await register("signed out")
+        rig.client.emit(.signedIn, .preview(id: accountB))
+        #expect(await eventually { rig.auth.accountID == accountB.uuidString })
+        #expect(push.token == nil, "a sign-in from signed out")
+    }
+}

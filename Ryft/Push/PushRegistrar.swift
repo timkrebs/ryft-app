@@ -174,9 +174,11 @@ final class PushRegistrar {
         }
     }
 
-    /// In the wipe's turn, for every reason (an account-state forgetter): the token APNs handed over is gone with the
-    /// registration the wipe ended (`AuthService.notificationStep`), so whoever signs in next waits for APNs' next one
-    /// instead of sending this. The accepted record went with the store.
+    /// An account-state forgetter (`ScreenModels`), so it runs whenever `AppState` forgets a side: before every account
+    /// change is published (a sign-in from signed out too), in every wipe's turn, and on every Demo data switch. The
+    /// token APNs handed over goes with it: a wipe ended that registration (`AuthService.notificationStep`), and whoever
+    /// is current next sends only the token APNs hands over after `refresh` registers again. A wipe's store took the
+    /// accepted record; a Demo switch leaves it.
     func forgetAccount() {
         token = nil
         lastError = nil
