@@ -27,6 +27,13 @@ struct LicensesView: View {
               url: "https://github.com/pointfreeco/swift-concurrency-extras"),
         Entry(name: "xctest-dynamic-overlay", license: "MIT", holder: "Point-Free",
               url: "https://github.com/pointfreeco/swift-issue-reporting"),
+        // posthog-ios 3.98.2 (ADR 0026) and the two libraries it compiles into the app.
+        Entry(name: "posthog-ios", license: "MIT", holder: "PostHog Inc.",
+              url: "https://github.com/PostHog/posthog-ios"),
+        Entry(name: "PLCrashReporter (in posthog-ios)", license: "MIT", holder: "Microsoft, Plausible Labs",
+              url: "https://github.com/microsoft/plcrashreporter"),
+        Entry(name: "libwebp (in posthog-ios)", license: "BSD 3-Clause", holder: "Google Inc.",
+              url: "https://chromium.googlesource.com/webm/libwebp"),
         Entry(name: "Satoshi typeface (Light, Regular, Medium, Bold)", license: "ITF Free Font License", holder: "Indian Type Foundry (Fontshare)",
               url: "https://www.fontshare.com/fonts/satoshi"),
     ]

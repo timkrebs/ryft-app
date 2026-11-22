@@ -62,7 +62,9 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 - RYFT proves to its servers that requests come from the genuine app on your iPhone (Apple's App Attest). Nothing
   changes until the servers start checking; a workout or sync they refuse for it stays queued and goes again.
-- Optional usage analytics, off unless you opt in, never with health data (not active yet).
+- Optional usage analytics, off unless you opt in, never with health data. The onboarding asks once, right before
+  Apple Health ("Share usage analytics" or "Not now"); Profile → Privacy changes it. Sent to PostHog in the EU, with a
+  random ID for the install, never your account (not switched on yet).
 
 ### Changed
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.

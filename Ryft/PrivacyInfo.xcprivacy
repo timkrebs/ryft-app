@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- RYFT tracks no one: no ATT, no tracking domains. -->
+	<!-- RYFT tracks no one: no ATT, no tracking domains. The PostHog SDK's own manifests (posthog-ios 3.98.2 and its
+	     vendored PLCrashReporter) declare no tracking and no tracking domains either. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
-	<!-- Everything is sent to the user's own RYFT account (App Functionality only).
+	<!-- Everything but opt-in usage analytics is sent to the user's own RYFT account (App Functionality).
+	     Usage analytics (ADR 0026) go to PostHog EU only after the user says yes: not linked, Analytics.
 	     Keep in sync with the App Privacy answers in App Store Connect (docs/APP_STORE.md). -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
@@ -123,11 +125,41 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<!-- Opt-in usage analytics (PostHog EU, ADR 0026): which screens and features are used, onboarding
+		     progress, the app's lifecycle (installed, opened, backgrounded). A random per-install id, never
+		     the account; no identify. Off unless the user says yes in the onboarding or Profile → Privacy. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- The same opt-in analytics, as the PostHog SDK's own manifest declares it: app version and build,
+		     OS version, device type, and the error status codes shown (`error_shown`). -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
 	</array>
 	<!-- App code uses UserDefaults for its own settings only (CA92.1). File metadata only
 	     of files in its own app and App Group containers (C617.1): OrphanedStoreCleanup reads
 	     the size of the store files left behind by the App Group move before removing them.
-	     No system boot time, disk space or active keyboards. -->
+	     No disk space or active keyboards. System boot time only inside the PostHog SDK (35F9.1:
+	     elapsed time between events), merged here from its manifest, which also declares CA92.1 and C617.1. -->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
@@ -144,6 +176,14 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
 			</array>
 		</dict>
 	</array>
