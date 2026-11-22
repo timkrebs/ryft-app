@@ -608,6 +608,18 @@ struct ReminderJournalTests {
         await late.scheduler.readYesterdayIfOwed()
         #expect(late.api.count("journal") == 0, "today's reminder is gone by: nothing to take away")
     }
+
+    @Test("The journal read is on the background session, with iOS's answer read first; not allowed, none")
+    func readsInTheBackground() async {
+        let rig = await liveRig(at: 8)
+        await rig.scheduler.readYesterdayIfOwed()
+        #expect(rig.api.backgroundCalls == ["journal"] && rig.notifier.statusReads == 1)
+
+        let denied = await liveRig(at: 8)
+        denied.notifier.status = .denied
+        await denied.scheduler.readYesterdayIfOwed()
+        #expect(denied.api.count("journal") == 0, "no reminder to take away")
+    }
 }
 
 // MARK: - 8 and §11
@@ -641,8 +653,8 @@ struct ReminderBudgetTests {
             rig.env.settings.lastSync = rig.clock.now()
             await Task.yield()
         }
-        #expect(await eventually { rig.env.settings.lastSync == first.addingTimeInterval(3600) })
-        await rig.scheduler.rescheduleNow()
+        #expect(await eventually { rig.scheduler.passes > 1 }, "the syncs asked for passes")
+        await rig.scheduler.rescheduleNow()   // and every one asked for is done
         #expect(rig.notifier.adds <= 4, "one move of .1 and .2 at most: \(rig.notifier.adds - 2) adds")
         #expect(rig.reminder("sync.stale.1")?.fire == Berlin.wall(2026, 11, 23, 11))
     }
@@ -1155,5 +1167,46 @@ struct ReminderCostTests {
         #expect(store.settings(for: accountA.uuidString) == JournalReminderSettings(on: false, minute: 540))
         #expect(store.set(JournalReminderSettings(on: true, minute: 600)))
         #expect(store.settings(for: accountA.uuidString) == JournalReminderSettings(on: true, minute: 600))
+    }
+}
+
+// MARK: - round 2, nits
+
+@MainActor
+@Suite("Reminders: Demo data during the adds, and the owner key's writes")
+struct ReminderRoundTwoTests {
+    @Test("Demo data switched on during the adds: what landed stays, the account's own")
+    func demoDuringAdds() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.env.settings.lastSync = rig.clock.now()
+        var switched = false
+        rig.notifier.beforeAdd = { _ in
+            guard !switched else { return }
+            switched = true
+            rig.switchDemo(on: true)
+        }
+        let removals = rig.notifier.removals
+        await rig.scheduler.rescheduleNow()
+        #expect(rig.ids(.syncStale) == ["sync.stale.1"] && rig.notifier.removals == removals)
+    }
+
+    @Test("A pass that changes nothing writes no default, the owner key included; signed out, neither")
+    func ownerKeyWrites() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14), wipesNotifications: false)
+        rig.env.settings.lastSync = rig.clock.now()
+        await rig.scheduler.rescheduleNow()
+        var writes = 0
+        let token = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: rig.defaults,
+                                                           queue: nil) { _ in writes += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        for _ in 0..<3 { await rig.scheduler.rescheduleNow() }
+        #expect(writes == 0)
+
+        await rig.settle()
+        await rig.auth.signOut()
+        await rig.scheduler.rescheduleNow()
+        let afterSignOut = writes
+        for _ in 0..<3 { await rig.scheduler.rescheduleNow() }
+        #expect(writes == afterSignOut)
     }
 }

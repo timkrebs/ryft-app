@@ -24,6 +24,8 @@ final class DeepLinkRouter {
         self.strain = strain
         self.insights = insights
         self.onboarding = onboarding
+        // A journal day asked for (a notification's tap) is the account's: it doesn't open for the next one.
+        state.forgetsAccountState { [weak self] in self?.requestedJournalDay = nil }
     }
 
     /// `false` when the URL isn't one of ours.

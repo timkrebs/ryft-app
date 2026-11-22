@@ -3,7 +3,8 @@ import OSLog
 import UIKit
 import UserNotifications
 
-/// Why a pass was asked for (coalesced; the signpost names them).
+/// Why a pass was asked for. Triggers coalesce, so a pass serves every reason since the last; only `appActive` changes
+/// what it reads (the authorization again, and Notification Center).
 enum ReminderReason: String, Sendable {
     case appActive, backgroundRefresh, synced, journal, journalSettings, preferences, push, bedtime, account, demo, timeChange
     case flags, consent
@@ -245,13 +246,16 @@ final class ReminderScheduler {
     func readYesterdayIfOwed() async {
         guard newKinds == true, consentAllows == true, let journal = inputs.journal(), let account = env.auth.accountID,
               !env.isDemo, journal.isLive else { return }
+        // Not allowed, there's no reminder to take away: iOS's answer first, once per process as a pass reads it.
+        if authorization == nil { authorization = await env.notifier.authorizationStatus() }
         let yesterday = yesterday
         guard journal.cachedDay(yesterday)?.answered != true,
               case .these(let ahead) = JournalReminderPlan.wish(journalSettings.settings(for: account), habits: true,
-                                                                answered: { _ in nil }, allowed: true, quiet: quiet,
+                                                                answered: { _ in nil }, allowed: allowed, quiet: quiet,
                                                                 account: account, now: now, calendar: calendar),
               ahead.contains(where: { $0.day == yesterday }) else { return }
-        await journal.loadDay(yesterday)
+        // On the background session, as the refresh's other requests: its short timeouts, no waiting for connectivity.
+        await APIClient.$runsInBackground.withValue(true) { await journal.loadDay(yesterday) }
     }
 
     // MARK: the pass
@@ -324,7 +328,7 @@ final class ReminderScheduler {
                 clearedSignedOut = true
                 env.notifier.removeAllDelivered()
             }
-            defaults.removeObject(forKey: Self.ownerKey)
+            if defaults.object(forKey: Self.ownerKey) != nil { defaults.removeObject(forKey: Self.ownerKey) }
             return
         }
         clearedSignedOut = false
@@ -401,7 +405,11 @@ final class ReminderScheduler {
         }
         added = landed.count
         guard current() else {
-            // The owner changed during the adds: what landed for the one that left goes again.
+            // Demo data switched on during the adds: what landed is the account's own, and stays as it is (frozen, as
+            // `BedtimePlanner.keepsTheAccounts` keeps its own); the switch dropped the ledger, so the next pass reads iOS.
+            let after = AccountBinding(env)
+            if after.demo, !binding.demo, after.account == account, env.persistence.epoch.current == epoch { return }
+            // Another account (or none) since: what landed for the one that left goes again.
             if !landed.isEmpty { env.notifier.removePending(ids: landed.map(\.id)) }
             removed += landed.count
             return
@@ -413,7 +421,6 @@ final class ReminderScheduler {
             removed += late.count
         }
         for reminder in landed where !late.contains(reminder.id) { self.ledger?[reminder.id] = reminder }
-        defaults.set(account, forKey: Self.ownerKey)
     }
 
     private func soonest(_ a: LocalReminder, _ b: LocalReminder) -> Bool {

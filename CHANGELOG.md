@@ -166,6 +166,8 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open (it stayed silent),
+  and with previews hidden it says "Wake-up time".
 - At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
   and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
   room (the first tip's title sat under the status bar).

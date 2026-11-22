@@ -446,9 +446,14 @@ graph of `await`s and a `TaskGroup`:
     `UNCalendarNotificationTrigger`s. It reads iOS's pending set once per process and the authorization once and on
     every app active; a pass that changes nothing makes no system call. Triggers coalesce into one pass per 500 ms on
     the app's clock; a successful sync (`Settings.lastSync`) and bedtime's `offerBedtime` run one at once, and the BG
-    refresh awaits one. Owner: the account binding, the store epoch and its generation, re-checked after every await;
-    `notifications.owner` says whose requests iOS holds. Signed out it tears ours down; Demo data freezes them. The
-    sign-out wipe removes every pending and delivered notification (`ReminderScheduler.wipe`). Signpost
+    refresh awaits one. Owner: the account binding, the store epoch and the scheduler's generation (bumped by every
+    `forget()`, the wipe's and the Demo switch's turn), re-checked after every await; `notifications.owner` says whose
+    requests iOS holds, and with no key yet each request's own `ryft.account` does (an earlier build's bedtime ones,
+    without one, stay until the planner's first offer). Signed out it tears ours down and clears Notification Center;
+    Demo data freezes them; locked, it takes nothing away for nobody. The journal reminder and the fallback ship dark
+    behind `notifications.reminders` and pause while consent is withdrawn or refused; a gate not known yet keeps what's
+    scheduled. The calendar follows the time zone. Every wipe removes every pending and delivered notification and
+    unregisters APNs (`AuthService.notificationStep`); a session expiry keeps the account's journal setting. Signpost
     `reminders.pass` (`Signposts.sync`) with its adds and removes. Tests: `ReminderPlanTests`, `ReminderSchedulerTests`.
 - **Tests** (`SyncCoordinatorTests`, `ScheduledWorkTests`):
   - stage order
@@ -584,7 +589,8 @@ the next sign-in. `ryft://train/session` (the Live Activity) stays with
   or arriving while Demo data is shown, isn't presented and opens Today only. This iPhone's `SYNC_STALE` isn't
   presented in the foreground: the open app syncs.
 - **Categories:** `MORNING_SCORE`, `SESSION_SCORED`, `PR`, `SYNC_STALE`, `ACTIVITY_SCORED` (registered before the
-  platform sends it) and the local `BEDTIME` and `JOURNAL_REMINDER`, without actions. Each has a placeholder for
+  platform sends it) and the local `BEDTIME`, `JOURNAL_REMINDER` and `WAKE` (the wake notification below iOS 26),
+  without actions. Each has a placeholder for
   hidden previews that says what kind it is and carries no value.
 - **Local notifications** (`ReminderScheduler`, §4): bedtime, the journal reminder (`journal.<asked day>`, 3 mornings,
   `/journal/<day>`), the "not syncing" fallback (`sync.stale.1`/`.2`, 20 h and 72 h after the last sync, only where

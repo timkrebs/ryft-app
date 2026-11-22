@@ -63,6 +63,8 @@ struct PushPresentationTests {
                 "until API.md carries ryft.account (NT1)")
         #expect(!PushPresentation.accountMatches(isLocal: false, account: "a", currentAccount: "b", isDemo: false),
                 "once it does, the same check")
+        #expect(!PushPresentation.accountMatches(isLocal: false, account: nil, currentAccount: nil, isDemo: false),
+                "nobody signed in: an alert that came after the wipe isn't shown")
     }
 
     @Test("The tap: ryft.url, Today then a sync for SYNC_STALE, Today for bedtime and for another account's")
@@ -76,6 +78,11 @@ struct PushPresentationTests {
         #expect(PushPresentation.route(message: .alert(category: nil, url: nil), category: "BEDTIME",
                                        accountMatches: true) == .today)
         #expect(PushPresentation.route(message: nil, category: "BEDTIME", accountMatches: true) == .today)
+        for link in ["https://ryftlab.de/auth/callback?code=abc", "https://ryftlab.de/invite/RYFT-7K3M-QX9P"] {
+            let url = try #require(URL(string: link))
+            #expect(PushPresentation.route(message: .alert(category: .morningScore, url: url), category: "MORNING_SCORE",
+                                           accountMatches: true) == .today, "never from a notification: \(link)")
+        }
     }
 
     @Test("The account read from a local request's userInfo")
@@ -111,6 +118,10 @@ struct JournalRouteTests {
         #expect(state.selectedTab == .today && router.requestedJournalDay == "2026-11-21")
         router.journalOpened()
         #expect(router.requestedJournalDay == nil)
+
+        await router.open(try #require(URL(string: "https://ryftlab.de/journal/2026-11-20")))
+        state.reset()
+        #expect(router.requestedJournalDay == nil, "the account's change forgets it")
     }
 
     @Test("The sheet offers yesterday and the 13 days before it")

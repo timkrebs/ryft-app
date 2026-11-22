@@ -303,6 +303,8 @@ enum PushPresentation {
     }
 
     static func accountMatches(isLocal: Bool, account: String?, currentAccount: String?, isDemo: Bool) -> Bool {
+        // Nobody signed in: nothing here is anyone's (a server alert that arrived after the wipe included).
+        guard currentAccount != nil else { return false }
         guard isLocal || account != nil else { return true }
         return !isDemo && account != nil && account == currentAccount
     }
@@ -323,8 +325,12 @@ enum PushPresentation {
     static func route(message: PushMessage?, category: String, accountMatches: Bool) -> Route {
         guard accountMatches else { return .today }
         if category == NotificationCategory.syncStale.rawValue { return .todayThenSync }
-        if case .alert(_, let url?) = message { return .open(url) }
-        return .today
+        guard case .alert(_, let url?) = message else { return .today }
+        switch AppRoute(url: url) {
+        // A notification never opens the sign-in callback or an invite: those come from Safari and Mail.
+        case .authCallback?, .invite?: return .today
+        default: return .open(url)
+        }
     }
 }
 

@@ -201,6 +201,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
+    /// The calls made on the background session (`APIClient.runsInBackground`), by name.
+    private(set) var backgroundCalls: [String] = []
     private(set) var syncRequests: [SyncRequest] = []
     private(set) var pushRegistrations: [PushRegistration] = []
     private(set) var appleCodes: [String] = []
@@ -226,8 +228,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Records the call, then throws a scripted failure if there is one.
     private func enter(_ name: String) throws {
+        let background = APIClient.runsInBackground
         let error: Error? = lock.withLock {
             calls.append(name)
+            if background { backgroundCalls.append(name) }
             if let e = failNext { failNext = nil; return e }
             #if DEBUG
             if let rule = faults[name] {

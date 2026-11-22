@@ -22,9 +22,17 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
     (or arriving in Demo data) isn't presented and opens Today only (`PushPresentation`).
   - **Bedtime:** it now offers its reminders to the scheduler (`offerBedtime`). The wake notifications are removed by
     their fixed ids.
+  - **Round 2** (`review.md`): the journal reminder and the fallback ship dark behind `notifications.reminders` (off;
+    not known yet keeps what's scheduled) and pause while consent is withdrawn or refused. A session that ends clears
+    Notification Center and unregisters APNs; an expiry keeps the journal setting. The wake notification below iOS 26
+    carries its account and the `WAKE` category, so it shows while RYFT is open. An earlier build's bedtime reminders
+    survive the update's first launch; the calendar follows the time zone; nothing is added while notifications aren't
+    allowed; a pass remembers its store reads. Notifications never open the sign-in callback or an invite, and with
+    nobody signed in none counts as the account's.
 - **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
-  `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The catalog keys listed in the N3 handback
-  are added by the localization-editor; until then `sync-strings --check` lists them as missing.
+  `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The operator opens `notifications.reminders`
+  once N4 lands (API_REQUESTS NT5). Round 1's keys are in the catalog; round 2's one new key, `HIDDEN_PREVIEW_WAKE`
+  ("Wake-up time"), waits for the localization-editor, and until then `sync-strings --check` lists it as missing.
 - **Measured** (Debug, simulator, mock notifier, on the shared CI Mac under load; round 2, review S4): with the journal
   connected (live, habits on, no day cached) and this account's push registration saved, a pass that changes nothing
   makes no system call and no SwiftData fetch, 0.11–0.15 ms (median of 500, two runs; p95 0.14–0.16 ms). Before the
@@ -33,7 +41,8 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
   each, noisy: 10 ms in a run at load 240). Round 1's 0.10 ms had no journal. 50 syncs inside an hour, at most 1 add.
   Before N3, every bedtime reschedule read iOS's pending set, removed and added all 7.
 - **Verification:** simulator and unit tests only. Not verified on a device: delivery at the floating wall times, the
-  BG refresh's pass, the sign-out's removal from Notification Center, and the hidden-preview placeholders.
+  BG refresh's pass, the sign-out's and the expiry's removal from Notification Center, APNs unregistration, the wake
+  notification in the foreground below iOS 26, a time-zone change, and the hidden-preview placeholders.
 - **Your steps (device):** see the N3 handback (journal reminder at 09:00 and its tap, the fallback after a kill from
   the app switcher with `push.enabled` off, sign-out clearing Notification Center, previews hidden on the lock screen).
 

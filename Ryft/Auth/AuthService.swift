@@ -953,8 +953,9 @@ final class AuthService {
     func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
         guard finishOwedWipe() else { return }
         train.accountChanged()
-        // A resumed wipe is `storeOnly`, without the device step's removals: the local reminders' owner check takes
-        // what's left (design.md §9.3).
+        // A resumed wipe is `storeOnly`: its device step (every notification, the owner key, APNs) ran before the kill.
+        // The reminders drop this side's ledger and plan for whoever is current; the owner check takes anything another
+        // account's that's left (design.md §9.3).
         await bedtime.reminders.accountChanged()
         await bedtime.accountChanged()
     }

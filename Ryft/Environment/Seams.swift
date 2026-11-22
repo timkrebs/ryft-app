@@ -139,9 +139,9 @@ final class MockNotifier: Notifier {
     func add(_ request: UNNotificationRequest) async throws {
         if let beforeAdd { await beforeAdd(request) }
         if let addError { throw addError }
-        adds += 1
         requests.removeAll { $0.identifier == request.identifier }
         requests.append(request)
+        adds += 1
     }
 
     func removePending(ids: [String]) {
