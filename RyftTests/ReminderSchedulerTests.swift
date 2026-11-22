@@ -1048,6 +1048,27 @@ struct ReminderJournalSettingTests {
         await rig.auth.signOut()
         #expect(rig.scheduler.journalSettings.settings(for: accountA.uuidString) == .default)
     }
+
+    /// Review N-4: what an expiry parks stays only until an account signs in; then only that account's setting stays.
+    @Test("Parked by an expiry: another account signing in drops it, and any other account's; its own starts at the default")
+    func anotherAccountDropsIt() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        let off = JournalReminderSettings(on: false, minute: 9 * 60)
+        #expect(rig.scheduler.journalSettings.set(off))
+        await rig.settle()
+        await rig.auth.signOut(reason: .sessionExpired)
+        let parked = JournalReminderStore.key(accountA.uuidString), stray = JournalReminderStore.key("account-c")
+        #expect(rig.defaults.object(forKey: parked) != nil, "parked")
+        rig.defaults.set(Data("{\"on\":false,\"minute\":600}".utf8), forKey: stray)
+
+        rig.client.emit(.signedIn, .preview(id: accountB))
+        #expect(await eventually { rig.auth.accountID == accountB.uuidString })
+        #expect(rig.defaults.object(forKey: parked) == nil && rig.defaults.object(forKey: stray) == nil)
+        #expect(rig.scheduler.journalSettings.current == .default)
+        let later = JournalReminderSettings(on: true, minute: 10 * 60)
+        #expect(rig.scheduler.journalSettings.set(later))
+        #expect(rig.scheduler.journalSettings.settings(for: accountB.uuidString) == later)
+    }
 }
 
 // MARK: - round 2, S1: the first launch after the update

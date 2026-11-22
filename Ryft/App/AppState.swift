@@ -443,11 +443,13 @@ final class AppState {
     /// Before the new session (or none) is published, so before the first upload and My Day's first read: another
     /// account's activities, nights and chunks go, parked or not, purged by the incoming id (never
     /// `activities.account`, which is demo data's while it's on); the same account's parked rows come back; and
-    /// nothing in flight or cached of the previous account survives (`forgetActivityState`).
+    /// nothing in flight or cached of the previous account survives (`forgetActivityState`). The journal reminder's
+    /// setting a session expiry parked goes the same way: only the incoming account's stays (review N-4).
     func accountWillChange(from old: String?, to new: String?, reason: AuthService.SignOutReason?) {
         if let new {
             env.activities.purge(notBelongingTo: new)
             env.activities.unpark(account: new)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: new)
         }
         forgetActivityState()
     }
