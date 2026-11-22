@@ -668,3 +668,56 @@ private final class AddHold {
         for c in all { c.resume() }
     }
 }
+
+// MARK: - 7: bedtime on the scheduler
+
+@MainActor
+@Suite("Reminders: bedtime's wind-down through the scheduler")
+struct ReminderBedtimeTests {
+    @Test("A bedtime that moves is offered again without reading iOS: only the first pass of the process enumerates")
+    func noEnumeration() async throws {
+        let api = MockPlatformAPI()
+        let clock = TestClock()
+        clock.set(Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: clock.now()) ?? clock.now())
+        let notifier = MockNotifier()
+        let state = AppState(env: .test(api: api, clock: clock, notifier: notifier, flags: [.sleepPlanner: true]))
+        let shift = ShiftBox(), now = clock.now()
+        api.planFor = { _ in
+            let wake = Calendar.current.date(byAdding: .day, value: 1,
+                                             to: Calendar.current.date(bySettingHour: 6, minute: 30, second: 0, of: now) ?? now) ?? now
+            let bed = wake.addingTimeInterval(-578 * 60 + shift.value)
+            return SleepPlan(wake: wake, needMin: 520, inBedMin: 578, efficiency: 90, bedtime100: bed,
+                             bedtime85: bed.addingTimeInterval(3_600), bedtime70: bed.addingTimeInterval(7_200),
+                             basis: SleepPlanBasis(base: 460, strainTopup: 30, debtTopup: 30, napCredit: 0, efficiency: 90))
+        }
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        var schedule = SleepSchedule.default
+        schedule.reminderOn = true
+        await planner.update(schedule)
+        let tonight = try #require(notifier.requests.first { $0.identifier.hasPrefix("bedtime.") })
+        #expect(notifier.pendingReads == 1)
+        #expect(state.reminders.ledgerIDs?.contains(tonight.identifier) == true, "the planner's requests are the scheduler's")
+        #expect(LocalReminder(tonight)?.account == state.env.auth.accountID)
+
+        shift.value = 12 * 60
+        await planner.refresh()
+        #expect(notifier.requests.first { $0.identifier == tonight.identifier }?.content.body != tonight.content.body, "moved")
+        schedule.reminderOn = false
+        await planner.update(schedule)
+        #expect(!notifier.requests.contains { $0.identifier.hasPrefix("bedtime.") }, "turned off: gone")
+        #expect(notifier.pendingReads == 1, "neither the move nor the removal read iOS's pending set")
+    }
+
+    @Test("The wake notifications go by their fixed ids, without an enumeration")
+    func wakeByID() async throws {
+        let notifier = MockNotifier()
+        for i in 0..<7 {
+            try await notifier.add(UNNotificationRequest(identifier: "wake.\(i)", content: UNMutableNotificationContent(),
+                                                         trigger: nil))
+        }
+        try await notifier.add(UNNotificationRequest(identifier: "bedtime.2026-11-23", content: UNMutableNotificationContent(),
+                                                     trigger: nil))
+        await SystemWakeAlarms(notifier: notifier).cancelAll()
+        #expect(notifier.requests.map(\.identifier) == ["bedtime.2026-11-23"] && notifier.pendingReads == 0)
+    }
+}

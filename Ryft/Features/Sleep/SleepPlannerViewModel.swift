@@ -411,6 +411,8 @@ final class BedtimePlanner {
     static let nightsAhead = 7
     static let reminderPrefix = "bedtime."
     static let wakePrefix = "wake."
+    /// `wake.0` (Monday) … `wake.6`: the notifications below iOS 26.
+    static let wakeIDs = (0..<7).map { wakePrefix + "\($0)" }
     static let cacheKey = "sleep.tonight"
 
     /// Tonight's plan as last fetched (offline-first).
@@ -863,21 +865,20 @@ final class BedtimePlanner {
         await removeReminders()
     }
 
+    /// None wanted: the scheduler takes away every `bedtime.*` it knows on iOS (read once per process), with no enumeration.
     private func removeReminders() async {
-        let pending = await env.notifier.pending().map(\.identifier).filter { $0.hasPrefix(Self.reminderPrefix) }
-        env.notifier.removePending(ids: pending)
+        await reminders.offerBedtime(.these([]), owner: owner)
     }
 
-    /// The reminders go and `schedule`'s are set (`reminders`). Stops when the schedule or the account changes meanwhile.
-    /// Demo data's plan sets none, and the account's stay.
+    /// `schedule`'s reminders (`reminders`), offered to the one writer of local requests (ADR 0024), which adds what
+    /// changed and removes the rest, for this owner only: an offer for one that isn't current is dropped, and a pass for one
+    /// that changes meanwhile adds nothing more. Demo data's plan sets none, and the account's stay.
     private func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan) async {
         guard !env.isDemo else { return }
-        let gen = generation, owner = self.owner
-        await cancelReminders()
-        for request in Self.reminders(schedule: schedule, plan: plan, now: now) {
-            guard gen == generation, owner == self.owner else { return }
-            try? await env.notifier.add(request)
-        }
+        let account = env.auth.accountID ?? ""
+        let wanted = Self.reminders(schedule: schedule, plan: plan, now: now)
+            .compactMap { LocalReminder.bedtime($0, account: account) }
+        await reminders.offerBedtime(.these(wanted), owner: owner)
     }
 
     /// Tonight's reminder from the plan; the following nights from tonight's time in bed at each night's wake (refined
@@ -1405,12 +1406,12 @@ final class SystemWakeAlarms: WakeAlarms {
         }
     }
 
+    /// The wake notifications have fixed ids (one per weekday): removed by name, without reading iOS's pending set.
     func cancelAll() async {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
         #endif
-        let ours = await notifier.pending().map(\.identifier).filter { $0.hasPrefix(BedtimePlanner.wakePrefix) }
-        notifier.removePending(ids: ours)
+        notifier.removePending(ids: BedtimePlanner.wakeIDs)
     }
 }
 
