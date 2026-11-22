@@ -34,17 +34,18 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Requirement (guideline) | Status | Evidence |
 | --- | --- | --- |
 | Privacy manifest in the app target. `NSPrivacyTracking = false`, no tracking domains (5.1.2) | ok (fixed) | `Ryft/PrivacyInfo.xcprivacy` |
-| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes, journal answers, feedback text), **Other Diagnostic Data** (Report a problem → "Include diagnostics"; with tracker setup on, also the tracker ids chosen, never device names). No crash or diagnostics SDK | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes` |
+| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes, journal answers, feedback text), **Other Diagnostic Data** (Report a problem → "Include diagnostics"; with tracker setup on, also the tracker ids chosen, never device names). Only after the analytics opt-in: **Product Interaction** and **Other Usage Data**, *not* linked, not used for tracking, purpose Analytics (ADR 0026). No crash or diagnostics SDK is active: posthog-ios vendors PLCrashReporter, and crash autocapture stays off | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes`; `PostHogSink.configuration` |
 | Required-reason APIs. App code uses only `UserDefaults` (`CA92.1`). No file timestamps, boot time, disk space or keyboards | ok (fixed) | grep of `Ryft/`, `RyftWidgets/` |
-| Packages. swift-crypto ships its own manifests. supabase-swift, swift-http-types, swift-clocks, swift-concurrency-extras, xctest-dynamic-overlay and swift-asn1 call no required-reason API, so they need none. The session is in the Keychain, not `UserDefaults`. Apple frameworks (SwiftData, HealthKit) are exempt | ok | grep of `SourcePackages/checkouts/*/Sources` |
+| Packages. swift-crypto ships its own manifests, and so do posthog-ios (Product Interaction, Other Usage Data; `CA92.1`, `35F9.1`, `C617.1`, merged into the app's) and its vendored PLCrashReporter. supabase-swift, swift-http-types, swift-clocks, swift-concurrency-extras, xctest-dynamic-overlay and swift-asn1 call no required-reason API, so they need none. The session is in the Keychain, not `UserDefaults`. Apple frameworks (SwiftData, HealthKit) are exempt | ok | grep of `SourcePackages/checkouts/*/Sources` |
 | Xcode **Generate Privacy Report** on an archive lists exactly the declared types | user | Organizer → Archives → Generate Privacy Report (needs the signed archive) |
 | `NSHealthShareUsageDescription` names the data and the purpose, and says no advertising (5.1.1(ii), 5.1.3(i)) | ok (fixed) | `Info.plist`, `InfoPlist.xcstrings` (en, de) |
 | `NSHealthUpdateUsageDescription` only if the app writes: it doesn't, so removed | ok (fixed) | `Info.plist`; `requestAuthorization(toShare: [])` |
 | No health data in iCloud, no `NSUbiquitous*`, no iCloud entitlement (5.1.3(ii)) | ok | `Ryft.entitlements`. The SwiftData store is local; ResponseCache is in Caches/ |
-| HealthKit data never used for ads or marketing, never sold, only sent to the user's own RYFT account (5.1.2(vi), 5.1.3(i)) | ok | No ad or analytics SDK; `APIClient` talks only to `api.ryftlab.de` |
+| HealthKit data never used for ads or marketing, never sold, only sent to the user's own RYFT account (5.1.2(vi), 5.1.3(i)) | ok | No ad SDK. Analytics events are closed tokens (`AnalyticsEvent`), never a health value, sent to PostHog EU only after the opt-in; `APIClient` talks only to the RYFT hosts |
 | Health permission requested in context. An explanation screen comes first, after sign-in, never on cold launch (5.1.1(iv), HIG HealthKit) | ok (fixed) | `Features/Onboarding/HealthPermissionView.swift`; `RyftApp.bootstrap` |
 | App fully usable when Health access is denied. Calm empty state with a way to the Health permissions (5.1.1(iv)) | ok (fixed) | `HealthAccessHint` on Today, Sleep and Strain |
-| Processors for the privacy policy: health data is processed by RYFT's own servers on AWS (eu-central-1) and by Supabase (EU) for authentication | user | privacy policy text (below) |
+| Processors for the privacy policy: health data is processed by RYFT's own servers on AWS (eu-central-1) and by Supabase (EU) for authentication; usage analytics, only for users who opt in, by PostHog (EU cloud) | user | privacy policy text (below) |
+| Analytics only with consent (GDPR Art. 6(1)(a)): its own onboarding step before Apple Health, two equal buttons, a switch in Profile → Privacy. Off stops sending at once and deletes the queue and the anonymous id. Nothing is sent in the simulator, demo mode or before the opt-in | ok | `AnalyticsOptInStepView`, `Analytics`, `PostHogSink`, `PostHogFence`; ADR 0026 |
 | Privacy policy linked in the app (5.1.1(i)): Profile → About, Welcome, Create account | ok (fixed) | `ProfileView.about`, `WelcomeView`, `CreateAccountView` (in-app Safari) |
 | Terms of Use in Profile → About | ok (fixed) | same |
 | Account deletion in the app, without contacting support (5.1.1(v)). Profile tab → **Delete account** → confirm (2 taps). Calls `DELETE /v1/me`; the platform revokes Apple with the code from `POST /v1/me/apple-authorization` | ok | `ProfileView.account`, `AuthService.deleteAccount`, `sendAppleAuthorization` |
@@ -52,7 +53,19 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Sign in with Apple wherever email sign-in is offered (4.8: an equivalent privacy-preserving login) | ok | `WelcomeView` |
 | Hide My Email relay addresses work: the email is shown, never required to be real. The name is taken only on the first authorisation. Only `.fullName, .email` are requested | ok | `AuthService.prepare`, `signInWithApple` |
 | Email accounts: password reset, no lock-in | ok | `ForgotPasswordView`, `SetNewPasswordView` |
-| No tracking, no ATT, no `NSUserTrackingUsageDescription`, no fingerprinting SDK | ok | `Info.plist`, package list |
+| No tracking, no ATT, no `NSUserTrackingUsageDescription`, no tracking domains, no fingerprinting SDK. PostHog's manifest declares no tracking and no tracking domains; its id is random per install and never linked to an account (no `identify`) | ok | `Info.plist`, package list, ADR 0026 |
+
+### App Store Connect steps for the user (analytics, ADR 0026)
+
+1. App Privacy → Data Types: add **Product Interaction** and **Other Usage Data**. For each: collected, *not*
+   linked to the user, *not* used for tracking, purpose **Analytics** only.
+2. Leave "Do you or your third-party partners use data for tracking?" at **No**.
+3. Privacy policy: name PostHog Inc. (EU cloud) as a processor for opt-in usage analytics; the legal basis is
+   consent, Art. 6(1)(a) GDPR, withdrawable in Profile → Privacy; say what is sent (screens opened, features used,
+   error kinds, app version and OS), what never is (health data, scores, anything typed, the account), and the
+   retention period.
+4. In PostHog's project settings: "Discard client IP data" on, GeoIP enrichment off, retention set to the period the
+   policy names.
 
 ## 2. Health claims and content
 
@@ -144,16 +157,19 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    build lists. No address bar, no search, no links typed in. No user-generated content shared
    with others. **Made for Kids: No.**
 4. **App Privacy.** Answer exactly as `PrivacyInfo.xcprivacy`:
-   - Health, Fitness, Email Address, Name, User ID, Device ID, Other User Content, Other Diagnostic Data
-   - all *linked to the user*, *not used for tracking*, purpose *App Functionality*
-   - no third-party advertising, no analytics
+   - Health, Fitness, Email Address, Name, User ID, Device ID, Other User Content, Other Diagnostic Data:
+     all *linked to the user*, *not used for tracking*, purpose *App Functionality*
+   - Product Interaction, Other Usage Data (opt-in analytics): *not linked*, *not used for tracking*, purpose
+     *Analytics* (§1 → App Store Connect steps)
+   - no third-party advertising, no tracking
 5. **URLs.**
    - Privacy Policy `https://ryftlab.de/privacy`
    - Support `https://ryftlab.de/support`, with a contact email
    - Marketing `https://ryftlab.de`
 6. **Privacy policy contents.** It must cover:
    - what is collected (the types above, and what comes from Apple Health) and why
-   - processors: AWS eu-central-1 hosts the RYFT platform; Supabase (EU) handles sign-in
+   - processors: AWS eu-central-1 hosts the RYFT platform; Supabase (EU) handles sign-in; PostHog (EU)
+     receives usage analytics only from users who opt in (consent, Art. 6(1)(a))
    - retention, and deletion: in the app via Delete account, which also revokes Sign in
      with Apple
    - GDPR rights (access, export via Export my data, rectification, erasure,
@@ -192,6 +208,8 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 14. **Accessibility Nutrition Labels.** Enter the answers from §4.
 15. **Before submitting.**
     - archive with `make archive`
-    - Organizer → Generate Privacy Report: must list exactly the §1 types
+    - Organizer → Generate Privacy Report: must list the §1 types. It also shows PLCrashReporter's Crash Data and
+      Other Diagnostic Data (App Functionality) from posthog-ios: the crash reporter is never started, so Crash Data
+      isn't declared in App Store Connect
     - run the `StoreSmokeUITests` with the demo account
     - one run on an iPad (compatibility mode)

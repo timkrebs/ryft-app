@@ -6,7 +6,7 @@ there. Its API contract is `../plattform/docs/API.md` — read it at the start o
 session.
 
 ## What this folder is
-`Ryft.xcodeproj` exists and carries the development team and the supabase-swift package;
+`Ryft.xcodeproj` exists and carries the development team and the supabase-swift and posthog-ios packages;
 it is the source of truth. Change targets, capabilities and packages in Xcode itself —
 and do not edit the pbxproj by hand. Sources in `Ryft/`:
 `App/` (entry, state, settings), `Auth/` (Supabase), `Design/` (theme, components),
@@ -15,8 +15,11 @@ and do not edit the pbxproj by hand. Sources in `Ryft/`:
 is `../ROADMAP.md`; the user pastes one milestone per session.
 
 ## Rules
-- Swift 5.10, SwiftUI, iOS 18.6+ (ADR 0021), async/await, Swift Charts. Dependencies: only
-  `supabase-swift`. Dark only (ADR 0016); palette and type live in `Design/Theme.swift`.
+- Swift 5.10, SwiftUI, iOS 18.6+ (ADR 0021), async/await, Swift Charts. Dependencies: two,
+  `supabase-swift` and `posthog-ios` (exact version, `Ryft` app target only, only behind
+  `AnalyticsSink`; ADR 0026). Dark only (ADR 0016); palette and type live in `Design/Theme.swift`.
+- Analytics: events only through `Analytics.track` with token-only `AnalyticsEvent`s; nothing is
+  sent before the opt-in; no other analytics, crash or tracking SDK.
 - Wire models in `Networking/Models.swift` mirror `docs/API.md` exactly (snake_case via
   the shared decoder). For every new shape add a fixture-decoding test using the JSON
   example from `API.md`. If you need data the API does not provide, write the request

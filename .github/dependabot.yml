@@ -26,5 +26,7 @@ updates:
       # can't resolve, and Xcode Cloud (no automatic resolution) fails on it.
       - dependency-name: "*swift-crypto*"
         update-types: ["version-update:semver-major"]
+      # posthog-ios: exact pin, never auto-bumped; a bump re-reads ADR 0026's SDK facts.
+      - dependency-name: "*posthog-ios*"
     commit-message:
       prefix: deps
