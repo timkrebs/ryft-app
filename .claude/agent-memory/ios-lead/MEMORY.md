@@ -26,3 +26,4 @@
 - [Flagged agent actions](flagged-agent-actions.md) — check remote refs + gh run list + transcript; release.sh (local Release build) tripped "Production Deploy"
 - [Integration run: UI smoke](integration-run-ui-smoke.md) — final local run includes the whole UISmoke plan; grep UI tests for changed labels
 - [Merge authority](merge-authority.md) — per PR unless told otherwise; time-boxed grants cover own PRs only, end at the deadline
+- [Fleet memory merge](fleet-memory-merge.md) — checkout vs chore/fleet-memory diverge both ways: git merge-file with a base, never mtime copy
