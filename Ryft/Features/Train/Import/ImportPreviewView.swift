@@ -297,7 +297,7 @@ struct ImportPreviewView: View {
     @ViewBuilder
     private var bottomBar: some View {
         if model.isAlreadyImported {
-            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) {
+            ImportStepButton(title: String(localized: "Done"), identifier: "import.done", systemImage: PillButton.Icon.confirm) {
                 model.finish(.close)
             }
         } else if showsUploadsUnavailable {
@@ -306,9 +306,9 @@ struct ImportPreviewView: View {
                 ImportBarCaption(text: String(localized: "An import is in progress. Finish it before starting another.",
                                               comment: "Training import: one import at a time."))
             }
-            ImportPrimaryButton(title: String(localized: "Keep on this iPhone", comment: "Training import V5: store the import to upload later."),
-                                identifier: "import.keep", isEnabled: model.canImport || model.isStarting,
-                                systemImage: PillButton.Icon.download, busy: model.isStarting) {
+            ImportStepButton(title: String(localized: "Keep on this iPhone", comment: "Training import V5: store the import to upload later."),
+                             identifier: "import.keep", isEnabled: model.canImport || model.isStarting,
+                             systemImage: PillButton.Icon.download, busy: model.isStarting) {
                 Task { await model.startImport() }
             }
         } else {
@@ -316,10 +316,10 @@ struct ImportPreviewView: View {
                 ImportBarCaption(text: String(localized: "An import is in progress. Finish it before starting another.",
                                               comment: "Training import: one import at a time."))
             }
-            ImportPrimaryButton(title: model.totals.map(ImportPreviewSummary.importTitle)
-                                    ?? String(localized: "Import", comment: "Training import: step 6's title, and step 5's button without counts."),
-                                identifier: "import.import", isEnabled: model.canImport || model.isStarting,
-                                systemImage: PillButton.Icon.send, busy: model.isStarting) {
+            ImportStepButton(title: model.totals.map(ImportPreviewSummary.importTitle)
+                                 ?? String(localized: "Import", comment: "Training import: step 6's title, and step 5's button without counts."),
+                             identifier: "import.import", isEnabled: model.canImport || model.isStarting,
+                             systemImage: PillButton.Icon.send, busy: model.isStarting) {
                 Task { await model.startImport() }
             }
         }

@@ -69,7 +69,7 @@ struct ImportNocturneTests {
             for token in Self.tealTokens {
                 #expect(!code.contains(token), "\(file.lastPathComponent) names \(token)")
             }
-            // The old teal pill, as a word: `ImportPrimaryButton` is a `PillButton`.
+            // The old teal pill, as a word: `ImportStepButton` is a `PillButton`.
             #expect(code.firstMatch(of: #/\bPrimaryButton\b/#) == nil, "\(file.lastPathComponent) names PrimaryButton")
         }
     }
@@ -110,17 +110,25 @@ struct ImportNocturneTests {
         FrameCase(screen: "6-done-plan", step: 6, title: "Import", close: "import.close", back: false),
     ]
 
-    @Test("Test 14: the title is the header, the rule reads Step N of 6 under it; Close on every step, Back on 2 to 5",
+    @Test("Test 14: the title is the header, centred, the rule reads Step N of 6 under it; Close on every step, Back on 2 to 5",
           arguments: Self.frames)
     func frame(_ c: FrameCase) async throws {
         try await host(c.screen) { w in
             let nodes = w.nodes()
             let title = try #require(nodes.first { $0.label == c.title && $0.traits.contains(.header) }, "the title")
+            #expect(abs(title.frame.midX - w.window.bounds.midX) < 1, "the title centred (D4, DG-6): \(title.frame)")
             let rule = try #require(nodes.first { $0.label == "Step \(c.step) of 6" }, "the step rule")
             #expect(rule.frame.minY >= title.frame.maxY, "the rule under the title: \(rule.frame) \(title.frame)")
             let close = try #require(nodes.first { $0.identifier == c.close })
             #expect(close.label == "Close" && close.frame.width >= 44 && close.frame.height >= 44, "\(close.frame)")
-            #expect(close.frame.maxX > 300, "Close trails: \(close.frame)")
+            // Steps 2 to 5: Back leading, Close trailing (D4 rule 6). Steps 1 and 6, with no way back: the sheet header's
+            // Close, leading.
+            let inset = SubpageSpec.sidePadding - ScreenHeaderSpec.buttonOverhang
+            if c.back {
+                #expect(abs(close.frame.maxX - (w.window.bounds.width - inset)) < 1, "Close trails: \(close.frame)")
+            } else {
+                #expect(abs(close.frame.minX - inset) < 1, "Close leads: \(close.frame)")
+            }
             let otherClose = c.close == "import.close" ? "import.cancel" : "import.close"
             #expect(!nodes.contains { $0.identifier == otherClose })
             #expect(nodes.contains { $0.identifier == "subpage.back" } == c.back, "Back")

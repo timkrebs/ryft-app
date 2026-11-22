@@ -17,7 +17,7 @@
 // readiness ticks, the dots, the Volt dot last. Dots come after every cut, so two close dots never cut each other.
 import SwiftUI
 
-/// The gauge's sizes: `MetricGauge`'s dials, so nothing around the gauge moves.
+/// The gauge's sizes: the dial sizes the screens were laid out for, so nothing around the gauge moves.
 enum OrbitGaugeSize: Hashable, Sendable {
     case small, medium, large
     /// An exact dial, for the widget's other families, the Today board's 260 (`.custom(dial: 248)`) and checks.
@@ -34,7 +34,7 @@ enum OrbitGaugeSize: Hashable, Sendable {
         }
     }
 
-    /// The frame, S in the geometry: the dial plus the 6 pt `MetricGauge` keeps free on every side for its ticks. The
+    /// The frame, S in the geometry: the dial plus 6 pt kept free on every side for the ticks. The
     /// outer ticks and the strain dot's ring stay inside it; only a halo can reach 3 pt past it (at 260), so nothing
     /// around the gauge may clip it.
     var frame: CGFloat { dial + 12 }

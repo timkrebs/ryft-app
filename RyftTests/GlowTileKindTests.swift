@@ -278,6 +278,25 @@ import UIKit
         #expect(worst(.twoUp, .recovery, size, ink, alpha: 1) >= 4.5)
     }
 
+    // MARK: the insight tile in every legend colour (the Nocturne gate's D1)
+
+    @Test("Gate D1: the idea tile in sleep violet or strain blue keeps its full-ink text ≥ 4.5 from 120 to 420 high, at least as well as teal",
+          arguments: [Metric.sleep, .strain])
+    func ideaTileInEveryLegendColour(_ metric: Metric) {
+        let pad = GlowTileSpec.padding(for: .idea)
+        for width in [CGFloat(335), 350, 362, 400] {
+            for height in stride(from: CGFloat(120), through: GlowTileSpec.ideaFlatAbove, by: 20) {
+                let size = CGSize(width: width, height: height)
+                let rect = Rect(minX: Double(pad.leading), minY: Double(pad.top), maxX: Double(width - pad.trailing),
+                                maxY: Double(height - pad.bottom))
+                let ratio = worst(.idea, metric, size, ink, alpha: 1, in: rect)
+                #expect(ratio >= 4.5, "\(metric) \(width) × \(height): \(ratio)")
+                // Teal is the lightest legend colour: the recovery tile is the worst case the idea tile was measured in.
+                #expect(ratio >= worst(.idea, .recovery, size, ink, alpha: 1, in: rect) - 0.01, "\(metric) \(width) × \(height)")
+            }
+        }
+    }
+
     // MARK: 13. Why the rule exists
 
     @Test("Spec 13: the board's own label inks fail where the spec says: recovery at 78 %, sleep 2-up at 62 %, hypnogram at 55 %")

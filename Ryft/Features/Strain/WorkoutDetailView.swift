@@ -37,7 +37,6 @@ struct WorkoutDetailPage: View {
     /// Previews and tests; nil follows the system.
     var reduceTransparency: Bool?
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
     /// The logged session, pushed by item (`navigationDestination(item:)` below).
     @State private var shownSession: UUID?
@@ -97,34 +96,10 @@ struct WorkoutDetailPage: View {
         }
     }
 
-    /// Back · the sport over its day and time · an empty 40 pt slot (§P5-4 row 1).
+    /// Back · the sport over its day and time · an empty 40 pt slot (§P5-4 row 1): the pushed pages' one header (DG-6).
     private var header: some View {
-        ScreenHeader {
-            CircleButton(systemImage: "chevron.left", accessibilityLabel: SubpageHeader<EmptyView>.backLabel) { dismiss() }
-                .accessibilityIdentifier("workout.back")
-        } center: {
-            VStack(spacing: StrainLayout.headerSubtitleGap) {
-                Text(verbatim: board.title)
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                Text(verbatim: board.when(locale: locale))
-                    .font(.ryft(.caption))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: board.title))
-            .accessibilityValue(Text(verbatim: board.spokenWhen(locale: locale)))
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("workout.header")
-        } trailing: {
-            Color.clear
-                .frame(width: CircleButton.diameter, height: CircleButton.diameter)
-                .padding(ScreenHeaderSpec.buttonOverhang)
-                .accessibilityHidden(true)
-        }
+        PushedHeader(Text(verbatim: board.title), subtitle: Text(verbatim: board.when(locale: locale)),
+                     spokenSubtitle: Text(verbatim: board.spokenWhen(locale: locale)), identifierPrefix: "workout")
     }
 }
 

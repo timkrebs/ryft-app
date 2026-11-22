@@ -34,8 +34,8 @@ struct ImportMapView: View {
                                               comment: "Training import M3: rows that still block Continue."))
                     .accessibilityIdentifier("import.leftToCheck")
             }
-            ImportPrimaryButton(title: String(localized: "Continue"),
-                                isEnabled: model.libraryState == .ready && model.mapping?.leftToCheck == 0) {
+            ImportStepButton(title: String(localized: "Continue"),
+                             isEnabled: model.libraryState == .ready && model.mapping?.leftToCheck == 0) {
                 model.continueFromMap()
             }
         }
