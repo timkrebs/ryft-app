@@ -158,6 +158,9 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
+  and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
+  room (the first tip's title sat under the status bar).
 - Importing from another training app: the list of warnings reads "The rest imports normally, and 2 notes." (it said
   "normally. and 2 notes").
 - "Logged session" on a workout opens that session again, also from Today and My Day.
