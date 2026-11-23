@@ -44,7 +44,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising."
+            "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores, and, only when you ask, your date of birth, of which RYFT keeps only the year. The data is sent to your RYFT account and never used for advertising."
           }
         }
       }
