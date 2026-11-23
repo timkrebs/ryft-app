@@ -1077,7 +1077,7 @@ struct ConsentAgreeTests {
         await delete.open()
     }
 
-    @Test("Round 6, 1a: a withdrawal without an answer whose re-read shows a consent to an older policy: the gate is closed, so it isn't said to have not reached RYFT",
+    @Test("Round 6, 1a: a withdrawal without an answer, its re-read an older policy's consent: the gate is closed, so not \"didn't reach RYFT\"",
           .timeLimit(.minutes(1)))
     func aReReadWithAnOlderConsentIsNotAWithdrawalThatDidntReach() async throws {
         let h = H()
