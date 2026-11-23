@@ -273,6 +273,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
         let json = contentEncoding == "gzip" ? try Gzip.decompress(body) : body
         let req = try APIClient.jsonDecoder.decode(SyncRequest.self, from: json)
+        if let refusal = refuses?(req) { throw refusal }
         lock.withLock {
             syncRequests.append(req)
             syncBodySizes.append(body.count)
@@ -295,6 +296,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var enforcesConsent = false
     /// Runs after each accepted sync (tests change the world between pages with it).
     var afterSync: (@Sendable () -> Void)?
+    /// Ingest's `validate()` as a test states it, over the request as it arrived (dates in whole seconds): an error
+    /// answers the whole request, which is then neither stored nor in `syncRequests`.
+    var refuses: (@Sendable (SyncRequest) -> APIError?)?
     /// After a withdrawal every call fails (the re-check gets no answer).
     var failAfterRevoke = false
 

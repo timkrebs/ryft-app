@@ -1,4 +1,15 @@
-# Status — 2026-11-20
+# Status — 2026-11-22
+
+## 2026-11-22: hotfix, a record the platform refuses no longer stalls the sync
+
+- **"sync: a workout without a duration no longer stops syncing"** (`fix/sync-invalid-workout`):
+  - The cause: one account's sync answered `422 "workouts[0]: end must be after start"` on every run. A zero-duration workout in Apple Health refused the whole page, its anchor never moved, and the backfill of the streams after it never finished.
+  - The fix: `Sync/SyncScreen.swift` leaves out what ingest's `validate()` would refuse, judged on the wire values (whole seconds). An over-long `source_bundle_id` or version is sent as nil. Workout pages are capped at 5 000. Sync details and Report a problem show `invalid N` per stream (counts only).
+  - Verification: unit tests against a fake platform that applies `validate()`'s rules, written from the Go source, plus mutants. **Simulator only:** not yet seen on a device with a real zero-duration HealthKit workout. The affected account is the real test once it updates.
+  - Platform: SV1 in `docs/API_REQUESTS.md` (P1). Ingest should ignore an invalid record, not refuse the request; only that protects builds already in the field.
+  - Follow-ups:
+    - **Stall-proofing:** an ios-architect note on bisecting a refused page, and on non-finite values that make `JSONEncoder` throw before any request is sent.
+    - **Report a problem:** the "What's included" list could mention the count.
 
 ## 2026-11-23: the demo's days stay frozen at launch (`fix/midnight-index-crash`)
 
