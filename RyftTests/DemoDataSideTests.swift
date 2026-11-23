@@ -34,6 +34,8 @@ private func sideGraph(auth: AuthService? = nil) -> (AppState, live: MockPlatfor
                              defaults: defaults, demoOverride: nil)
     env.reads.random = { $0.lowerBound }
     env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+    // Notifications allowed: bedtime's reminders reach iOS only then (review S3).
+    (env.notifier as? MockNotifier)?.status = .authorized
     let state = AppState(env: env)
     state.repository.widgetFile = nil
     return (state, live, demo)

@@ -899,6 +899,8 @@ final class WipingAuth {
     private(set) var wipes: [AuthService.Wipe] = []
     /// What each one answered.
     private(set) var answers: [Bool] = []
+    /// The notification steps a launch ran on their own (a wipe resumed after the first frame), over relaunches.
+    private(set) var launchNotificationSteps: [AuthService.Wipe] = []
     /// What every wipe answers instead of the store, which isn't touched.
     var wipesAnswer: Bool?
     /// The Apple authorization codes sent to the platform.
@@ -949,6 +951,7 @@ final class WipingAuth {
                                self?.answers.append(answer)
                                return answer
                            },
+                           launchNotificationStep: { [weak self] in self?.launchNotificationSteps.append($0) },
                            deleteRemoteAccount: { [weak self] in
                                await self?.duringDeletion?()
                                return AccountDeleted(status: "deleted", authUserDeleted: true)

@@ -201,6 +201,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
+    /// The calls made on the background session (`APIClient.runsInBackground`), by name.
+    private(set) var backgroundCalls: [String] = []
     private(set) var syncRequests: [SyncRequest] = []
     private(set) var pushRegistrations: [PushRegistration] = []
     private(set) var appleCodes: [String] = []
@@ -226,8 +228,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Records the call, then throws a scripted failure if there is one.
     private func enter(_ name: String) throws {
+        let background = APIClient.runsInBackground
         let error: Error? = lock.withLock {
             calls.append(name)
+            if background { backgroundCalls.append(name) }
             if let e = failNext { failNext = nil; return e }
             #if DEBUG
             if let rule = faults[name] {
@@ -338,7 +342,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before `GET /v1/config` answers (tests hold the read open with it).
     var beforeConfig: (@Sendable () async -> Void)?
 
+    /// Runs before each `POST /v1/devices/{id}/push` is taken (tests hold one open with it, then script its answer).
+    var beforeRegisterPush: (@Sendable () async -> Void)?
+
     func registerPush(deviceID: UUID, _ registration: PushRegistration) async throws {
+        await beforeRegisterPush?()
         try enter("registerPush")
         lock.withLock { pushRegistrations.append(registration) }
     }

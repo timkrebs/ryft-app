@@ -13,6 +13,9 @@ final class DeepLinkRouter {
     private let insights: InsightsViewModel
     private let onboarding: OnboardingCoordinator?
     private(set) var pending: AppRoute?
+    /// Today's target: the journal sheet on this day (`/journal/<day>`, the journal reminder's tap). Today opens it and
+    /// sets it back to nil (`journalOpened()`).
+    private(set) var requestedJournalDay: String?
 
     init(state: AppState, sleep: SleepViewModel, strain: StrainViewModel, insights: InsightsViewModel,
          onboarding: OnboardingCoordinator? = nil) {
@@ -21,6 +24,8 @@ final class DeepLinkRouter {
         self.strain = strain
         self.insights = insights
         self.onboarding = onboarding
+        // A journal day asked for (a notification's tap) is the account's: it doesn't open for the next one.
+        state.forgetsAccountState { [weak self] in self?.requestedJournalDay = nil }
     }
 
     /// `false` when the URL isn't one of ours.
@@ -52,6 +57,11 @@ final class DeepLinkRouter {
 
     private var canNavigate: Bool { state.env.isDemo || state.env.auth.isSignedIn }
 
+    /// Today showed the journal sheet `requestedJournalDay` asked for (or chose not to).
+    func journalOpened() {
+        requestedJournalDay = nil
+    }
+
     private func route(_ link: AppRoute) {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: state.env.clock.now())
@@ -75,6 +85,9 @@ final class DeepLinkRouter {
         case .insightsBehaviors:
             insights.focusesBehaviors = true
             state.selectedTab = .insights
+        case .journal(let day):
+            requestedJournalDay = DayFormat.string(from: day)
+            state.selectedTab = .today
         case .trainExercise(let id):
             strain.requestedRoute = .exercise(id)
             state.selectedTab = .strain

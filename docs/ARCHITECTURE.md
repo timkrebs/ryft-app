@@ -452,8 +452,21 @@ graph of `await`s and a `TaskGroup`:
     - days older than a year
     - workout details and exercise histories not fetched for 30 days
     - series older than a week
-  - `ReminderScheduler` puts user-facing timers on a repeating `UNCalendarNotificationTrigger`
-    (bedtime, §7).
+  - `ReminderScheduler` (`Push/`, ADR 0024) drives every local reminder: bedtime's wind-down, the journal
+    reminder and the "not syncing" fallback. Each kind is a pure plan (`ReminderPlans.swift`); a pass diffs the
+    wishes against the ledger of what it put on iOS and adds or removes only the difference, as one-shot floating
+    `UNCalendarNotificationTrigger`s. It reads iOS's pending set once per process and the authorization once and on
+    every app active; a pass that changes nothing makes no system call. Triggers coalesce into one pass per 500 ms on
+    the app's clock; a successful sync (`Settings.lastSync`) and bedtime's `offerBedtime` run one at once, and the BG
+    refresh awaits one. Owner: the account binding, the store epoch and the scheduler's generation (bumped by every
+    `forget()`, the wipe's and the Demo switch's turn), re-checked after every await; `notifications.owner` says whose
+    requests iOS holds, and with no key yet each request's own `ryft.account` does (an earlier build's bedtime ones,
+    without one, stay until the planner's first offer). Signed out it tears ours down and clears Notification Center;
+    Demo data freezes them; locked, it takes nothing away for nobody. The journal reminder and the fallback ship dark
+    behind `notifications.reminders` and pause while consent is withdrawn or refused; a gate not known yet keeps what's
+    scheduled. The calendar follows the time zone. Every wipe removes every pending and delivered notification and
+    unregisters APNs (`AuthService.notificationStep`); a session expiry keeps the account's journal setting. Signpost
+    `reminders.pass` (`Signposts.sync`) with its adds and removes. Tests: `ReminderPlanTests`, `ReminderSchedulerTests`.
 - **Tests** (`SyncCoordinatorTests`, `ScheduledWorkTests`):
   - stage order
   - nothing uploaded
@@ -465,7 +478,6 @@ graph of `await`s and a `TaskGroup`:
   - silent push
   - priorities
   - the 03:00 schedule
-  - the calendar trigger
   - compaction
 
 ## 5. State machines (GameplayKit)
@@ -558,6 +570,7 @@ one exception to the 250 ms rule and never gates startup.
 - `/day/YYYY-MM-DD`
 - `/sleep/YYYY-MM-DD`, `/sleep/plan`
 - `/insights/<metric>`, `/insights/behaviors`
+- `/journal/YYYY-MM-DD`: Today, with the journal sheet on that day (`DeepLinkRouter.requestedJournalDay`)
 - `/train/session(s)/<id>`, `/train/exercises/<id>`, `/train/plan/<id>`, `/train/history`
 - `/auth/*`, which goes to Supabase
 
@@ -574,7 +587,13 @@ the next sign-in. `ryft://train/session` (the Live Activity) stays with
 - **Registering:** `POST /v1/devices/{id}/push` with `{token, env, locale}`.
   - `env` comes from the signed profile's `aps-environment`.
   - It is sent again only when the account, token, environment or language changed
-    from the record kept in SwiftData.
+    from the record kept in SwiftData. An answer that arrives after the account changed (a sign-out, another sign-in)
+    saves no record.
+  - Behind the invite gate (`APIStatus.inviteBlocked`, or a standing `inviteRequired` refusal) the app doesn't
+    register with APNs, because the platform refuses the `POST` and iOS may hand back an expired session's token
+    (NT7). When the gate opens (`ScreenModels` watches `inviteBlocked`), `refresh()` runs at once.
+  - A refused or failed `POST` with nothing accepted for the account unregisters from APNs again, unless the
+    account changed meanwhile; the next launch or app active registers and sends again.
 - **Removing:** `DELETE` runs before sign-out and before account deletion, through
   `AuthService.beforeSignOut`. A failure is logged and ignored.
 
@@ -582,10 +601,22 @@ the next sign-in. `ryft://train/session` (the Live Activity) stays with
 - **Silent push:** refreshes the pushed day and Today through
   `SyncCoordinator.run(.silentPush)`, cancelled after 25 s. The completion handler is
   always called.
-- **Taps:** follow `ryft.url`. `SYNC_STALE` has no URL; it opens Today and syncs.
-- **Categories:** `MORNING_SCORE`, `SESSION_SCORED`, `PR`, `SYNC_STALE` and the local
-  `BEDTIME`, without actions.
-- **Text:** loc-keys from API.md (17, en and de, `extractionState: manual`).
+- **Foreground and taps:** one pure function, `PushPresentation` (design.md §7 of
+  `docs/work/2026-11-22-notifications/`). Taps follow `ryft.url`; `SYNC_STALE` has no URL, it opens Today and syncs;
+  `BEDTIME` opens Today. A local notification (any trigger but a push's) for another account than the signed-in one,
+  or arriving while Demo data is shown (the wake notification excepted: it carries no data), isn't presented and
+  opens Today only. This iPhone's `SYNC_STALE` isn't
+  presented in the foreground: the open app syncs.
+- **Categories:** `MORNING_SCORE`, `SESSION_SCORED`, `PR`, `SYNC_STALE`, `ACTIVITY_SCORED` (registered before the
+  platform sends it) and the local `BEDTIME`, `JOURNAL_REMINDER` and `WAKE` (the wake notification below iOS 26),
+  without actions. Each has a placeholder for
+  hidden previews that says what kind it is and carries no value.
+- **Local notifications** (`ReminderScheduler`, §4): bedtime, the journal reminder (`journal.<asked day>`, 3 mornings,
+  `/journal/<day>`), the "not syncing" fallback (`sync.stale.1`/`.2`, 20 h and 72 h after the last sync, only where
+  the server's `SYNC_STALE` can't reach this iPhone). Their `userInfo` has the server alerts' shape:
+  `ryft: {category, day, url, account}`.
+- **Text:** English only. Server alerts use API.md's loc-keys; local ones `String(localized:)` with symbolic keys
+  (`JOURNAL_REMINDER_*`, `SYNC_STALE_LOCAL_*`, `HIDDEN_PREVIEW_*`).
 
 The Notification Service Extension (ring image) is a later item: its sources are in
 `RyftNotificationService/`.

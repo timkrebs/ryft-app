@@ -53,6 +53,17 @@ final class AppState {
 
     let env: AppEnvironment
     let repository: Repository
+    /// RYFT's local notifications (ADR 0024): bedtime's wind-down, the journal reminder and "not syncing". The one writer
+    /// of the account's local requests; it forgets with the other account-state forgetters.
+    @ObservationIgnored private(set) lazy var reminders: ReminderScheduler = {
+        let scheduler = ReminderScheduler(env: env, inputs: ReminderInputs(user: { [weak self] in self?.repository.user() },
+                                                                           journal: { nil },
+                                                                           observeUser: { [weak self] in
+                                                                               _ = self?.repository.userRevision
+                                                                           }))
+        forgetsAccountState { [weak scheduler] in scheduler?.forget() }
+        return scheduler
+    }()
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
     private var defaults: UserDefaults { env.defaults }
@@ -408,7 +419,7 @@ final class AppState {
 
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
-    /// session and the purge's save leaves the other account's rows, and a kill after an unpark leaves none parked.
+    /// session and the purge's save leaves the other account's rows (and journal reminder settings), and a kill after an unpark leaves none parked.
     /// `apiStatus`: whose requests the wipe forgets (`APIStatus.forgetRequests`; the app's shared one by default).
     func bindAccountHooks(_ auth: AuthService, apiStatus: APIStatus? = nil) {
         let apiStatus = apiStatus ?? .shared
@@ -426,17 +437,20 @@ final class AppState {
         if let account = auth.accountID {
             env.activities.purge(notBelongingTo: account)
             env.activities.unpark(account: account)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: account)
         }
     }
 
     /// Before the new session (or none) is published, so before the first upload and My Day's first read: another
     /// account's activities, nights and chunks go, parked or not, purged by the incoming id (never
     /// `activities.account`, which is demo data's while it's on); the same account's parked rows come back; and
-    /// nothing in flight or cached of the previous account survives (`forgetActivityState`).
+    /// nothing in flight or cached of the previous account survives (`forgetActivityState`). The journal reminder's
+    /// setting a session expiry parked goes the same way: only the incoming account's stays (review N-4).
     func accountWillChange(from old: String?, to new: String?, reason: AuthService.SignOutReason?) {
         if let new {
             env.activities.purge(notBelongingTo: new)
             env.activities.unpark(account: new)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: new)
         }
         forgetActivityState()
     }
