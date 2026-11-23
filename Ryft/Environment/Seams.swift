@@ -52,10 +52,29 @@ protocol Notifier: AnyObject {
     func setCategories(_ categories: Set<UNNotificationCategory>)
     func add(_ request: UNNotificationRequest) async throws
     func removePending(ids: [String])
-    func pendingIDs() async -> [String]
+    /// Every pending request (iOS's `pendingNotificationRequests()`). An enumeration: only `ReminderScheduler`'s first pass
+    /// of a process reads it (ADR 0024), never a hot path.
+    func pending() async -> [UNNotificationRequest]
+    /// The ids in Notification Center. Read only on app active (a journal reminder about a day before yesterday goes).
+    func delivered() async -> [String]
+    /// Already in Notification Center: a journal day answered meanwhile takes its reminder away from there too.
+    func removeDelivered(ids: [String])
+    func removeAllPending()
+    func removeAllDelivered()
     func registerForRemoteNotifications()
     func unregisterForRemoteNotifications()
 }
+
+/// The sign-out wipe's notification step (ADR 0024, design.md §9): everything RYFT has pending or delivered goes, without an
+/// enumeration. `UNUserNotificationCenter` is the live one, taken as `.current()` by the wipe itself: the wipe can run inside
+/// `AppEnvironment.live`'s `swift_once` and must never read it (ADR 0020).
+@MainActor
+protocol NotificationWiping: AnyObject {
+    func removeAllPendingNotificationRequests()
+    func removeAllDeliveredNotifications()
+}
+
+extension UNUserNotificationCenter: NotificationWiping {}
 
 final class SystemNotifier: Notifier {
     private var center: UNUserNotificationCenter { .current() }
@@ -71,7 +90,11 @@ final class SystemNotifier: Notifier {
     func setCategories(_ categories: Set<UNNotificationCategory>) { center.setNotificationCategories(categories) }
     func add(_ request: UNNotificationRequest) async throws { try await center.add(request) }
     func removePending(ids: [String]) { center.removePendingNotificationRequests(withIdentifiers: ids) }
-    func pendingIDs() async -> [String] { await center.pendingNotificationRequests().map(\.identifier) }
+    func pending() async -> [UNNotificationRequest] { await center.pendingNotificationRequests() }
+    func delivered() async -> [String] { await center.deliveredNotifications().map(\.request.identifier) }
+    func removeDelivered(ids: [String]) { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    func removeAllPending() { center.removeAllPendingNotificationRequests() }
+    func removeAllDelivered() { center.removeAllDeliveredNotifications() }
     func registerForRemoteNotifications() { UIApplication.shared.registerForRemoteNotifications() }
     func unregisterForRemoteNotifications() { UIApplication.shared.unregisterForRemoteNotifications() }
 }
@@ -80,13 +103,32 @@ final class MockNotifier: Notifier {
     var status: UNAuthorizationStatus = .notDetermined
     /// What the user answers when asked.
     var grants = true
+    /// Thrown by every `add` (iOS's `UNError.notificationsNotAllowed` while notifications aren't allowed).
+    var addError: Error?
+    /// Awaited inside each `add`, before the request is pending: a test holds a pass there.
+    var beforeAdd: (@MainActor (UNNotificationRequest) async -> Void)?
+    /// Awaited inside each `delivered()`, before it answers: a test runs something while a pass waits there.
+    var beforeDelivered: (@MainActor () async -> Void)?
 
+    /// Pending, in the order added.
     private(set) var requests: [UNNotificationRequest] = []
+    /// In Notification Center (`deliver(_:)` moves a pending one there).
+    private(set) var deliveredIDs: [String] = []
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var registeredForRemote = false
     private(set) var authorizationPrompts = 0
+    /// System calls, counted: enumerations of the pending set, adds that reached it, and removal calls (by id or all).
+    private(set) var pendingReads = 0
+    private(set) var adds = 0
+    private(set) var removals = 0
+    /// Reads of the authorization status, and of the delivered list.
+    private(set) var statusReads = 0
+    private(set) var deliveredReads = 0
 
-    func authorizationStatus() async -> UNAuthorizationStatus { status }
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        statusReads += 1
+        return status
+    }
 
     func requestAuthorization() async throws -> Bool {
         authorizationPrompts += 1
@@ -97,14 +139,58 @@ final class MockNotifier: Notifier {
     func setCategories(_ categories: Set<UNNotificationCategory>) { self.categories = categories }
 
     func add(_ request: UNNotificationRequest) async throws {
+        if let beforeAdd { await beforeAdd(request) }
+        if let addError { throw addError }
         requests.removeAll { $0.identifier == request.identifier }
         requests.append(request)
+        adds += 1
     }
 
-    func removePending(ids: [String]) { requests.removeAll { ids.contains($0.identifier) } }
-    func pendingIDs() async -> [String] { requests.map(\.identifier) }
+    func removePending(ids: [String]) {
+        removals += 1
+        requests.removeAll { ids.contains($0.identifier) }
+    }
+
+    func pending() async -> [UNNotificationRequest] {
+        pendingReads += 1
+        return requests
+    }
+
+    func delivered() async -> [String] {
+        deliveredReads += 1
+        if let beforeDelivered { await beforeDelivered() }
+        return deliveredIDs
+    }
+
+    func removeDelivered(ids: [String]) {
+        removals += 1
+        deliveredIDs.removeAll { ids.contains($0) }
+    }
+
+    func removeAllPending() {
+        removals += 1
+        requests.removeAll()
+    }
+
+    func removeAllDelivered() {
+        removals += 1
+        deliveredIDs.removeAll()
+    }
+
     func registerForRemoteNotifications() { registeredForRemote = true }
     func unregisterForRemoteNotifications() { registeredForRemote = false }
+
+    /// iOS showed `id`: it leaves the pending set for Notification Center. One that isn't pending (a server alert) is
+    /// delivered all the same.
+    func deliver(_ id: String) {
+        requests.removeAll { $0.identifier == id }
+        if !deliveredIDs.contains(id) { deliveredIDs.append(id) }
+    }
+}
+
+extension MockNotifier: NotificationWiping {
+    func removeAllPendingNotificationRequests() { removeAllPending() }
+    func removeAllDeliveredNotifications() { removeAllDelivered() }
 }
 
 // MARK: - feature flags
@@ -144,6 +230,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// Opt-in usage analytics (PostHog EU): the prompt, the Profile row and any sending. The remote `false` is the
     /// kill switch, read at once (`newest`), not on the next screen (analytics design.md, decisions 3–4).
     case analyticsEnabled = "analytics.enabled"
+    /// The two new local reminders, the morning journal reminder and this iPhone's "not syncing" fallback (bedtime's isn't
+    /// gated): dark until N4's switches ship and the operator opens it (`docs/API_REQUESTS.md`, NT5). Known off removes
+    /// what's scheduled; not known yet (no config for the account, a background launch) keeps it (`known`).
+    case notificationsReminders = "notifications.reminders"
 
     var id: String { rawValue }
 
@@ -153,7 +243,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
-        case .analyticsEnabled: return false
+        case .analyticsEnabled, .notificationsReminders: return false
         }
     }
 }
@@ -172,6 +262,9 @@ protocol FeatureFlagProvider: AnyObject {
     func newest(_ flag: FeatureFlag) -> Bool
     /// The newest answer's `analytics`, pending or shown.
     var newestAnalytics: AnalyticsConfig? { get }
+    /// `newest`, or nil while nothing is known: no answer for this account (or Demo data) cached or arrived, and nothing
+    /// overrides it. For what must tell "off" from "not known yet" (the local reminders: unknown never removes).
+    func known(_ flag: FeatureFlag) -> Bool?
     /// Called whenever `newest` or `newestAnalytics` may have changed: an answer applied (shown or pending), an
     /// account or demo switch, a reset, an override.
     var onNewest: (@MainActor () -> Void)? { get set }
@@ -196,6 +289,8 @@ final class StaticFlags: FeatureFlagProvider {
     func isOn(_ flag: FeatureFlag) -> Bool { overrides[flag] ?? flag.compiledDefault }
     func source(of flag: FeatureFlag) -> FlagSource { overrides[flag] == nil ? .compiled : .override }
     func newest(_ flag: FeatureFlag) -> Bool { isOn(flag) }
+    /// Previews and tests: the compiled defaults count as an answer.
+    func known(_ flag: FeatureFlag) -> Bool? { isOn(flag) }
     var newestAnalytics: AnalyticsConfig? { analytics }
 }
 

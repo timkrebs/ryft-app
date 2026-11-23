@@ -44,9 +44,14 @@ final class PushRegistrar {
     private(set) var lastResult: String?
     /// Bumped when a per-user setting changes, so observers re-read the defaults.
     private var revision = 0
+    /// The accepted registration was saved or removed: where "not syncing" is said may change (`ReminderScheduler`).
+    @ObservationIgnored var onRecordChanged: (@MainActor () -> Void)?
+    /// The invite gate as `APIClient` enforces it (the app's shared one by default).
+    @ObservationIgnored private let apiStatus: APIStatus
 
-    init(env: AppEnvironment) {
+    init(env: AppEnvironment, apiStatus: APIStatus? = nil) {
         self.env = env
+        self.apiStatus = apiStatus ?? .shared
     }
 
     private var defaults: UserDefaults { env.defaults }
@@ -86,12 +91,21 @@ final class PushRegistrar {
 
     /// At launch, on every return to the app and after sign-in: picks up a change
     /// in Settings and re-registers, so a new token or language reaches the platform.
+    /// Not behind the invite gate, where the platform refuses the `POST` (review S-1).
     func refresh() async {
         status = await env.notifier.authorizationStatus()
         env.notifier.setCategories(PushCategories.all)
-        guard isEnabled, env.auth.isSignedIn, isAllowed else { return }
+        guard isEnabled, env.auth.isSignedIn, isAllowed, !isInviteBlocked else { return }
         env.notifier.registerForRemoteNotifications()
         await send()
+    }
+
+    /// The account is behind the invite gate: `APIClient` holds every call but onboarding's, or a refusal stands
+    /// (`ConsentState`, also in a process that hasn't sent anything yet). iOS often hands the next account the token an
+    /// expired session left registered under the previous one (NT7), so registering here would bring that account's
+    /// alerts back with nothing to move the token.
+    private var isInviteBlocked: Bool {
+        apiStatus.inviteBlocked || env.consent.refusals.contains(.inviteRequired)
     }
 
     /// The coordinator finished a sync; the question may show from now on.
@@ -138,7 +152,15 @@ final class PushRegistrar {
         do {
             try await env.liveAPI.registerPush(deviceID: env.settings.deviceId,
                                                PushRegistration(token: token, env: record.env, locale: record.locale))
+            // The account changed while the request was out (a sign-out's `DELETE` already ran, or another account
+            // signed in): the platform has this token under the account that left, and a saved record would say it
+            // is the current one's.
+            guard account == self.account else {
+                Self.log.notice("push registration answered after the account changed: not saved")
+                return
+            }
             env.persistence.saveDocument(record, key: Self.recordKey, at: env.clock.now())
+            onRecordChanged?()
             lastError = nil
             lastResult = "POST 204 · \(record.env.rawValue) · \(record.locale)"
             // Once per accepted registration: on TestFlight (no Developer section) this
@@ -150,7 +172,26 @@ final class PushRegistrar {
         } catch {
             lastError = error.localizedDescription
             lastResult = "POST failed · \(error.diagnosticDetails ?? error.localizedDescription)"
+            // Refused (the invite gate, a 5xx, offline) with nothing accepted for this account: the token isn't this
+            // account's on the platform, and may still be an expired session's (NT7), whose alerts it would bring
+            // back. APNs again until a trigger registers and the platform accepts it (`refresh`: launch, app active).
+            if account == self.account, env.persistence.document(Record.self, key: Self.recordKey)?.account != account {
+                env.notifier.unregisterForRemoteNotifications()
+            }
         }
+    }
+
+    /// An account-state forgetter (`ScreenModels`), so it runs whenever `AppState` forgets a side: before every account
+    /// change is published (a sign-in from signed out too), in every wipe's turn, and on every Demo data switch. The
+    /// token APNs handed over goes with it: a wipe ended that registration (`AuthService.notificationStep`), and whoever
+    /// is current next sends only the token APNs hands over after `refresh` registers again. A wipe's store took the
+    /// accepted record; a Demo switch leaves it.
+    func forgetAccount() {
+        token = nil
+        lastError = nil
+        lastResult = nil
+        revision += 1
+        onRecordChanged?()
     }
 
     /// Before sign-out and account deletion, while the session still authorises
@@ -166,6 +207,7 @@ final class PushRegistrar {
             }
         }
         env.persistence.removeDocument(key: Self.recordKey)
+        onRecordChanged?()
         token = nil
         env.notifier.unregisterForRemoteNotifications()
     }
@@ -213,21 +255,114 @@ extension PushEnvironment {
     }
 }
 
-/// The notification categories the app registers. The four remote ones come
-/// from the platform (`NotificationCategory`); `BEDTIME` is the local reminder.
+/// The notification categories the app registers. The remote ones come from the platform (`NotificationCategory`);
+/// `BEDTIME`, `JOURNAL_REMINDER` and `WAKE` are local.
 enum PushCategories {
     static let bedtime = "BEDTIME"
+    /// Bedtime & wake's wake notification below iOS 26 (AlarmKit rings from 26 on).
+    static let wake = "WAKE"
+    /// The journal reminder (local, ADR 0024).
+    static let journalReminder = "JOURNAL_REMINDER"
+    /// NT1's alert for a scored activity: registered before the platform sends it (design.md §6), so its placeholder is
+    /// there when it does. `NotificationCategory` gets the case once API.md publishes it.
+    static let activityScored = "ACTIVITY_SCORED"
 
-    /// No actions yet: a tap opens the app (`ryft.url`, or Today for `SYNC_STALE`).
+    /// Every category RYFT shows, the server's and the local ones. No actions: a tap already does the one thing each is for
+    /// (design.md §7.1).
+    static var ids: [String] {
+        NotificationCategory.allCases.map(\.rawValue) + [activityScored, bedtime, journalReminder, wake]
+    }
+
+    /// With previews hidden iOS shows only this under the app name (no title, no body): what kind it is, never a value, a
+    /// name or a number (ui.md §5.5). No category shows its title then.
     static var all: Set<UNNotificationCategory> {
-        var categories = Set(NotificationCategory.allCases.map {
-            UNNotificationCategory(identifier: $0.rawValue, actions: [], intentIdentifiers: [], options: [])
+        Set(ids.map {
+            UNNotificationCategory(identifier: $0, actions: [], intentIdentifiers: [],
+                                   hiddenPreviewsBodyPlaceholder: placeholder($0) ?? "", options: [])
         })
-        // Locked with previews hidden: no sleep need or goal on the lock screen.
-        categories.insert(UNNotificationCategory(identifier: bedtime, actions: [], intentIdentifiers: [],
-                                                 hiddenPreviewsBodyPlaceholder: String(localized: "Bedtime reminder"),
-                                                 options: []))
-        return categories
+    }
+
+    static func placeholder(_ category: String) -> String? {
+        switch category {
+        case NotificationCategory.morningScore.rawValue:
+            String(localized: "HIDDEN_PREVIEW_MORNING_SCORE", defaultValue: "Your morning score is ready",
+                   comment: "Lock screen with previews hidden: a morning score arrived. Shown alone under the app name; no score.")
+        case activityScored:
+            String(localized: "HIDDEN_PREVIEW_ACTIVITY_SCORED", defaultValue: "Activity scored",
+                   comment: "Lock screen with previews hidden: an activity (a run, a ride) was scored. No name, no value.")
+        case NotificationCategory.sessionScored.rawValue:
+            String(localized: "HIDDEN_PREVIEW_SESSION_SCORED", defaultValue: "Strength session scored",
+                   comment: "Lock screen with previews hidden: a logged strength session was scored. No name, no value.")
+        case NotificationCategory.pr.rawValue:
+            String(localized: "HIDDEN_PREVIEW_PR", defaultValue: "New record",
+                   comment: "Lock screen with previews hidden: a new personal record. No exercise, no weight.")
+        case NotificationCategory.syncStale.rawValue:
+            String(localized: "HIDDEN_PREVIEW_SYNC_STALE", defaultValue: "Your data may be behind",
+                   comment: "Lock screen with previews hidden: RYFT hasn't synced for a while (the server's or this iPhone's).")
+        case journalReminder:
+            String(localized: "HIDDEN_PREVIEW_JOURNAL_REMINDER", defaultValue: "Journal reminder",
+                   comment: "Lock screen with previews hidden: the journal reminder. No habit names.")
+        case bedtime:
+            String(localized: "HIDDEN_PREVIEW_BEDTIME", defaultValue: "Bedtime reminder",
+                   comment: "Lock screen with previews hidden: the bedtime reminder. No sleep need or goal.")
+        case wake:
+            String(localized: "HIDDEN_PREVIEW_WAKE", defaultValue: "Wake-up time",
+                   comment: "Lock screen with previews hidden: Bedtime & wake's wake notification (below iOS 26). No time.")
+        default: nil
+        }
+    }
+}
+
+/// How a notification shows in the foreground and where its tap goes (design.md §7.1–7.2): one pure function for
+/// `willPresent` and `didReceive`. A local request (any trigger but a push's) for another account, or one arriving while
+/// Demo data is shown (but the wake notification), isn't presented and its tap opens Today only. Server alerts get the
+/// same check once API.md carries `ryft.account` (NT1).
+enum PushPresentation {
+    enum Route: Equatable {
+        case today
+        /// "Not syncing": Today, then a sync the user asked for.
+        case todayThenSync
+        case open(URL)
+    }
+
+    /// `ryft.account` of a notification (the local ones carry it; NT1 asks it of the server's).
+    static func account(in userInfo: [AnyHashable: Any]) -> String? {
+        (userInfo["ryft"] as? [String: Any])?["account"] as? String
+    }
+
+    static func accountMatches(category: String, isLocal: Bool, account: String?, currentAccount: String?,
+                               isDemo: Bool) -> Bool {
+        // Nobody signed in: nothing here is anyone's (a server alert that arrived after the wipe included).
+        guard currentAccount != nil else { return false }
+        guard isLocal || account != nil else { return true }
+        // Demo data hides the account's own, but not the wake notification: it carries no data, and the account's wake
+        // time stays set while Demo data is shown (review N-2).
+        if isDemo, category != PushCategories.wake { return false }
+        return account != nil && account == currentAccount
+    }
+
+    static func options(category: String, isLocal: Bool, accountMatches: Bool) -> UNNotificationPresentationOptions {
+        guard accountMatches else { return [] }
+        switch category {
+        case NotificationCategory.morningScore.rawValue, PushCategories.bedtime, PushCategories.wake:
+            return [.banner, .list, .sound]
+        case NotificationCategory.syncStale.rawValue:
+            // The open app syncs, so this iPhone's hint has moved instead; the server's still says it (the gap is data).
+            return isLocal ? [] : [.banner, .list]
+        default:
+            return [.banner, .list]
+        }
+    }
+
+    static func route(message: PushMessage?, category: String, accountMatches: Bool) -> Route {
+        guard accountMatches else { return .today }
+        if category == NotificationCategory.syncStale.rawValue { return .todayThenSync }
+        guard case .alert(_, let url?) = message else { return .today }
+        switch AppRoute(url: url) {
+        // A notification never opens the sign-in callback or an invite: those come from Safari and Mail.
+        case .authCallback?, .invite?: return .today
+        default: return .open(url)
+        }
     }
 }
 

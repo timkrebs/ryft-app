@@ -10,6 +10,7 @@ import Foundation
 /// | `/day/YYYY-MM-DD` | Today for today; an earlier day on Strain |
 /// | `/sleep/YYYY-MM-DD` | Sleep → Day on that night |
 /// | `/sleep/plan` | Sleep → Planner |
+/// | `/journal/YYYY-MM-DD` | Today, the journal on that day (the journal reminder's tap) |
 /// | `/insights/behaviors` | Insights → Behaviors |
 /// | `/insights/<metric>` | Insights, scrolled to the metric's trend |
 /// | `/train/session(s)/<uuid>` | the session summary (API.md's push table says `session`) |
@@ -26,6 +27,8 @@ enum AppRoute: Equatable {
     case sleepPlan
     case insights(TrendMetric)
     case insightsBehaviors
+    /// The journal sheet on that day, over Today.
+    case journal(Date)
     case trainSession(UUID)
     case trainExercise(UUID)
     case trainPlan(UUID)
@@ -61,6 +64,7 @@ enum AppRoute: Equatable {
             case ("day", let d): return DayFormat.date(from: d).map(AppRoute.day)
             case ("sleep", "plan"): return .sleepPlan
             case ("sleep", let d): return DayFormat.date(from: d).map(AppRoute.sleep)
+            case ("journal", let d): return DayFormat.date(from: d).map(AppRoute.journal)
             case ("insights", "behaviors"): return .insightsBehaviors
             case ("insights", let m): return TrendMetric(rawValue: m).map(AppRoute.insights)
             case ("auth", _): return .authCallback(url)
@@ -91,6 +95,7 @@ enum AppRoute: Equatable {
         case .sleepPlan: path = "sleep/plan"
         case .insights(let m): path = "insights/\(m.rawValue)"
         case .insightsBehaviors: path = "insights/behaviors"
+        case .journal(let d): path = "journal/\(DayFormat.string(from: d))"
         case .trainSession(let id): path = "train/sessions/\(id.uuidString.lowercased())"
         case .trainExercise(let id): path = "train/exercises/\(id.uuidString.lowercased())"
         case .trainPlan(let id): path = "train/plan/\(id.uuidString.lowercased())"

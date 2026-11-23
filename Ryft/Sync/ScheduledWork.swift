@@ -1,7 +1,6 @@
 import BackgroundTasks
 import Foundation
 import UIKit
-import UserNotifications
 
 /// Work the system runs for us, and the app's own background time:
 /// - `BGAppRefreshTask` (every ~2 h when iOS allows): a background sync through the coordinator.
@@ -264,37 +263,5 @@ private final class ExpiryFlag: @unchecked Sendable {
         }
         if expired { wait.cancel() }
         await wait.value
-    }
-}
-
-/// User-facing timers as local notifications on a `UNCalendarNotificationTrigger`
-/// (e.g. the bedtime reminder): daily at a local time, until cancelled.
-@MainActor
-final class ReminderScheduler {
-    private let notifier: Notifier
-
-    init(notifier: Notifier) {
-        self.notifier = notifier
-    }
-
-    static func dailyTrigger(hour: Int, minute: Int) -> UNCalendarNotificationTrigger {
-        UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: hour, minute: minute), repeats: true)
-    }
-
-    /// Replaces any reminder with the same `id`.
-    func scheduleDaily(id: String, hour: Int, minute: Int, title: String, body: String,
-                       category: String? = nil) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        if let category { content.categoryIdentifier = category }
-        notifier.removePending(ids: [id])
-        try await notifier.add(UNNotificationRequest(identifier: id, content: content,
-                                                     trigger: Self.dailyTrigger(hour: hour, minute: minute)))
-    }
-
-    func cancel(id: String) {
-        notifier.removePending(ids: [id])
     }
 }

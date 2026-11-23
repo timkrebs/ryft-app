@@ -1156,6 +1156,7 @@ struct OwedWipeLaunchTests {
 
     /// A's reminder, scheduled by the app before the kill.
     private func scheduleReminders(_ rig: WipingAuth, notifier: MockNotifier, clock: TestClock) async throws {
+        notifier.status = .authorized
         clock.set(try #require(Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: clock.now())))
         let planner = BedtimePlanner(state: AppState(env: .test(clock: clock, notifier: notifier, auth: rig.auth)),
                                      alarms: MockWakeAlarms())
@@ -1216,6 +1217,37 @@ struct OwedWipeLaunchTests {
                                                                alarms: MockWakeAlarms())
         await rig.auth.finishOwedWipe(train: train, bedtime: planner)
         #expect(!reminders(notifier).isEmpty)
+    }
+
+    /// Review N-1: an expiry killed during `client.signOut()` (nothing of the wipe ran) resumes after the first frame, for
+    /// its parked rows. Its notification step runs at launch, so a background launch, which shows no frame, keeps neither
+    /// the account's notifications nor its APNs registration. The wipe itself still waits for the frame.
+    @Test func aWipeLeftForTheFirstFrameRunsItsNotificationStepAtLaunch() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        owe(rig, .sessionExpired)
+        rig.relaunch(signedInAs: nil)
+        #expect(rig.launchNotificationSteps.map(\.parking) == [a], "at launch, keeping the parked account's setting")
+        #expect(rig.wipes.isEmpty, "the rows wait for the first frame")
+        await rig.firstFrame()
+        #expect(rig.wipes.map(\.storeOnly) == [false], "the retry runs every device step the kill left")
+        #expect(rig.launchNotificationSteps.count == 1)
+    }
+
+    /// The control for N-1: a wipe the launch runs at once (no parking) does the step in its own device step, and one
+    /// whose device steps ran before the kill doesn't run it again.
+    @Test func otherResumesRunNoSeparateNotificationStep() async throws {
+        let now = try WipingAuth(signedInAs: WipeValues.accountA)
+        owe(now, .user)
+        now.relaunch(signedInAs: nil)
+        #expect(now.wipes.map(\.storeOnly) == [false] && now.launchNotificationSteps.isEmpty)
+
+        let done = try WipingAuth(signedInAs: WipeValues.accountA)
+        owe(done, .sessionExpired)
+        WipeLedger(file: done.ledgerFile).update { $0.deviceStepsDone = true }
+        done.relaunch(signedInAs: nil)
+        #expect(done.launchNotificationSteps.isEmpty)
+        await done.firstFrame()
+        #expect(done.wipes.map(\.storeOnly) == [true])
     }
 
     // MARK: inside `AppEnvironment.live`

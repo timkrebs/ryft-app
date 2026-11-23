@@ -26,6 +26,8 @@ struct TodayView: View {
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
     static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
+    /// The day the journal sheet opens on: nil for yesterday (the card), a reminder's day from its tap.
+    @State private var journalDay: String?
     /// Bedtime & wake from Tonight, pushed from here: Today stays when the card leaves (the evening ends, an import starts).
     @State private var bedtimeOpening: SleepScheduleView.Opening?
     /// Counts scores that landed while the night was pending: one success haptic each.
@@ -39,6 +41,16 @@ struct TodayView: View {
     @State private var gaugePlaceholderSeen = false
 
     private var numeral: DotNumeral.Style { (heroNumerals ?? settings.heroNumerals).style }
+
+    /// The sheet on a reminder's day, when the journal is live and the day is one the sheet offers (yesterday and the 13
+    /// before); otherwise Today alone.
+    private func openRequestedJournal(_ day: String?) {
+        guard let day else { return }
+        screens.router.journalOpened()
+        guard screens.journal.isLive, JournalSheetModel.offers(day, yesterday: screens.journal.yesterday) else { return }
+        journalDay = day
+        showsJournal = true
+    }
 
     var body: some View {
         // The day's facts and decision, read once for the whole body.
@@ -88,8 +100,10 @@ struct TodayView: View {
                 }
                 .sensoryFeedback(.success, trigger: landed)
                 .sheet(isPresented: $showsJournal) {
-                    JournalSheet(model: JournalSheetModel(store: screens.journal)).presentedRoot()
+                    JournalSheet(model: JournalSheetModel(store: screens.journal, day: journalDay)).presentedRoot()
                 }
+                // The journal reminder's tap (`/journal/<day>`), also one that launched the app.
+                .onChange(of: screens.router.requestedJournalDay, initial: true) { _, day in openRequestedJournal(day) }
                 .navigationDestination(item: $bedtimeOpening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
                 // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
@@ -400,7 +414,10 @@ struct TodayView: View {
             }
             if screens.myDay.isEnabled { MyDayCard(model: screens.myDay) }
             if screens.journal.isLive {
-                JournalCard(store: screens.journal) { showsJournal = true }
+                JournalCard(store: screens.journal) {
+                    journalDay = nil
+                    showsJournal = true
+                }
             }
             // From 17:00: when to be in bed tonight (Bedtime & wake).
             if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {

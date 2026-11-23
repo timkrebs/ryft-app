@@ -163,6 +163,40 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **What API.md says:** `SESSION_SCORED` and `PR` are sent "not during quiet hours". It doesn't say whether an alert is dropped or held until the window ends, while `MORNING_SCORE` explicitly holds.
    - **The app's reading:** dropped, the same as NT1. The Notifications page now says "Workout alerts are skipped".
    - **Request:** please confirm, or tell us they are held. The page's sentence would change.
+5. **NT5 (flag): `notifications.reminders` (P1, operator).**
+   - **What it gates:** the app's two new local reminders, the morning journal reminder and the "not syncing" fallback on the phone. Bedtime & wake's reminder is not gated.
+   - **Default:** off. `GET /v1/config` → `flags` has open keys, and the app's compiled default is off, so nothing changes until the flag exists and is on for an account.
+   - **Request:** create the flag at 0 % with an allow-list, like `train.import` and `analytics.enabled`. The operator raises it once the Notifications page with its switches (N4) has shipped.
+   - **Turning it off later** removes the reminders already scheduled on each phone at its next config read.
+6. **NT6 (later, optional): the journal reminder's setting on the account.**
+   - **Today:** the switch and the time live on the phone, per account. They survive a session expiry, and a sign-out clears them.
+   - **Later:** if users ask for the setting to follow them across devices, `NotificationPrefs` could gain `journal_reminder: {on: bool, minute: int}`.
+   - **Status:** nothing is needed now. This is filed so the shape is agreed before anyone builds it.
+7. **NT7 (P1, before `push.enabled` widens): a push token the account that left still holds.**
+   - **Today:** sign-out and account deletion send `DELETE /v1/devices/{id}/push` while the session still authorises
+     it. A session that expired can't, so the platform keeps that iPhone's token under the account. The app then
+     removes what Notification Center holds and unregisters from APNs.
+   - **Why that isn't enough:** unregistering only stops delivery until the app registers again. When the next account
+     on this iPhone registers, iOS often hands back the **same** token, and the platform moves a token only on an
+     accepted `POST /v1/devices/{id}/push`. Until then the token is live and still the old account's, so its
+     `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` reach the new account's lock screen. That `POST` is
+     refused behind the invite gate (`403 invite_required`), and it fails offline or on a `5xx`. Server alerts carry no
+     `ryft.account` yet (NT1), so the app can't tell them apart or clear them.
+   - **The same with a failed `DELETE`:** a sign-out whose `DELETE` failed (offline, a `5xx`) leaves the token under
+     the account in the same way. The app logs the failure and carries on with the sign-out. A `POST` still in flight
+     when the account leaves has the same effect if the platform accepts it: the app saves no record for it.
+   - **What the platform does already:** it drops a token when APNs answers `410` or `Unregistered`. Once iOS hands
+     the same token to the next registration, APNs has no reason to answer that, so this path doesn't end it.
+   - **What the app does meanwhile:** it doesn't register with APNs while the account is invite-blocked, and after a
+     refused `POST` with nothing accepted for the account it unregisters again until the next try.
+   - **Request (one of these):**
+     - when an account authenticates with `X-RYFT-Device-ID: D`, drop the tokens other accounts registered for `D`; or
+     - exempt `POST /v1/devices/{id}/push` from the invite gate, so the registration moves the token at once.
+
+     The first also covers the failed-`DELETE` case and an offline `POST`. Please also confirm that a `POST` for the
+     same `{id}` replaces the token it held, and state the outcome in API.md → `POST /v1/devices/{id}/push`.
+   - **Status:** the app's side is in N3 (round 3). Until the platform's side lands, a shared iPhone can show the
+     previous account's server alerts after an expiry.
 
 ## App Attest (answered, 2026-11-20)
 
