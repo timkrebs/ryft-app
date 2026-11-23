@@ -543,10 +543,12 @@ struct RootView: View {
                     OnboardingFlowView(model: onboarding).transition(.opacity)
                         .onAppear(perform: LaunchSignpost.screenAppeared)
                 case .signedIn where needsHealthIntro:
-                    HealthPermissionView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
+                    HealthPermissionView(progress: onboarding.progress(for: .health)).transition(.opacity)
+                        .onAppear(perform: LaunchSignpost.screenAppeared)
                 // After Apple Health, once: the chosen trackers' setup (`devices.setup`). The first sync runs.
                 case .signedIn where onboarding.showsTrackerSetup:
-                    TrackerSetupStepView(model: onboarding).transition(.opacity)
+                    TrackerSetupStepView(model: onboarding, progress: onboarding.progress(for: .trackerSetup))
+                        .transition(.opacity)
                         .onAppear(perform: LaunchSignpost.screenAppeared)
                 case .signedIn: tabs.transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 }

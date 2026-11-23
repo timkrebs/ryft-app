@@ -12,7 +12,8 @@ struct OnboardingFlowView: View {
         ZStack {
             Theme.background.ignoresSafeArea()
             if let step = model.flowStep {
-                OnboardingStepView(step: step, model: model)
+                // Full screen in the first run: "Step n of m" under the lock-up (the sheet passes none).
+                OnboardingStepView(step: step, model: model, progress: model.progress(for: FirstRunStep(step)))
                     .id(step)
                     .transition(.opacity)
             }
@@ -21,17 +22,19 @@ struct OnboardingFlowView: View {
     }
 }
 
-/// One step's screen; the same views serve the full-screen flow and the sheet.
+/// One step's screen; the same views serve the full-screen flow and the sheet. `progress`: the first run's step rule, only
+/// for the full-screen flow (a sheet-presented gate never counts).
 struct OnboardingStepView: View {
     let step: OnboardingCoordinator.Step
     let model: OnboardingCoordinator
+    var progress: FirstRunProgress?
 
     var body: some View {
         switch step {
-        case .invite: InviteCodeView(model: model)
-        case .consent: ConsentView(model: model)
-        case .aboutYou: AboutYouView(model: model)
-        case .wear: TrackerPickerView(model: model)
+        case .invite: InviteCodeView(model: model, progress: progress)
+        case .consent: ConsentView(model: model, progress: progress)
+        case .aboutYou: AboutYouView(model: model, progress: progress)
+        case .wear: TrackerPickerView(model: model, progress: progress)
         }
     }
 }
@@ -42,6 +45,8 @@ enum OnboardingSpec {
     static let headerHeight = ScreenHeaderSpec.height
     /// The header row → the title 24; the title → the lead 12; the lead → the content 24.
     static let titleGap: CGFloat = 24, leadGap: CGFloat = 12, contentGap: CGFloat = 24
+    /// A screen with an illustration above its title (Apple Health): the illustration → the title 20.
+    static let heroGap: CGFloat = 20
     /// A step in a sheet (after the first run) starts 24 below the grabber, which sits 12 from the sheet's edge.
     static let sheetTopInset: CGFloat = 36
     /// 20 at the sides (`Theme.Metrics.screenPadding`), at most 480 wide, centred on a wide window; 32 under the content.
@@ -54,35 +59,35 @@ enum OnboardingSpec {
 
 /// A step's frame: in the first run the lock-up row, 24 below it the title (26 Light, header trait), 12 below the lead
 /// (16 pt `textSecondary`), 24 below that the content; as a sheet (`showsLockup` false) the title starts 24 below the grabber.
-/// One scroll, 20 from the sides, at most 480 wide, the keyboard dismissed by a drag. A long step pins its actions with
-/// `.pinnedBar { … }` on this view.
-struct OnboardingScreen<Content: View>: View {
+/// With `progress` (a first-run step, ui.md §2) the step rule sits 12 under the lock-up row and the title 20 under the rule.
+/// A `hero` (Apple Health's mark) goes between them, 20 above the title. One scroll, 20 from the sides, at most 480 wide,
+/// the keyboard dismissed by a drag. A long step pins its actions with `.pinnedBar { … }` on this view.
+struct OnboardingScreen<Hero: View, Content: View>: View {
     private let title: Text
     private let lead: Text
     private let showsLockup: Bool
     private let dismissible: Bool
+    private let progress: FirstRunProgress?
+    private let hero: Hero?
     private let content: Content
 
     /// `dismissible`: the step can wait (`OnboardingCoordinator.canDefer`); as a sheet only then does it show the grabber.
-    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, @ViewBuilder content: () -> Content) {
+    /// `progress`: the first run's "Step n of m", drawn only under the lock-up (never in a sheet).
+    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+         @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content) {
         self.title = title
         self.lead = lead
         self.showsLockup = showsLockup
         self.dismissible = dismissible
+        self.progress = progress
+        self.hero = hero()
         self.content = content()
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if showsLockup {
-                    // Decoration: VoiceOver starts at the step's title, its first heading.
-                    WordmarkLockup()
-                        .frame(height: OnboardingSpec.headerHeight)
-                        .padding(.bottom, OnboardingSpec.titleGap)
-                        .accessibilityHidden(true)
-                }
-                ScreenHeaderTitle(text: title)
+                header
                 lead
                     .font(.ryft(.body))
                     .foregroundStyle(Theme.textSecondary)
@@ -103,6 +108,49 @@ struct OnboardingScreen<Content: View>: View {
         .background(Theme.background.ignoresSafeArea())
         .presentationBackground(Theme.background)
         .presentationDragIndicator(dismissible ? .visible : .hidden)
+    }
+
+    /// The step rule only under the lock-up: a sheet has neither.
+    private var shownProgress: FirstRunProgress? { showsLockup ? progress : nil }
+
+    /// The lock-up row (decoration), the step rule, the hero, the title. VoiceOver starts at the title, the first heading,
+    /// then hears "Step n of m" (ui.md §2.3): one element after the title, though it sits above it.
+    private var header: some View {
+        // Under the lock-up row: 24 to the title, or 12 to the rule and 20 from it.
+        let rowGap: CGFloat = showsLockup ? (shownProgress == nil ? OnboardingSpec.titleGap : FirstRunStepRuleSpec.titleGap) : 0
+        return VStack(alignment: .leading, spacing: 0) {
+            if showsLockup {
+                WordmarkLockup()
+                    .frame(height: OnboardingSpec.headerHeight)
+                    .accessibilityHidden(true)
+                if let progress = shownProgress {
+                    FirstRunStepRule(step: progress.step, count: progress.count)
+                        .padding(.top, FirstRunStepRuleSpec.topGap)
+                        .accessibilitySortPriority(1)
+                }
+            }
+            if let hero, Hero.self != EmptyView.self {
+                hero
+                    .padding(.top, rowGap)
+                    .accessibilityHidden(true)
+                ScreenHeaderTitle(text: title)
+                    .padding(.top, OnboardingSpec.heroGap)
+                    .accessibilitySortPriority(2)
+            } else {
+                ScreenHeaderTitle(text: title)
+                    .padding(.top, rowGap)
+                    .accessibilitySortPriority(2)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+extension OnboardingScreen where Hero == EmptyView {
+    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+         @ViewBuilder content: () -> Content) {
+        self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
+                  hero: { EmptyView() }, content: content)
     }
 }
 
@@ -189,6 +237,7 @@ enum OnboardingPointSpec {
 /// out for the wrong account.
 struct InviteCodeView: View {
     let model: OnboardingCoordinator
+    var progress: FirstRunProgress?
     @Environment(AuthService.self) private var auth
     /// The launch sequence plays over the root: no keyboard over its arcs, no keystrokes into a field nobody sees.
     @Environment(\.launchCoversRoot) private var launchCovers
@@ -208,7 +257,7 @@ struct InviteCodeView: View {
     var body: some View {
         OnboardingScreen(title: Text("Enter your invite code"),
                          lead: Text("RYFT is invite-only during the beta. The person who invited you has a code for you, like RYFT-7K3M-QX9P."),
-                         showsLockup: model.isFirstRun, dismissible: model.canDefer(.invite)) {
+                         showsLockup: model.isFirstRun, dismissible: model.canDefer(.invite), progress: progress) {
             GroupedCard {
                 FormField(Text("Invite code"), isFocused: focused) {
                     TextField(text: Bindable(model).inviteCode, prompt: Text(verbatim: "RYFT-XXXX-XXXX").fieldPrompt()) {
@@ -286,13 +335,14 @@ private enum InviteSpec {
 /// pill's spinner, the title stays), Not now and the version caption, all inline in one scroll.
 struct ConsentView: View {
     let model: OnboardingCoordinator
+    var progress: FirstRunProgress?
     @State private var agreed = false
     @State private var legal: LegalPage?
 
     var body: some View {
         OnboardingScreen(title: Text("Your health data, your consent"),
                          lead: Text("To calculate your scores, RYFT processes health data from Apple Health. Here is what that means."),
-                         showsLockup: model.isFirstRun) {
+                         showsLockup: model.isFirstRun, progress: progress) {
             if let earlier = model.earlierConsent {
                 InlineMessage(message: String(localized: "The privacy policy changed since you agreed on \(Fmt.date(earlier.grantedAt)). Read what changed, then agree again."),
                               systemImage: "doc.badge.clock")
@@ -438,6 +488,7 @@ struct CheckboxToggleStyle: ToggleStyle {
 /// "Choose your birth year", then the years newest first, as the wheel does.
 struct AboutYouView: View {
     let model: OnboardingCoordinator
+    var progress: FirstRunProgress?
     @State private var year: Int?
     @State private var editing: BodySetting?
     @Environment(\.appEnvironment) private var env
@@ -449,7 +500,7 @@ struct AboutYouView: View {
     var body: some View {
         OnboardingScreen(title: Text("About you"),
                          lead: Text("Your birth year gives an estimate of your maximum heart rate, which strain and heart-rate zones are measured against. RYFT keeps only the year."),
-                         showsLockup: model.isFirstRun) {
+                         showsLockup: model.isFirstRun, progress: progress) {
             if isSaved {
                 let editor = model.bodySettings
                 GroupedCard(GroupTitle(Text("Estimated from your birth year"))) {

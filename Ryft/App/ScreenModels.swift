@@ -82,6 +82,10 @@ final class ScreenModels {
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         push = PushRegistrar(env: state.env)
+        // The first run's plan (ui.md §2.2): Apple Health's explanation counts while it is still to come.
+        onboarding.planInputs = { [env = state.env] in
+            FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone)
+        }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,

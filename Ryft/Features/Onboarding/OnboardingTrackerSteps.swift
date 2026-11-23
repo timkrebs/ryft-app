@@ -4,19 +4,22 @@ import SwiftUI
 /// choice for this account; Skip saves nothing and doesn't ask again. Profile → Devices & sync changes it later.
 struct TrackerPickerView: View {
     let model: OnboardingCoordinator
+    /// The first run's step rule (nil in a sheet).
+    let progress: FirstRunProgress?
     @State private var picked: [String]
     @Environment(\.appEnvironment) private var env
 
     /// `picked`: previews start with a choice.
-    init(model: OnboardingCoordinator, picked: [String] = []) {
+    init(model: OnboardingCoordinator, picked: [String] = [], progress: FirstRunProgress? = nil) {
         self.model = model
+        self.progress = progress
         _picked = State(initialValue: picked)
     }
 
     var body: some View {
         OnboardingScreen(title: Text("What do you wear?"),
                          lead: Text("Pick your watch, tracker or ring. RYFT then shows how to get its data into Apple Health."),
-                         showsLockup: model.isFirstRun) {
+                         showsLockup: model.isFirstRun, progress: progress) {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
             Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")
                 .font(.ryft(.caption))
@@ -46,18 +49,22 @@ struct TrackerSetupStepView: View {
     @State private var check: TrackerCheckModel?
     /// Open from the start (previews, and a `-RyftSyncCheck` run's screenshots).
     private let checkOpen: Bool
+    /// The first run's step rule: from RootView only (the screen also opens in a sheet, which passes none).
+    private let progress: FirstRunProgress?
     @Environment(\.appEnvironment) private var env
 
-    init(model: OnboardingCoordinator, checkOpen: Bool = SyncCheckScenario.requested != nil) {
+    init(model: OnboardingCoordinator, checkOpen: Bool = SyncCheckScenario.requested != nil,
+         progress: FirstRunProgress? = nil) {
         self.model = model
         self.checkOpen = checkOpen
+        self.progress = progress
     }
 
     var body: some View {
         let trackers = model.setupTrackers
         OnboardingScreen(title: trackers.count > 1 ? Text("Set up your trackers") : Text("Set up your tracker"),
                          lead: Text("A few minutes now saves a silent week of missing data."),
-                         showsLockup: true) {
+                         showsLockup: true, progress: progress) {
             VStack(spacing: OnboardingSpec.actionGap) {
                 ForEach(trackers) { tracker in
                     if trackers.count == 1 {

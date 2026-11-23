@@ -12,9 +12,11 @@ struct HealthPermissionView: View {
     @Environment(\.appEnvironment) private var env
     /// Previews and tests: the busy state, which the model only enters while the system sheet is up.
     var showsBusy = false
+    /// The first run's step rule under the lock-up (nil after the first run).
+    var progress: FirstRunProgress?
 
     var body: some View {
-        HealthPermissionScreen(model: HealthOnboardingViewModel(env: env), showsBusy: showsBusy)
+        HealthPermissionScreen(model: HealthOnboardingViewModel(env: env), showsBusy: showsBusy, progress: progress)
     }
 }
 
@@ -61,6 +63,7 @@ final class HealthOnboardingViewModel {
 private struct HealthPermissionScreen: View {
     @State var model: HealthOnboardingViewModel
     let showsBusy: Bool
+    let progress: FirstRunProgress?
     @State private var legal: LegalPage?
 
     private var isBusy: Bool { model.isRequesting || showsBusy }
@@ -72,8 +75,12 @@ private struct HealthPermissionScreen: View {
                 WordmarkLockup()
                     .frame(height: OnboardingSpec.headerHeight)
                     .accessibilityHidden(true)
+                if let progress {
+                    FirstRunStepRule(step: progress.step, count: progress.count)
+                        .padding(.top, FirstRunStepRuleSpec.topGap)
+                }
                 HealthIllustration()
-                    .padding(.top, OnboardingSpec.titleGap)
+                    .padding(.top, progress == nil ? OnboardingSpec.titleGap : FirstRunStepRuleSpec.titleGap)
                 ScreenHeaderTitle(text: Text("Connect Apple Health"))
                     .padding(.top, HealthPermissionSpec.titleGap)
                 Text("RYFT turns what your watch writes to Apple Health into recovery, strain and sleep scores.")
