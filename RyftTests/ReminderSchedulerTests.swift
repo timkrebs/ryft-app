@@ -1451,6 +1451,21 @@ struct PushRound4Tests {
         #expect(rig.api.count("registerPush") == 1)
     }
 
+    /// Security nit 2: the registrar reads the same `APIStatus` as onboarding and `APIClient`, not the app's shared one.
+    /// The gate hook that mirrors a block into the consent store is detached, so only the status itself can hold it.
+    @Test("The registrar holds back while ScreenModels' own status says the invite gate is closed")
+    func theRegistrarReadsScreenModelsStatus() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        let status = APIStatus()
+        let screens = screens(rig, status: status)
+        status.onGate = nil
+        status.observe([.inviteRequired], enforced: true)
+        #expect(!rig.env.consent.refusals.contains(.inviteRequired))
+        await screens.push.refresh()
+        #expect(!rig.notifier.registeredForRemote)
+    }
+
     /// Security nit 1: the success branch saved the record under whoever is current when the answer arrives.
     @Test("A sign-out while the POST is out: its success saves no record")
     func aSignOutDuringThePostSavesNothing() async {
