@@ -166,6 +166,8 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- A workout without a duration in Apple Health (from another app, or entered by hand) no longer stops syncing. RYFT
+  now leaves such a record out, like a sleep stage or reading that ends before it starts, and syncs everything else.
 - Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open, with Demo data on
   or off (it stayed silent), and with previews hidden it says "Wake-up time".
 - At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"

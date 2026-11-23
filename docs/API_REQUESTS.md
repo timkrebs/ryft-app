@@ -3,6 +3,37 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Sync: an invalid record is ignored, not the whole request (open, 2026-11-22)
+
+From the hotfix `fix/sync-invalid-workout`. In production, one account's `POST /v1/sync` was answered `422` 20 times
+since its first sync, with the same 101-byte body: `workouts[0]: end must be after start`. Apple Health holds a workout
+with `end == start` (another app's, or a manual entry). Written against API.md as of the 2026-11-20 changelog entry.
+
+1. **SV1: screen invalid records one by one into `ignored`, instead of a `422` for the whole request (P1).**
+   - **Why.** `validate()` (`backend/cmd/ingest/main.go`) refuses the whole request for one record and stores none of
+     it. The app commits a page's anchor only after the platform accepted the page, so it can't move past a refused
+     one. Every run sends the same page again, and that stream and every stream drained after it stop for good. API.md
+     says "the app never retries a `422`"; in effect it retries it on every run. The fix drops these records in the app
+     before sending. Builds already in the field can't do that and stall the same way until they update. So would any
+     new rule the app doesn't mirror yet.
+   - **Proposal.** Move `validate()`'s per-record checks into `screen()`, record by record, the way unknown types and
+     records outside the window are handled today:
+     - A sample without `start` or with `end` before `start`, a sleep segment or workout whose `end` isn't after its
+       `start`, and a workout without `id` are dropped. They are counted in a new `ignored.<kind>.invalid`; `IgnoredCounts`
+       gains the field (additive).
+     - A `source_bundle_id` over 255 bytes is stored as null and the record kept (the app does the same). Please say if
+       the platform prefers to count it.
+     - An `app_version` or `os_version` over 64 bytes stays off the device row instead of refusing the request (the app
+       sends it as null).
+     - Keep `422` for what only a broken client sends: no `device_id`, over 5 000 workouts, over 2 000 deletions.
+   - **Contract.** API.md → `POST /v1/sync`: list `invalid` under `ignored` with these rules, say that one record no
+     longer refuses a request, and add the reason `invalid` to `ryft_sync_ignored_total`.
+   - **What the app does with it.** It already drops these records itself; Sync details' diagnostics count them per
+     stream (`invalid N`). Once API.md has the field, the app decodes `ignored.*.invalid` (absent: 0) next to the other
+     reasons, so what older builds still send shows too.
+   - **Question.** Can anything else answer a sync page with `422` or `400` because of one record's content? For
+     example a time Go can't parse (a year before 0001 or after 9999). The app would mirror it too.
+
 ## Notifications (open, 2026-11-22)
 
 From the notifications plan (`docs/work/2026-11-22-notifications/plan.md`, decision 3; ticket N2). Today only a Train
