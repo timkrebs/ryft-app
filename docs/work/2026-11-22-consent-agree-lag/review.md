@@ -128,3 +128,40 @@ Final local run on 2806fa5 is green: strict build with 0 warnings, Unit, UISmoke
 - **Nit 2:** see code nit 1.
 - **Nit 3 (fix):** a `502` or `504` on the withdrawal's `DELETE` takes the no-answer path (a gateway may answer after the UPDATE committed).
 - **Known, outside S-2:** the journal, habits and body-settings writes don't ask the gate. That is an ADR 0008 scoping question and is already in STATUS.
+
+## Round 5 (2927dec, docs 1193087, strings 88ba8f2)
+
+Local run on 88ba8f2:
+- **Build:** strict, 0 warnings.
+- **Unit:** 7 706 passed, 0 failed.
+- **Mutants:** all 11 caught (rounds A, B and C in `r5-mutants2.out`).
+- **Lint, style and `sync-strings --check`:** clean.
+
+### security-privacy-reviewer: ship it, every round-4 item fixed as decided, two nits
+- **Nit (fix in round 6):** `OnboardingCoordinator.swift:856` raises `NotReached` ("…so syncing continues") also when `heard` has just recorded `withdrawnAt`. That happens when the re-read shows a consent to an older policy. The gate is closed, so the sentence is wrong.
+- **Nit (docs, fix):**
+  - Write the residual gap down in `design.md` §8 and ADR 0025 decision 3: a `/v1/me` stored while the `DELETE` is out ends the marker, and a kill before the answer leaves no hold.
+  - `design.md:366` names only Train's session `PUT` as ungated by the platform. The activity and manual-sleep `PUT`s are ungated too (`API.md:94`; R23 and R25 still open).
+- **Q1, clock skew:** the gate assertion only reflects the test's setup. The real issue, a stored policy `answeredAt` after now that keeps every config answer out until real time catches up, is on `main` already and fails closed. It gets a follow-up ticket at low priority, not this PR.
+- **Q2, the residual gap:** acceptable for this PR, as long as it becomes an acceptance case of the option-A ticket.
+
+### code-reviewer: ready after one test change, no regressions, four nits
+- **Finding 1 (fix, round-4 nit 2 not yet met):** `theImportsPauseDuringAWithdrawal` can't catch the removal of `awaitsConfirmation:` at `ScreenModels.swift:114`. The marker written before the `DELETE` makes the fallback agree.
+  - Assert in the turn wait, where `isWithdrawing && withdrawalUnresolvedSince == nil`.
+  - In the same window, pin the `isWithdrawing ||` term in `withdrawalHolds` (`OnboardingCoordinator.swift:226`).
+- **Finding 2 (fix, same point as the security nit):** `NotReached` also shows while an agreement is unsettled. Throw it only when `consent.unsettledAgreement == nil && consent.withdrawnAt == nil`; otherwise throw `Unanswered`.
+- **Finding 3 (doc, not code):** a read during the request can end the new marker. Recorded as accepted in ADR 0025 and the design note, and moved to the option-A ticket, together with the security Q2 above.
+- **Finding 4 (fix):**
+  - Rename `WithdrawalHoldModelTests`' `unanswered` to `notReached`.
+  - Update the `ConsentState.swift:367` and `:374` comments to name the new callers.
+  - Add a test that Agree's POST still treats 502 and 504 as a plain failure.
+- **Rulings:**
+  - Keep test 8a and add the turn-wait assertion.
+  - The clock-skew test is fine without the gate assertion.
+
+### Decisions for round 6
+- Fix finding 1, finding 2 (with the security nit), finding 4 and the two doc nits.
+- No in-flight flag on `heard`. Finding 3 and Q2 go to the option-A ticket as acceptance cases, and the gap is written down as accepted.
+- Follow-up tickets in STATUS:
+  - option A, which already exists: add the acceptance case;
+  - the policy `answeredAt` after now (low).
