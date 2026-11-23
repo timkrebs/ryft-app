@@ -180,6 +180,17 @@ private final class AgreeHarness {
         return SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: status, onboarding: onboarding)
     }
 
+    /// ScreenModels over this graph, as the app builds it (its own onboarding, the import's coordinator and uploader).
+    func screens() -> ScreenModels {
+        let sync = SyncService.ungated(env: env)
+        let store = TrainStore(inMemory: true)
+        let outbox = TrainSyncService.preview(store: store)
+        let library = TrainLibrary(store: store, remote: { [api] in api }, outbox: { outbox }, restore: false)
+        let steps = LiveSyncSteps(state: state, sync: sync, apiStatus: status)
+        return ScreenModels(state: state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: clock),
+                            store: store, library: library, apiStatus: status)
+    }
+
     /// Train's outbox for A, its gate the coordinator's, as ScreenModels wires it.
     func trainOutbox() -> TrainSyncService {
         let api = api, account = account
@@ -1042,7 +1053,7 @@ struct ConsentAgreeTests {
         #expect(await withdrawing.value == false)
         #expect(h.api.count("me") == reads + 1, "asked again: \(h.api.calls)")
         #expect(h.state.repository.user()?.consent?.policyVersion == H.version, "RYFT still shows the consent")
-        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalNotReachedMessage) // answered in time, with the consent (round 5)
         #expect(h.consent.unsettledAgreement == H.version, "the re-read settled nothing")
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.starts.runs == 0)
@@ -1376,8 +1387,11 @@ struct ConsentAgreeTests {
         #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
         h.clock.advance(by: SettingsWrite.deadline)
         #expect(await withdrawing.value == false)
-        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        // RYFT answered in time, with the consent: the withdrawal didn't reach it, syncing continues, and it's said so
+        // plainly (round 5, option B).
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalNotReachedMessage)
         #expect(h.state.repository.user()?.consent != nil, "RYFT showed the consent")
+        #expect(h.consent.withdrawalUnresolvedSince == nil && h.onboarding.uploadGate(for: .train) == nil, "syncing continues")
         #expect(h.onboarding.deferred.contains(.consent), "still deferred")
 
         // RYFT records the DELETE after the re-read: the next check shows the step, and no sheet opens on its own.
@@ -1509,6 +1523,251 @@ struct ConsentAgreeTests {
         #expect(sync.scoringLedger[day]?.kind == .pending, "asked within the cache time: no answer to the write")
         screens.onboarding.statusReceived?(status, written.addingTimeInterval(ScoringWord.statusCacheTime))
         #expect(sync.scoringLedger[day] == nil, "asked after it: the write is answered")
+    }
+
+    // MARK: Review round 4, fixed in round 5
+
+    /// A signed-in A who agreed with RYFT's word out and whose Check with RYFT failed with a `429`; `profile` shows the line.
+    private func aFailedCheck(_ h: H) async throws -> ProfileViewModel {
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        h.api.faults["me"] = .init(.status(429, retryAfter: 600))
+        await profile.checkConsent()
+        try #require(profile.consentCheckMessage != nil && profile.consentCheckDetails != nil, "A's line and its Details")
+        return profile
+    }
+
+    @Test("Round 5, 1: Profile's account change forgets the failed Check with RYFT, its Details too", .timeLimit(.minutes(1)))
+    func aCheckFailureDoesntOutliveTheAccount() async throws {
+        let h = H()
+        let profile = try await aFailedCheck(h)
+        // RyftApp's handler, which also runs after a sign-out or another account. Called alone (the state's own reset would
+        // run the forgetters, which clear the line too), with the agreement still waiting: only this handler clears it.
+        profile.accountChanged(from: h.account)
+        #expect(profile.consentAwaitsConfirmation, "an unsettled agreement is what shows the line")
+        #expect(profile.consentCheckMessage == nil && profile.consentCheckDetails == nil)
+    }
+
+    @Test("Round 5, 1: the Demo data switch forgets the failed Check with RYFT too", .timeLimit(.minutes(1)))
+    func aCheckFailureDoesntOutliveTheDemoSwitch() async throws {
+        let h = H()
+        let profile = try await aFailedCheck(h)
+        // `setDemoMode` and `endDemo` both reset the state, which runs the account-state forgetters.
+        h.state.reset()
+        #expect(profile.consentAwaitsConfirmation)
+        #expect(profile.consentCheckMessage == nil && profile.consentCheckDetails == nil)
+    }
+
+    @Test("Round 5, 2: a late answer without the consent records the withdrawal before the hold goes; a relaunch holds",
+          .timeLimit(.minutes(1)))
+    func aLateAnswerWithoutTheConsentRecordsTheWithdrawal() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let consenting = try #require(h.state.repository.user())
+        try #require(consenting.consent != nil)
+        var none = consenting
+        none.consent = nil
+
+        // One that shows the consent to the policy in force records nothing: it only ends the hold.
+        h.consent.withdrawalUnresolved(since: h.clock.now())
+        h.clock.advance(by: .seconds(1))
+        h.consent.heard(consenting, askedAt: h.clock.now())
+        #expect(h.consent.withdrawalUnresolvedSince == nil && h.consent.withdrawnAt == nil)
+
+        // One without it: the withdrawal is recorded, then the hold goes. The stored user still shows the consent (this
+        // phone's save of the answer was refused), as it does after a relaunch.
+        h.consent.withdrawalUnresolved(since: h.clock.now())
+        h.clock.advance(by: .seconds(5))
+        let asked = h.clock.now()
+        h.consent.heard(none, askedAt: asked)
+        #expect(h.consent.withdrawalUnresolvedSince == nil, "the hold ended")
+        #expect(h.consent.withdrawnAt == asked, "and the withdrawal is recorded, as an answered one is")
+        #expect(h.state.repository.user()?.consent != nil)
+        #expect(h.onboarding.uploadGate(for: .train) == .gate(.consentRequired))
+        let (next, _) = h.relaunched(online: true)
+        #expect(next.uploadGate(for: .train) != nil, "after a relaunch")
+        #expect(next.uploadGate(for: .healthKit) != nil, "after a relaunch")
+    }
+
+    @Test("Round 5, 3: a withdrawal hold from after now (the clock set back) is void: any stored /v1/me ends it",
+          .timeLimit(.minutes(1)))
+    func aWithdrawalHoldFromAfterNowIsVoid() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let user = try #require(h.state.repository.user())
+        let since = h.clock.now()
+        h.consent.withdrawalUnresolved(since: since)
+        try #require(h.onboarding.uploadGate(for: .train) != nil)
+
+        // The clock was ahead when the attempt ended: set back an hour. A /v1/me asked now is "before" the hold.
+        h.clock.set(since.addingTimeInterval(-3_600))
+        h.state.repository.store(fetchedUser: user, askedAt: h.clock.now())
+        #expect(h.consent.withdrawalUnresolvedSince == nil, "any stored answer ends it")
+        // What holds it now is the stale status asked before the consent (a kept `consent_required`, no longer silenced by the
+        // void agreement) and the policy answer from after now (N-3): not the withdrawal.
+        #expect(!h.onboarding.facts.withdrawing, "\(h.onboarding.facts)")
+        #expect(h.consent.withdrawnAt == nil, "the answer showed the consent: nothing recorded")
+
+        // Not when it isn't void: one asked before a hold dated at or before now ends nothing (S-2).
+        h.clock.set(since.addingTimeInterval(10))
+        h.consent.withdrawalUnresolved(since: h.clock.now())
+        h.state.repository.store(fetchedUser: user, askedAt: h.clock.now().addingTimeInterval(-1))
+        #expect(h.consent.withdrawalUnresolvedSince != nil)
+    }
+
+    @Test("Round 5, 4: the hold is written before the DELETE leaves: a relaunch meanwhile holds; a 204 records, a refusal clears",
+          .timeLimit(.minutes(1)))
+    func theHoldIsWrittenBeforeTheDeleteLeaves() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let delete = Gate()
+        let api = h.api
+        api.beforeRevokeConsent = { await delete.wait() }
+        let sleeps = h.clock.pendingSleeps
+        let began = h.clock.now()
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        // The app is killed here: the next process, and a background launch that never checks, hold every upload.
+        #expect(h.consent.withdrawalUnresolvedSince == began, "since the attempt's start")
+        let (next, _) = h.relaunched(online: true)
+        for path in [UploadPath.train, .healthKit, .activities, .trainImport] {
+            #expect(next.uploadGate(for: path) != nil, "\(path) waits after a relaunch")
+        }
+        #expect(next.uploadGate(for: .activities, write: .erasure) == nil, "erasure goes")
+
+        // The 204: recorded as a withdrawal, and the hold is gone.
+        await delete.open()
+        #expect(await withdrawing.value)
+        #expect(h.consent.withdrawalUnresolvedSince == nil)
+        #expect(h.consent.withdrawnAt != nil)
+        #expect(h.onboarding.uploadGate(for: .train) == .gate(.consentRequired))
+    }
+
+    @Test("Round 5, 4: a refusal that left the consent as it was clears the hold, and an earlier one stays",
+          .timeLimit(.minutes(1)))
+    func aRefusalClearsTheHoldItWrote() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        // 500 and 503 are answers that leave the consent as it was; offline sends nothing.
+        for fault in [FaultInjection.Fault.status(500, retryAfter: nil), .status(503, retryAfter: nil), .status(403, retryAfter: nil)] {
+            h.api.faults["revokeConsent"] = .init(fault)
+            #expect(await h.onboarding.withdrawConsent() == false)
+            #expect(h.consent.withdrawalUnresolvedSince == nil, "\(fault): the consent is as it was")
+            #expect(h.consent.withdrawnAt == nil && h.onboarding.uploadGate(for: .train) == nil, "\(fault)")
+        }
+        h.api.faults["revokeConsent"] = nil
+        h.connectivity.update(false)
+        #expect(await h.onboarding.withdrawConsent() == false)
+        #expect(h.consent.withdrawalUnresolvedSince == nil && h.api.count("revokeConsent") == 3, "offline sent nothing")
+        h.connectivity.update(true)
+
+        // An earlier withdrawal without an answer isn't this attempt's to clear.
+        let earlier = h.clock.now()
+        h.consent.withdrawalUnresolved(since: earlier)
+        h.clock.advance(by: .seconds(1))
+        h.api.faults["revokeConsent"] = .init(.status(500, retryAfter: nil))
+        #expect(await h.onboarding.withdrawConsent() == false)
+        #expect(h.consent.withdrawalUnresolvedSince == earlier)
+    }
+
+    @Test("Round 5, 5: a 502 or 504 on the DELETE is no answer: the hold stays, asked again, the sentence says it may have arrived",
+          .timeLimit(.minutes(1)), arguments: [502, 504, 500])
+    func aGatewayFailureIsNoAnswer(_ status: Int) async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        let me = FirstCallsHold()
+        h.api.faults["revokeConsent"] = .init(.status(status, retryAfter: nil))
+        h.api.beforeMe = { await me.wait() }
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        let gateway = status != 500
+        if gateway {
+            // Asked again, and its answer is late: the hold stays from when the attempt ended.
+            #expect(await eventually { me.waiting == 1 && h.clock.pendingSleeps > sleeps }, "asked again, its wait running")
+            h.clock.advance(by: OnboardingCoordinator.checkTimeout)
+        }
+        #expect(await withdrawing.value == false)
+        if gateway {
+            #expect(h.consent.withdrawalUnresolvedSince != nil, "RYFT may have recorded it")
+            #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+            #expect(h.onboarding.uploadGate(for: .train) != nil)
+        } else {
+            #expect(h.consent.withdrawalUnresolvedSince == nil, "back as it was")
+            #expect(me.waiting == 0, "nothing asked again")
+            #expect(h.onboarding.errorMessage != OnboardingCoordinator.withdrawalUnansweredMessage)
+        }
+        me.release()
+    }
+
+    @Test("Round 5, 6: the account wipe removes that account's withdrawal hold, nobody else's", .timeLimit(.minutes(1)))
+    func theWipeRemovesTheWithdrawalHold() async throws {
+        let h = H()
+        try await h.ready()
+        let a = h.account
+        let b = H.b.uuidString.lowercased()
+        h.consent.withdrawalUnresolved(since: h.clock.now())
+        h.defaults.set(h.clock.now(), forKey: ConsentState.unresolvedWithdrawalKey(b))
+        try #require(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(a)) != nil)
+
+        // Nothing tells the coordinator (a wipe a launch resumed runs before it does): the wipe itself removes it.
+        await h.auth.signOut()
+        #expect(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(a)) == nil)
+        #expect(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(b)) != nil, "another account's stays")
+    }
+
+    @Test("Round 5, 8: N-a through ScreenModels' importer: while the DELETE is held the import's pause names no confirmation",
+          .timeLimit(.minutes(1)))
+    func theImportsPauseDuringAWithdrawal() async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        (h.env.flags as? StaticFlags)?.overrides[.trainImport] = true
+        let screens = h.screens()
+        // Its check can't hear RYFT (a /v1/me would settle the agreement and the job would go).
+        h.api.faults["me"] = .init(.offline)
+        await screens.onboarding.check()
+        // A job held at the gate while RYFT's word on the agreement is out.
+        let plan = ImportUploadPlan(exercises: [ImportUploadHarness.custom(1)], sessions: ImportUploadHarness.sessions(3))
+        #expect(await screens.trainImport.start(plan, account: h.account, source: .alphaProgression,
+                                                zone: ImportBuildFixture.berlin, duplicatesChecked: true))
+        await screens.trainImport.resume()
+        try #require(screens.trainImport.status?.phase == .paused(.gated(.gate(.consentRequired))))
+        screens.importer.start()
+        let flow = try #require(screens.importer.flow)
+        #expect(flow.gatedPauseCause == .confirmation, "before: the pause waits for RYFT's confirmation")
+
+        let delete = Gate()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        let sleeps = h.clock.pendingSleeps
+        let withdrawing = Task { await screens.onboarding.withdrawConsent() }
+        #expect(await eventually { screens.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        #expect(flow.gatedPauseCause == .other, "the withdrawal is the last word: no confirmation is waited for")
+        h.api.faults["me"] = nil
+        await delete.open()
+        _ = await withdrawing.value
+    }
+
+    @Test("Round 5, 8: a relaunch's first check with /v1/me failing keeps the withdrawal hold (never from no account)",
+          .timeLimit(.minutes(1)))
+    func theFirstCheckAfterARelaunchKeepsTheHold() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        h.consent.withdrawalUnresolved(since: h.clock.now())
+        h.clock.advance(by: .seconds(1))
+        let (next, _) = h.relaunched(online: true)
+        try #require(next.uploadGate(for: .train) != nil)
+
+        h.api.faults["me"] = .init(.offline)
+        await next.check()
+        #expect(next.uploadGate(for: .train) != nil, "RYFT wasn't heard from: the hold stays")
+        #expect(h.defaults.object(forKey: ConsentState.unresolvedWithdrawalKey(h.account)) != nil)
     }
 
     // MARK: UI validation round 3

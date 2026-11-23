@@ -895,6 +895,10 @@ final class AuthService {
 
     @discardableResult
     private func perform(_ wipe: Wipe) -> Bool {
+        // A withdrawal sent with no answer is held per account in the defaults, outside the store: it ends with the account on
+        // this iPhone, by sign-out too, including a wipe a launch resumed before the coordinator ran (security review round 4;
+        // `ConsentState.withdrawalUnresolvedSince`). Not `withdrawnAt`: the same account signing in again hasn't agreed since.
+        if let account = wipe.account { defaults.removeObject(forKey: ConsentState.unresolvedWithdrawalKey(account)) }
         let wiped = wipeLocalData(wipe)
         onWipe?(wipe)
         return wiped

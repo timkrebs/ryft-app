@@ -191,9 +191,10 @@ struct WithdrawalHoldModelTests {
         #expect(!g.auth.isSignedIn, "live: Log out logs out")
     }
 
-    static let unanswered = "RYFT didn't answer in time. Your withdrawal may still have arrived; try again to be sure."
+    /// RYFT, asked again in time, still showed the consent: the withdrawal didn't reach it (round 5, option B).
+    static let unanswered = "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it."
 
-    @Test("No answer within SettingsWrite's deadline: RYFT is asked again; still given, it may have arrived, and Log out is live again",
+    @Test("No answer within SettingsWrite's deadline: RYFT is asked again; still given, it didn't reach RYFT, and Log out is live again",
           .timeLimit(.minutes(1)))
     func noAnswerFailsAtTheDeadline() async throws {
         let g = Graph()

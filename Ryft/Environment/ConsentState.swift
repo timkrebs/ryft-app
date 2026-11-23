@@ -76,7 +76,13 @@ enum UploadWrite: Sendable {
 ///   (`consented`) or a `GET /v1/me` asked for after it shows consent to the policy in force (`heard`). Not wiped with
 ///   the account: the same account signing in again hasn't agreed since either.
 /// - **A withdrawal with no answer** (`withdrawalUnresolvedSince`) is kept the same way, and only closes: every data
-///   upload waits until RYFT is heard from after it (security review round 3, S-2).
+///   upload waits until RYFT is heard from after it (security review round 3, S-2). It is written before the `DELETE`
+///   leaves (since: the attempt's start), so an app killed while it's out holds too; a `204` records the withdrawal and
+///   removes it, a refusal that left the consent as it was removes it, and anything else leaves it until a `GET /v1/me`
+///   asked for after it is stored (round 4). It ends with the account on this iPhone, whether another signs in or none
+///   (sign-out): `OnboardingCoordinator.switchAccount`, and the account wipe for a launch that never ran it. One dated
+///   after now (the clock set back) is void: any stored `GET /v1/me` ends it, as for an agreement. An answer that ends it
+///   without showing consent to the latest policy first records the withdrawal (`withdrawnAt`).
 /// - **Demo data** reads and writes nothing: the gate decides demo before the record (design.md §3.2).
 @MainActor
 @Observable
@@ -212,11 +218,14 @@ final class ConsentState {
     }
 
     /// A withdrawal sent with no answer, and RYFT not heard from since (security review round 3, S-2): from when its
-    /// attempt ended. The `DELETE` may have been recorded, so every data upload waits (`OnboardingCoordinator`'s
-    /// `Facts.withdrawing`), in this process, the next one and a background launch alike: kept per account in
+    /// attempt ended, or, written before the `DELETE` leaves, from when it started (round 4). The `DELETE` may have been
+    /// recorded, so every data upload waits (`OnboardingCoordinator`'s `Facts.withdrawing`), in this process, the next one
+    /// and a background launch alike (an app killed while the `DELETE` is out included): kept per account in
     /// `env.defaults`, beside `withdrawnAt`. Only closes. It ends on a `GET /v1/me` asked for at or after it and stored
-    /// (`heard`: the withdrawal's own late re-read, the next check), a withdrawal answered (`withdrew`), a new agreement
-    /// (`consented`), or another account on this iPhone (`endUnresolvedWithdrawal(of:)`). Nil signed out and in demo mode.
+    /// (`heard`: the withdrawal's own late re-read, the next check; any stored one when it is dated after now), a withdrawal
+    /// answered (`withdrew`), a refusal that left the consent as it was (`endUnresolvedWithdrawal(of:)`), a new agreement
+    /// (`consented`), or another account or none on this iPhone (`endUnresolvedWithdrawal(of:)`; the account wipe too).
+    /// Nil signed out and in demo mode.
     var withdrawalUnresolvedSince: Date? {
         _ = revision
         guard let env, !env.isDemo, let account = env.auth.accountID else { return nil }
@@ -301,7 +310,7 @@ final class ConsentState {
     /// phone's agreement goes with it, and a withdrawal that had no answer is resolved (`withdrawalUnresolvedSince`).
     func withdrew(at: Date) {
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
-        env.defaults.set(at, forKey: Self.withdrawalKey(account))
+        recordWithdrawal(at: at)
         env.defaults.removeObject(forKey: Self.unresolvedWithdrawalKey(account))
         revision += 1
         write { record in
@@ -319,17 +328,31 @@ final class ConsentState {
     /// the withdrawal and showing consent to the latest policy heard of, it ends the withdrawal (the user agreed again, on
     /// another device). One asked for before either may be from before it, and an older policy's consent isn't one.
     /// Asked for at or after a withdrawal that had no answer, it resolves that one, whatever it shows, `settles` or not
-    /// (security review round 3, S-2): the stored user is RYFT's word on it from then on.
+    /// (security review round 3, S-2): the stored user is RYFT's word on it from then on. One recorded after now (the clock
+    /// was set back since) is void, and any answer stored ends it, as for an agreement (round 4, nit 1). An answer that
+    /// doesn't show consent to the latest policy first records the withdrawal as `withdrew(at:)` does (`withdrawnAt`, kept
+    /// outside the store), so a save the store refuses can't open the gate again after the hold is gone (round 4, S1).
     func heard(_ user: User, askedAt: Date, settles: Bool = true) {
         if settles || user.consent == nil, let env, let agreement, !agreement.settled,
            askedAt >= agreement.at || agreement.at > env.clock.now() {
             write { $0.agreement?.settled = true }
             agreementSettled?()
         }
-        if let since = withdrawalUnresolvedSince, askedAt >= since { endUnresolvedWithdrawal() }
+        if let env, let since = withdrawalUnresolvedSince, askedAt >= since || since > env.clock.now() {
+            // The hold goes; what it held for must stay held. Before the marker goes, never after.
+            if latestPolicyVersion == nil || user.consent?.policyVersion != latestPolicyVersion { recordWithdrawal(at: askedAt) }
+            endUnresolvedWithdrawal()
+        }
         guard let withdrawnAt, askedAt >= withdrawnAt, let version = latestPolicyVersion,
               user.consent?.policyVersion == version else { return }
         endWithdrawal()
+    }
+
+    /// `withdrawnAt`, kept per account in `env.defaults` outside the store.
+    private func recordWithdrawal(at: Date) {
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        env.defaults.set(at, forKey: Self.withdrawalKey(account))
+        revision += 1
     }
 
     private func endWithdrawal() {

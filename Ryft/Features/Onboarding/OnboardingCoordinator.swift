@@ -807,8 +807,10 @@ final class OnboardingCoordinator {
     /// answer is recorded on this phone, before the re-check (Profile's hold ends then, and VoiceOver hears it, security
     /// review N-3); true is returned only after the re-check. Sent with no answer (`Unanswered`), RYFT is asked what it
     /// holds: without the consent, the withdrawal arrived and is recorded as an answered one; with it, Profile says it may
-    /// still have arrived (`withdrawalUnansweredMessage`). Without an answer, data waits until RYFT is heard from after the
-    /// attempt ended (`ConsentState.withdrawalUnresolvedSince`, security review round 3, S-2).
+    /// still have arrived (`withdrawalUnansweredMessage`), or, when that answer came in time and ended the hold, that it
+    /// didn't reach RYFT and syncing continues (`withdrawalNotReachedMessage`, round 4). Without an answer, data waits until RYFT
+    /// is heard from after the attempt ended (`ConsentState.withdrawalUnresolvedSince`, security review round 3, S-2); the
+    /// hold is written before the `DELETE` leaves, so a kill meanwhile holds too (round 4). A `502` or `504` is no answer.
     @discardableResult
     func withdrawConsent(onRecorded: @MainActor () -> Void = {}) async -> Bool {
         guard !isWithdrawing else { return false }
@@ -818,8 +820,14 @@ final class OnboardingCoordinator {
         return await perform(waitsForTurn: true) { sent in
             let change = self.state.repository.userChange()
             var reread = false
+            // Written before the DELETE leaves, so an app killed while it's out holds every upload after a relaunch and in a
+            // background launch (security review round 4). A 204 records the withdrawal and removes it (`withdrew`), a refusal
+            // that left the consent as it was removes it below, and no answer moves it to when the attempt ended.
+            let account = self.env.auth.accountID
+            let earlier = self.consent.withdrawalUnresolvedSince
+            self.consent.withdrawalUnresolved(since: self.env.clock.now())
             do {
-                try await self.failingFast { try await self.api.revokeConsent() }
+                try await self.failingFast(gatewayIsNoAnswer: true) { try await self.api.revokeConsent() }
             } catch is Unanswered {
                 // A cancelled or unanswered request isn't an unsent one: RYFT may have recorded it. Asked what it holds
                 // (`/v1/me` only, as Agree asks), so Privacy shows that (security review round 3, A). The consent sheet
@@ -842,9 +850,24 @@ final class OnboardingCoordinator {
                 // Either way the sheet doesn't ask on its own: not read in time, the late answer may show the withdrawal
                 // arrived (code review round 2, 1); read with the consent, RYFT may record the DELETE after it (round 3,
                 // 3). Today's action and Privacy's Review and agree still offer the step.
-                guard let user, user.consent == nil else { throw Unanswered() }
+                guard let user, user.consent == nil else {
+                    // RYFT answered, with the consent: that answer ended the hold, and the withdrawal isn't sent again. Said
+                    // plainly (round 4, option B); a read that didn't answer, or didn't end the hold, may still be recorded.
+                    if user != nil, self.consent.withdrawalUnresolvedSince == nil { throw NotReached() }
+                    throw Unanswered()
+                }
                 // Gone: it arrived. Recorded as an answered one, with the re-read already done.
                 reread = true
+            } catch where !error.isCancellation {
+                // RYFT answered no, or nothing left this iPhone: the consent is as it was, and this attempt's hold goes. An
+                // earlier withdrawal's, still without an answer, stays. The account the attempt began for, never the one here
+                // now.
+                if let earlier, self.env.auth.accountID == account {
+                    self.consent.withdrawalUnresolved(since: earlier)
+                } else if let account {
+                    self.consent.endUnresolvedWithdrawal(of: account)
+                }
+                throw error
             }
             // A's withdrawal answered after a sign-out: never recorded as B's.
             try self.answered(sent)
@@ -860,12 +883,19 @@ final class OnboardingCoordinator {
             self.deferred.insert(.consent)
             onRecorded()
             if !reread { await self.check(force: true, changedSince: revokedAt) }
-        } message: { $0 is Unanswered ? Self.withdrawalUnansweredMessage : nil }
+        } message: {
+            if $0 is NotReached { return Self.withdrawalNotReachedMessage }
+            return $0 is Unanswered ? Self.withdrawalUnansweredMessage : nil
+        }
     }
 
     /// A consent or a withdrawal sent, with no answer in time (`failingFast`), and RYFT, asked again, not showing it
     /// arrived (or not reached).
     private struct Unanswered: Error {}
+
+    /// A withdrawal sent with no answer, and RYFT, asked again in time, still showing the consent: it didn't reach RYFT
+    /// (`withdrawalNotReachedMessage`).
+    private struct NotReached: Error {}
 
     /// RYFT asked what it holds after a consent or a withdrawal went out with no answer (`Unanswered`): one `GET /v1/me`
     /// asked for at or after `since` (`Repository.readUserBack`), waited for at most `checkTimeout`, as the first run
@@ -893,6 +923,14 @@ final class OnboardingCoordinator {
                comment: "Onboarding → Consent, under Agree and continue: sent, no answer in time, and RYFT, asked again, didn't show the consent.")
     }
 
+    /// Under Withdraw consent when `DELETE /v1/me/consent` went out, no answer came, and RYFT, asked again, still showed the
+    /// consent: the withdrawal didn't reach RYFT, syncing goes on, and trying again is what stops it (security review round 4,
+    /// option B; resending it on its own is the follow-up).
+    nonisolated static var withdrawalNotReachedMessage: String {
+        String(localized: "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it.",
+               comment: "Profile → Privacy, under Withdraw consent: the request went out with no answer, and RYFT, asked again in time, still showed the consent. The withdrawal isn't recorded, uploads go on, and the person can try again.")
+    }
+
     /// Under Withdraw consent when `DELETE /v1/me/consent` went out but no answer came in time: RYFT may have it.
     nonisolated static var withdrawalUnansweredMessage: String {
         String(localized: "RYFT didn't answer in time. Your withdrawal may still have arrived; try again to be sure.",
@@ -906,13 +944,24 @@ final class OnboardingCoordinator {
     /// (`SettingsWriteFailure.noAnswer`: no answer in time, the session's own timeout, the network gone while it was out)
     /// is `Unanswered`, never "No connection": the caller asks RYFT again. Before, both went on the default session,
     /// which waits up to 5 minutes for a network.
-    private func failingFast(_ send: @escaping @MainActor () async throws -> Void) async throws {
+    ///
+    /// `gatewayIsNoAnswer` (the withdrawal): a `502` or `504` is no answer either. A gateway may give up on a request
+    /// the platform went on to record, so it isn't "back as it was" (security review round 4, nit 3).
+    private func failingFast(gatewayIsNoAnswer: Bool = false,
+                             _ send: @escaping @MainActor () async throws -> Void) async throws {
         guard env.connectivity.isOnline else { throw APIError.transport(URLError(.notConnectedToInternet)) }
         do {
             try await SettingsWrite.answer(in: env, send)
-        } catch where !error.isCancellation && SettingsWriteFailure(error) == .noAnswer {
+        } catch where !error.isCancellation && (SettingsWriteFailure(error) == .noAnswer
+                                                || (gatewayIsNoAnswer && Self.isGatewayFailure(error))) {
             throw Unanswered()
         }
+    }
+
+    /// RYFT's gateway answered `502` or `504`: the platform behind it may have gone on with the request.
+    private nonisolated static func isGatewayFailure(_ error: Error) -> Bool {
+        if case .http(let status, _, _, _, _)? = error as? APIError { return status == 502 || status == 504 }
+        return false
     }
 
     /// RYFT's minimum age (Art. 8 GDPR, Germany). The platform checks `birth_year ≤ this year − 16`.

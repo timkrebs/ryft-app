@@ -50,6 +50,9 @@ final class ProfileViewModel {
         // Sync details' "Waiting to send": Train's outbox and the reports kept for later, read as they are.
         details.trainOutbox = train?.sync
         details.reportsWaiting = { [weak report] in report?.waiting ?? 0 }
+        // A Check with RYFT that brought no word is the side's: Demo data switched either way, a sign-out or another account
+        // forgets it with the other account-state forgetters (security review round 4).
+        state.forgetsAccountState { [weak self] in self?.forgetConsentCheck() }
     }
 
     private var env: AppEnvironment { state.env }
@@ -354,6 +357,12 @@ final class ProfileViewModel {
 
     /// The last Check with RYFT brought no word (`consentCheckMessage`, `consentCheckDetails`).
     private var consentCheckFailure: ConsentCheckFailure?
+
+    /// An account change (`accountChanged(from:)`) or the Demo data switch (an account-state forgetter, `init`): the previous side's Check
+    /// with RYFT failure, its words and its request ID, never shows under the next one's agreement (security review round 4).
+    func forgetConsentCheck() {
+        consentCheckFailure = nil
+    }
 
     /// Check with RYFT can ask: online, and no withdrawal on its way. Offline the row is dimmed and the footer says this
     /// iPhone asks again once it's back online (code review round 2, 3).
@@ -2741,6 +2750,8 @@ extension ProfileViewModel {
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
         forgetExport()
+        // So is a Check with RYFT that brought no word (and its request ID).
+        forgetConsentCheck()
     }
 }
 
