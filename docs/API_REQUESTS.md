@@ -3,6 +3,15 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Apple Health groups: new sample types arrive with their features (note, 2026-11-23)
+
+PR 3 groups the app's Apple Health reads (ADR 0027): `core` (today's ten types, unchanged) and `about` (the date of
+birth, of which only `birth_year` is sent, through the existing `PATCH /v1/me`). Four more groups are declared but not
+requestable: `body`, `fuel`, `habits` and `physiology`. **Nothing in this PR asks the platform for a new sample type or
+field**, and `POST /v1/sync` sends exactly what it sent before. Each later group that uploads samples will come with its
+own request here (types, units, `SampleType` values and how `ignored.unknown_type` should treat them) before its
+feature ships.
+
 ## Sync: an invalid record is ignored, not the whole request (open, 2026-11-22)
 
 From the hotfix `fix/sync-invalid-workout`. In production, one account's `POST /v1/sync` was answered `422` 20 times

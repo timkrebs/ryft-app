@@ -23,6 +23,10 @@ implementation:
 | Network path | `Connectivity` | `ConnectivityMonitor` | `ConnectivityMonitor.preview(online:)` |
 
 `HealthStore` hides HealthKit's types:
+- Every read type is declared once, in `HealthPermissionGroup` (`Ryft/Health/`, ADR 0027), and asked for by group:
+  `requestAuthorization(_:)` and `accessStatus(_:)` take one. `core` is the ten types the sync uploads; `about` is the
+  date of birth, of which only the year crosses the seam (`birthYear()`). Which groups an account asked for is
+  `HealthPermissionLedger` (`health.asked.<account>`); the observers derive from it.
 - A sync drains `HealthStream`s (each quantity type, sleep, workouts) page by page.
 - A `HealthPage` carries an opaque anchor that is only `commit`ted after the upload was
   accepted.
