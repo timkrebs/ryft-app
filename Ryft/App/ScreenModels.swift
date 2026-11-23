@@ -86,6 +86,14 @@ final class ScreenModels {
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         let push = PushRegistrar(env: state.env, apiStatus: apiStatus)
         self.push = push
+        // The first run's plan (first-run ui.md §2.2): Apple Health's explanation counts while it is still to come, the
+        // notification primer while iOS can still ask (its status read now, so the registrar and the plan agree).
+        onboarding.planInputs = { [env = state.env, push] in
+            let status = await push.readStatus()
+            return FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone,
+                                       notificationsPrimer: NotificationPrimerFacts.counts(demo: env.isDemo, status: status,
+                                                                                           answered: push.isPrimerAnswered))
+        }
         // `refresh` holds the registration while the invite gate is closed; an account that redeems its code has none
         // until the next app active otherwise (review code should-fix, round 3).
         inviteGateWatch = ObservationWatch(read: { _ = apiStatus.inviteBlocked }, changed: { [weak push] in

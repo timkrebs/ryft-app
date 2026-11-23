@@ -17,8 +17,8 @@ struct NocturneHeaderTests {
     /// The 26 pt leading title (`ScreenHeaderTitle`) is drawn by `ScreenHeader` and, outside it, only by the onboarding steps
     /// and the gate sheets, which are flows, not pages (D4 rule 7).
     nonisolated static let bigTitleFiles: Set = [
-        "Ryft/Design/ScreenHeader.swift", "Ryft/Features/Onboarding/OnboardingSteps.swift",
-        "Ryft/Features/Onboarding/HealthPermissionView.swift", "Ryft/Features/Auth/AccountHintSheet.swift",
+        // Apple Health's step draws its title through `OnboardingScreen` since the first run's PR 2.
+        "Ryft/Design/ScreenHeader.swift", "Ryft/Features/Onboarding/OnboardingSteps.swift", "Ryft/Features/Auth/AccountHintSheet.swift",
     ]
 
     /// `ScreenHeader(title:)`, the titled header, belongs to the tab roots (and its own previews and the Debug catalog that

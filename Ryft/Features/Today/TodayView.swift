@@ -184,12 +184,22 @@ struct TodayView: View {
         Group {
             switch day.hero {
             case .importing(let progress):
-                ImportCard(progress: progress, asksForPush: model.showsImportPushPrompt) {
-                    Task { await model.enablePush() }
-                } dismissPush: {
-                    model.dismissPushPrompt()
+                VStack(spacing: 0) {
+                    // The gauge's place, held by the empty orbit (first-run ui.md §5): when the first score lands nothing
+                    // jumps, and the gauge assembles over these tracks (`gaugePlaceholderSeen`). No number, no motion,
+                    // hidden from VoiceOver (the card and the status line say it all). From AX3 the card is the page.
+                    if Self.showsImportOrbit(typeSize) {
+                        gaugeSlot {
+                            OrbitGauge(mode: Self.importOrbit, size: .hero, showsCaption: false,
+                                       identifier: "today.importGauge", animatesFill: false, breathes: false)
+                                .accessibilityHidden(true)
+                                .modifier(gaugeEntranceConsumer(Self.importOrbit))
+                        }
+                        .padding(.bottom, TodayLayout.cardGap)
+                    }
+                    ImportCard(progress: progress)
+                        .accessibilityIdentifier("today.importCard")
                 }
-                .accessibilityIdentifier("today.importCard")
             case .pending:
                 // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
                 let ticking = day.facts.scoringSince != nil
@@ -251,6 +261,14 @@ struct TodayView: View {
     /// The slot is empty only between the hand-off's start and the landing of a matched move: uncovered, not revealed.
     nonisolated static func gaugeSlotIsEmpty(covers: Bool, reveals: Bool) -> Bool {
         reveals && !covers
+    }
+
+    /// The first import's orbit: tracks and hollow markers, nothing scored.
+    static let importOrbit = OrbitGaugeMode.scored(.empty)
+
+    /// The empty orbit over the import card below AX3: from there a 260 pt circle pushes the progress off the first screen.
+    nonisolated static func showsImportOrbit(_ size: DynamicTypeSize) -> Bool {
+        size < .accessibility3
     }
 
     /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
@@ -670,12 +688,10 @@ private struct CalibrationLinkSheet: View {
 }
 
 /// "Setting up RYFT": the first import, from Health access until the first scored day, in
-/// real counts and days of the window (no percent it can't back).
+/// real counts and days of the window (no percent it can't back). About progress only: it asks nothing (the notification
+/// question is the first run's primer, then `PushPrePromptCard`; first-run ui.md §4.5).
 struct ImportCard: View {
     let progress: ImportProgress
-    var asksForPush = false
-    var enablePush: () -> Void = {}
-    var dismissPush: () -> Void = {}
 
     var body: some View {
         Card {
@@ -708,17 +724,6 @@ struct ImportCard: View {
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                if asksForPush {
-                    Divider().overlay(Theme.separator)
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Tell me when my first scores are ready", systemImage: "bell.badge")
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        PushAskButtons(identifier: "today.importCard.push", enable: enablePush, dismiss: dismissPush)
-                    }
-                    .accessibilityElement(children: .contain)
-                }
             }
         }
     }
@@ -1147,8 +1152,7 @@ private struct TodayHandOffPreview: View {
 #Preview("Import, raw night, hint", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(spacing: 16) {
-            ImportCard(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))),
-                       asksForPush: true)
+            ImportCard(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))))
             ImportRow(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))))
             RawNightCard(night: RawNight(asleepMin: 437, bedtime: .now.addingTimeInterval(-8 * 3_600),
                                          wake: .now.addingTimeInterval(-40 * 60), source: "Garmin Connect"))

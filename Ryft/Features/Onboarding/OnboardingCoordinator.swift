@@ -150,6 +150,13 @@ final class OnboardingCoordinator {
     /// another account on a phone that already allowed Apple Health still gets its steps.
     private var firstRunDone = false
 
+    /// The first run's steps, taken once when it starts (`FirstRunPlan`): "Step n of m" never changes its m during a run.
+    /// Nil before the first answer, for another account until its own, and in demo mode.
+    private(set) var plan: FirstRunPlan?
+    /// What the plan needs beyond `facts`: Apple Health's explanation and the notification primer (`ScreenModels`, which
+    /// knows the settings and the registrar). Nil: neither counts (tests and previews that build a coordinator alone).
+    @ObservationIgnored var planInputs: (@MainActor () async -> FirstRunPlan.Inputs)?
+
     init(state: AppState, apiStatus: APIStatus, devices: TrackerSelectionStore? = nil,
          startSync: @escaping @MainActor () async -> Void) {
         self.state = state
@@ -208,6 +215,13 @@ final class OnboardingCoordinator {
 
     /// The first run waits for the platform's answer before showing anything (no flash of tabs).
     var holdsFirstRun: Bool { isFirstRun && phase != .ready && !env.isDemo && env.auth.isSignedIn }
+
+    /// "Step n of m" for a first-run screen (ui.md §2.2 rule 3): nil after the first run, in demo mode, for a step the plan
+    /// doesn't hold, and whenever the screen is a sheet (the caller passes none there).
+    func progress(for step: FirstRunStep) -> FirstRunProgress? {
+        guard phase == .ready, isFirstRun, !env.isDemo else { return nil }
+        return plan?.progress(at: step)
+    }
 
     /// The gate still waiting, deferred or not: Today's "Action needed" line.
     var pendingGate: Step? { missing.first { $0.isGate } }
@@ -292,6 +306,7 @@ final class OnboardingCoordinator {
     func later(_ step: Step) {
         guard canDefer(step) else { return }
         clearError()
+        env.analytics.track(.onboardingStep(OnboardingStepName(step), .skipped))
         switch step {
         case .aboutYou: finishAboutYou()
         // Skip saves nothing: the step is answered for this account, and Profile can choose later.
@@ -348,10 +363,14 @@ final class OnboardingCoordinator {
            env.clock.now().timeIntervalSince(lastCheck) < Self.recheckInterval { return }
         // Offline: the cached account decides; the next start (or a gate) asks again.
         guard env.connectivity.isOnline else {
+            let inputs = await planInputsIfNeeded()
+            guard env.auth.accountID == account else { return }
+            takePlan(inputs)
             phase = .ready
             return
         }
         if phase != .ready { phase = .checking }
+        let inputs = await planInputsIfNeeded()
         let answer = await fetchWithTimeout(changedSince: changedSince)
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
@@ -390,7 +409,25 @@ final class OnboardingCoordinator {
             consent.cleared(.inviteRequired)
         }
         lastCheck = env.clock.now()
+        takePlan(inputs)
         phase = .ready
+    }
+
+    /// The plan's inputs, read before the first run's first answer (the notification status is asked of iOS); nil when the
+    /// plan is taken already, the first run is over, or demo data is on.
+    private func planInputsIfNeeded() async -> FirstRunPlan.Inputs? {
+        guard plan == nil, isFirstRun, !env.isDemo else { return nil }
+        return await planInputs?() ?? FirstRunPlan.Inputs()
+    }
+
+    /// The run's plan, once, from the answer just recorded (ui.md §2.2 rule 1). The device slot is decided here: the
+    /// coordinator holds the answers to "What do you wear?" and the setup screen.
+    private func takePlan(_ inputs: FirstRunPlan.Inputs?) {
+        guard var inputs, plan == nil, isFirstRun else { return }
+        inputs.trackerSetup = FirstRunPlan.reservesDeviceSetup(devicesSetup: env.flags.isOn(.devicesSetup),
+                                                               wearAsked: wearAsked, trackerSetupDone: trackerSetupDone,
+                                                               needsSetup: !setupTrackers.isEmpty)
+        plan = FirstRunPlan.make(facts, inputs)
     }
 
     private struct Answer: Sendable {
@@ -458,6 +495,7 @@ final class OnboardingCoordinator {
         }
         self.account = account
         syncStatus = nil
+        plan = nil
         deferred = []
         lastCheck = nil
         clearError()
@@ -484,6 +522,7 @@ final class OnboardingCoordinator {
             try self.answered(sent)
             self.apiStatus.resolved(.inviteRequired)
             self.inviteCode = ""
+            self.env.analytics.track(.onboardingStep(.invite, .continued))
             await self.check(force: true)
         } message: { error in
             switch (error as? APIError)?.status {
@@ -526,6 +565,7 @@ final class OnboardingCoordinator {
             self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
+            self.env.analytics.track(.onboardingStep(.consent, .continued))
             await self.check(force: true)
         } message: { error in
             let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
@@ -554,6 +594,7 @@ final class OnboardingCoordinator {
             await self.state.repository.store(user: patched, asOf: change).committed()
             try self.answered(sent)
             self.aboutYouSaved = true
+            self.env.analytics.track(.onboardingStep(.aboutYou, .continued))
         } message: { error in
             (error as? APIError)?.isFieldError == true
                 ? String(localized: "Choose a year between 1920 and \(Self.latestBirthYear(now: self.env.clock.now())).")
@@ -763,6 +804,8 @@ extension OnboardingCoordinator {
     func answerWear(_ ids: [String]) {
         devices.set(ids)
         finishWear()
+        // Never which tracker: the event carries the step and the action only.
+        env.analytics.track(.onboardingStep(.wear, .continued))
     }
 
     /// "What do you wear?" is answered or skipped for good on this phone; Profile → Devices & sync changes it.
@@ -783,6 +826,13 @@ extension OnboardingCoordinator {
             && env.auth.isSignedIn && !setupTrackers.isEmpty
     }
 
+    /// The first sync runs: nothing holds HealthKit's uploads (consent, the invite gate) and Apple Health was asked. Tracker
+    /// setup's lead says so only then (first-run ui.md §6).
+    func firstSyncRuns() async -> Bool {
+        guard uploadGate(for: .healthKit) == nil else { return false }
+        return await env.health.accessStatus() == .asked
+    }
+
     /// A deleted account's answers to "What do you wear?" and the setup screen leave this phone too.
     func forgetTrackerSteps(of account: String) {
         defaults.removeObject(forKey: Self.key("wearAsked", account))
@@ -801,5 +851,6 @@ extension OnboardingCoordinator {
         }
         trackerSetupDone = true
         defaults.set(true, forKey: key("trackerSetupDone"))
+        env.analytics.track(.onboardingStep(.trackerSetup, later ? .skipped : .continued))
     }
 }

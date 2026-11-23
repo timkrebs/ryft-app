@@ -542,7 +542,7 @@ struct TodayStatesTests {
         #expect(vm.sleepText == Fmt.clock(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
         #expect(vm.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         state.todayScenario = .importing
-        #expect(vm.hero.isImporting && vm.showsImportPushPrompt)
+        #expect(vm.hero.isImporting && !vm.showsPushPrompt) // the first import asks nothing (first-run ui.md §4.5)
         state.todayScenario = .calibrating
         #expect(vm.hero == .calibrating(nights: MockData.calibratingScore.baselineDays))
         state.todayScenario = .watch

@@ -11,6 +11,9 @@ Store "What's New".
 ## [Unreleased]
 
 ### Added
+- First run: each screen says which step it is ("Step 3 of 7"), Connect Apple Health shows what its sheet asks (Turn On
+  All, then Allow), a notification screen with one example asks before iOS does, Today keeps the orbit's place during the
+  first sync, and the launch screen says when the platform is slow.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and

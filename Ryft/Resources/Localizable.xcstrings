@@ -1388,6 +1388,9 @@
     "Action needed: enter your invite code" : {},
     "Action needed: enter your invite code to use RYFT." : {},
     "active energy" : {},
+    "Active Energy, Steps, Workouts" : {
+      "comment" : "First run, Health access step: the Activity row under \"The ten kinds of data\", named as the Health app names them."
+    },
     "Active plan" : {
       "comment" : "Training import, step 3: which imported plan becomes active."
     },
@@ -1523,6 +1526,9 @@
     },
     "An estimated 1RM needs sets with added weight." : {
       "comment" : "The exercise page of a bodyweight exercise with no weighted set: why there is no estimated 1RM."
+    },
+    "An example. What your lock screen shows follows your iOS setting for previews. Change what RYFT sends in Profile → Notifications." : {
+      "comment" : "First run, notification primer: the caption under the lock-screen mock."
     },
     "An idea" : {},
     "An import is in progress. Finish it before starting another." : {
@@ -2158,6 +2164,9 @@
     "estimated ten-rep max %@ kilograms" : {
       "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated ten-rep max 75 kilograms."
     },
+    "Example notification from RYFT. %@. %@" : {
+      "comment" : "VoiceOver: the lock-screen example in the notification primer, read as one sentence. 1: the notification's title, 2: its message."
+    },
     "Exercise %lld of %lld, %@, %@" : {
       "comment" : "Exercise strip, VoiceOver. 1: position, 2: exercises, 3: name, 4: done, in progress or not started."
     },
@@ -2280,6 +2289,12 @@
     },
     "Health sync paused" : {},
     "Health-data consent" : {},
+    "Hear from RYFT when it matters" : {
+      "comment" : "First run, notification primer: the title."
+    },
+    "Heart" : {
+      "comment" : "First run, Health access step: the Heart row's name under \"The ten kinds of data\"."
+    },
     "heart rate" : {},
     "Heart rate and zones" : {
       "comment" : "Activity detail: opens the merged tracker workout's heart rate and zones."
@@ -2287,6 +2302,9 @@
     "Heart rate from %@" : {},
     "Heart rate variability" : {
       "comment" : "VoiceOver name of HRV."
+    },
+    "Heart Rate, Heart Rate Variability, Resting Heart Rate, Cardio Fitness (VO₂ max)" : {
+      "comment" : "First run, Health access step: the Heart row's data types, named as the Health app names them."
     },
     "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts." : {},
     "Here's your workout." : {},
@@ -2594,9 +2612,15 @@
       "comment" : "Training import, step 5: the workout is imported."
     },
     "Invite code" : {},
+    "iOS asks next" : {
+      "comment" : "First run, notification primer: VoiceOver hint on Continue."
+    },
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {},
     "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
       "comment" : "Training import, step 5: the offline duplicate check."
+    },
+    "It is at the top of the list and switches on all ten kinds of data below." : {
+      "comment" : "First run, Health access step: the first point under \"On the next screen\". Turn On All in the Health sheet switches on every type listed below."
     },
     "It's missing %@. Install the latest version of RYFT." : {
       "comment" : "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names."
@@ -2832,6 +2856,9 @@
     "Nothing logged yet. Enter a value on the keypad." : {
       "comment" : "VoiceOver announcement when a set is checked off with no values: nothing is logged and the keypad opens."
     },
+    "now" : {
+      "comment" : "Notification primer, lock-screen example: the time label of the example notification, shown as arriving now."
+    },
     "of 21" : {
       "comment" : "After Today's strain value when there is none (\"–\"): the scale alone."
     },
@@ -2861,6 +2888,15 @@
     },
     "Offline. Your answers are saved on this phone." : {
       "comment" : "Journal sheet: the iPhone is offline; the day's answers wait on it and are sent once it's back online."
+    },
+    "On the next screen" : {
+      "comment" : "First run, Health access step: the card title above the two steps, Turn On All and then Allow."
+    },
+    "Open RYFT to bring it up to date." : {
+      "comment" : "Notification primer, lock-screen example: the message of the sync-stale example notification."
+    },
+    "Open RYFT to see how you recovered overnight." : {
+      "comment" : "Notification primer, lock-screen example: the message of the morning-score example notification."
     },
     "Opens a sheet" : {
       "comment" : "VoiceOver hint on the chips of an exercise's page in a workout."
@@ -2976,6 +3012,12 @@
     "Reports" : {
       "comment" : "Sync details → Waiting to send: problem reports kept for later."
     },
+    "Respiratory" : {
+      "comment" : "First run, Health access step: the Respiratory row's name under \"The ten kinds of data\"."
+    },
+    "Respiratory Rate, Blood Oxygen" : {
+      "comment" : "First run, Health access step: the Respiratory row's data types, named as the Health app names them."
+    },
     "rest %@" : {
       "comment" : "VoiceOver, a plan exercise's rest between sets (\"rest 3 minutes\")."
     },
@@ -2990,6 +3032,15 @@
     },
     "Restored %@. Your plan still has the new exercise." : {
       "comment" : "Toast after Undo: the workout is back, but the plan could not be changed back. 1: exercise name."
+    },
+    "RYFT can remind you to log your day, and tell you when your data stops syncing. You choose which in Profile." : {
+      "comment" : "First run, notification primer: the lead while pushes are off and the journal is live."
+    },
+    "RYFT can tell you when your data stops syncing, so a quiet watch doesn't go unnoticed." : {
+      "comment" : "First run, notification primer: the lead while pushes are off and the journal isn't live."
+    },
+    "RYFT can tell you when your morning score is ready, and when your data stops syncing. You choose which in Profile." : {
+      "comment" : "First run, notification primer: the lead while morning-score pushes are on."
     },
     "RYFT couldn't rescore your days, so past days keep their scores. Try again in a moment." : {
       "comment" : "Body setting editors and Profile: Rescore the last 90 days, refused or a server error (5xx, 429, 403 …)."
@@ -3017,6 +3068,9 @@
     },
     "RYFT is busy right now, so this wasn't saved. Try again in a minute." : {
       "comment" : "Settings (Notifications, the body-setting editors): RYFT answered 429, too many requests; the value went back."
+    },
+    "RYFT writes nothing to Apple Health unless you turn on saving strength workouts. Your data goes to your RYFT account, where the scores are calculated. Never sold, never used for advertising." : {
+      "comment" : "First run, Health access step: the privacy line under the data types. Saving strength workouts is opt-in in Profile, so the line must stay true when it is on."
     },
     "saved %@" : {
       "comment" : "Body setting editors, after the source while the value isn't saved: the saved one, \"saved 7:30\"; VoiceOver: \"saved 7 hours 30 minutes\"."
@@ -3241,8 +3295,14 @@
     "Tab bar" : {
       "comment" : "VoiceOver: the name of the container that holds the five tabs."
     },
+    "Taking longer than usual. RYFT carries on by itself in a few seconds." : {
+      "comment" : "Splash, the first run's wait for the platform after 5 s; it goes on by itself at 10 s."
+    },
     "Tap a tile for the details. The word under recovery is its level, so the colour is never the only cue." : {
       "comment" : "Coach mark on Today's tiles: tap a tile for its details. The word under Recovery names its level; colour is never the only cue."
+    },
+    "Tap Turn On All" : {
+      "comment" : "First run, Health access step: the first point's title under \"On the next screen\". Turn On All is the Health sheet's button."
     },
     "Target weight (kg)" : {
       "comment" : "Edit targets: the weight to lift."
@@ -3252,6 +3312,9 @@
     },
     "That habit couldn't be saved. Try again." : {
       "comment" : "Add a habit: the platform took the habit's id twice (409), so it wasn't created."
+    },
+    "That is all RYFT needs. You can change any of them later in the Health app." : {
+      "comment" : "First run, Health access step: the second point under \"On the next screen\", after Allow."
     },
     "the last is the newest night" : {
       "comment" : "VoiceOver on Sleep → Week or Month's Consistency tile, after the counts: the last dot is the newest night."
@@ -3303,8 +3366,17 @@
         }
       }
     },
+    "The ten kinds of data" : {
+      "comment" : "First run, Health access step: the card title over the list of the ten Health data types RYFT reads."
+    },
     "The timeline isn't available for this night." : {
       "comment" : "Sleep's hypnogram tile when the night has stage totals but no timeline."
+    },
+    "Then tap Allow" : {
+      "comment" : "First run, Health access step: the second point's title under \"On the next screen\". Allow is the Health sheet's button."
+    },
+    "These steps make sure your tracker's data reaches Apple Health, so RYFT has something to read." : {
+      "comment" : "First run, tracker setup: the lead while nothing syncs yet (Apple Health not asked, or no consent)."
     },
     "Thin" : {
       "comment" : "Profile → Display → Hero numbers: large numbers in thin digits."
@@ -5088,6 +5160,9 @@
     "Your current plan is paused. Making this one active replaces it." : {
       "comment" : "Training import, step 3: the current plan is paused."
     },
+    "Your data hasn't synced" : {
+      "comment" : "Notification primer, lock-screen example: the title of the sync-stale example notification."
+    },
     "Your data is safe. RYFT will keep trying." : {
       "comment" : "Pending gauge line when scoring takes longer than usual."
     },
@@ -5096,6 +5171,9 @@
     },
     "Your file is ready. Sign in to continue." : {
       "comment" : "Training import E6: a file was opened while signed out."
+    },
+    "Your first sync is already running. These steps make sure your tracker's data reaches Apple Health." : {
+      "comment" : "First run, tracker setup: the lead while the first sync runs."
     },
     "your goal" : {
       "comment" : "VoiceOver on Sleep → Bedtime's go-to-bed tile, after the goal that is the user's own (the filled marker)."
@@ -5110,6 +5188,9 @@
     },
     "Your import is saved on this iPhone." : {
       "comment" : "Training import I9."
+    },
+    "Your morning score is ready" : {
+      "comment" : "Notification primer, lock-screen example: the title of the morning-score example notification."
     },
     "Your next import asks about every exercise again. Imported workouts and plans stay as they are." : {
       "comment" : "Profile → Data: what clearing the remembered matches does."

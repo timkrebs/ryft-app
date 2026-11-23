@@ -336,13 +336,9 @@ final class TodayViewModel {
 
     // MARK: push pre-prompt
 
-    /// After the first sync, before iOS asked; never on top of the coach marks.
+    /// After the first sync, before iOS asked; never on top of the coach marks. The second chance after the first run's
+    /// primer (whose "Not now" is this card's dismissal); the first import's card asks nothing (first-run ui.md §4.5).
     var showsPushPrompt: Bool { (push?.showsPrePrompt ?? false) && !showsCoachMarks }
-    /// The import card's question: "Tell me when my first scores are ready".
-    var showsImportPushPrompt: Bool {
-        if state.todayScenario == .importing { return true }
-        return push?.showsImportPrompt ?? false
-    }
 
     func enablePush() async { await push?.accept() }
     func dismissPushPrompt() { push?.dismissPrompt() }

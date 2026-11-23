@@ -84,7 +84,11 @@ struct AnalyticsEventTests {
     }
 
     @Test func theTokensAreExactlyTheDesignsLists() {
-        #expect(raw(OnboardingStepName.self) == ["invite", "consent", "about_you", "wear", "health", "tracker_setup", "done"])
+        #expect(raw(OnboardingStepName.self) == [
+            "invite", "consent", "about_you", "wear", "health", "notifications", "tracker_setup", "done",
+        ])
+        #expect(raw(OnboardingStepAction.self) == ["shown", "continued", "skipped"])
+        #expect(raw(OnboardingPermission.self) == ["granted", "denied", "answered", "failed"])
         #expect(raw(AnalyticsScreen.self) == [
             "today", "sleep", "strain", "insights", "profile", "my_day", "sleep_schedule", "workout_detail", "activity_detail",
             "train_session", "train_history", "train_plans", "plan_builder", "train_import", "journal", "notification_settings",
@@ -109,7 +113,8 @@ struct AnalyticsEventTests {
     }
 
     @Test func everyTokenIsALowercaseWordNotAFreeTextOrAnId() {
-        let all = raw(OnboardingStepName.self).union(raw(AnalyticsScreen.self)).union(raw(AnalyticsFeature.self))
+        let all = raw(OnboardingStepName.self).union(raw(OnboardingStepAction.self)).union(raw(OnboardingPermission.self))
+            .union(raw(AnalyticsScreen.self)).union(raw(AnalyticsFeature.self))
             .union(raw(AnalyticsErrorStatus.self)).union(raw(AnalyticsErrorCode.self))
         for value in all {
             #expect(value.range(of: "^[a-z0-9_]{1,40}$", options: .regularExpression) != nil, "\(value)")
@@ -118,7 +123,10 @@ struct AnalyticsEventTests {
 
     @Test func everyCaseIsEveryCombinationOnceWithNoDuplicates() {
         let cases = AnalyticsEvent.everyCase
-        let expected = OnboardingStepName.allCases.count + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
+        // `onboarding_step`: 7 steps × 3 actions, `done` shown only, and `continued` with Apple Health's 2 permission
+        // outcomes and the notifications' 3.
+        let onboarding = (OnboardingStepName.allCases.count - 1) * OnboardingStepAction.allCases.count + 1 + 2 + 3
+        let expected = onboarding + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
             + AnalyticsErrorStatus.allCases.count * AnalyticsErrorCode.allCases.count
         #expect(cases.count == expected)
         #expect(Set(cases).count == cases.count)
@@ -129,7 +137,15 @@ struct AnalyticsEventTests {
     /// The values each property may take, per event. Exhaustive, so a new event doesn't compile until it is listed.
     private func allowed(_ event: AnalyticsEvent) -> [String: Set<String>] {
         switch event {
-        case .onboardingStep: return ["step": raw(OnboardingStepName.self)]
+        case .onboardingStep(let step, let action, let permission):
+            var allowed = ["step": raw(OnboardingStepName.self), "action": raw(OnboardingStepAction.self)]
+            // A permission only with the answer, and only Apple Health's (answered or failed: HealthKit never says what was
+            // allowed) or the notifications' (iOS's answer).
+            if permission != nil, action == .continued, step == .health { allowed["permission"] = ["answered", "failed"] }
+            if permission != nil, action == .continued, step == .notifications {
+                allowed["permission"] = ["granted", "denied", "failed"]
+            }
+            return allowed
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed: return ["screen": raw(AnalyticsScreen.self)]
         case .featureUsed: return ["feature": raw(AnalyticsFeature.self)]
@@ -148,7 +164,12 @@ struct AnalyticsEventTests {
     }
 
     @Test func propertiesAreTheTokensOwnRawValues() {
-        #expect(AnalyticsEvent.onboardingStep(.aboutYou).properties == ["step": "about_you"])
+        #expect(AnalyticsEvent.onboardingStep(.aboutYou).properties == ["step": "about_you", "action": "shown"])
+        #expect(AnalyticsEvent.onboardingStep(.wear, .skipped).properties == ["step": "wear", "action": "skipped"])
+        #expect(AnalyticsEvent.onboardingStep(.health, .continued, .answered).properties
+            == ["step": "health", "action": "continued", "permission": "answered"])
+        #expect(AnalyticsEvent.onboardingStep(.notifications, .continued, .denied).properties
+            == ["step": "notifications", "action": "continued", "permission": "denied"])
         #expect(AnalyticsEvent.screenViewed(.myDay).properties == ["screen": "my_day"])
         #expect(AnalyticsEvent.featureUsed(.fullResync).properties == ["feature": "full_resync"])
         #expect(AnalyticsEvent.errorShown(.s4xx, .appAttestKeyUnknown).properties
@@ -156,11 +177,28 @@ struct AnalyticsEventTests {
         #expect(AnalyticsEvent.healthAccessRequested.properties.isEmpty && AnalyticsEvent.firstSyncCompleted.properties.isEmpty)
     }
 
-    /// The leaves of an associated value: a payload tuple is flattened.
+    /// The leaves of an associated value: a payload tuple is flattened, an optional unwrapped (nil has none).
     private func leaves(_ value: Any) -> [Any] {
         let mirror = Mirror(reflecting: value)
-        guard mirror.displayStyle == .tuple else { return [value] }
+        guard mirror.displayStyle == .tuple || mirror.displayStyle == .optional else { return [value] }
         return mirror.children.flatMap { leaves($0.value) }
+    }
+
+    @Test func aPermissionOnlyGoesWithTheAnswerOfItsOwnStep() {
+        // Another step's, or one with shown or skipped, is dropped: the property is never there.
+        #expect(AnalyticsEvent.onboardingStep(.wear, .continued, .granted).properties["permission"] == nil)
+        #expect(AnalyticsEvent.onboardingStep(.health, .continued, .granted).properties["permission"] == nil,
+                "Apple Health can't know granted")
+        #expect(AnalyticsEvent.onboardingStep(.notifications, .skipped, .denied).properties["permission"] == nil)
+        #expect(AnalyticsEvent.onboardingStep(.health, .shown, .answered).properties["permission"] == nil)
+        let carrying = AnalyticsEvent.everyCase.filter { $0.properties["permission"] != nil }
+        #expect(Set(carrying.compactMap { $0.properties["step"] }) == ["health", "notifications"])
+        #expect(carrying.allSatisfy { $0.properties["action"] == "continued" })
+    }
+
+    @Test func doneIsOnlyShown() {
+        let done = AnalyticsEvent.everyCase.filter { $0.properties["step"] == "done" }
+        #expect(done == [.onboardingStep(.done)] && done.first?.properties == ["step": "done", "action": "shown"])
     }
 
     @Test func payloadsAreTokensOnly() {
