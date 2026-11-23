@@ -57,9 +57,11 @@ final class HealthOnboardingViewModel {
     func notNow() { machine.enter(.denied) }
 }
 
-/// Nocturne (PR 6 A §A-10): the lock-up row, the 72 pt outline mark (its pulse drawn once), the title, the lead, the three
-/// points as a card and the policy link; Continue (busy while the system sheet is up: the pill's spinner, the title stays) and
-/// Not now pinned under the page.
+/// What the system sheet is about to ask, in words to match against it (first-run ui.md §3, G2): the lock-up row and the step
+/// rule, the 72 pt outline mark (its pulse drawn once), the title and the lead; "On the next screen" (Tap Turn On All, then
+/// Allow: a partial grant is invisible, HealthKit never reports a refused read, so this is the one place to prevent it); "The
+/// ten kinds of data" in the Health app's own groups and names; the footnote and the policy link. Continue (busy while the
+/// system sheet is up: the pill's spinner, the title stays) and Not now pinned under the page.
 private struct HealthPermissionScreen: View {
     @State var model: HealthOnboardingViewModel
     let showsBusy: Bool
@@ -69,47 +71,36 @@ private struct HealthPermissionScreen: View {
     private var isBusy: Bool { model.isRequesting || showsBusy }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Decoration: VoiceOver starts at the title, the first heading.
-                WordmarkLockup()
-                    .frame(height: OnboardingSpec.headerHeight)
-                    .accessibilityHidden(true)
-                if let progress {
-                    FirstRunStepRule(step: progress.step, count: progress.count)
-                        .padding(.top, FirstRunStepRuleSpec.topGap)
-                }
-                HealthIllustration()
-                    .padding(.top, progress == nil ? OnboardingSpec.titleGap : FirstRunStepRuleSpec.titleGap)
-                ScreenHeaderTitle(text: Text("Connect Apple Health"))
-                    .padding(.top, HealthPermissionSpec.titleGap)
-                Text("RYFT turns what your watch writes to Apple Health into recovery, strain and sleep scores.")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, OnboardingSpec.leadGap)
-                GroupedCard {
-                    OnboardingPoint(symbol: "waveform.path.ecg", title: "What RYFT reads",
-                                    text: "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT writes nothing to Apple Health unless you turn on saving strength workouts.")
-                    OnboardingPoint(symbol: "server.rack", title: "Where it goes",
-                                    text: "To your RYFT account, where the scores are calculated. Never used for advertising, never sold.")
-                    OnboardingPoint(symbol: "hand.raised", title: "You decide",
-                                    text: "Choose the data types on the next screen. You can change them later in the Health app, and delete your account and data in Profile.")
-                }
-                .padding(.top, HealthPermissionSpec.pointsGap)
-                Button { legal = .privacy } label: { Text("Privacy Policy") }
-                    .ryftLink()
-                    .padding(.top, HealthPermissionSpec.linkGap)
-                    .accessibilityIdentifier("health.privacy")
+        OnboardingScreen(title: Text("Connect Apple Health"),
+                         lead: Text("RYFT turns what your watch writes to Apple Health into recovery, strain and sleep scores."),
+                         showsLockup: true, progress: progress) {
+            HealthIllustration()
+        } content: {
+            GroupedCard(Text("On the next screen")) {
+                OnboardingPoint(symbol: "switch.2", title: "Tap Turn On All",
+                                text: "It is at the top of the list and switches on all ten kinds of data below.")
+                OnboardingPoint(symbol: "checkmark.circle", title: "Then tap Allow",
+                                text: "That is all RYFT needs. You can change any of them later in the Health app.")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxWidth: OnboardingSpec.maxWidth)
-            .padding(.horizontal, Theme.Metrics.screenPadding)
-            .padding(.bottom, OnboardingSpec.bottomPadding)
-            .frame(maxWidth: .infinity)
+            // As the Health app groups and spells them, so each can be found on the sheet.
+            GroupedCard(Text("The ten kinds of data")) {
+                OnboardingPoint(symbol: "figure.walk", title: "Activity", text: "Active Energy, Steps, Workouts")
+                OnboardingPoint(symbol: "heart", title: "Heart",
+                                text: "Heart Rate, Heart Rate Variability, Resting Heart Rate, Cardio Fitness (VO₂ max)")
+                OnboardingPoint(symbol: "lungs", title: "Respiratory", text: "Respiratory Rate, Blood Oxygen")
+                OnboardingPoint(symbol: "bed.double", title: "Sleep", text: "Sleep")
+            }
+            .padding(.top, GroupedListSpec.groupSpacing)
+            Text("RYFT writes nothing to Apple Health. Your data goes to your RYFT account, where the scores are calculated. Never sold, never used for advertising.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, OnboardingSpec.actionGap)
+            Button { legal = .privacy } label: { Text("Privacy Policy") }
+                .ryftLink()
+                .padding(.top, HealthPermissionSpec.linkGap)
+                .accessibilityIdentifier("health.privacy")
         }
-        .scrollIndicators(.hidden)
-        .background(Theme.background.ignoresSafeArea())
         .pinnedBar {
             PillButton(Text("Continue"), busy: isBusy) {
                 await model.connect()
@@ -123,10 +114,10 @@ private struct HealthPermissionScreen: View {
     }
 }
 
-/// Connect Apple Health's numbers (A §A-10); the frame is the onboarding steps' (`OnboardingSpec`).
+/// Connect Apple Health's numbers (A §A-10); the frame is the onboarding steps' (`OnboardingScreen`, `OnboardingSpec`).
 enum HealthPermissionSpec {
-    /// The mark → the title 20; the lead → the points 20; the card → the policy link 4.
-    static let titleGap: CGFloat = 20, pointsGap: CGFloat = 20, linkGap: CGFloat = 4
+    /// The footnote → the policy link 4.
+    static let linkGap: CGFloat = 4
 }
 
 enum HealthLinks {
@@ -141,22 +132,35 @@ enum HealthLinks {
     }
 }
 
-// Dark only (NOCTURNE_STYLE §1).
-#Preview("Connect Apple Health") {
+// Dark only (NOCTURNE_STYLE §1, ADR 0016: one-value colour assets, so a light preview would be the same pixels).
+#Preview("Connect Apple Health · step 5 of 7") {
+    HealthPermissionView(progress: FirstRunProgress(step: 5, count: 7))
+        .environment(Settings.shared)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Connect Apple Health · no step (after the first run)") {
     HealthPermissionView()
         .environment(Settings.shared)
         .preferredColorScheme(.dark)
 }
 
 #Preview("Connect Apple Health · busy") {
-    HealthPermissionView(showsBusy: true)
+    HealthPermissionView(showsBusy: true, progress: FirstRunProgress(step: 5, count: 7))
         .environment(Settings.shared)
         .preferredColorScheme(.dark)
 }
 
 #Preview("Connect Apple Health · AX3") {
-    HealthPermissionView()
+    HealthPermissionView(progress: FirstRunProgress(step: 5, count: 7))
         .environment(Settings.shared)
         .preferredColorScheme(.dark)
         .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Connect Apple Health · AX5") {
+    HealthPermissionView(progress: FirstRunProgress(step: 5, count: 7))
+        .environment(Settings.shared)
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility5)
 }
