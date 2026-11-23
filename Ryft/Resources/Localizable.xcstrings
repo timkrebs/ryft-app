@@ -2915,7 +2915,7 @@
       "comment" : "Settings (Notifications, the body-setting editors): sent, no answer (a timeout, a lost connection); RYFT is asked again."
     },
     "RYFT didn't answer. Try again in a moment." : {
-      "comment" : "Profile → Privacy, after Check with RYFT: no answer came in time, or the request failed."
+      "comment" : "Profile → Privacy, after Check with RYFT: nothing came back from RYFT (no answer in time, the connection lost)."
     },
     "RYFT had a problem saving this, so it's back as it was. Try again in a moment." : {
       "comment" : "Settings (Notifications, the body-setting editors): RYFT answered with a server error (5xx); the value went back."
@@ -5029,6 +5029,9 @@
     },
     "Your watch didn't record heart-rate zones for this day." : {
       "comment" : "Strain's zones tile for a past day without zone data, because the watch didn't record it."
+    },
+    "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it." : {
+      "comment" : "Profile → Privacy, under Withdraw consent: the request went out with no answer, and RYFT, asked again in time, still showed the consent. The withdrawal isn't recorded, uploads go on, and the person can try again."
     },
     "Your workouts couldn't be loaded. Try again when you're online." : {
       "comment" : "History: the platform couldn't be reached and nothing is cached (as the session detail's message)."
