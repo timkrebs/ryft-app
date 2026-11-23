@@ -59,3 +59,27 @@ Every round-1 finding is fixed. All five departures from the brief are sound (th
 | 5 | "M1–M14 killed": M1–M6 are from round 1. | **Re-run M1–M6 on HEAD** with round 3. |
 | 6–7 | Untested: the unlock retry (through `ConsentState.reload()` → `revision`), the offer's re-read (`:151`), the `clearedSignedOut = false` reset (`:334`). | **Fix:** three small tests. |
 | 8 | Device step: sign out and sign in as another account without relaunching; `didRegister` fires again and a server alert arrives. | **Into STATUS's device steps.** |
+
+## Round 3 (8a95823..538ea17, strings c45fa70)
+
+Final local run on 538ea17 + c45fa70:
+- **Build:** strict, 0 warnings.
+- **Unit:** 7 736 passed. One `eventually` timeout at load 400 (`TodayPendingPathTests/pullToRefreshShowsTheNightBeingScoredUntilItLands`) passed 3/3 alone.
+- **UISmoke:** 56 tests, 0 failures.
+- **Release, lint, style and strings:** all clean.
+
+The catalog lacked `HIDDEN_PREVIEW_BEDTIME`; c45fa70 adds it by targeted insertion only.
+
+### security-privacy-reviewer: approve, S-1 and N-1 to N-4 closed, three nits
+- **Nit 1 (fix in round 4):** a sign-out while the push POST is out. The success branch saves the record without checking the account (`PushRegistrar.swift:155`), so the token stays under the account that left. Don't save when the account changed. Add the case to NT7's failed-DELETE bullet.
+- **Nit 2 (fix):** pass `ScreenModels`' `apiStatus` to `PushRegistrar` (`ScreenModels.swift:84`).
+- **Nit 3 (fix):** STATUS still says `HIDDEN_PREVIEW_BEDTIME` waits for the catalog.
+- **Needs the user:** the ryftlab.de/privacy push-token wording (already on the list).
+
+### code-reviewer: approve, every round-2 item closed, one should-fix
+- **Should-fix (fix):** nothing calls `refresh()` when the invite gate opens (`RyftApp.swift:444`). An account that redeems its code has no APNs registration until the next app active. Call `screens.push.refresh()` when `BootstrapKey.inviteBlocked` flips to open, with a test.
+- **Nit 1 (fix):** docs drift.
+  - `STATUS.md:22` and `:39-40`, `ARCHITECTURE.md:588-589` and `AppDelegate.swift:15-16` still say every local notification is hidden in Demo; WAKE is the exception.
+  - ARCHITECTURE's push "Registering" bullet doesn't mention the invite-gate hold or the unregister after a refused POST.
+- **Nit 2 (fix):** the launch repair in `AppState.bindAccountHooks` (`:437-440`) drops other accounts' journal keys too (`JournalReminderStore.wipe(keeping:)`).
+- **Nit 3 (fix, test only):** the `account == self.account` guard at `PushRegistrar.swift:171`. The account changes while `registerPush` is in flight and the POST fails, and B stays registered.
