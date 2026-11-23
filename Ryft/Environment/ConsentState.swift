@@ -362,16 +362,20 @@ final class ConsentState {
         revision += 1
     }
 
-    /// `DELETE /v1/me/consent` went out and no answer came (`withdrawalUnresolvedSince`): `since` is when its attempt
-    /// ended. A later one without an answer moves it on: only a `/v1/me` asked for after that one resolves it.
+    /// A withdrawal's hold (`withdrawalUnresolvedSince`): `since` is when it began or, once its `DELETE` ended with no
+    /// answer, when that attempt ended. Written before the `DELETE` leaves (a kill meanwhile holds too, security review
+    /// round 4), moved on when the attempt gets no answer, and put back to an earlier marker when the platform refused
+    /// (`OnboardingCoordinator.withdrawConsent`). Only a `/v1/me` asked for after `since` resolves it.
     func withdrawalUnresolved(since: Date) {
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
         env.defaults.set(since, forKey: Self.unresolvedWithdrawalKey(account))
         revision += 1
     }
 
-    /// The unresolved withdrawal of `account` ends: another account is on this iPhone now (`OnboardingCoordinator`'s
-    /// `switchAccount`), or the current one heard RYFT (nil: the current account).
+    /// The unresolved withdrawal of `account` ends. For the current account (nil): it heard RYFT (`heard`), or a new
+    /// agreement replaced it (`consented`). For a given one: the `DELETE` was refused and left the consent as it was, with
+    /// no earlier marker to restore (`OnboardingCoordinator.withdrawConsent`, the account the attempt began for), or
+    /// another account is on this iPhone now (`switchAccount`).
     func endUnresolvedWithdrawal(of account: String? = nil) {
         guard let env, let account = account ?? (env.isDemo ? nil : env.auth.accountID),
               env.defaults.object(forKey: Self.unresolvedWithdrawalKey(account)) != nil else { return }

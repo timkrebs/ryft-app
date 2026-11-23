@@ -852,8 +852,12 @@ final class OnboardingCoordinator {
                 // 3). Today's action and Privacy's Review and agree still offer the step.
                 guard let user, user.consent == nil else {
                     // RYFT answered, with the consent: that answer ended the hold, and the withdrawal isn't sent again. Said
-                    // plainly (round 4, option B); a read that didn't answer, or didn't end the hold, may still be recorded.
-                    if user != nil, self.consent.withdrawalUnresolvedSince == nil { throw NotReached() }
+                    // plainly (round 4, option B), but only when it stopped nothing: an agreement still unsettled, or a
+                    // withdrawal the answer itself recorded (a consent to an older policy than the latest, `heard`) closes the
+                    // gate, so "syncing continues" would be wrong (round 5, finding 2). A read that didn't answer, or didn't
+                    // end the hold, may still be recorded.
+                    if user != nil, self.consent.withdrawalUnresolvedSince == nil, self.consent.unsettledAgreement == nil,
+                       self.consent.withdrawnAt == nil { throw NotReached() }
                     throw Unanswered()
                 }
                 // Gone: it arrived. Recorded as an answered one, with the re-read already done.

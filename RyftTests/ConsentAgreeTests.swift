@@ -585,6 +585,21 @@ struct ConsentAgreeTests {
         #expect(h.api.count("consent") == 2 && h.onboarding.flowStep == .aboutYou)
     }
 
+    @Test("Round 6, 3: Agree's POST still reads a 502 or 504 as a plain failure: no re-read, the DELETE's gateway rule is its own",
+          .timeLimit(.minutes(1)), arguments: [502, 504])
+    func agreeTreatsABadGatewayAsAPlainFailure(_ status: Int) async throws {
+        let h = H()
+        try await h.ready()
+        let reads = h.api.count("me")
+        h.api.faults["consent"] = .init(.status(status, retryAfter: nil))
+
+        #expect(await h.onboarding.agree() == false)
+        #expect(h.api.count("consent") == 1)
+        #expect(h.api.count("me") == reads, "no re-read: \(h.api.calls)")
+        #expect(h.onboarding.errorMessage != nil && h.onboarding.errorMessage != OnboardingCoordinator.consentUnansweredMessage)
+        #expect(h.onboarding.flowStep == .consent && h.consent.agreement == nil)
+    }
+
     // MARK: T9, T10: the withdrawal, the next process
 
     @Test("T9: a withdrawal while RYFT's word is out goes at once; the late answer is dropped, the gate stays closed",
@@ -1053,10 +1068,37 @@ struct ConsentAgreeTests {
         #expect(await withdrawing.value == false)
         #expect(h.api.count("me") == reads + 1, "asked again: \(h.api.calls)")
         #expect(h.state.repository.user()?.consent?.policyVersion == H.version, "RYFT still shows the consent")
-        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalNotReachedMessage) // answered in time, with the consent (round 5)
+        // Answered in time, with the consent, but the agreement is still unsettled and the gate is closed: not "syncing
+        // continues" (round 6, 1b), the sentence for a withdrawal that may still have arrived.
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
         #expect(h.consent.unsettledAgreement == H.version, "the re-read settled nothing")
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.starts.runs == 0)
+        await delete.open()
+    }
+
+    @Test("Round 6, 1a: a withdrawal without an answer whose re-read shows a consent to an older policy: the gate is closed, so it isn't said to have not reached RYFT",
+          .timeLimit(.minutes(1)))
+    func aReReadWithAnOlderConsentIsNotAWithdrawalThatDidntReach() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        try #require(h.consent.unsettledAgreement == nil && h.consent.latestPolicyVersion == H.version, "settled, the latest policy")
+        let delete = Gate()
+        h.api.beforeRevokeConsent = { await delete.wait() }
+        // RYFT, asked again, still shows a consent, to an older version than the latest one.
+        h.api.accountConsent = Consent(policyVersion: "2026-01-01", grantedAt: h.clock.now())
+        let sleeps = h.clock.pendingSleeps
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        h.clock.advance(by: SettingsWrite.deadline)
+        #expect(await withdrawing.value == false)
+        #expect(h.state.repository.user()?.consent?.policyVersion == "2026-01-01", "RYFT showed the older consent")
+        #expect(h.consent.withdrawalUnresolvedSince == nil && h.consent.withdrawnAt != nil, "the answer recorded the withdrawal")
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired), "the gate is closed")
+        #expect(h.onboarding.errorMessage == OnboardingCoordinator.withdrawalUnansweredMessage)
+        #expect(h.onboarding.errorMessage != OnboardingCoordinator.withdrawalNotReachedMessage)
         await delete.open()
     }
 
@@ -1742,14 +1784,53 @@ struct ConsentAgreeTests {
         let flow = try #require(screens.importer.flow)
         #expect(flow.gatedPauseCause == .confirmation, "before: the pause waits for RYFT's confirmation")
 
-        let delete = Gate()
+        // The window before its marker: another step's request holds the turn (an invite), the withdrawal waits behind it,
+        // and nothing is written yet (`withdrawalUnresolvedSince` is set once its turn comes). `awaitsConfirmation:` is
+        // the only thing that tells the import so (round 6, 2).
+        let invite = Gate(), delete = Gate()
+        h.api.beforeInvite = { await invite.wait() }
         h.api.beforeRevokeConsent = { await delete.wait() }
-        let sleeps = h.clock.pendingSleeps
+        screens.onboarding.inviteCode = "ABCD-EFGH"
+        let redeeming = Task { await screens.onboarding.redeemInvite() }
+        #expect(await eventually { h.api.count("redeemInvite") == 1 }, "the invite is out: \(h.api.calls)")
         let withdrawing = Task { await screens.onboarding.withdrawConsent() }
-        #expect(await eventually { screens.onboarding.isWithdrawing && h.clock.pendingSleeps > sleeps }, "out, its deadline running")
+        #expect(await eventually { screens.onboarding.isWithdrawing }, "the withdrawal waits its turn")
+        try #require(screens.onboarding.isWithdrawing && h.consent.withdrawalUnresolvedSince == nil)
+        #expect(flow.gatedPauseCause == .other, "waiting its turn, the withdrawal is the last word: no confirmation is waited for")
+
+        // Its turn: the DELETE is out, the marker written.
+        await invite.open()
+        _ = await redeeming.value
+        // The mock holds the DELETE before it takes the call, so the marker is what shows the withdrawal's turn came.
+        #expect(await eventually { h.consent.withdrawalUnresolvedSince != nil }, "its turn: the marker is written before the DELETE leaves")
         #expect(flow.gatedPauseCause == .other, "the withdrawal is the last word: no confirmation is waited for")
         h.api.faults["me"] = nil
         await delete.open()
+        _ = await withdrawing.value
+    }
+
+    @Test("Round 6, 2: a withdrawal waiting for another step's turn already holds every data upload, with no marker written yet",
+          .timeLimit(.minutes(1)))
+    func aWithdrawalWaitingItsTurnHoldsTheUploads() async throws {
+        let h = H()
+        try await h.ready()
+        #expect(await h.onboarding.agree())
+        try #require(h.consent.unsettledAgreement == nil && h.consent.withdrawnAt == nil, "RYFT's word on the consent is in")
+        try #require(h.onboarding.uploadGate(for: .train) == nil, "open before")
+        // About you's PATCH is out and holds the turn.
+        let patch = Gate()
+        h.api.beforePatchMe = { await patch.wait() }
+        let saving = Task { await h.onboarding.saveAboutYou(birthYear: 1990) }
+        #expect(await eventually { h.api.count("patchMe") == 1 }, "the PATCH is out: \(h.api.calls)")
+
+        let withdrawing = Task { await h.onboarding.withdrawConsent() }
+        #expect(await eventually { h.onboarding.isWithdrawing }, "the withdrawal waits its turn")
+        try #require(h.onboarding.isWithdrawing && h.consent.withdrawalUnresolvedSince == nil)
+        #expect(h.api.count("revokeConsent") == 0, "nothing sent yet")
+        #expect(h.onboarding.uploadGate(for: .train) != nil, "held by the withdrawal on its way")
+
+        await patch.open()
+        _ = await saving.value
         _ = await withdrawing.value
     }
 

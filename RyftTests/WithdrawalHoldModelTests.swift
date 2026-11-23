@@ -192,7 +192,7 @@ struct WithdrawalHoldModelTests {
     }
 
     /// RYFT, asked again in time, still showed the consent: the withdrawal didn't reach it (round 5, option B).
-    static let unanswered = "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it."
+    static let notReached = "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it."
 
     @Test("No answer within SettingsWrite's deadline: RYFT is asked again; still given, it didn't reach RYFT, and Log out is live again",
           .timeLimit(.minutes(1)))
@@ -209,7 +209,7 @@ struct WithdrawalHoldModelTests {
         #expect(await eventually(timeout: .seconds(5)) { !g.profile.withdrawingConsent }, "ended at the deadline, not by an answer")
         // Not "No connection": it went out, and RYFT, asked again, still shows the consent.
         #expect(g.api.count("me") == reads + 1, "asked again: \(g.api.calls)")
-        #expect(g.profile.consentError == Self.unanswered)
+        #expect(g.profile.consentError == Self.notReached)
         #expect(g.state.user?.consent != nil && g.profile.consentText == String(localized: "Given") && g.spoken.lines.isEmpty)
         await g.profile.logOut()
         #expect(!g.auth.isSignedIn, "live: Log out logs out")
@@ -231,7 +231,7 @@ struct WithdrawalHoldModelTests {
 
         await g.profile.withdrawConsent()
         #expect(g.api.count("me") == reads + 1, "asked again: \(g.api.calls)")
-        #expect(g.profile.consentError == Self.unanswered)
+        #expect(g.profile.consentError == Self.notReached)
         #expect(!g.profile.withdrawingConsent && g.state.user?.consent != nil)
     }
 
