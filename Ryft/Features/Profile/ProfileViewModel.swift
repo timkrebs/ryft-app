@@ -335,10 +335,10 @@ final class ProfileViewModel {
     var healthNeedsAttention: Bool { healthStatus.needsAttention }
     var canAskForHealth: Bool { healthStatus == .notAsked }
 
-    func refreshHealthStatus() async { healthStatus = await env.health.accessStatus() }
+    func refreshHealthStatus() async { healthStatus = await env.health.accessStatus(.core) }
 
     func requestHealthAccess() async {
-        try? await env.health.requestAuthorization()
+        try? await env.health.requestAuthorization(.core)
         await refreshHealthStatus()
     }
 
@@ -1950,7 +1950,7 @@ final class TrackerCheckModel {
         phase = .running
         let account = env.auth.accountID
         guard health.isAvailable else { phase = .unavailable; return }
-        guard await health.accessStatus() != .notAsked else { phase = .notAsked; return }
+        guard await health.accessStatus(.core) != .notAsked else { phase = .notAsked; return }
         checks = Self.checking(trackers)
         let now = env.clock.now()
         do {
@@ -1980,7 +1980,7 @@ final class TrackerCheckModel {
 
     /// K9's Allow access: the system prompt, then the check.
     func requestAccess() async {
-        try? await health.requestAuthorization()
+        try? await health.requestAuthorization(.core)
         await run()
     }
 
@@ -3000,10 +3000,10 @@ final class DevicesViewModel {
     /// The catalog's route to RYFT's own read permission (Health → … → Apps → RYFT).
     var healthAccessSteps: [String] { catalog.healthAccess.current }
 
-    func refreshHealthStatus() async { healthStatus = await env.health.accessStatus() }
+    func refreshHealthStatus() async { healthStatus = await env.health.accessStatus(.core) }
 
     func requestHealthAccess() async {
-        try? await env.health.requestAuthorization()
+        try? await env.health.requestAuthorization(.core)
         await refreshHealthStatus()
     }
 

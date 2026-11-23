@@ -43,8 +43,8 @@ final class HealthOnboardingViewModel {
         guard machine.enter(.requesting) else { return }
         do {
             env.analytics.track(.healthAccessRequested)
-            try await env.health.requestAuthorization()
-            let answered = await env.health.accessStatus() != .notAsked
+            try await env.health.requestAuthorization(.core)
+            let answered = await env.health.accessStatus(.core) != .notAsked
             machine.enter(answered ? .granted : .denied)
         } catch {
             machine.enter(.denied)

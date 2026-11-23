@@ -25,7 +25,7 @@ final class Settings {
     /// The "Connect Apple Health" explanation was shown (and answered) for this
     /// account. Health access is only requested after it, never on a cold launch.
     var healthIntroDone: Bool {
-        didSet { defaults.set(healthIntroDone, forKey: "health.introDone") }
+        didSet { defaults.set(healthIntroDone, forKey: HealthPermissionLedger.introDoneKey) }
     }
     /// Profile → Training: after the last set of an exercise the session collapses it and scrolls to the next set.
     /// On by default; a device preference, so it stays on log-out.
@@ -95,7 +95,7 @@ final class Settings {
         #endif
         // `bool(forKey:)` also understands "YES"/"NO" strings from launch arguments.
         demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
-        healthIntroDone = defaults.bool(forKey: "health.introDone")
+        healthIntroDone = defaults.bool(forKey: HealthPermissionLedger.introDoneKey)
         jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
         sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
         setColumn = defaults.string(forKey: "train.setColumn").flatMap(SetColumn.init(rawValue:))

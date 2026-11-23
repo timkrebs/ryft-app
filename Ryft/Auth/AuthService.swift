@@ -977,6 +977,8 @@ final class AuthService {
     static func wipeSharedLocalData(_ wipe: Wipe) -> Bool {
         steps(of: wipe, before: {
             HealthKitManager.shared.resetAnchors()
+            // Which Health groups the account asked for: kept on sign-out, removed with a deleted account (ADR 0027).
+            HealthPermissionLedger.wipe(wipe, defaults: .standard)
             SyncEngineState.wipe(defaults: .standard)
             Settings.shared.clearPerUserState()
             // The App Attest key is the account's: its Keychain item now, then its token and any renewal (ADR 0023).

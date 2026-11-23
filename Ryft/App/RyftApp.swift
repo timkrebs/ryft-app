@@ -433,9 +433,16 @@ struct RyftApp: App {
             await state.refresh()
             return
         }
-        try? await env.health.requestAuthorization()
-        Self.observeHealthKit(env.health, coordinator: coordinator)
+        await Self.connectHealth(env.health, coordinator: coordinator)
         await coordinator.run(.appActive)
+    }
+
+    /// Bootstrap's Health step: `core` only (a feature group is asked by its own feature, never here, ADR 0027),
+    /// then the observers. HealthKit answers at once, without a sheet, for what was already answered.
+    @MainActor
+    static func connectHealth(_ health: HealthStore, coordinator: SyncCoordinator) async {
+        try? await health.requestAuthorization(.core)
+        observeHealthKit(health, coordinator: coordinator)
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`
@@ -566,7 +573,7 @@ struct RootView: View {
         // Someone who already answered the system prompt (an earlier version) skips the intro.
         .task(id: auth.accountID) {
             guard needsHealthIntro else { return }
-            if await env.health.accessStatus() == .asked { settings.healthIntroDone = true }
+            if await env.health.accessStatus(.core) == .asked { settings.healthIntroDone = true }
         }
         // The live workout, from Today, Strain or the Live Activity.
         .fullScreenCover(item: Bindable(train).live) { SessionView(controller: $0).presentedRoot() }

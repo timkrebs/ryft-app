@@ -2908,6 +2908,12 @@
     "RYFT is busy right now, so this wasn't saved. Try again in a minute." : {
       "comment" : "Settings (Notifications, the body-setting editors): RYFT answered 429, too many requests; the value went back."
     },
+    "RYFT reads caffeine, alcohol, mindful minutes and time in daylight to fill in your journal." : {},
+    "RYFT reads the food and drink you log to compare them with what you burn." : {},
+    "RYFT reads what your watch writes to Apple Health to calculate your recovery, strain and sleep scores." : {},
+    "RYFT reads your body measurements to work out your energy needs." : {},
+    "RYFT reads your date of birth and keeps only the year." : {},
+    "RYFT reads your wrist temperature and heartbeat series for the physiology card." : {},
     "saved %@" : {
       "comment" : "Body setting editors, after the source while the value isn't saved: the saved one, \"saved 7:30\"; VoiceOver: \"saved 7 hours 30 minutes\"."
     },
