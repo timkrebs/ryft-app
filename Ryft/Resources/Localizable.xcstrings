@@ -2304,6 +2304,17 @@
         }
       }
     },
+    "HIDDEN_PREVIEW_BEDTIME" : {
+      "comment" : "Lock screen with previews hidden: the bedtime reminder. No sleep need or goal.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bedtime reminder"
+          }
+        }
+      }
+    },
     "HIDDEN_PREVIEW_JOURNAL_REMINDER" : {
       "comment" : "Lock screen with previews hidden: the journal reminder. No habit names.",
       "localizations" : {
