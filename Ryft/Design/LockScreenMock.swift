@@ -156,14 +156,26 @@ struct LockScreenMock: View {
 
 // MARK: - previews (dark only: ADR 0016, every colour is a one-value asset, so a light preview would be the same pixels)
 
+/// The primer's three examples, through the string catalog (the same keys as `NotificationPrimerExample`, which this file
+/// doesn't import: Design has no dependency on Push).
 private enum MockSample {
     /// 07:30 on a Monday, so the shots hold still.
     static let clock = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 7, minute: 30)) ?? .now
-    static let title = "Your morning score is ready"
-    static let message = "Open RYFT to see how you recovered overnight."
-    static let label = "Example notification from RYFT. Your morning score is ready. Open RYFT to see how you recovered overnight."
-    static func mock(_ style: LockScreenMock.Style = .phone, title: String = title, message: String = message) -> LockScreenMock {
-        LockScreenMock(style: style, clock: clock, title: title, message: message, timeLabel: "now", accessibilityLabel: label)
+    static var morning: (String, String) {
+        (String(localized: "Your morning score is ready"), String(localized: "Open RYFT to see how you recovered overnight."))
+    }
+    static var journal: (String, String) {
+        (String(localized: "How was yesterday?"),
+         String(localized: "A few taps, and RYFT shows how your habits change the morning after."))
+    }
+    static var sync: (String, String) {
+        (String(localized: "Your data hasn't synced"), String(localized: "Open RYFT to bring it up to date."))
+    }
+
+    @MainActor
+    static func mock(_ style: LockScreenMock.Style = .phone, _ words: (String, String) = morning) -> LockScreenMock {
+        LockScreenMock(style: style, clock: clock, title: words.0, message: words.1, timeLabel: String(localized: "now"),
+                       accessibilityLabel: String(localized: "Example notification from RYFT. \(words.0). \(words.1)"))
     }
 }
 
@@ -174,8 +186,8 @@ private enum MockSample {
 #Preview("LockScreenMock · journal and sync examples", traits: .sizeThatFitsLayout) {
     DarkPreview {
         VStack(spacing: 20) {
-            MockSample.mock(title: "How was yesterday?", message: "A few taps, and RYFT shows how your habits change the morning after.")
-            MockSample.mock(title: "Your data hasn't synced", message: "Open RYFT to bring it up to date.")
+            MockSample.mock(.phone, MockSample.journal)
+            MockSample.mock(.phone, MockSample.sync)
         }
     }
 }

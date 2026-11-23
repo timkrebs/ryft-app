@@ -122,23 +122,20 @@ struct NocturneGateSweepHostedTests {
 
     // MARK: Today: the first import's card
 
-    @Test("Today importing: the import card and its push question draw no teal; Allow is the primary pill, Not now the quiet action",
+    @Test("Today importing: the import card draws no teal and asks nothing (the notification question is the first run's primer)",
           arguments: [standard, ax3])
     func importCard(_ s: SizeCase) async throws {
         let today = TodayView().previewEnvironment(.preview(scenario: .importing)).environment(\.locale, Self.english)
         try await run(s, height: 2_600, today) { w in
-            try await w.wait("the import card") { w.nodes().contains { $0.identifier == "today.importCard.push.allow" } }
+            try await w.wait("the import card") { w.node("Setting up RYFT") != nil }
             try await w.settle()
             let header = try node(w, prefix: "Setting up RYFT")
-            let allow = try node(w, id: "today.importCard.push.allow")
-            let later = try node(w, id: "today.importCard.push.notNow")
-            #expect(allow.label == "Allow" && later.label == "Not now", "\(allow.label) / \(later.label)")
-            #expect(later.frame.minY >= allow.frame.maxY && later.frame.height >= Theme.Metrics.minHitTarget, "\(later.frame)")
+            let footer = try node(w, prefix: "You can leave the app")
+            #expect(!w.nodes().contains { $0.identifier?.hasPrefix("today.importCard.push") == true }, "no push question in the card")
+            #expect(w.node("Allow") == nil)
             let top = header.frame.minY - 40
-            let card = CGRect(x: 0, y: top, width: Self.width, height: later.frame.maxY + 24 - top)
+            let card = CGRect(x: 0, y: top, width: Self.width, height: footer.frame.maxY + 24 - top)
             #expect(try tealPixels(w, in: card) == 0, "teal in the import card")
-            let column = Self.width - 2 * Theme.Metrics.screenPadding - 2 * CardSpec.padding
-            try expectPrimaryPill(w, allow, width: column, "Allow")
         }
     }
 

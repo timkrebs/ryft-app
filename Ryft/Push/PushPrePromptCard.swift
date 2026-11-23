@@ -23,7 +23,7 @@ struct PushPrePromptCard: View {
     }
 }
 
-/// The push question's two answers, wherever Today asks it (this card, and the first import's card): "Allow" as the primary
+/// The push question's two answers on Today's card: "Allow" as the primary
 /// pill, "Not now" as the quiet text action 4 under it (`OnboardingSpec.quietGap`). Identifiers `<identifier>.allow` and
 /// `<identifier>.notNow`.
 struct PushAskButtons: View {

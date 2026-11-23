@@ -192,8 +192,7 @@ struct FirstRunSpecShotsTests {
                 OrbitGauge(mode: .scored(.empty), size: .hero, showsCaption: false, animatesFill: false, breathes: false)
                     .frame(width: TodayLayout.heroFrame, height: TodayLayout.heroFrame)
                     .padding(.top, TodayLayout.statusToGauge)
-                ImportCard(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))),
-                           asksForPush: false)
+                ImportCard(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))))
                     .padding(.top, TodayLayout.cardGap)
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)

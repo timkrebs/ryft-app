@@ -6,7 +6,9 @@ protocol AnalyticsToken: RawRepresentable, CaseIterable, Sendable where RawValue
 
 /// The closed list of events. `name` and `properties` are the dashboards' contract: change them only with them.
 enum AnalyticsEvent: Hashable, Sendable {
-    case onboardingStep(OnboardingStepName)
+    /// One per step and what happened on it (first-run ui.md §8): shown, continued or skipped; for Apple Health and
+    /// notifications only, the permission's outcome with `continued` (`OnboardingStepName.permissions`).
+    case onboardingStep(OnboardingStepName, OnboardingStepAction = .shown, OnboardingPermission? = nil)
     case healthAccessRequested
     case firstSyncCompleted
     case screenViewed(AnalyticsScreen)
@@ -26,7 +28,13 @@ enum AnalyticsEvent: Hashable, Sendable {
 
     var properties: [String: String] {
         switch self {
-        case .onboardingStep(let step): return ["step": step.rawValue]
+        case .onboardingStep(let step, let action, let permission):
+            var properties = ["step": step.rawValue, "action": action.rawValue]
+            // Only where it is the step's own (Apple Health, notifications), and only with the answer.
+            if let permission, action == .continued, step.permissions.contains(permission) {
+                properties["permission"] = permission.rawValue
+            }
+            return properties
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed(let screen): return ["screen": screen.rawValue]
         case .featureUsed(let feature): return ["feature": feature.rawValue]
@@ -36,7 +44,10 @@ enum AnalyticsEvent: Hashable, Sendable {
 
     /// Every event there can be, from every token's `allCases` (the allow-list tests walk it).
     static var everyCase: [AnalyticsEvent] {
-        OnboardingStepName.allCases.map(AnalyticsEvent.onboardingStep)
+        OnboardingStepName.allCases.flatMap { step in
+            step.actions.map { AnalyticsEvent.onboardingStep(step, $0) }
+                + step.permissions.map { AnalyticsEvent.onboardingStep(step, .continued, $0) }
+        }
             + [.healthAccessRequested, .firstSyncCompleted]
             + AnalyticsScreen.allCases.map(AnalyticsEvent.screenViewed)
             + AnalyticsFeature.allCases.map(AnalyticsEvent.featureUsed)
@@ -67,7 +78,10 @@ enum OnboardingStepName: String, AnalyticsToken {
     case invite, consent
     case aboutYou = "about_you"
     case wear, health
+    /// The first run's notification primer.
+    case notifications
     case trackerSetup = "tracker_setup"
+    /// The tabs reached for the first time: `shown` only.
     case done
 
     init(_ step: OnboardingCoordinator.Step) {
@@ -76,6 +90,49 @@ enum OnboardingStepName: String, AnalyticsToken {
         case .consent: self = .consent
         case .aboutYou: self = .aboutYou
         case .wear: self = .wear
+        }
+    }
+
+    /// What can happen on the step: `done` is only reached.
+    var actions: [OnboardingStepAction] {
+        self == .done ? [.shown] : OnboardingStepAction.allCases
+    }
+
+    /// The permission outcomes the step reports with `continued`: Apple Health only knows that its sheet was answered
+    /// (HealthKit never says what was allowed, lead decision 2); notifications know iOS's answer. None elsewhere.
+    var permissions: [OnboardingPermission] {
+        switch self {
+        case .health: return [.answered, .failed]
+        case .notifications: return [.granted, .denied, .failed]
+        case .invite, .consent, .aboutYou, .wear, .trackerSetup, .done: return []
+        }
+    }
+}
+
+/// `onboarding_step` → `action`.
+enum OnboardingStepAction: String, AnalyticsToken {
+    /// The step's screen appeared.
+    case shown
+    /// Its primary answer (a code accepted, Agree, the birth year saved, Continue, Done).
+    case continued
+    /// Not now, Skip, Show me again later.
+    case skipped
+}
+
+/// `onboarding_step` → `permission`, for `health` and `notifications` only.
+enum OnboardingPermission: String, AnalyticsToken {
+    /// iOS's notification prompt: allowed or refused.
+    case granted, denied
+    /// Apple Health's sheet was answered (what was allowed, HealthKit doesn't say).
+    case answered
+    /// The request failed, or (Apple Health) the sheet ended unanswered.
+    case failed
+
+    init(_ outcome: PushRegistrar.AskOutcome) {
+        switch outcome {
+        case .granted: self = .granted
+        case .denied: self = .denied
+        case .failed: self = .failed
         }
     }
 }

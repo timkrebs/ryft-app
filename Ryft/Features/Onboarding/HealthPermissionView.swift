@@ -104,13 +104,29 @@ private struct HealthPermissionScreen: View {
         .pinnedBar {
             PillButton(Text("Continue"), busy: isBusy) {
                 await model.connect()
+                model.reportAnswer(continued: true)
             }
             .accessibilityIdentifier("health.continue")
-            LaterButton(title: "Not now") { model.notNow() }
-                .disabled(isBusy)
-                .accessibilityIdentifier("health.notNow")
+            LaterButton(title: "Not now") {
+                model.notNow()
+                model.reportAnswer(continued: false)
+            }
+            .disabled(isBusy)
+            .accessibilityIdentifier("health.notNow")
         }
         .safariSheet($legal)
+    }
+}
+
+extension HealthOnboardingViewModel {
+    /// `onboarding_step` for Apple Health (first-run ui.md §8), after the answer was taken: Continue with `answered` (the sheet
+    /// was answered: what was allowed, HealthKit never says) or `failed`; Not now as `skipped`. Apart from `connect()` and
+    /// `notNow()`, which own the request and `healthIntroDone`.
+    func reportAnswer(continued: Bool) {
+        let event: AnalyticsEvent = continued
+            ? .onboardingStep(.health, .continued, phase == .firstSync ? .answered : .failed)
+            : .onboardingStep(.health, .skipped)
+        env.analytics.track(event)
     }
 }
 

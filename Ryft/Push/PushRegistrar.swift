@@ -5,8 +5,10 @@ import UserNotifications
 
 /// APNs registration with the platform (`POST` / `DELETE /v1/devices/{id}/push`).
 ///
+/// - The first run asks once, after Apple Health (`NotificationPrimerStep`, the app's only primer): Continue is `accept()`,
+///   "Not now" is `dismissPrompt()`, and either marks the primer answered for the account.
 /// - After this account's first successful sync, Today asks in one sentence
-///   ("Get your recovery each morning", Allow / Not now). "Not now" is
+///   ("Get your recovery each morning", Allow / Not now): the second chance. "Not now" (here or in the primer) is
 ///   remembered per user; the question comes back once, 14 days later.
 /// - Once allowed, the app registers with APNs on every launch. The token,
 ///   environment and language go to the platform only when one of them (or the
@@ -23,6 +25,8 @@ final class PushRegistrar {
     static let firstSyncKey = "push.firstSyncDone"
     static let dismissedAtKey = "push.prePromptDismissedAt"
     static let dismissCountKey = "push.prePromptDismissals"
+    /// The first run's primer was answered (Continue or Not now), per account.
+    static let primerAnsweredKey = "push.primerAnswered"
     static let recordKey = "push.registration"
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "push")
     /// "Not now" brings the question back after this long, once.
@@ -74,12 +78,16 @@ final class PushRegistrar {
         }
     }
 
-    /// The first import's question ("Tell me when my first scores are ready"): before the
-    /// first sync has finished, while iOS hasn't asked and it wasn't dismissed yet.
-    var showsImportPrompt: Bool {
+    /// The first run's notification primer was answered on this phone, either way (it never shows again for the account).
+    var isPrimerAnswered: Bool {
         _ = revision
-        guard isEnabled, env.auth.isSignedIn, status == .notDetermined else { return false }
-        return defaults.integer(forKey: key(Self.dismissCountKey)) == 0
+        return defaults.bool(forKey: key(Self.primerAnsweredKey))
+    }
+
+    /// The primer's answer, Continue or Not now.
+    func markPrimerAnswered() {
+        defaults.set(true, forKey: key(Self.primerAnsweredKey))
+        revision += 1
     }
 
     // MARK: lifecycle
@@ -87,11 +95,18 @@ final class PushRegistrar {
     /// At launch, on every return to the app and after sign-in: picks up a change
     /// in Settings and re-registers, so a new token or language reaches the platform.
     func refresh() async {
-        status = await env.notifier.authorizationStatus()
+        await readStatus()
         env.notifier.setCategories(PushCategories.all)
         guard isEnabled, env.auth.isSignedIn, isAllowed else { return }
         env.notifier.registerForRemoteNotifications()
         await send()
+    }
+
+    /// iOS's answer now, kept in `status`: the first run's plan reads it before it counts the primer, so the two agree.
+    @discardableResult
+    func readStatus() async -> UNAuthorizationStatus {
+        status = await env.notifier.authorizationStatus()
+        return status
     }
 
     /// The coordinator finished a sync; the question may show from now on.
@@ -103,13 +118,29 @@ final class PushRegistrar {
 
     // MARK: pre-prompt
 
-    /// "Allow": the system prompt, then APNs.
-    func accept() async {
-        let granted = (try? await env.notifier.requestAuthorization()) ?? false
+    /// How the system prompt was answered.
+    enum AskOutcome: Equatable, Sendable {
+        case granted, denied
+        /// `requestAuthorization` threw: treated as declined (nothing the person can fix there).
+        case failed
+    }
+
+    /// "Allow" (Today's card) and Continue (the first run's primer): the system prompt, then APNs while `push.enabled` is on
+    /// (with it off only the local kinds are sent; `refresh()` registers once it is on).
+    @discardableResult
+    func accept() async -> AskOutcome {
+        let outcome: AskOutcome
+        do {
+            outcome = try await env.notifier.requestAuthorization() ? .granted : .denied
+        } catch {
+            outcome = .failed
+        }
+        let granted = outcome == .granted
         status = await env.notifier.authorizationStatus()
-        if granted { env.notifier.registerForRemoteNotifications() }
+        if granted, isEnabled { env.notifier.registerForRemoteNotifications() }
         if granted { env.analytics.track(.featureUsed(.notificationsAllowed)) }
         revision += 1
+        return outcome
     }
 
     /// "Not now".

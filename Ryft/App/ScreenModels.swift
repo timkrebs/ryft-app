@@ -81,10 +81,15 @@ final class ScreenModels {
         // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
-        push = PushRegistrar(env: state.env)
-        // The first run's plan (ui.md §2.2): Apple Health's explanation counts while it is still to come.
-        onboarding.planInputs = { [env = state.env] in
-            FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone)
+        let push = PushRegistrar(env: state.env)
+        self.push = push
+        // The first run's plan (first-run ui.md §2.2): Apple Health's explanation counts while it is still to come, the
+        // notification primer while iOS can still ask (its status read now, so the registrar and the plan agree).
+        onboarding.planInputs = { [env = state.env, push] in
+            let status = await push.readStatus()
+            return FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone,
+                                       notificationsPrimer: NotificationPrimerFacts.counts(demo: env.isDemo, status: status,
+                                                                                           answered: push.isPrimerAnswered))
         }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)

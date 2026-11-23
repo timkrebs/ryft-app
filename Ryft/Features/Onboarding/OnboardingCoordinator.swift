@@ -306,6 +306,7 @@ final class OnboardingCoordinator {
     func later(_ step: Step) {
         guard canDefer(step) else { return }
         clearError()
+        env.analytics.track(.onboardingStep(OnboardingStepName(step), .skipped))
         switch step {
         case .aboutYou: finishAboutYou()
         // Skip saves nothing: the step is answered for this account, and Profile can choose later.
@@ -521,6 +522,7 @@ final class OnboardingCoordinator {
             try self.answered(sent)
             self.apiStatus.resolved(.inviteRequired)
             self.inviteCode = ""
+            self.env.analytics.track(.onboardingStep(.invite, .continued))
             await self.check(force: true)
         } message: { error in
             switch (error as? APIError)?.status {
@@ -563,6 +565,7 @@ final class OnboardingCoordinator {
             self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
+            self.env.analytics.track(.onboardingStep(.consent, .continued))
             await self.check(force: true)
         } message: { error in
             let updated = String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
@@ -591,6 +594,7 @@ final class OnboardingCoordinator {
             await self.state.repository.store(user: patched, asOf: change).committed()
             try self.answered(sent)
             self.aboutYouSaved = true
+            self.env.analytics.track(.onboardingStep(.aboutYou, .continued))
         } message: { error in
             (error as? APIError)?.isFieldError == true
                 ? String(localized: "Choose a year between 1920 and \(Self.latestBirthYear(now: self.env.clock.now())).")
@@ -800,6 +804,8 @@ extension OnboardingCoordinator {
     func answerWear(_ ids: [String]) {
         devices.set(ids)
         finishWear()
+        // Never which tracker: the event carries the step and the action only.
+        env.analytics.track(.onboardingStep(.wear, .continued))
     }
 
     /// "What do you wear?" is answered or skipped for good on this phone; Profile → Devices & sync changes it.
@@ -820,6 +826,13 @@ extension OnboardingCoordinator {
             && env.auth.isSignedIn && !setupTrackers.isEmpty
     }
 
+    /// The first sync runs: nothing holds HealthKit's uploads (consent, the invite gate) and Apple Health was asked. Tracker
+    /// setup's lead says so only then (first-run ui.md §6).
+    func firstSyncRuns() async -> Bool {
+        guard uploadGate(for: .healthKit) == nil else { return false }
+        return await env.health.accessStatus() == .asked
+    }
+
     /// A deleted account's answers to "What do you wear?" and the setup screen leave this phone too.
     func forgetTrackerSteps(of account: String) {
         defaults.removeObject(forKey: Self.key("wearAsked", account))
@@ -838,5 +851,6 @@ extension OnboardingCoordinator {
         }
         trackerSetupDone = true
         defaults.set(true, forKey: key("trackerSetupDone"))
+        env.analytics.track(.onboardingStep(.trackerSetup, later ? .skipped : .continued))
     }
 }

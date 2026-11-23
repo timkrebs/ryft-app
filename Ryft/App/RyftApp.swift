@@ -510,6 +510,7 @@ struct RootView: View {
         guard !settings.demoMode, auth.state == .signedIn, !onboarding.holdsFirstRun else { return nil }
         if let step = onboarding.flowStep ?? onboarding.sheetStep { return OnboardingStepName(step) }
         if needsHealthIntro { return .health }
+        if needsNotificationPrimer { return .notifications }
         return onboarding.showsTrackerSetup ? .trackerSetup : nil
     }
 
@@ -545,6 +546,12 @@ struct RootView: View {
                 case .signedIn where needsHealthIntro:
                     HealthPermissionView(progress: onboarding.progress(for: .health)).transition(.opacity)
                         .onAppear(perform: LaunchSignpost.screenAppeared)
+                // After Apple Health, while iOS can still ask: the app's one notification primer (first run only).
+                case .signedIn where needsNotificationPrimer:
+                    NotificationPrimerStep(model: NotificationPrimerModel(push: screens.push, analytics: env.analytics), example: primerExample,
+                                           progress: onboarding.progress(for: .notifications))
+                        .transition(.opacity)
+                        .onAppear(perform: LaunchSignpost.screenAppeared)
                 // After Apple Health, once: the chosen trackers' setup (`devices.setup`). The first sync runs.
                 case .signedIn where onboarding.showsTrackerSetup:
                     TrackerSetupStepView(model: onboarding, progress: onboarding.progress(for: .trackerSetup))
@@ -556,6 +563,7 @@ struct RootView: View {
         }
         .animation(rootFade, value: settings.demoMode ? .signedIn : auth.state)
         .animation(rootFade, value: needsHealthIntro)
+        .animation(rootFade, value: needsNotificationPrimer)
         .animation(rootFade, value: onboarding.flowStep)
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
@@ -584,6 +592,18 @@ struct RootView: View {
     /// After sign-in, once per account: explain Apple Health before iOS asks.
     private var needsHealthIntro: Bool {
         env.health.isAvailable && !settings.healthIntroDone
+    }
+
+    /// After Apple Health in the first run, while iOS hasn't been asked about notifications and the primer wasn't answered
+    /// (first-run ui.md §4.3). Whatever `push.enabled` says: the example follows it.
+    private var needsNotificationPrimer: Bool {
+        NotificationPrimerFacts.shows(firstRun: onboarding.isFirstRun, demo: env.isDemo, status: screens.push.status,
+                                      answered: screens.push.isPrimerAnswered, healthIntroAnswered: !needsHealthIntro)
+    }
+
+    /// A notification that will arrive for this account: the morning score with `push.enabled`, else a local kind.
+    private var primerExample: NotificationPrimerExample {
+        .choose(pushEnabled: env.flags.isOn(.pushEnabled), journalLive: screens.journal.isLive)
     }
 
     private var onboarding: OnboardingCoordinator { screens.onboarding }

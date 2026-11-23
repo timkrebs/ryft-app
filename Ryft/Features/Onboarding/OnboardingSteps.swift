@@ -554,7 +554,7 @@ struct AboutYouView: View {
                 }
                 .disabled(year == nil)
                 .accessibilityIdentifier("aboutYou.save")
-                LaterButton(title: "Skip") { model.finishAboutYou() }
+                LaterButton(title: "Skip") { model.later(.aboutYou) }
                     .disabled(model.isWorking)
                     .accessibilityIdentifier("aboutYou.skip")
             }
