@@ -2138,6 +2138,7 @@ struct ReportProblemTests {
         var workouts = SyncEngineState.StreamProgress()
         workouts.records = 3
         workouts.newest = workoutEnd
+        workouts.invalid = 1 // a zero-duration workout left out (`SyncScreen`): its count goes, nothing of it
         engine.streams = ["sleep": sleep, "workouts": workouts]
         engine.lastError = "422 sample out of range"
         engine.save(account: try #require(env.auth.accountID), defaults: env.defaults)
@@ -2186,7 +2187,7 @@ struct ReportProblemTests {
             "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
             "sync": [/phase [a-z]+ · recent (?:true|false) · backfill (?:true|false)/,
                      /queue running (?:true|false) · queued (?:true|false) · backlog \d+ B/,
-                     /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)/],
+                     /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)(?: · invalid \d+)?/],
             "gates": [/-|[a-z_]+(?:,[a-z_]+)*/],
             // The flags' keys as the platform accepts them (`FeatureFlag`): identifiers, never free text.
             "flags": [/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01](?:,[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01])*/],
@@ -2206,6 +2207,8 @@ struct ReportProblemTests {
         #expect(!syncText.contains(":") && syncText.contains("newest \(DayFormat.string(from: wake))"))
         #expect(syncText.components(separatedBy: "\n").count == 2 + env.health.streams.count)
         #expect(!syncText.contains("422") && !syncText.contains("sample out of range")) // free text stays home
+        let streamLines = syncText.components(separatedBy: "\n").filter { $0.hasPrefix("stream ") }
+        #expect(streamLines.filter { $0.hasSuffix(" · invalid 1") }.map { $0.hasPrefix("stream workouts ") } == [true])
         let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
         #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
         #expect(!sent.contains("Connect") && !sent.contains("com.garmin") && !sent.contains("Alex's"))
