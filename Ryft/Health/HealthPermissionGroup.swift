@@ -112,12 +112,24 @@ enum HealthPermissionGroup: String, CaseIterable, Codable, Sendable {
     /// The one line on the group's primer.
     var reason: LocalizedStringResource {
         switch self {
-        case .core: "RYFT reads what your watch writes to Apple Health to calculate your recovery, strain and sleep scores."
-        case .about: "RYFT reads your date of birth and keeps only the year."
-        case .body: "RYFT reads your body measurements to work out your energy needs."
-        case .fuel: "RYFT reads the food and drink you log to compare them with what you burn."
-        case .habits: "RYFT reads caffeine, alcohol, mindful minutes and time in daylight to fill in your journal."
-        case .physiology: "RYFT reads your wrist temperature and heartbeat series for the physiology card."
+        case .core:
+            LocalizedStringResource("RYFT reads what your watch writes to Apple Health to calculate your recovery, strain and sleep scores.",
+                                    comment: "Apple Health primer for the core group (the score inputs: heart rate, HRV, sleep, workouts and more).")
+        case .about:
+            LocalizedStringResource("RYFT reads your date of birth and keeps only the year.",
+                                    comment: "About you: the primer above \"Use my birth year from Apple Health\", before the date-of-birth sheet.")
+        case .body:
+            LocalizedStringResource("RYFT reads your body measurements to work out your energy needs.",
+                                    comment: "Apple Health primer for the body group (sex, height, weight, body fat, lean mass); not requested yet (Fuel).")
+        case .fuel:
+            LocalizedStringResource("RYFT reads the food and drink you log to compare them with what you burn.",
+                                    comment: "Apple Health primer for the fuel group (dietary energy, macros, water, resting energy); not requested yet.")
+        case .habits:
+            LocalizedStringResource("RYFT reads caffeine, alcohol, mindful minutes and time in daylight to fill in your journal.",
+                                    comment: "Apple Health primer for the habits group (journal autofill); not requested yet.")
+        case .physiology:
+            LocalizedStringResource("RYFT reads your wrist temperature and heartbeat series for the physiology card.",
+                                    comment: "Apple Health primer for the physiology group (sleeping wrist temperature, heartbeat series); not requested yet.")
         }
     }
 

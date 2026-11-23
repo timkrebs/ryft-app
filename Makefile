@@ -93,8 +93,9 @@ trackers:
 
 # The date of birth stays in Ryft/Health/ (ADR 0027): only the birth year crosses the HealthStore seam.
 check-date-of-birth:
-	@if grep -rn --include='*.swift' dateOfBirthComponents Ryft RyftWidgets RyftNotificationService Shared RyftTests RyftUITests \
-		| grep -v '^Ryft/Health/'; then echo "dateOfBirthComponents outside Ryft/Health/ (ADR 0027)"; exit 1; fi
+	@if grep -rnE --include='*.swift' 'dateOfBirthComponents|\.dateOfBirth\(\)|HKCharacteristicType\(\.dateOfBirth' \
+		Ryft RyftWidgets RyftNotificationService Shared RyftTests RyftUITests \
+		| grep -v '^Ryft/Health/'; then echo "Date of birth read outside Ryft/Health/ (ADR 0027)"; exit 1; fi
 	@echo "Date of birth: read in Ryft/Health/ only."
 
 # Every key in Ryft.entitlements has a capability; no empty arrays (CLAUDE.md → signing).

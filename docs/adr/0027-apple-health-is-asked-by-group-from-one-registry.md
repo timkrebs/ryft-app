@@ -28,7 +28,8 @@
 3. **"Asked" is the app's record, per account.** It is kept in `health.asked.<account>` and written by the live store
    after a request returns. It survives sign-out and is removed on account deletion. It is never written without an
    account. It decides the derived sets and the UI state, and it never replaces a request: a read is always preceded
-   by `requestAuthorization(group)`.
+   by `requestAuthorization(group)`. The record means "asked in RYFT for this account", never "granted by this
+   person": HealthKit doesn't say whether a read was granted, and its answer belongs to the install, not the account.
 4. **Everything derives from the record.** `readTypes`, background delivery and the observers come from the asked
    groups. `core` yields exactly today's ten types and three observers. Characteristics (`about`) have no anchor, no
    observer and no upload.
@@ -43,7 +44,9 @@
   in the usage description. The tests fail until all of these are there.
 - Existing installs migrate without a prompt: `healthIntroDone` implies `core`.
 - Two accounts on one phone share HealthKit's grant but not each other's groups. B's sync never reads a group only A
-  opted into.
+  opted into. HealthKit grants are per install, so on a shared phone account B inherits what A granted (`core` and
+  `about`): B's request for them shows no sheet, and B's record still starts empty. The per-account policy consent
+  (ADR 0008) still gates every account: nothing B's install can read is uploaded before B itself consented.
 - Once a group with sample types ships, `streams` and the observers have to follow the record mid-session. The paging
   engine doesn't change in H0.
 - Every type is declared in the registry: a new type outside it is a review finding.
