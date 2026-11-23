@@ -301,7 +301,7 @@ struct HealthPermissionLedgerTests {
         let ledger = HealthPermissionLedger(defaults: d, account: nil)
         ledger.record(.core)
         ledger.remove()
-        try await HealthPermissionLedger.recording(.about, defaults: d) {}
+        await HealthPermissionLedger.recording(.about, defaults: d) {}
         #expect(ledger.asked.isEmpty)
         #expect(ledger.observedGroups == [.core])
         #expect(Set(d.dictionaryRepresentation().keys) == before)
@@ -357,7 +357,7 @@ struct HealthPermissionLedgerTests {
     /// The account is the one signed in when the sheet went up.
     @Test func anAccountSwitchDuringTheRequestRecordsForTheAccountThatAsked() async throws {
         let d = suite(account: "A")
-        try await HealthPermissionLedger.recording(.about, defaults: d) {
+        await HealthPermissionLedger.recording(.about, defaults: d) {
             d.set("B", forKey: AccountScope.defaultsKey)
         }
         #expect(d.stringArray(forKey: "health.asked.A") == ["about"])
@@ -390,7 +390,7 @@ struct HealthAboutTests {
     @Test func theRecordHoldsNoDate() async throws {
         let d = suite(account: "A")
         let before = d.dictionaryRepresentation()
-        try await HealthPermissionLedger.recording(.about, defaults: d) {}
+        await HealthPermissionLedger.recording(.about, defaults: d) {}
         let after = d.dictionaryRepresentation()
         #expect(Set(after.keys).subtracting(before.keys) == ["health.asked.A"])
         let value = try #require(d.stringArray(forKey: "health.asked.A"))

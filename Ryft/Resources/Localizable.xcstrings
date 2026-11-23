@@ -1494,6 +1494,9 @@
     "All workouts are skipped or already imported." : {
       "comment" : "Training import V3: the reason."
     },
+    "Allow in Health" : {
+      "comment" : "About you: opens the Health app, where RYFT's access is changed."
+    },
     "Allow it in Health → Sharing → Apps → RYFT → Workouts." : {},
     "Alpha Progression" : {
       "comment" : "The app an imported file came from (a data source, named factually).",
@@ -1563,6 +1566,9 @@
       "comment" : "A signal's state on a setup card: the tracker shares it."
     },
     "Apple Health couldn't be read this time. Tap Check again." : {},
+    "Apple Health didn't share a birth year. Choose it below." : {
+      "comment" : "About you: Apple Health returned no birth year (refused, not set, or failed)."
+    },
     "Apple Health has data from an Apple device, but RYFT can't tell which one. Nothing to fix here." : {},
     "Apple Health isn't available on this device." : {},
     "Arriving, %@" : {},
@@ -2217,6 +2223,9 @@
     },
     "From a CSV file" : {
       "comment" : "Training import: Profile → Data's row detail."
+    },
+    "From Apple Health" : {
+      "comment" : "About you: under the birth-year wheel when the year came from Apple Health."
     },
     "From Apple Health · not scored yet" : {},
     "From apps RYFT doesn't know yet:" : {},
@@ -4454,6 +4463,9 @@
     "The weight is left out for this exercise." : {
       "comment" : "Training import, step 4: a +N exercise matched to a time or distance exercise."
     },
+    "The year in Apple Health is outside the years RYFT offers, so it wasn't used. Choose yours below." : {
+      "comment" : "About you: Apple Health's birth year is before 1920 or under the minimum age; the wheel is unchanged."
+    },
     "These files come from different apps. Import one at a time." : {
       "comment" : "Training import D6: two supported formats."
     },
@@ -4706,6 +4718,9 @@
       "comment" : "Training import V5."
     },
     "Use another account" : {},
+    "Use my birth year from Apple Health" : {
+      "comment" : "About you: asks Apple Health for the date of birth and puts its year on the wheel."
+    },
     "Use Other" : {
       "comment" : "Sport picker: choose the sport 'Other' when nothing matched."
     },

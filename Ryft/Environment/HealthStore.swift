@@ -545,6 +545,10 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var authorizationError: Error?
     /// What `birthYear()` answers: `nil` stands for refused, unset and never asked alike.
     var birthYearValue: Int?
+    /// How often `birthYear()` was read, and the record (`asked`) at each read: no read comes before its request.
+    private(set) var birthYearReads: [Set<HealthPermissionGroup>] = []
+    /// Runs inside each request, after it is counted and before it returns (tests and previews hold the sheet open).
+    var beforeAuthorizationReturns: (@Sendable () async -> Void)?
     /// Set off the main actor by `enableBackgroundDelivery()` and read by tests on it: under the lock.
     var backgroundDeliveryEnabled: Bool { locked { _backgroundDeliveryEnabled } }
     private var _backgroundDeliveryEnabled = false
@@ -592,6 +596,7 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     func requestAuthorization(_ group: HealthPermissionGroup) async throws {
         requests.append(group)
         guard group.isRequestable else { throw HealthPermissionError.notRequestable(group) }
+        await beforeAuthorizationReturns?()
         if let error = authorizationError {
             authorizationError = nil
             throw error
@@ -608,7 +613,10 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
         return asked.contains(group) ? .asked : .notAsked
     }
 
-    func birthYear() async -> Int? { birthYearValue }
+    func birthYear() async -> Int? {
+        birthYearReads.append(asked)
+        return birthYearValue
+    }
     func enableBackgroundDelivery() async { locked { _backgroundDeliveryEnabled = true } }
 
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
