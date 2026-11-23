@@ -5,7 +5,7 @@
 - Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), for
   a withdrawal on its way, and for one sent without an answer, also after a relaunch, until a `/v1/me` asked later is
   in; Profile → Privacy says "Given" with Check with RYFT, whose failure says what came back, with Details; pauses
-  name their cause (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–3 in `review.md`).
+  name their cause (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–6 in `review.md`).
 - Verified: unit tests and the simulator only; the agree line on a device is on the user's list (design.md §6).
 - Open: **the journal's writes and the upload gate**: a scoping decision in ADR 0008, with the platform
   (ios-architect). `PUT /v1/journal/{day}` and the behaviour writes never ask the gate (ADR 0008 decision 1 leaves
