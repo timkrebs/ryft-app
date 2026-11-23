@@ -363,14 +363,23 @@ The suite is `ConsentAgreeTests` (Swift Testing, synthetic data). It uses these 
   the account wipe removes it too). The re-read asks since the cancellation, and every check and a reconnect ask while
   it's unresolved. A pause meanwhile names nothing (N-a). What's left: RYFT may record the `DELETE` after a `/v1/me`
   that still showed the consent. The gate then opens on that word, as it would after a withdrawal on another device
-  (ADR 0008), and Train's session `PUT`, which the platform doesn't gate, can go once. Profile says plainly that the
-  withdrawal didn't reach RYFT and syncing continues. Resending it is the follow-up (option A, ADR 0025).
+  (ADR 0008), and the `PUT`s the platform doesn't gate can go once: Train's session, an activity and a manual night
+  (`../plattform/docs/API.md:94`; R23 and R25 are open). Profile says plainly that the withdrawal didn't reach RYFT and
+  syncing continues, but only when the answer stopped nothing: with an agreement still unsettled, or when that answer
+  recorded the withdrawal itself (a consent to an older policy), it says the withdrawal may have arrived (round 6).
+  Resending it is the follow-up (option A, ADR 0025).
 - **The app killed while the `DELETE` is out** (round 4). The hold is written before the request leaves (since: the
   attempt's start), so a relaunch or a background wake holds until a `/v1/me` asked after it. A `204` records
   `withdrawnAt` and removes it; a refusal that left the consent as it was (a `4xx`, `500`, `503`, offline) removes it, an
   earlier unanswered one stays; a `502` or `504` and any other no-answer keep it. One dated after now (the clock set
   back) is void, and any stored `/v1/me` ends it. The answer that ends it records `withdrawnAt` first when it shows no
   consent to the latest policy, so a refused user save can't reopen the gate.
+- **The residual gap, accepted for this PR** (round 5, round 6). The marker written before the `DELETE` leaves is ended by
+  any `/v1/me` asked for after it and stored, and that includes one that comes back while the `DELETE` is still out
+  (Check with RYFT, a reconnect, a read begun just after the marker): the `DELETE` may be recorded after it. If the app
+  is killed before the `DELETE` answers, the next launch then has no hold. Closing it needs the hold to outlive such a
+  `/v1/me` while RYFT still shows the consent, and the `DELETE` sent again: the option-A follow-up (ADR 0025), which
+  takes both as acceptance cases.
 - **A late answer after the 10 s deadline** (S1). The read goes on and lands: Agree's sentence goes once the consent
   step does, and a withdrawal without an answer keeps the consent sheet deferred however its re-read ends, so a later
   answer without the consent doesn't open it over Profile (code review round 2, 1 and 2; round 3, 3).

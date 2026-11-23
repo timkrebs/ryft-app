@@ -11,6 +11,15 @@
   (ios-architect). `PUT /v1/journal/{day}` and the behaviour writes never ask the gate (ADR 0008 decision 1 leaves
   them out; the platform gates only `/v1/sync` and `/v1/train/import`), and habits like alcohol may be Art. 9 data
   (security review round 2; see also P2 follow-ups below).
+- Open: **"a withdrawal RYFT hasn't heard is sent again"** (option A, ADR 0025 follow-ups; needs an ios-architect note first,
+  because it changes decision 3). Keep the hold while RYFT still shows the consent and resend the idempotent `DELETE` on
+  check, reconnect and launch; it ends on a `204`, a `/v1/me` without the consent, a new Agree or an account change.
+  Acceptance cases include the **residual gap accepted in this PR** (design.md §8, ADR 0025 decision 3): a `/v1/me` stored
+  while the `DELETE` is out must not end the hold, and an app killed before the `DELETE` answers must still hold at the
+  next launch. The privacy page should then say that uploads stop on the phone at once.
+- Open (low): **a stored policy `answeredAt` dated after now** (after a clock change) makes `received` drop every
+  `/v1/config` answer until real time passes it (`ConsentState`). That fails closed, but it doesn't resolve on its own.
+  The fix should void it, as the agreement and the withdrawal marker are voided when dated after now. On `main` already.
 - Open (low): `Push/PushRegistrar.swift:165` and `Features/Train/TrainCoordinator.swift:650` (and `:663`) log
   `error.localizedDescription` as `.public`, which can carry a server's words or a URL; log the status and request ID
   instead (code review round 3). Their owners: notifications and Train.

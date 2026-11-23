@@ -87,6 +87,11 @@
    - **Still shows the consent:** the answer ends the hold, the withdrawal isn't sent again, and Profile says so plainly
      ("didn't reach RYFT, syncing continues, try again"). Main behaves the same. Resending the idempotent `DELETE`
      while RYFT shows the consent is the follow-up below.
+   - **A residual gap, accepted for this PR** (security and code review, rounds 5 and 6):
+     - A `GET /v1/me` stored while the `DELETE` is out ends the marker written before it, though the `DELETE` may be
+       recorded after that answer.
+     - An app killed before the `DELETE` answers, after such a `/v1/me`, leaves no hold at the next launch.
+     - The option-A follow-up closes it (below), and takes both cases as acceptance cases.
    - A data gate opens only when the platform's own user shows consent to the fresh policy: stored from a `GET /v1/me`
      asked for at or after the `204`, with no refusal counted.
    - Writes the phone makes itself still only close the gate.
@@ -155,6 +160,8 @@ for the withdrawal (design.md D6, `SettingsWrite`).
   shows the consent, and resend the `DELETE` on check, reconnect and launch. It ends on a `204`, a `/v1/me` without the
   consent, a new Agree or an account change. It changes decision 3 (an answer that shows the consent no longer ends the
   hold), so it needs an ios-architect note first; the privacy page should then say that uploads stop on the phone at once.
+  Its acceptance cases include the residual gap of decision 3: a `/v1/me` stored while the `DELETE` is out, and an app
+  killed before the `DELETE` answers, both still hold.
 - **Platform request (D8).** `GET /v1/me/sync` → `gate` should never be served from the cache (`docs/API_REQUESTS.md`).
   Decision 5 then has nothing to do, but it stays.
 - **`redeemInvite`'s re-check** should leave the step's request the same way (STATUS).
