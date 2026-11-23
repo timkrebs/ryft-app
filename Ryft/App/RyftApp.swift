@@ -539,7 +539,7 @@ struct RootView: View {
                         .safeAreaInset(edge: .top) { importSignInNote }
                         .transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 // The account's first run waits for the platform's answer: no flash of the tabs.
-                case .signedIn where onboarding.holdsFirstRun: SplashView().transition(.opacity)
+                case .signedIn where onboarding.holdsFirstRun: SplashView(firstRun: true).transition(.opacity)
                 case .signedIn where onboarding.flowStep != nil:
                     OnboardingFlowView(model: onboarding).transition(.opacity)
                         .onAppear(perform: LaunchSignpost.screenAppeared)

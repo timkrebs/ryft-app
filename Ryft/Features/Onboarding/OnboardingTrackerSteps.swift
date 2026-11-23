@@ -38,13 +38,28 @@ struct TrackerPickerView: View {
     }
 }
 
-/// After Apple Health access (ui.md §3.5): the chosen trackers' setup cards, the first open and the others
-/// collapsed. Done and "Show me again later" both lead to the tabs; nothing here is mandatory, and the first
-/// sync already runs.
+/// Tracker setup's lead (first-run ui.md §6): that the first sync already runs is said only when it is true (the screen is
+/// also reached after Apple Health's "Not now", or before consent).
+enum TrackerSetupLead {
+    static func choose(syncRuns: Bool) -> LocalizedStringResource {
+        syncRuns
+            ? LocalizedStringResource("Your first sync is already running. These steps make sure your tracker's data reaches Apple Health.",
+                                      comment: "First run, tracker setup: the lead while the first sync runs.")
+            : LocalizedStringResource("These steps make sure your tracker's data reaches Apple Health, so RYFT has something to read.",
+                                      comment: "First run, tracker setup: the lead while nothing syncs yet (Apple Health not asked, or no consent).")
+    }
+}
+
+/// After Apple Health access (ui.md §3.5, first-run ui.md §6): one decision, set up now or later. The chosen trackers'
+/// setup cards, the first open and the others collapsed; Check sync as a text action under them (its result opens inline);
+/// Done and "Show me again later" pinned, both leading to the tabs. Nothing here is mandatory, and the lead says when the
+/// first sync already runs.
 struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
     @State private var open: String?
+    /// The first sync runs (consent given, Apple Health asked): the lead says so.
+    @State private var syncRuns = false
     /// Check sync was tapped: its model, made once on the tap; the result opens below the cards.
     @State private var check: TrackerCheckModel?
     /// Open from the start (previews, and a `-RyftSyncCheck` run's screenshots).
@@ -63,7 +78,7 @@ struct TrackerSetupStepView: View {
     var body: some View {
         let trackers = model.setupTrackers
         OnboardingScreen(title: trackers.count > 1 ? Text("Set up your trackers") : Text("Set up your tracker"),
-                         lead: Text("A few minutes now saves a silent week of missing data."),
+                         lead: Text(TrackerSetupLead.choose(syncRuns: syncRuns)),
                          showsLockup: true, progress: progress) {
             VStack(spacing: OnboardingSpec.actionGap) {
                 ForEach(trackers) { tracker in
@@ -88,11 +103,14 @@ struct TrackerSetupStepView: View {
                 TrackerCheckView(model: check, embedded: true)
                     .padding(.top, OnboardingSpec.actionGap)
             } else {
-                PillButton(Text("Check sync"), style: .secondary) { openCheck() }
-                    .padding(.top, OnboardingSpec.actionGap)
+                // A text action, not a second pill: the screen's one decision is Done or later.
+                Button { openCheck() } label: { Text("Check sync") }
+                    .ryftLink()
+                    .padding(.top, OnboardingSpec.quietGap)
                     .accessibilityIdentifier("trackerSetup.checkSync")
             }
         }
+        .task { syncRuns = await model.firstSyncRuns() }
         .pinnedBar {
             PillButton(Text("Done"), systemImage: PillButton.Icon.confirm) { model.finishTrackerSetup(later: false) }
                 .accessibilityIdentifier("trackerSetup.done")
@@ -109,18 +127,21 @@ struct TrackerSetupStepView: View {
     }
 }
 
-/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog. Dark only (NOCTURNE_STYLE §1).
+/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog, as the first run shows them ("Step 4
+/// of 7", "Step 7 of 7"; `counted` false: as a sheet). Dark only (NOCTURNE_STYLE §1, ADR 0016: a light preview would be the
+/// same pixels).
 @MainActor
 private func trackerStepPreview(setup: Bool = false, picked: [String] = [], size: DynamicTypeSize = .large,
-                                checkOpen: Bool = false) -> some View {
+                                checkOpen: Bool = false, counted: Bool = true) -> some View {
     let state = AppState.preview()
     let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
     model.devices.stage(picked)
     return Group {
         if setup {
-            TrackerSetupStepView(model: model, checkOpen: checkOpen)
+            TrackerSetupStepView(model: model, checkOpen: checkOpen,
+                                 progress: counted ? FirstRunProgress(step: 7, count: 7) : nil)
         } else {
-            TrackerPickerView(model: model, picked: picked)
+            TrackerPickerView(model: model, picked: picked, progress: counted ? FirstRunProgress(step: 4, count: 7) : nil)
         }
     }
     .previewEnvironment(state)
@@ -135,4 +156,6 @@ private func trackerStepPreview(setup: Bool = false, picked: [String] = [], size
 #Preview("Tracker setup · Garmin") { trackerStepPreview(setup: true, picked: ["garmin"]) }
 #Preview("Tracker setup · Garmin and Oura") { trackerStepPreview(setup: true, picked: ["garmin", "oura"]) }
 #Preview("Tracker setup · AX3") { trackerStepPreview(setup: true, picked: ["fitbit"], size: .accessibility3) }
+#Preview("Tracker setup · AX5") { trackerStepPreview(setup: true, picked: ["garmin"], size: .accessibility5) }
+#Preview("Tracker setup · as a sheet (no step)") { trackerStepPreview(setup: true, picked: ["garmin"], counted: false) }
 #Preview("Tracker setup · check open") { trackerStepPreview(setup: true, picked: ["garmin"], checkOpen: true) }
