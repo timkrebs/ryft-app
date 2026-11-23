@@ -55,3 +55,8 @@ PR 1 and H0 run in parallel now; PR 3 doesn't depend on the audit.
 ## Risks
 - The audit names gaps larger than PR 2 can hold: the user picks.
 - HealthKit never reports a read refusal: "asked" is the app's memory, per account; a reinstall forgets it (asks again, harmless).
+
+## The user's pick (2026-11-23, after the audit)
+PR 2 builds the audit's gaps 2, 3, 4, 5, 6, 7 and 8 (the brief's four, plus the Health primer's "what the sheet asks",
+the tracker setup split and the splash's feedback). Gap 1 ("Not now" on Apple Health is followed by the system sheet)
+moves to PR 3: its fix changes what `healthIntroDone` means, and PR 3's per-account record migrates on that flag.
