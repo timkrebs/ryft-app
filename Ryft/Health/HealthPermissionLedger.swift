@@ -22,16 +22,19 @@ struct HealthPermissionLedger {
         self.account = account
     }
 
-    /// The asked groups. Migration, without a prompt: a record without `core` gains it when the Connect Apple Health
-    /// intro was answered (`healthIntroDone`), since then `core` was requested (or bootstrap requests it on this run).
-    /// Synchronous and without HealthKit or the network, so it holds in a background launch (`RyftApp.init`) too.
+    /// The groups whose request ran for this account. Only a request writes here: "Not now" on Connect Apple Health
+    /// records nothing. An account from before the record gains `core` when bootstrap finds HealthKit already answered
+    /// (`accessStatus(.core) == .asked`) and requests it without a sheet (`RyftApp.connectHealth`).
     var asked: Set<HealthPermissionGroup> {
-        var asked = Set(stored.compactMap(HealthPermissionGroup.init(rawValue:)))
-        if !asked.contains(.core), defaults.bool(forKey: Self.introDoneKey) {
-            asked.insert(.core)
-            record(.core)
-        }
-        return asked
+        Set(stored.compactMap(HealthPermissionGroup.init(rawValue:)))
+    }
+
+    /// What the observers and background delivery cover: `asked`, plus `core` once the Connect Apple Health intro was
+    /// answered (`healthIntroDone`). Synchronous and without HealthKit, so an upgraded account keeps its observers in
+    /// the background launch right after the update (`RyftApp.init`), before any bootstrap recorded `core`. Whether
+    /// HealthKit was answered can't be read synchronously; observers on types RYFT may not read deliver nothing.
+    var observedGroups: Set<HealthPermissionGroup> {
+        defaults.bool(forKey: Self.introDoneKey) ? asked.union([.core]) : asked
     }
 
     func contains(_ group: HealthPermissionGroup) -> Bool { asked.contains(group) }

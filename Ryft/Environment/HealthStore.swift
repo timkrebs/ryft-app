@@ -174,8 +174,8 @@ protocol HealthStore: AnyObject {
     var pageSize: Int { get set }
     /// Some stream has a committed anchor for this account (not its first sync).
     var hasAnchors: Bool { get }
-    /// The groups this account asked for (`HealthPermissionLedger`, ADR 0027): which state a feature shows. Never a
-    /// reason to skip a request.
+    /// The groups whose request ran for this account (`HealthPermissionLedger`, ADR 0027): which state a feature shows.
+    /// Never a reason to skip a feature's own request.
     var askedGroups: Set<HealthPermissionGroup> { get }
     /// The system sheet for one group, then the account's record. Each group is asked by its own feature (`core` by
     /// the first run, bootstrap and Profile). Throws `HealthPermissionError.notRequestable` for a group that isn't

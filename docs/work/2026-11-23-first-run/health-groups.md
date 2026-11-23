@@ -87,12 +87,21 @@ never shared across actors.
 | Demo data | Not read, not written. About you is never shown in demo, so no prefill is offered there. |
 | Reinstall | Gone with `UserDefaults`. iOS also drops the app's Health authorisation, so both start over. |
 
-**Migration (no prompt):** a synchronous rule when the ledger is read. If the record lacks `core` and
-`Settings.healthIntroDone` is true, `core` is added. Today `healthIntroDone` implies that `core` was requested
-(`connect()`, or the `accessStatus == .asked` skip in RootView), or that bootstrap requests it on this run (after
-"Not now", see Q3). The rule needs no network and no HealthKit call, so it also holds in a background launch
-(`RyftApp.init`). Bootstrap's `requestAuthorization(.core)` then records `core` anyway, because HealthKit returns at once
-without a sheet for determined types. Both writes are idempotent.
+**Migration (no prompt), revised with the "Not now" fix (Q3).** `healthIntroDone` no longer implies that `core` was
+requested: "Not now" sets it too, and bootstrap no longer shows the sheet after it. So the record holds only what a
+request ran for, and the migration has two parts:
+
+- **Recording, at bootstrap (async).** Bootstrap requests `.core` only when the record has `core`, or when
+  `accessStatus(.core) == .asked` (HealthKit was answered already, so the request shows no sheet). That request records
+  `core` for an account from before the record. A declined intro has neither, so it gets no request and no record.
+  Its way back is Profile's and Check sync's "Allow access" (`requestAuthorization(.core)`).
+- **Observers, at launch (sync).** `accessStatus` is async (`statusForAuthorizationRequest`), so it can't gate the
+  background launch in `RyftApp.init`. The observers and background delivery therefore derive from
+  `ledger.observedGroups` = `asked` ∪ (`healthIntroDone` ? `core`). An upgraded account keeps today's three observers on
+  its first background launch, before any bootstrap, with zero requests. For an intro declined with "Not now" they
+  are registered as before the fix. Observers on types RYFT may not read deliver nothing.
+
+`connect()` (Continue) records `core` through the live store's request, like every request.
 
 ## 5. Derivation, and proof that `core` is unchanged (Q3)
 
@@ -210,8 +219,10 @@ Requests
 Ledger
 8. A record is per account: A's `about` is not B's. Sign-out keeps it, and an account deletion wipe removes it.
 9. `account == nil` (signed out, demo) never writes.
-10. Migration: `healthIntroDone` with no `core` adds `core` with **zero** requests. Without `healthIntroDone`, nothing
-    is added. It also works when the record holds `[about]` only.
+10. Migration: `healthIntroDone` with no `core` gives the observers `core` (`observedGroups`) with **zero** requests and
+    records nothing. Without `healthIntroDone`, nothing. It also works when the record holds `[about]` only. Bootstrap
+    records `core` with one request (no sheet) when HealthKit was answered. After "Not now", bootstrap makes zero
+    requests. After Continue, it makes exactly one.
 11. A throwing request records nothing. An account switch during the request records for the account that asked.
 
 `about`
@@ -245,9 +256,10 @@ Ledger
 
 1. **Out-of-range year:** clamp or reject? *Reject:* leave the wheel alone and say why. A clamped year is a wrong one.
 2. **Sign-out:** keep the record? *Keep it* (the onboarding precedent). Remove it on account deletion only.
-3. **"Not now" on Connect Apple Health is followed by the system sheet anyway.** Bootstrap requests once
-   `healthIntroDone` is set (`RyftApp.swift:436`). *Keep it in H0* (behaviour unchanged) and open its own ticket. The
-   ledger records `core` only when a request really ran.
+3. **"Not now" on Connect Apple Health is followed by the system sheet anyway.** Bootstrap requested once
+   `healthIntroDone` was set (`RyftApp.swift:436`). *Was:* keep it in H0 and open its own ticket. **Now fixed in PR 3**
+   (Lead decision 3): bootstrap requests `.core` only when the record has it or HealthKit was answered already
+   (`RyftApp.connectHealth`). The ledger records `core` only when a request really ran; see the migration in §4.
 4. **Profile's birth-year editor:** offer the prefill there too? *Not in this PR.* The same coordinator state and seam
    can be reused later.
 5. **Data inventory:** there is none under `app/docs/`. *Put the group table into `APP_STORE.md` §1* as the app's
@@ -259,8 +271,9 @@ Ledger
 
 1. Out-of-range year: **reject**, as recommended.
 2. Sign-out keeps the record; an account deletion removes it. It holds group names only.
-3. "Not now" followed by the system sheet breaks the first-run rule "everything but consent can be skipped". It goes to
-   the first-run audit and PR 2, not here. H0 keeps today's behaviour.
+3. "Not now" followed by the system sheet breaks the first-run rule "everything but consent can be skipped". **Fixed in
+   PR 3, at the user's request** (revised 2026-11-23): bootstrap no longer requests for a declined intro, and the
+   migration in §4 changes with it.
 4. No prefill in Profile's editor in this PR.
 5. `APP_STORE.md` §1 carries the group table as the app's data inventory. The root privacy package is head-architect's
    call (reported).

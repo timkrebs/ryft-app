@@ -111,7 +111,8 @@ struct RyftApp: App {
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
         // account that has seen the Health explanation (bootstrap covers the first time).
-        if AuthService.shared.isSignedIn, Settings.shared.healthIntroDone, HealthKitManager.isAvailable {
+        if Self.observesAtLaunch(signedIn: AuthService.shared.isSignedIn, healthIntroDone: Settings.shared.healthIntroDone,
+                                 available: HealthKitManager.isAvailable) {
             Self.observeHealthKit(HealthKitManager.shared, coordinator: coordinator)
         }
         // A sync that found HealthKit locked runs again once the phone is unlocked.
@@ -437,12 +438,24 @@ struct RyftApp: App {
         await coordinator.run(.appActive)
     }
 
-    /// Bootstrap's Health step: `core` only (a feature group is asked by its own feature, never here, ADR 0027),
-    /// then the observers. HealthKit answers at once, without a sheet, for what was already answered.
+    /// Bootstrap's Health step: `core` only (a feature group is asked by its own feature, never here, ADR 0027), and
+    /// only when it was asked before: the account's record has it, or HealthKit was answered already (an account from
+    /// before the record; the request shows no sheet and records `core`). An intro declined with "Not now" gets no
+    /// sheet here: Profile's and Check sync's "Allow access" ask. Then the observers.
     @MainActor
     static func connectHealth(_ health: HealthStore, coordinator: SyncCoordinator) async {
-        try? await health.requestAuthorization(.core)
+        if health.askedGroups.contains(.core) {
+            try? await health.requestAuthorization(.core)
+        } else if await health.accessStatus(.core) == .asked {
+            try? await health.requestAuthorization(.core)
+        }
         observeHealthKit(health, coordinator: coordinator)
+    }
+
+    /// The launch's gate for the observers (a background launch runs nothing else before HealthKit delivers): an
+    /// account that answered the Connect Apple Health intro, on a device with HealthKit.
+    static func observesAtLaunch(signedIn: Bool, healthIntroDone: Bool, available: Bool) -> Bool {
+        signedIn && healthIntroDone && available
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`

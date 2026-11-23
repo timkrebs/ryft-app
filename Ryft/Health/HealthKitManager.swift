@@ -67,7 +67,7 @@ final class HealthKitManager {
 
     // MARK: authorization (ADR 0027: by group, from `HealthPermissionGroup`)
 
-    /// This account's record (`AccountScope`, as for the anchors), the migration applied.
+    /// This account's record (`AccountScope`, as for the anchors).
     var ledger: HealthPermissionLedger {
         HealthPermissionLedger(defaults: defaults, account: AccountScope.current(defaults))
     }
@@ -219,11 +219,11 @@ final class HealthKitManager {
     // launch (RyftApp.init): in a background launch nothing else runs before HealthKit
     // delivers. Needs the HealthKit "Background Delivery" entitlement.
 
-    /// `.immediate` for the asked groups' observed types only (`core`: sleep, workouts, HRV). Idempotent: called on
-    /// every launch. Registrations outlive launches: earlier versions asked `.hourly` for every read type, so the
-    /// unobserved ones are turned off again.
+    /// `.immediate` for the observed groups' types only (`core`: sleep, workouts, HRV; `ledger.observedGroups`).
+    /// Idempotent: called on every launch. Registrations outlive launches: earlier versions asked `.hourly` for every
+    /// read type, so the unobserved ones are turned off again.
     func enableBackgroundDelivery() async {
-        let asked = ledger.asked
+        let asked = ledger.observedGroups
         let observing = Self.observedTypes(asked)
         let observed = Set(observing.map(\.identifier))
         for t in Self.readTypes(asked).compactMap({ $0 as? HKSampleType }) where !observed.contains(t.identifier) {
@@ -240,7 +240,7 @@ final class HealthKitManager {
     /// (not after scoring and refreshes): a late completion makes HealthKit back off.
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         guard observers.isEmpty else { return }
-        for t in Self.observedTypes(ledger.asked) {
+        for t in Self.observedTypes(ledger.observedGroups) {
             let q = HKObserverQuery(sampleType: t, predicate: nil) { _, completion, error in
                 guard error == nil else { return completion() }
                 onChange { completion() }
