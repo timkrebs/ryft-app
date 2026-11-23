@@ -6,10 +6,13 @@ import HealthKit
 extension HealthKitManager {
     typealias AccessStatus = HealthAccess
 
-    func accessStatus() async -> AccessStatus {
+    /// For one group's types only (`core`: today's ten). A group that isn't requestable is never asked about:
+    /// `unknown`, without a HealthKit call.
+    func accessStatus(_ group: HealthPermissionGroup) async -> AccessStatus {
         guard Self.isAvailable else { return .unavailable }
+        guard group.isRequestable else { return .unknown }
         do {
-            switch try await store.statusForAuthorizationRequest(toShare: [], read: readTypes) {
+            switch try await store.statusForAuthorizationRequest(toShare: [], read: Self.readTypes([group])) {
             case .shouldRequest: return .notAsked
             case .unnecessary: return .asked
             default: return .unknown

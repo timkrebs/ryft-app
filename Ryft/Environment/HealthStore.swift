@@ -174,8 +174,19 @@ protocol HealthStore: AnyObject {
     var pageSize: Int { get set }
     /// Some stream has a committed anchor for this account (not its first sync).
     var hasAnchors: Bool { get }
-    func requestAuthorization() async throws
-    func accessStatus() async -> HealthAccess
+    /// The groups whose request ran for this account (`HealthPermissionLedger`, ADR 0027): which state a feature shows.
+    /// Never a reason to skip a feature's own request.
+    var askedGroups: Set<HealthPermissionGroup> { get }
+    /// The system sheet for one group, then the account's record. Each group is asked by its own feature (`core` by
+    /// the first run, bootstrap and Profile). Throws `HealthPermissionError.notRequestable` for a group that isn't
+    /// requestable, before HealthKit is reached.
+    func requestAuthorization(_ group: HealthPermissionGroup) async throws
+    /// Whether the sheet would still show for one group's types (reads are never visible).
+    func accessStatus(_ group: HealthPermissionGroup) async -> HealthAccess
+    /// The birth year from Apple Health's date of birth (`about`), Gregorian; `nil` when refused, unset or never
+    /// asked, which look the same. Only the year: the date never leaves `Health/`. Call it right after
+    /// `requestAuthorization(.about)` in the same action.
+    func birthYear() async -> Int?
     /// `.immediate` delivery for the observed types; idempotent, called on every launch.
     func enableBackgroundDelivery() async
     /// Registers the observers once (during launch). `onChange` gets the delivery's
@@ -235,12 +246,12 @@ enum StrengthOverlap {
 extension HealthKitManager: HealthStore {
     var isAvailable: Bool { Self.isAvailable }
 
-    /// The night and the overnight vitals first (what the morning's score waits for),
-    /// then workouts, then the high-volume day streams.
-    var streams: [HealthStream] {
-        [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR), .quantity(.respiratoryRate), .quantity(.spo2),
-         .workouts, .quantity(.heartRate), .quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)]
-    }
+    /// `core`'s, in its order (the registry's): only `core` has sample types among the requestable groups.
+    var streams: [HealthStream] { HealthPermissionGroup.core.streams }
+
+    var askedGroups: Set<HealthPermissionGroup> { ledger.asked }
+
+    func birthYear() async -> Int? { await Self.birthYear(from: store) }
 
     var hasAnchors: Bool {
         streams.contains { anchor(for: $0.anchorID) != nil }
@@ -523,10 +534,37 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     /// Called on every commit, before the anchor moves (tests check what's stored by then).
     var onCommit: ((HealthStream) -> Void)?
 
-    private(set) var authorizationRequests = 0
+    /// Every group a request named, in order, the refused ones (not requestable, or `authorizationError`) included.
+    private(set) var requests: [HealthPermissionGroup] = []
+    var authorizationRequests: Int { requests.count }
+    /// Every group an access status was asked for, in order.
+    private(set) var statusQueries: [HealthPermissionGroup] = []
+    /// Whose record `asked` is, read at each use like the live store's `AccountScope.current(defaults)`. One fixed
+    /// account unless a test follows its `AuthService` (`{ AccountScope.current(authDefaults) }`); `nil` is signed out.
+    var account: () -> String? = { MockHealthStore.defaultAccount }
+    static let defaultAccount = "mock-account"
+    /// The record per account (in memory; the live store's is `health.asked.<account>` in `UserDefaults`).
+    private(set) var askedByAccount: [String: Set<HealthPermissionGroup>] = [:]
+    /// The current account's record: groups whose request returned for it. Signed out, it's empty and a write is
+    /// dropped, as in the live store (no signed-out bucket).
+    var asked: Set<HealthPermissionGroup> {
+        get { account().flatMap { askedByAccount[$0] } ?? [] }
+        set { if let account = account() { askedByAccount[account] = newValue } }
+    }
+    /// Thrown by the next request (after it's counted), then cleared; nothing is recorded.
+    var authorizationError: Error?
+    /// What `birthYear()` answers: `nil` stands for refused, unset and never asked alike.
+    var birthYearValue: Int?
+    /// How often `birthYear()` was read, and the record (`asked`) at each read: no read comes before its request.
+    private(set) var birthYearReads: [Set<HealthPermissionGroup>] = []
+    /// Runs inside each request, after it is counted and before it returns (tests and previews hold the sheet open).
+    var beforeAuthorizationReturns: (@Sendable () async -> Void)?
     /// Set off the main actor by `enableBackgroundDelivery()` and read by tests on it: under the lock.
     var backgroundDeliveryEnabled: Bool { locked { _backgroundDeliveryEnabled } }
     private var _backgroundDeliveryEnabled = false
+    /// How often `enableBackgroundDelivery()` ran (each launch, bootstrap and a later Allow call it again).
+    var backgroundDeliveryEnables: Int { locked { _backgroundDeliveryEnables } }
+    private var _backgroundDeliveryEnables = 0
     private(set) var observing = false
     private(set) var observerRegistrations = 0
     private(set) var resets = 0
@@ -564,9 +602,43 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
 
     var hasAnchors: Bool { locked { !position.isEmpty } }
 
-    func requestAuthorization() async throws { authorizationRequests += 1; access = .asked }
-    func accessStatus() async -> HealthAccess { access }
-    func enableBackgroundDelivery() async { locked { _backgroundDeliveryEnabled = true } }
+    var askedGroups: Set<HealthPermissionGroup> { asked }
+
+    /// Like the live store: a group that isn't requestable throws (and is still listed in `requests`, so a test sees
+    /// the attempt). `access` is `core`'s answer, per install like HealthKit's. The record is the account's that was
+    /// current when the request started; signed out then, nothing is recorded.
+    func requestAuthorization(_ group: HealthPermissionGroup) async throws {
+        requests.append(group)
+        guard group.isRequestable else { throw HealthPermissionError.notRequestable(group) }
+        let asker = account()
+        await beforeAuthorizationReturns?()
+        if let error = authorizationError {
+            authorizationError = nil
+            throw error
+        }
+        if let asker { askedByAccount[asker, default: []].insert(group) }
+        if group == .core { access = .asked }
+    }
+
+    /// `core`: `access`. Another requestable group: asked once any account's request for it returned (HealthKit's
+    /// answer is per install, not per account). Not requestable: `unknown`.
+    func accessStatus(_ group: HealthPermissionGroup) async -> HealthAccess {
+        statusQueries.append(group)
+        if group == .core { return access }
+        guard group.isRequestable else { return .unknown }
+        return askedByAccount.values.contains { $0.contains(group) } ? .asked : .notAsked
+    }
+
+    func birthYear() async -> Int? {
+        birthYearReads.append(asked)
+        return birthYearValue
+    }
+    func enableBackgroundDelivery() async {
+        locked {
+            _backgroundDeliveryEnabled = true
+            _backgroundDeliveryEnables += 1
+        }
+    }
 
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         // Once, like the live store: launch and bootstrap both call it.

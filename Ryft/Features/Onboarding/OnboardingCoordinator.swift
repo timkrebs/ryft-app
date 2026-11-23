@@ -2,6 +2,7 @@
 // Apple Health. `OnboardingCoordinator` decides which step is missing; RootView shows
 // the steps full screen on an account's first run and as a sheet afterwards.
 import Observation
+import os
 import SwiftUI
 
 /// What stands between a signed-in account and its first sync: an invite code (while
@@ -141,6 +142,11 @@ final class OnboardingCoordinator {
     private var aboutYouDone = false
     /// The birth year is saved; "about you" shows the estimate until Continue.
     private(set) var aboutYouSaved = false
+    /// What About you's last "Use my birth year from Apple Health" ended in, for this account (`birthYearPrefill`); nil
+    /// before a tap. Never the year: that goes to the wheel's `@State` and nowhere else.
+    private(set) var prefillOutcome: BirthYearPrefill?
+    /// Counts the taps: a request answers into `prefillOutcome` only while it is the latest one.
+    private var prefillRequest = 0
     private var hintSeen = false
     /// "What do you wear?" answered or skipped, and the setup screen after Apple Health left (per account).
     private(set) var wearAsked = false
@@ -463,6 +469,7 @@ final class OnboardingCoordinator {
         clearError()
         phase = .idle
         aboutYouSaved = false
+        prefillOutcome = nil
         readPolicyVersion = nil
         policyRead = .idle
         firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
@@ -754,6 +761,79 @@ final class OnboardingCoordinator {
 
 extension AccountHint: Identifiable {
     var id: Date { otherLastSync }
+}
+
+// MARK: - About you's birth year from Apple Health (health-groups.md §7, ADR 0027)
+
+extension OnboardingCoordinator {
+    /// "Use my birth year from Apple Health" on About you. "Not asked" and "asked, nothing returned" differ by the
+    /// account's record (`HealthStore.askedGroups`), never by HealthKit, which keeps refused and unset alike.
+    enum BirthYearPrefill: Equatable, Sendable {
+        /// The record has no `about`: the button, with `about.reason` as its primer.
+        case notAsked
+        /// Asked before for this account: the button without the reason (HealthKit shows no sheet again).
+        case askedBefore
+        /// The request and the read are out.
+        case asking
+        /// A year in range is on the wheel ("From Apple Health"). Nothing is sent before Continue.
+        case filled
+        /// No year: refused, unset, or the request failed. The wheel stays usable; Allow in Health is offered.
+        case nothing
+        /// A year outside `birthYears(now:)`: not clamped (a clamped year is a wrong one), the wheel untouched.
+        case outOfRange
+    }
+
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "onboarding")
+
+    /// The prefill's state; nil hides the button: Apple Health isn't on this device, or Demo data is on (About you
+    /// isn't shown there, and a demo never reads the account's Health).
+    var birthYearPrefill: BirthYearPrefill? {
+        guard env.health.isAvailable, !env.isDemo else { return nil }
+        return prefillOutcome ?? (env.health.askedGroups.contains(.about) ? .askedBefore : .notAsked)
+    }
+
+    /// The button: `requestAuthorization(.about)` (the store records it), then the year, which is returned for the wheel
+    /// only when it is one `birthYears(now:)` offers. Nothing is sent and nothing is kept here: Continue sends the wheel's
+    /// year (`saveAboutYou(birthYear:)`). A sign-out or another account meanwhile ends it with nil and no state.
+    func prefillBirthYear() async -> Int? {
+        guard let current = birthYearPrefill, current != .asking else { return nil }
+        let binding = AccountBinding(env)
+        let health = env.health
+        prefillRequest += 1
+        let request = prefillRequest
+        prefillOutcome = .asking
+        var year: Int?
+        do {
+            try await health.requestAuthorization(.about)
+            // Not read for an account that didn't ask.
+            if binding.isCurrent(in: env) { year = await health.birthYear() }
+        } catch {
+            Self.log.notice("Apple Health's birth-year request failed: \(String(describing: type(of: error)), privacy: .public)")
+        }
+        // Another account's tap since (after a switch) owns the state: this answer touches nothing.
+        guard request == prefillRequest else { return nil }
+        guard binding.isCurrent(in: env) else {
+            prefillOutcome = nil
+            return nil
+        }
+        guard let year else {
+            prefillOutcome = .nothing
+            return nil
+        }
+        let now = env.clock.now()
+        guard (Self.earliestBirthYear...Self.latestBirthYear(now: now)).contains(year) else {
+            prefillOutcome = .outOfRange
+            return nil
+        }
+        prefillOutcome = .filled
+        return year
+    }
+
+    /// The user chose a year on the wheel: "From Apple Health" and the notes no longer describe it.
+    func birthYearChosen() {
+        guard prefillOutcome != .asking else { return }
+        prefillOutcome = nil
+    }
 }
 
 // MARK: - what do you wear (devices.setup)

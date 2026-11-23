@@ -436,12 +436,23 @@ struct CheckboxToggleStyle: ToggleStyle {
 /// with the text, and at AX3 the long lead pushed all but its first line under the pinned bar. The row scales, and at AX3 it
 /// starts above the bar (a short scroll shows it whole; at AX5 the lead alone is taller than the screen). Its menu lists
 /// "Choose your birth year", then the years newest first, as the wheel does.
+///
+/// Above the card, "Use my birth year from Apple Health" (health-groups.md §7): never asked, with `about.reason` as its
+/// primer; asked before, alone. A year in range goes onto the wheel (`year`, the only place it is kept) with "From Apple
+/// Health" under it; none gives an honest note with Allow in Health and the catalog's route; one out of range a note, the
+/// wheel untouched. Nothing is sent before Continue. Hidden in Demo data and without Apple Health.
 struct AboutYouView: View {
     let model: OnboardingCoordinator
+    /// Previews and shots: tap "Use my birth year from Apple Health" once on appear.
+    var fillsFromHealthOnAppear = false
     @State private var year: Int?
+    /// The next change of `year` is Apple Health's fill, not the user's choice.
+    @State private var fillingFromHealth = false
     @State private var editing: BodySetting?
     @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.openURL) private var openURL
+    @Environment(\.locale) private var locale
 
     private var years: [Int] { OnboardingCoordinator.birthYears(now: env.clock.now()) }
     private var isSaved: Bool { model.aboutYouSaved && model.user != nil }
@@ -473,23 +484,34 @@ struct AboutYouView: View {
                     }
                 }
             } else {
+                if let prefill { healthPrefill(prefill) }
                 if typeSize.isAccessibilitySize {
                     // The row's title names the card: no group title above it.
-                    GroupedCard {
+                    GroupedCard(footer: filledCaption) {
                         GroupedRow.menu(Text("Birth year"), value: yearValue, identifier: "aboutYou.year") { yearPicker }
-                            .disabled(model.isWorking)
+                            .disabled(model.isWorking || model.birthYearPrefill == .asking)
                     }
                 } else {
-                    GroupedCard(Text("Birth year")) {
+                    GroupedCard(Text("Birth year"), footer: filledCaption) {
                         yearPicker
                             .pickerStyle(.wheel)
                             .frame(height: AboutYouSpec.wheelHeight)
                             .frame(maxWidth: .infinity)
-                            .disabled(model.isWorking)
+                            .disabled(model.isWorking || model.birthYearPrefill == .asking)
                             .accessibilityIdentifier("aboutYou.year")
                     }
                 }
                 OnboardingError(model: model)
+            }
+        }
+        .task {
+            if fillsFromHealthOnAppear { await fillFromHealth() }
+        }
+        .onChange(of: year) {
+            if fillingFromHealth {
+                fillingFromHealth = false
+            } else {
+                model.birthYearChosen()
             }
         }
         .pinnedBar {
@@ -525,6 +547,81 @@ struct AboutYouView: View {
     /// The menu row's value: the year as it is (no grouping), or "Choose" while none is chosen.
     private var yearValue: Text {
         year.map { Text(verbatim: "\($0)") } ?? Text("Choose")
+    }
+
+    /// The prefill as this screen shows it. A fill whose year isn't on the wheel any more (the step shown anew, its
+    /// `@State` gone) reads as asked before: never "From Apple Health" under an empty wheel.
+    private var prefill: OnboardingCoordinator.BirthYearPrefill? {
+        let state = model.birthYearPrefill
+        return state == .filled && year == nil ? .askedBefore : state
+    }
+
+    /// Under the wheel while its year is Apple Health's; gone once the user chooses one (`birthYearChosen()`).
+    private var filledCaption: Text? {
+        prefill == .filled ? Text("From Apple Health", comment: "About you: under the birth-year wheel when the year came from Apple Health.") : nil
+    }
+
+    /// "Use my birth year from Apple Health", and what the last tap ended in (health-groups.md §7). `filled` says it
+    /// under the wheel instead.
+    @ViewBuilder private func healthPrefill(_ prefill: OnboardingCoordinator.BirthYearPrefill) -> some View {
+        switch prefill {
+        case .notAsked, .askedBefore, .asking:
+            VStack(alignment: .leading, spacing: Theme.Metrics.itemSpacing) {
+                // Never asked: the group's one line is the primer before the system sheet.
+                if prefill == .notAsked {
+                    Text(HealthPermissionGroup.about.reason)
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                useHealthButton(busy: prefill == .asking)
+            }
+            .padding(.bottom, Theme.Metrics.sectionSpacing)
+        case .filled:
+            EmptyView()
+        case .nothing:
+            // Refused, unset and failed look the same (HealthKit's rule): one honest note, the way to RYFT's access, and
+            // the button again for after it.
+            VStack(alignment: .leading, spacing: Theme.Metrics.itemSpacing) {
+                InlineMessage(message: String(localized: "Apple Health didn't share a birth year. Choose it below.",
+                                              comment: "About you: Apple Health returned no birth year (refused, not set, or failed)."),
+                              systemImage: "heart.text.square", identifier: "aboutYou.healthNothing",
+                              action: (String(localized: "Allow in Health",
+                                              comment: "About you: opens the Health app, where RYFT's access is changed."),
+                                       { HealthLinks.open(with: openURL) }))
+                let steps = env.trackerCatalog.healthAccess.value(in: locale)
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    NumberedStep(number: index + 1, verbatim: step, total: steps.count)
+                }
+                useHealthButton(busy: false)
+            }
+            .padding(.bottom, Theme.Metrics.sectionSpacing)
+        case .outOfRange:
+            // Not clamped: a clamped year is a wrong one. The wheel keeps what it had.
+            InlineMessage(message: String(localized: "The year in Apple Health is outside the years RYFT offers, so it wasn't used. Choose yours below.",
+                                          comment: "About you: Apple Health's birth year is before 1920 or under the minimum age; the wheel is unchanged."),
+                          systemImage: "calendar", identifier: "aboutYou.healthOutOfRange")
+                .padding(.bottom, Theme.Metrics.sectionSpacing)
+        }
+    }
+
+    /// The button: the `about` sheet (once per account), then the year onto the wheel. Busy while asking, and off while
+    /// Continue's save is out.
+    private func useHealthButton(busy: Bool) -> some View {
+        PillButton(Text("Use my birth year from Apple Health", comment: "About you: asks Apple Health for the date of birth and puts its year on the wheel."),
+                   style: .secondary, busy: busy) {
+            await fillFromHealth()
+        }
+        .disabled(model.isWorking)
+        .accessibilityIdentifier("aboutYou.useHealth")
+    }
+
+    /// The year Apple Health gave, onto the wheel: the only place it is kept until Continue sends it. That change is the
+    /// fill's, not the user's choice (`fillingFromHealth`), unless the wheel already showed it and nothing changes.
+    private func fillFromHealth() async {
+        guard let filled = await model.prefillBirthYear() else { return }
+        if year != filled { fillingFromHealth = true }
+        year = filled
     }
 }
 
@@ -583,6 +680,36 @@ struct OnboardingStepPreview: View {
 #Preview("About you · saved · AX3") {
     OnboardingStepPreview(step: .aboutYou, saved: true).previewEnvironment()
         .dynamicTypeSize(.accessibility3)
+}
+
+// "Use my birth year from Apple Health" (health-groups.md §7): Demo data off, the fake HealthStore answers.
+#Preview("About you · Apple Health · not asked") {
+    AboutYouPrefillPreview(.notAsked)
+}
+
+#Preview("About you · Apple Health · asked before") {
+    AboutYouPrefillPreview(.askedBefore)
+}
+
+#Preview("About you · Apple Health · asking") {
+    AboutYouPrefillPreview(.asking)
+}
+
+#Preview("About you · Apple Health · filled") {
+    AboutYouPrefillPreview(.filled)
+}
+
+#Preview("About you · Apple Health · filled · AX3") {
+    AboutYouPrefillPreview(.filled)
+        .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("About you · Apple Health · nothing") {
+    AboutYouPrefillPreview(.nothing)
+}
+
+#Preview("About you · Apple Health · out of range") {
+    AboutYouPrefillPreview(.outOfRange)
 }
 
 #if DEBUG

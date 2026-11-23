@@ -821,6 +821,108 @@ private final class FakeApp: BackgroundTaskRunning {
     func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier) { ended.append(identifier) }
 }
 
+/// "Allow access" after "Not now" (review C1, health-groups.md §4): bootstrap's key doesn't change, so the Allow itself
+/// starts what bootstrap would have: the observers (once), background delivery and a sync, without a relaunch.
+@Suite("Sync coordinator: Apple Health allowed later")
+@MainActor
+struct SyncCoordinatorHealthAllowedTests {
+    /// The three "Allow access" outside the first run.
+    enum Site: String, CaseIterable, CustomTestStringConvertible {
+        case profile, devicesAndSync, checkSync
+        var testDescription: String { rawValue }
+    }
+
+    @MainActor
+    fileprivate struct Rig {
+        let clock = TestClock()
+        let steps: FakeSteps
+        let coordinator: SyncCoordinator
+        let health = MockHealthStore()
+        let env: AppEnvironment
+
+        /// After "Not now": HealthKit never asked, nothing recorded; RyftApp's wiring of `healthAllowed`.
+        init() {
+            steps = FakeSteps(clock: clock)
+            steps.touched = []
+            coordinator = SyncCoordinator(steps: steps, clock: clock)
+            health.access = .notAsked
+            env = .test(health: health, clock: clock)
+            env.healthAllowed = { [health, coordinator] in RyftApp.healthAllowed(health, coordinator: coordinator) }
+        }
+
+        func allow(at site: Site) async {
+            switch site {
+            case .profile:
+                let state = AppState(env: env)
+                let sync = SyncService.ungated(env: env)
+                let profile = ProfileViewModel(state: state, sync: sync,
+                                               coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                            clock: env.clock),
+                                               apiStatus: APIStatus())
+                await profile.requestHealthAccess()
+            case .devicesAndSync:
+                await DevicesViewModel(state: AppState(env: env), selection: TrackerSelectionStore(env: env)).requestHealthAccess()
+            case .checkSync:
+                await TrackerCheckModel(env: env, health: health, trackers: ["garmin"]).requestAccess()
+            }
+        }
+    }
+
+    @Test("After Not now, a later Allow enables delivery and syncs now, with the launch's observers kept", arguments: Site.allCases)
+    func aLaterAllowStartsDeliveryAndASync(_ site: Site) async {
+        let rig = Rig()
+        // The launch after "Not now" (`healthIntroDone`): core's observers, on types HealthKit was never asked for.
+        RyftApp.observeHealthKit(rig.health, coordinator: rig.coordinator)
+        #expect(await eventually { rig.health.backgroundDeliveryEnables == 1 })
+        #expect(rig.steps.count("upload") == 0)
+
+        await rig.allow(at: site)
+        #expect(rig.health.requests == [.core] && rig.health.asked == [.core])
+        #expect(await eventually { rig.steps.count("upload") == 1 }, "a sync now, not at the next launch")
+        #expect(await eventually { rig.health.backgroundDeliveryEnables == 2 }, "delivery enabled again, now that HealthKit was answered")
+        #expect(rig.health.observerRegistrations == 1, "the launch's observers, never a second set")
+    }
+
+    @Test("A first Allow without observers registers them once; a second Allow starts nothing", arguments: Site.allCases)
+    func aSecondAllowStartsNothing(_ site: Site) async {
+        let rig = Rig()
+        await rig.allow(at: site)
+        #expect(await eventually { rig.steps.count("upload") == 1 })
+        #expect(await eventually { rig.health.backgroundDeliveryEnables == 1 })
+        #expect(rig.health.observerRegistrations == 1)
+
+        // `core` is in the record already: bootstrap's and the launch's business, not this request's.
+        await rig.allow(at: site)
+        #expect(rig.health.requests == [.core, .core])
+        #expect(!(await eventually(timeout: .milliseconds(300)) {
+            rig.steps.count("upload") > 1 || rig.health.backgroundDeliveryEnables > 1
+        }))
+        #expect(rig.health.observerRegistrations == 1)
+    }
+
+    @Test("A refused or failed request starts nothing")
+    func aFailedRequestStartsNothing() async {
+        let rig = Rig()
+        rig.health.authorizationError = HealthPermissionError.notRequestable(.core)
+        await rig.allow(at: .profile)
+        #expect(rig.health.asked.isEmpty)
+        #expect(!(await eventually(timeout: .milliseconds(300)) { rig.steps.count("upload") > 0 }))
+        #expect(rig.health.observerRegistrations == 0 && rig.health.backgroundDeliveryEnables == 0)
+    }
+
+    /// Check sync in Demo data reads a scenario's store, never this iPhone's Health: its Allow starts nothing here.
+    @Test("Check sync's scenario store starts nothing")
+    func aScenarioStoreStartsNothing() async {
+        let rig = Rig()
+        let scenario = MockHealthStore()
+        scenario.access = .notAsked
+        await TrackerCheckModel(env: rig.env, health: scenario, trackers: ["garmin"]).requestAccess()
+        #expect(scenario.asked == [.core])
+        #expect(!(await eventually(timeout: .milliseconds(300)) { rig.steps.count("upload") > 0 }))
+        #expect(rig.health.observerRegistrations == 0 && rig.health.backgroundDeliveryEnables == 0)
+    }
+}
+
 @Suite("Background work")
 @MainActor
 struct BackgroundWorkTests {

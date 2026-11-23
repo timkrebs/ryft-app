@@ -56,6 +56,10 @@ final class AppEnvironment {
                                    isSignedIn: { [weak self] in self?.auth.isSignedIn ?? false })
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
+    /// What `core` newly in the account's record starts outside bootstrap (`requestCoreAccess`): the observers if they
+    /// aren't registered yet, background delivery and a sync (`RyftApp.healthAllowed`). Set once at launch; nil in
+    /// previews and in tests that don't wire it.
+    var healthAllowed: (@MainActor () -> Void)?
 
     /// Demo mode serves the realistic sample history instead of the account.
     var isDemo: Bool { demoOverride ?? settings.demoMode }

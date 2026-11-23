@@ -38,7 +38,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Required-reason APIs. App code uses only `UserDefaults` (`CA92.1`). No file timestamps, boot time, disk space or keyboards | ok (fixed) | grep of `Ryft/`, `RyftWidgets/` |
 | Packages. swift-crypto ships its own manifests. supabase-swift, swift-http-types, swift-clocks, swift-concurrency-extras, xctest-dynamic-overlay and swift-asn1 call no required-reason API, so they need none. The session is in the Keychain, not `UserDefaults`. Apple frameworks (SwiftData, HealthKit) are exempt | ok | grep of `SourcePackages/checkouts/*/Sources` |
 | Xcode **Generate Privacy Report** on an archive lists exactly the declared types | user | Organizer → Archives → Generate Privacy Report (needs the signed archive) |
-| `NSHealthShareUsageDescription` names the data and the purpose, and says no advertising (5.1.1(ii), 5.1.3(i)) | ok (fixed) | `Info.plist`, `InfoPlist.xcstrings` (en, de) |
+| `NSHealthShareUsageDescription` names the data and the purpose, and says no advertising (5.1.1(ii), 5.1.3(i)). It names every type of a requestable group and none of the others (the table below) | ok (fixed) | `Info.plist`, `InfoPlist.xcstrings` (en; RYFT is English only); `HealthUsageDescriptionTests` |
 | `NSHealthUpdateUsageDescription` only if the app writes: it doesn't, so removed | ok (fixed) | `Info.plist`; `requestAuthorization(toShare: [])` |
 | No health data in iCloud, no `NSUbiquitous*`, no iCloud entitlement (5.1.3(ii)) | ok | `Ryft.entitlements`. The SwiftData store is local; ResponseCache is in Caches/ |
 | HealthKit data never used for ads or marketing, never sold, only sent to the user's own RYFT account (5.1.2(vi), 5.1.3(i)) | ok | No ad or analytics SDK; `APIClient` talks only to `api.ryftlab.de` |
@@ -53,6 +53,25 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Hide My Email relay addresses work: the email is shown, never required to be real. The name is taken only on the first authorisation. Only `.fullName, .email` are requested | ok | `AuthService.prepare`, `signInWithApple` |
 | Email accounts: password reset, no lock-in | ok | `ForgotPasswordView`, `SetNewPasswordView` |
 | No tracking, no ATT, no `NSUserTrackingUsageDescription`, no fingerprinting SDK | ok | `Info.plist`, package list |
+
+### Apple Health data inventory (ADR 0027)
+
+Every type RYFT reads is declared once, in `Ryft/Health/HealthPermissionGroup.swift`, and asked for by group, each by
+its own feature. A group that isn't requestable is never in a request (the live store throws before HealthKit is
+reached). Which groups an account asked for is kept per account (`health.asked.<account>`, group names only), kept on
+sign-out and removed on account deletion. Making a group requestable is one reviewed change with its feature: its
+consumer, its primer and its words in `NSHealthShareUsageDescription`, which `HealthUsageDescriptionTests` demand.
+
+| Group | Types | Asked when | Consumer | Requestable |
+| --- | --- | --- | --- | --- |
+| `core` | heart rate, HRV (SDNN), resting heart rate, respiratory rate, blood oxygen (SpO₂), VO₂ max, active energy, steps, sleep analysis, workouts | Connect Apple Health (Continue), after sign-in. Bootstrap repeats it without a sheet only once it was answered (never after "Not now"). Profile's and Check sync's "Allow access" | `scores`: the sync's anchored uploads, which the platform scores; background delivery for sleep, workouts and HRV | yes |
+| `about` | date of birth (characteristic). Only the year leaves `Ryft/Health/` (`HealthStore.birthYear()`), and only as `birth_year` on Continue | About you: "Use my birth year from Apple Health" | `birthYearPrefill` | yes |
+| `body` | biological sex, height, body mass, body fat %, lean body mass | with Fuel (M12) | `fuel` | no |
+| `fuel` | dietary energy, protein, carbohydrates, total fat, water, basal (resting) energy | with Fuel (M12) | `fuel` | no |
+| `habits` | caffeine, alcoholic beverages, mindful sessions, time in daylight | with the journal's autofill | `journalAutofill` | no |
+| `physiology` | sleeping wrist temperature, heartbeat series | with the physiology card | `physiologyCard` | no |
+
+The privacy label doesn't change: `birth_year` was already collected, and the date of birth is not.
 
 ## 2. Health claims and content
 

@@ -1,4 +1,4 @@
-.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release focused-shots
+.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements check-date-of-birth strings style format archive trackers release focused-shots
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -75,7 +75,7 @@ strings: build
 # the mark's SVG matches the Swift geometry (needs swiftc, i.e. macOS); no retired colour or button in the app, the widget
 # or Shared/, no misplaced amber or coral in Train, My Day, Activities and the Journal card, and Volt only in its marks
 # (scripts/check-accent-use.py, with its own self-test).
-lint: check-entitlements check-mark-svg
+lint: check-entitlements check-date-of-birth check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
 	python3 scripts/check-accent-use.py --self-test
@@ -90,6 +90,13 @@ lint: check-entitlements check-mark-svg
 # Ryft/Health/HealthKitManager+Status.swift (ADR 0002). Run after editing the JSON.
 trackers:
 	python3 scripts/trackers.py --write
+
+# The date of birth stays in Ryft/Health/ (ADR 0027): only the birth year crosses the HealthStore seam.
+check-date-of-birth:
+	@if grep -rnE --include='*.swift' 'dateOfBirthComponents|\.dateOfBirth\(\)|HKCharacteristicType\(\.dateOfBirth' \
+		Ryft RyftWidgets RyftNotificationService Shared RyftTests RyftUITests \
+		| grep -v '^Ryft/Health/'; then echo "Date of birth read outside Ryft/Health/ (ADR 0027)"; exit 1; fi
+	@echo "Date of birth: read in Ryft/Health/ only."
 
 # Every key in Ryft.entitlements has a capability; no empty arrays (CLAUDE.md → signing).
 check-entitlements:

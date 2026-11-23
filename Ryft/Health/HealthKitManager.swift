@@ -60,21 +60,73 @@ final class HealthKitManager {
     let sleepType = HKCategoryType(.sleepAnalysis)
     let workoutType = HKObjectType.workoutType()
 
-    var readTypes: Set<HKObjectType> {
-        Set(quantities.map { $0.hkType as HKObjectType } + [sleepType, workoutType])
-    }
-
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
-    // MARK: authorization
+    /// The anchors' and the permission record's store: `.standard` for the app, a suite of their own for tests.
+    let defaults: UserDefaults
 
-    func requestAuthorization() async throws {
-        try await store.requestAuthorization(toShare: [], read: readTypes)
+    /// The system sheet for a set of read types. HealthKit's own, unless a test of the record holds or fails it (no
+    /// sheet can show in a test host).
+    typealias Authorize = (_ read: Set<HKObjectType>) async throws -> Void
+    private let authorize: Authorize?
+
+    init(defaults: UserDefaults = .standard, authorize: Authorize? = nil) {
+        self.defaults = defaults
+        self.authorize = authorize
+    }
+
+    // MARK: authorization (ADR 0027: by group, from `HealthPermissionGroup`)
+
+    /// This account's record (`AccountScope`, as for the anchors).
+    var ledger: HealthPermissionLedger {
+        HealthPermissionLedger(defaults: defaults, account: AccountScope.current(defaults))
+    }
+
+    /// The system sheet for one group's types, then the record. A group that isn't requestable throws before
+    /// HealthKit is reached. The record is the account's that asked (captured before the sheet); a throw records
+    /// nothing.
+    func requestAuthorization(_ group: HealthPermissionGroup) async throws {
+        guard group.isRequestable else { throw HealthPermissionError.notRequestable(group) }
+        let types = Self.readTypes([group])
+        let store = store
+        let authorize = authorize
+        try await HealthPermissionLedger.recording(group, defaults: defaults) {
+            if let authorize {
+                try await authorize(types)
+            } else {
+                try await store.requestAuthorization(toShare: [], read: types)
+            }
+        }
+    }
+
+    // MARK: about (date of birth)
+
+    /// The year of Apple Health's date of birth, Gregorian. `nil` when HealthKit throws (a read it was never asked
+    /// for), when access was refused, or when no date is set: HealthKit doesn't tell a refusal from an unset date, and
+    /// neither does RYFT (to confirm on a device: design note §9 test 15). The date stays in `Health/`; only the year
+    /// crosses the seam. Off the main actor: the read is a synchronous call into the Health daemon.
+    @concurrent
+    static func birthYear(from store: HKHealthStore) async -> Int? {
+        let signposter = Signposts.sync
+        let reading = signposter.beginInterval("birth-year", id: signposter.makeSignpostID())
+        defer { signposter.endInterval("birth-year", reading) }
+        MainThread.assertOff("Reading the date of birth")
+        guard let components = try? store.dateOfBirthComponents() else { return nil }
+        return gregorianYear(components)
+    }
+
+    /// The Gregorian year of a date's components: converted through their calendar when one is set and isn't
+    /// Gregorian (Buddhist 2533 is 1990), otherwise their year. `nil` without a year.
+    static func gregorianYear(_ components: DateComponents) -> Int? {
+        guard let year = components.year else { return nil }
+        guard let calendar = components.calendar, calendar.identifier != .gregorian else { return year }
+        guard let date = calendar.date(from: components) else { return nil }
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = components.timeZone ?? calendar.timeZone
+        return gregorian.component(.year, from: date)
     }
 
     // MARK: anchors
-
-    private let defaults = UserDefaults.standard
 
     /// Anchors belong to the signed-in user, so another account on this phone
     /// starts its own 90-day backfill.
@@ -182,19 +234,17 @@ final class HealthKitManager {
     // launch (RyftApp.init): in a background launch nothing else runs before HealthKit
     // delivers. Needs the HealthKit "Background Delivery" entitlement.
 
-    /// Sleep, workouts and HRV: the records that change a score. Heart rate arrives
-    /// constantly and would wake the app too often; it rides along with these syncs.
-    var observedTypes: [HKSampleType] { [sleepType, workoutType, HKQuantityType(.heartRateVariabilitySDNN)] }
-
-    /// `.immediate` for the observed types only. Idempotent: called on every launch.
-    /// Registrations outlive launches: earlier versions asked `.hourly` for every read
-    /// type, so the unobserved ones are turned off again.
+    /// `.immediate` for the observed groups' types only (`core`: sleep, workouts, HRV; `ledger.observedGroups`).
+    /// Idempotent: called on every launch. Registrations outlive launches: earlier versions asked `.hourly` for every
+    /// read type, so the unobserved ones are turned off again.
     func enableBackgroundDelivery() async {
-        let observed = Set(observedTypes.map(\.identifier))
-        for t in readTypes.compactMap({ $0 as? HKSampleType }) where !observed.contains(t.identifier) {
+        let asked = ledger.observedGroups
+        let observing = Self.observedTypes(asked)
+        let observed = Set(observing.map(\.identifier))
+        for t in Self.readTypes(asked).compactMap({ $0 as? HKSampleType }) where !observed.contains(t.identifier) {
             try? await store.disableBackgroundDelivery(for: t)
         }
-        for t in observedTypes {
+        for t in observing {
             try? await store.enableBackgroundDelivery(for: t, frequency: .immediate)
         }
     }
@@ -205,7 +255,7 @@ final class HealthKitManager {
     /// (not after scoring and refreshes): a late completion makes HealthKit back off.
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         guard observers.isEmpty else { return }
-        for t in observedTypes {
+        for t in Self.observedTypes(ledger.observedGroups) {
             let q = HKObserverQuery(sampleType: t, predicate: nil) { _, completion, error in
                 guard error == nil else { return completion() }
                 onChange { completion() }
