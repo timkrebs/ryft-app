@@ -11,6 +11,12 @@
     - **Stall-proofing:** an ios-architect note on bisecting a refused page, and on non-finite values that make `JSONEncoder` throw before any request is sent.
     - **Report a problem:** the "What's included" list could mention the count.
 
+## 2026-11-23: the demo's days stay frozen at launch (`fix/midnight-index-crash`)
+
+- A hosted test run that crossed 00:00 trapped in `MockData.todayDetail.workouts[0]` ("Index out of range"): the mock's nights are built once, at the first read, and `todayDetail` read `.now`, a day the table didn't have. `todayDetail` and the other mock reads now anchor to the day the nights were built for, so they can't trap.
+- Unchanged for users: the demo's days stay frozen at launch, so an app left open past midnight shows the new day empty until relaunch, as before.
+- Follow-up: roll `MockData` and `MockTrain` over together, keyed by absolute day (the workout→session links need both to move at once).
+
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
 - **#129, "networking: X-RYFT-App-Build, and the App Attest mode from the config"** (D247; `docs/work/2026-11-20-app-attest-mode/`):
