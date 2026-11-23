@@ -234,9 +234,13 @@ The example must be a notification that **will** arrive for this account, or the
 ```swift
 enum NotificationPrimerExample: Equatable, Sendable {
     case morningScore, journal, syncStale
-    /// `pushEnabled`: the `push.enabled` flag. `journalLive`: the journal is available (it is `availability == .live`).
-    static func choose(pushEnabled: Bool, journalLive: Bool) -> Self {
-        pushEnabled ? .morningScore : (journalLive ? .journal : .syncStale)   // `syncStale` is live in every mode (K7)
+    /// `pushEnabled`: `push.enabled`. `remindersOn`: `notifications.reminders` (known on), which gates the journal reminder and
+    /// the "not syncing" fallback (`ReminderScheduler`, #141). `journalLive`: the journal is available (`availability == .live`).
+    /// Nil: nothing can arrive, and there is no primer (review C1).
+    static func choose(pushEnabled: Bool, remindersOn: Bool, journalLive: Bool) -> Self? {
+        if pushEnabled { return .morningScore }
+        guard remindersOn else { return nil }
+        return journalLive ? .journal : .syncStale   // `syncStale` needs `notifications.reminders` too (not live in every mode)
     }
 }
 ```
@@ -253,11 +257,12 @@ titles). Caption (all three): **An example. What your lock screen shows follows 
 Profile → Notifications.**
 
 **When it shows** (a pure `NotificationPrimerFacts.shows`):
-`isFirstRun && !demo && authorizationStatus == .notDetermined && !primerAnswered(account) && healthIntroAnswered`.
+`isFirstRun && !demo && authorizationStatus == .notDetermined && !primerAnswered(account) && healthIntroAnswered && example != nil`.
 It shows **after Apple Health and before tracker setup**. `provisional` and `authorized` and `denied` skip it silently (not counted). It
-shows **whether or not `push.enabled` is on**: the local kinds (journal reminder, bedtime, not syncing) need the permission whatever the flag
-(notifications ui.md, lead decision 2), and with the flag off the example is a local one. `primerAnswered` is one per-account `UserDefaults`
-flag set by either answer.
+shows **whether or not `push.enabled` is on**, as long as a notification can arrive: the local kinds need the permission whatever the push
+flag (notifications ui.md, lead decision 2), and with it off the example is a local one, which needs `notifications.reminders` on (review C1).
+With both flags off no notification can arrive: no primer, and the plan counts one step fewer. `primerAnswered` is one per-account
+`UserDefaults` flag set by either answer, removed with a deleted account (review S2).
 
 **The `morningScore` example and an open call.** The platform's `MORNING_SCORE_TITLE` is currently "Recovery %@" (a health value in the
 title; notifications ui.md §10, call 4). The mock shows the title this spec wants, "Your morning score is ready", the form the lock-screen rule
