@@ -1594,6 +1594,9 @@
     "Available once this day has loaded." : {
       "comment" : "VoiceOver hint of the Journal sheet's Save while the day is still loading."
     },
+    "Available when this iPhone is online." : {
+      "comment" : "VoiceOver hint on Profile → Privacy → Check with RYFT, dimmed while offline."
+    },
     "Average" : {
       "comment" : "A workout's heart-rate chart: the label of the rule at the average heart rate."
     },
@@ -1779,6 +1782,9 @@
     },
     "Check the target: % 1RM 30–110, RPE 1–10, kg 0–500." : {
       "comment" : "Plan builder: why a target is out of range. The allowed ranges for % 1RM, RPE and kg."
+    },
+    "Check with RYFT" : {
+      "comment" : "Profile → Privacy: asks RYFT again whether it has the consent given on this iPhone."
     },
     "Checked" : {
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: checked, with nothing to count (Other, or an Apple device RYFT can't tell apart)."
@@ -2598,6 +2604,12 @@
     "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
       "comment" : "Training import, step 5: the offline duplicate check."
     },
+    "It continues by itself once RYFT confirms your consent. Nothing to do here." : {
+      "comment" : "Training import: held at a gate with no step to take: consent given here, RYFT's confirmation still out."
+    },
+    "It continues by itself once the privacy policy has loaded. Nothing to do here." : {
+      "comment" : "Training import: held with no step to take until the privacy policy in force is known."
+    },
     "It's missing %@. Install the latest version of RYFT." : {
       "comment" : "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names."
     },
@@ -3000,6 +3012,9 @@
     "RYFT didn't accept that, so nothing changed." : {
       "comment" : "Journal (the day's sheet, Journal settings and Add a habit): RYFT turned the change down (422), so nothing was saved. Trying again won't help."
     },
+    "RYFT didn't answer in time. Your consent may still have arrived; try again to be sure." : {
+      "comment" : "Onboarding → Consent, under Agree and continue: sent, no answer in time, and RYFT, asked again, didn't show the consent."
+    },
     "RYFT didn't answer in time. Your withdrawal may still have arrived; try again to be sure." : {
       "comment" : "Profile → Privacy, under Withdraw consent: the request went out but no answer came in time (a timeout, the connection lost meanwhile), and RYFT still showed the consent when asked again."
     },
@@ -3009,8 +3024,17 @@
     "RYFT didn't answer, so this may not have saved. Try again in a moment." : {
       "comment" : "Settings (Notifications, the body-setting editors): sent, no answer (a timeout, a lost connection); RYFT is asked again."
     },
+    "RYFT didn't answer. Try again in a moment." : {
+      "comment" : "Profile → Privacy, after Check with RYFT: nothing came back from RYFT (no answer in time, the connection lost)."
+    },
     "RYFT had a problem saving this, so it's back as it was. Try again in a moment." : {
       "comment" : "Settings (Notifications, the body-setting editors): RYFT answered with a server error (5xx); the value went back."
+    },
+    "RYFT has recorded your consent. This iPhone starts syncing once it hears back." : {
+      "comment" : "Profile → Privacy footer: consent given here and recorded by RYFT; this iPhone waits for its answer."
+    },
+    "RYFT has recorded your consent. This iPhone asks RYFT again once it's back online, then starts syncing." : {
+      "comment" : "Profile → Privacy footer, offline: consent given here, RYFT's answer to this iPhone still out."
     },
     "RYFT hasn't loaded your settings yet, so this shows the default." : {
       "comment" : "Body setting editors, online while the account hasn't loaded yet: the value is the default, Save is off."
@@ -3191,6 +3215,17 @@
       "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset."
     },
     "Superset with %@" : {},
+    "syncdetails.workouts.paused" : {
+      "comment" : "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused"
+          }
+        }
+      }
+    },
     "SYNC_STALE_LOCAL_1_BODY" : {
       "comment" : "The local \"not syncing\" notification's body (sync.stale.1). No hour count: it can fire 19 to about 30 hours after the last sync.",
       "localizations" : {
@@ -4895,6 +4930,9 @@
       "comment" : "Activity detail: strain pending, heart rate may still arrive."
     },
     "Waiting for last night's sleep" : {},
+    "Waiting for RYFT to confirm your consent" : {
+      "comment" : "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone."
+    },
     "Waiting for the privacy policy" : {
       "comment" : "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force."
     },
@@ -4965,8 +5003,8 @@
     },
     "Withdraw consent" : {},
     "Withdraw your consent?" : {},
-    "Withdrawing your consent. Syncing stops once RYFT confirms." : {
-      "comment" : "Profile → Privacy footer while the consent withdrawal request is on its way."
+    "Withdrawing your consent. Nothing syncs while it's on its way." : {
+      "comment" : "Profile → Privacy footer while the consent withdrawal request is on its way: every upload waits meanwhile."
     },
     "Without heart rate there is no strain for this activity." : {
       "comment" : "Add activity: no strain without heart rate."
@@ -5123,6 +5161,9 @@
     "Your night hasn't reached Apple Health yet. Open %@ to sync it." : {
       "comment" : "Today's morning hint: the tracker's app (e.g. Garmin Connect) hasn't sent last night to Apple Health yet. German: a soft hyphen in “synchronisieren” keeps the full stop off a line of its own at accessibility sizes."
     },
+    "Your last Agree and continue: how long each part took, with its statuses and counts" : {
+      "comment" : "Report a problem → What's included: the agree line (durations in ms, HTTP statuses, counts; no IDs)."
+    },
     "Your last Check sync: its day, and per tracker and data type a result code" : {},
     "Your night is being scored." : {},
     "Your own habits can be deleted. The built-in ones can only be turned off." : {
@@ -5142,6 +5183,9 @@
     },
     "Your watch didn't record heart-rate zones for this day." : {
       "comment" : "Strain's zones tile for a past day without zone data, because the watch didn't record it."
+    },
+    "Your withdrawal didn't reach RYFT, so syncing continues. Try again to stop it." : {
+      "comment" : "Profile → Privacy, under Withdraw consent: the request went out with no answer, and RYFT, asked again in time, still showed the consent. The withdrawal isn't recorded, uploads go on, and the person can try again."
     },
     "Your workouts couldn't be loaded. Try again when you're online." : {
       "comment" : "History: the platform couldn't be reached and nothing is cached (as the session detail's message)."

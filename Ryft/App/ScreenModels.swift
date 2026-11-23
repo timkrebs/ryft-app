@@ -79,8 +79,9 @@ final class ScreenModels {
         }
         trainImport = TrainImportUploader(env: state.env, library: library, coordinator: coordinator)
         trainImport.gate = { [onboarding] in onboarding.uploadGate(for: .trainImport, write: $0) }
-        // The launch check's sync status reaches the sync (an operator's re-sync request).
-        onboarding.statusReceived = { [sync] in sync.receive($0) }
+        // The launch check's sync status reaches the sync (an operator's re-sync request), with when it was asked for: the
+        // sync's ledger counts from then (code review round 2, 9).
+        onboarding.statusReceived = { [sync] in sync.receive($0, requestedAt: $1) }
         // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
@@ -123,6 +124,8 @@ final class ScreenModels {
         state.forgetsAccountState { [weak insights] in insights?.forget() }
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
+                                     pendingGate: { [onboarding] in onboarding.pendingGate },
+                                     awaitsConfirmation: { [onboarding] in onboarding.awaitsConfirmation },
                                      showStrain: { [state] in state.selectedTab = .strain },
                                      openRoute: { [state, strain] route in
                                          strain.requestedRoute = route

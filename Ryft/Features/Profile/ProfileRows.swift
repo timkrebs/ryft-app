@@ -33,7 +33,7 @@ enum ProfileRow: String, CaseIterable, Hashable, Identifiable, Sendable {
     // Settings
     case notifications, journal, heroNumerals, bedtime
     // Privacy
-    case consent, reviewConsent, withdrawConsent, analytics
+    case consent, reviewConsent, checkConsent, withdrawConsent, analytics
     // Account
     case email, timezone, signInMethods, changePassword, deleteAccount, signedIn
     // About
@@ -63,6 +63,9 @@ struct ProfileRowFacts: Equatable, Sendable {
     var journalLive = false
     var bedtimeEnabled = true
     var consentIsCurrent = true
+    /// Given on this iPhone, RYFT's confirmation still out (`ProfileViewModel.consentAwaitsConfirmation`): Check with
+    /// RYFT and Withdraw, never Review and agree.
+    var consentAwaitsConfirmation = false
     /// "Share usage analytics" (`Analytics.showsToggle`): where the prompt could show, and while opted in.
     var showsAnalytics = false
     /// Demo data is on: the account's consent is neither known nor reachable (every consent call goes to the demo's
@@ -113,6 +116,7 @@ enum ProfileRows {
             guard f.isSignedIn else { return [] }
             let analytics: [ProfileRow] = f.showsAnalytics ? [.analytics] : []
             guard !f.isDemo else { return [.consent] + analytics }
+            if f.consentAwaitsConfirmation { return [.consent, .checkConsent, .withdrawConsent] + analytics }
             return [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent] + analytics
         case .account:
             guard f.isSignedIn else { return [.signedIn] }

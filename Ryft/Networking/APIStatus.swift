@@ -266,7 +266,7 @@ actor RequestBudget {
 
 // MARK: - redaction
 
-/// A request path as Sync details, Copy diagnostics and the log may show it: no query or fragment
+/// A request path as Sync details and Copy diagnostics show it: no query or fragment
 /// (`?wake=06:30`, date ranges), and UUID segments (install, session, plan, exercise) as `{id}`.
 /// Day segments (`/v1/days/2026-10-21`) and names stay: they say which day failed, nothing more.
 func redactedPath(_ path: String) -> String {
@@ -274,4 +274,21 @@ func redactedPath(_ path: String) -> String {
     return bare.split(separator: "/", omittingEmptySubsequences: false)
         .map { UUID(uuidString: String($0)) == nil ? String($0) : "{id}" }
         .joined(separator: "/")
+}
+
+/// A request path as the signposts and the log name it (`APIClient.signposter`, `APIStatus.log`, both public; consent
+/// agree lag design.md §6.5: no dates): the route of `redactedPath`, with day segments (`/v1/journal/2026-11-22`) as
+/// `{day}` too. Sync details and Copy diagnostics keep the day (`redactedPath`); a trace or a log line only needs the
+/// route (security review S-1, round 2).
+func signpostRoute(_ path: String) -> String {
+    redactedPath(path).split(separator: "/", omittingEmptySubsequences: false)
+        .map { isDaySegment($0) ? "{day}" : String($0) }
+        .joined(separator: "/")
+}
+
+/// `YYYY-MM-DD`, digits only.
+private func isDaySegment(_ segment: Substring) -> Bool {
+    segment.count == 10 && segment.enumerated().allSatisfy { index, character in
+        index == 4 || index == 7 ? character == "-" : character.isASCII && character.isNumber
+    }
 }

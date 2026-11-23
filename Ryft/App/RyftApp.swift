@@ -313,6 +313,8 @@ struct RyftApp: App {
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
                     Task { await coordinator.run(.reconnect) }
+                    // An agreement RYFT hasn't confirmed yet (its re-read failed offline): asked about again.
+                    Task { await screens.onboarding.reconnected() }
                     Task { await refreshTrain() }
                     // Reports saved offline (Profile → Report a problem).
                     Task(priority: .utility) { await screens.profile.report.flush() }
@@ -575,6 +577,8 @@ struct RootView: View {
         .animation(rootFade, value: onboarding.flowStep)
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
+        // The step on screen, full screen or as the sheet: after Agree and continue, the agree line's `shown`.
+        .onChange(of: onboarding.flowStep ?? onboarding.sheetStep) { _, step in onboarding.stepShown(step) }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },

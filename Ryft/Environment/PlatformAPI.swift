@@ -380,8 +380,20 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before each `GET /v1/me/sync` answers, after it was read (tests hold one open with it).
     var beforeSyncStatus: (@Sendable () async -> Void)?
 
+    #if DEBUG
+    /// Pins `GET /v1/me/sync`'s answer, as the platform's 10 s cache does (tests): its `gate` then isn't computed from the
+    /// account as it is now.
+    var syncStatusOverride: SyncStatus?
+    #endif
+
     func syncStatus() async throws -> SyncStatus {
         try enter("syncStatus")
+        #if DEBUG
+        if let pinned = lock.withLock({ syncStatusOverride }) {
+            await beforeSyncStatus?()
+            return pinned
+        }
+        #endif
         let gate = gate
         let status = lock.withLock {
             SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",

@@ -655,4 +655,18 @@ struct APIClientReviewFixTests {
         #expect(redactedPath("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
         #expect(redactedPath("/v1/me#x") == "/v1/me")
     }
+
+    /// Security review S-1 (consent agree lag design.md §6.5): the signposts' route is a template, no day either.
+    @Test func signpostRoutesHaveNoDays() {
+        #expect(signpostRoute("/v1/journal/2026-11-22") == "/v1/journal/{day}")
+        #expect(signpostRoute("/v1/days/2026-10-21?tz=Europe/Berlin") == "/v1/days/{day}")
+        #expect(signpostRoute("/v1/sessions/3f2504e0-4f89-41d3-9a0c-0305e82c3301/complete") == "/v1/sessions/{id}/complete")
+        #expect(signpostRoute("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
+        #expect(signpostRoute("/v1/me/consent") == "/v1/me/consent")
+        // Only a whole day: a version or a name that looks a little like one stays.
+        #expect(signpostRoute("/v1/plans/2026-11") == "/v1/plans/2026-11")
+        #expect(signpostRoute("/v1/x/2026-11-22a") == "/v1/x/2026-11-22a")
+        // Sync details and Copy diagnostics still show the day.
+        #expect(redactedPath("/v1/journal/2026-11-22") == "/v1/journal/2026-11-22")
+    }
 }
