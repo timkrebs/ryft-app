@@ -42,10 +42,14 @@
 3. **Accounts.**
    - The sign-out wipe removes every pending and every delivered RYFT notification, synchronously, in
      `wipeSharedLocalData`'s device step, without reading `AppEnvironment.live` (ADR 0020's rule). AlarmKit's alarms
-     go in the same step.
+     go in the same step, and the app unregisters from APNs. A wipe resumed after the first frame runs that step at
+     launch.
    - The scheduler forgets its ledger and cancels its pass in the wipe's turn.
    - Every pass re-checks the owner (`AccountBinding` and the store epoch) after each await.
-   - Each launch's first pass removes ours when `notifications.owner` isn't the current account.
+   - Each process's first pass checks `notifications.owner`, never while locked. Another account's: all of ours go,
+     and Notification Center with them. None: each request's own `ryft.account` decides, and an earlier build's
+     bedtime reminders (no account) stay until the planner's first offer. Signed out: all of ours go, Notification
+     Center is cleared, and the key is removed.
    - Demo data freezes the account's requests, adding, moving and removing nothing, as `BedtimePlanner` already does.
    - A local request carries `ryft.account`. A mismatch isn't presented in the foreground, and its tap opens Today.
 4. **Quiet hours** (`User.notifications.quiet_hours`, cached with the user, used offline as last fetched) move the
@@ -77,7 +81,12 @@
 - Quiet hours mean two things on the page, one for news and one for the user's own timers. The page has to say so in
   one line.
 - One more per-install key (`notifications.owner`) and one per-account key (`notifications.journal.<account>`), both
-  wiped.
+  wiped. A session expiry keeps its account's journal key until another account signs in.
+- Unregistering from APNs stops delivery only until the next registration; it ends nothing on the platform. An expired
+  session can't send the `DELETE`, and a sign-out's can fail. iOS often hands the next account the same token, which
+  the platform moves only on an accepted `POST`. Until then a shared iPhone can show the previous account's server
+  alerts (API_REQUESTS NT7, P1). The app narrows the window: no registration behind the invite gate, and none left
+  after a refused `POST`.
 
 **Rules:**
 - No code outside `ReminderScheduler` calls `Notifier.add` or `removePending` for a local request, and none calls

@@ -101,6 +101,12 @@ final class JournalSheetModel {
     static let defaultTime = "18:00"
     static let daysBack = 14
 
+    /// Whether the strip offers `day`: yesterday and the days before it, `daysBack` in all.
+    static func offers(_ day: String, yesterday: String) -> Bool {
+        guard let last = DayFormat.date(from: yesterday) else { return false }
+        return (0..<daysBack).contains { DayFormat.string(from: DayFormat.shift(last, days: -$0)) == day }
+    }
+
     init(store: JournalStore, day: String? = nil, saver: Saver? = nil) {
         self.store = store
         self.saver = saver ?? { [store] day, entries in try await store.save(day: day, entries: entries) }

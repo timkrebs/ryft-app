@@ -24,6 +24,14 @@ Store "What's New".
 - A focused workout screen: one exercise at a time with the next set ready to check, a strip of exercises, an estimated
   1RM or 10RM column, and the rest timer as a pill at the bottom. Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
+- A journal reminder, on by default at 09:00 once you've chosen habits: one notification each morning asking about
+  yesterday, none once it's answered (also on another device), held until quiet hours end. A tap opens the journal on
+  that day. Not switched on yet.
+- When RYFT hasn't synced for about 20 hours (and again after about three days), your iPhone says so, between 09:00 and
+  21:00 and outside quiet hours, unless RYFT's server can already reach this iPhone with that notification. Not switched
+  on yet.
+- Signing out, or a session that ends, removes RYFT's notifications from Notification Center and unregisters this
+  iPhone from push notifications. With previews hidden, each notification says only what kind it is.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
 - Account with Sign in with Apple or email, data export and account deletion.
@@ -163,6 +171,8 @@ Store "What's New".
 ### Fixed
 - A workout without a duration in Apple Health (from another app, or entered by hand) no longer stops syncing. RYFT
   now leaves such a record out, like a sleep stage or reading that ends before it starts, and syncs everything else.
+- Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open, with Demo data on
+  or off (it stayed silent), and with previews hidden it says "Wake-up time".
 - At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
   and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
   room (the first tip's title sat under the status bar).

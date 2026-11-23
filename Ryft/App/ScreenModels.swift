@@ -38,6 +38,8 @@ final class ScreenModels {
     private let sync: SyncService
     /// Republishes the widget when the tracker choice or `devices.setup` changes.
     private let widgetSetupWatch: ObservationWatch
+    /// Registers with APNs when the invite gate opens (`PushRegistrar.refresh` held it back behind the gate).
+    private let inviteGateWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
     /// Train's plans and reads (the app's: `TrainLibrary.shared`, RyftApp's `trainLibrary`).
@@ -62,7 +64,8 @@ final class ScreenModels {
             _ = flags.isOn(.devicesSetup)
             _ = devices.selection?.trackers
         }, changed: { [repository = state.repository] in repository.publishWidget() })
-        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
+        let apiStatus = apiStatus ?? .shared
+        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus, devices: devices) {
             await coordinator.run(.userInitiated)
         }
         // Every upload waits for the same rule, per path and kind of write (ADR 0008): consent to the policy in force,
@@ -81,7 +84,7 @@ final class ScreenModels {
         // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
-        let push = PushRegistrar(env: state.env)
+        let push = PushRegistrar(env: state.env, apiStatus: apiStatus)
         self.push = push
         // The first run's plan (first-run ui.md §2.2): Apple Health's explanation counts while it is still to come, the
         // notification primer while iOS can still ask (its status read now, so the registrar and the plan agree).
@@ -91,8 +94,18 @@ final class ScreenModels {
                                        notificationsPrimer: NotificationPrimerFacts.counts(demo: env.isDemo, status: status,
                                                                                            answered: push.isPrimerAnswered))
         }
+        // `refresh` holds the registration while the invite gate is closed; an account that redeems its code has none
+        // until the next app active otherwise (review code should-fix, round 3).
+        inviteGateWatch = ObservationWatch(read: { _ = apiStatus.inviteBlocked }, changed: { [weak push] in
+            guard !apiStatus.inviteBlocked else { return }
+            Task { await push?.refresh() }
+        })
+        // Its APNs token goes with every side the state forgets: an account change, a wipe, a Demo switch (review S-2).
+        state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
+        // Its habits and answers decide the journal reminder; a day answered takes it away at once.
+        state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
