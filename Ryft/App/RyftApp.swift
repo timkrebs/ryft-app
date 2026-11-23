@@ -80,6 +80,9 @@ struct RyftApp: App {
         _screens = State(initialValue: screens)
         // Sign-out first deletes this phone's push registration, while the session still works.
         AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
+        // The local reminders follow a successful sync, the notification preferences, `push.enabled`, the journal and the
+        // push registration from here on (ADR 0024).
+        state.reminders.watch(journal: screens.journal, push: screens.push)
         // Activities: another account's rows go and the upload stops inside the sign-in, sign-out or wipe itself,
         // before anything reads (design.md §8.4).
         state.bindAccountHooks(.shared)
@@ -89,8 +92,12 @@ struct RyftApp: App {
         // Background refresh, the backfill (in addition to HealthKit delivery) and the nightly
         // cache compaction.
         BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes },
-                                afterRefresh: { [bedtime = screens.bedtime, uploader = state.env.uploader] in
+                                afterRefresh: { [bedtime = screens.bedtime, uploader = state.env.uploader, reminders = state.reminders] in
                                     await bedtime.refresh()
+                                    // Yesterday answered on another device takes its reminder away; then one pass, which
+                                    // the completion waits for.
+                                    await reminders.readYesterdayIfOwed()
+                                    await reminders.rescheduleNow()
                                     // Activities and nights still to send, on the background session, waited for
                                     // at most 20 s (the expiry stops the replay).
                                     await APIClient.$runsInBackground.withValue(true) {
@@ -196,7 +203,10 @@ struct RyftApp: App {
                     // A file opened while signed out is shown now; another account's import flow goes.
                     Task { await screens.importer.accountChanged(signedIn: new != nil) }
                     // The previous account's reminders and alarms go; this one's come back.
-                    Task { await screens.bedtime.accountChanged() }
+                    Task {
+                        await state.reminders.accountChanged()
+                        await screens.bedtime.accountChanged()
+                    }
                     sync.accountChanged()
                     // The training import's job is the account's: the previous one's pass stops, answers are dropped.
                     screens.trainImport.accountChanged()
@@ -239,6 +249,8 @@ struct RyftApp: App {
                     // afresh.
                     Task { await screens.bedtime.refresh() }
                     Task { await screens.featureFlags?.refresh(force: true) }
+                    // Demo data on: the account's local reminders stay exactly as they are; off: they follow again.
+                    state.reminders.reschedule(.demo)
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
                 .onChange(of: auth.state) { _, now in
@@ -294,12 +306,15 @@ struct RyftApp: App {
                                                         coordinator: coordinator, reads: state.env.reads,
                                                         settled: { [repository = state.repository] in
                                                             await repository.settledBeforeCompletion()
-                                                        })
+                                                        },
+                                                        current: { [env = state.env] in (env.auth.accountID, env.isDemo) })
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
                     Task { await coordinator.run(.reconnect) }
+                    // An agreement RYFT hasn't confirmed yet (its re-read failed offline): asked about again.
+                    Task { await screens.onboarding.reconnected() }
                     Task { await refreshTrain() }
                     // Reports saved offline (Profile → Report a problem).
                     Task(priority: .utility) { await screens.profile.report.flush() }
@@ -358,6 +373,11 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.bedtime.refresh()
+                }
+                // The local reminders: what iOS allows now, the journal and "not syncing" (one pass, coalesced).
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    state.reminders.reschedule(.appActive)
                 }
                 // Reports still waiting (saved offline, or the platform was busy).
                 Task(priority: .utility) {
@@ -557,6 +577,8 @@ struct RootView: View {
         .animation(rootFade, value: onboarding.flowStep)
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
+        // The step on screen, full screen or as the sheet: after Agree and continue, the agree line's `shown`.
+        .onChange(of: onboarding.flowStep ?? onboarding.sheetStep) { _, step in onboarding.stepShown(step) }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },

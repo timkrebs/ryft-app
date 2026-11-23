@@ -276,6 +276,14 @@ private struct LoadedDataRow: View {
         .previewEnvironment(g.state)
 }
 
+#Preview("Sync details · workouts waiting for RYFT's confirmation") {
+    let g = MockDevicesStates.graph(demo: false, workoutsAwaitConfirmation: true)
+    NavigationStack { SyncDetailsView(model: g.details) }
+        .previewEnvironment(g.state)
+        // A finished workout, held at the consent gate.
+        .task { _ = await g.train.finish(SessionFactory.empty(in: g.store)) }
+}
+
 #Preview("Sync details · sheet") {
     let g = MockDevicesStates.graph(demo: false)
     SyncDetailsSheet(model: g.details)

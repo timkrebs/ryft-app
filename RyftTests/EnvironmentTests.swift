@@ -646,7 +646,7 @@ struct SyncScoringStateTests {
         let env = AppEnvironment.test(api: api, health: health)
         let sync = SyncService.ungated(env: env)
         let onboarding = OnboardingCoordinator(state: AppState(env: env), apiStatus: APIStatus()) {}
-        onboarding.statusReceived = { sync.receive($0) }
+        onboarding.statusReceived = { sync.receive($0, requestedAt: $1) }
 
         await onboarding.check() // the launch's GET /v1/me/sync, no scoring wait involved
         await sync.syncNow()
@@ -1480,6 +1480,10 @@ struct ReportProblemTests {
     /// `TrackerCheckRecord.lines` of a check.
     private static let syncCheck = ["checked 2026-10-21", "garmin needs_fix heart_rate=arrived hrv=not_shared sleep=missing_visible"]
 
+    /// `AgreeTiming.text` of an Agree and continue.
+    private static let agree = "sent +3 · answered +3120 (204; attempts 204/3080) · step +3121 · shown +3380 · "
+        + "confirmed +3530 ok · committed +5000 · session fail_fast · policy_read no · busy_taps 0"
+
     /// Request `i` of a newest-first list (`i == 0` is the newest).
     private func request(_ i: Int, status: Int = 503, path: String = "/v1/days/2026-10-21",
                          id: String? = nil) -> APIStatus.RequestFailure {
@@ -1492,7 +1496,7 @@ struct ReportProblemTests {
         FeedbackPayload.make(message: message, category: .bug, includeDiagnostics: includeDiagnostics,
                              requests: requests, sync: Self.sync, gates: [.consentRequired],
                              flags: ["sync.gzip": false, "push.enabled": true], trackers: ["garmin", "oura"],
-                             syncCheck: Self.syncCheck, context: context, about: about)
+                             syncCheck: Self.syncCheck, agree: Self.agree, context: context, about: about)
     }
 
     private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true, signedIn: Bool = true,
@@ -1533,6 +1537,7 @@ struct ReportProblemTests {
         #expect(d["report_context"] == "Today · 503 · ctx-1")
         #expect(d["requests"] == requests.map(FeedbackPayload.line).joined(separator: "\n"))
         #expect(d["sync_check"] == Self.syncCheck.joined(separator: "\n"))
+        #expect(d["agree"] == Self.agree)
     }
 
     /// Check sync's result goes as tracker ids and codes, with the check's day: never a source's name, a bundle ID
@@ -2138,6 +2143,7 @@ struct ReportProblemTests {
         var workouts = SyncEngineState.StreamProgress()
         workouts.records = 3
         workouts.newest = workoutEnd
+        workouts.invalid = 1 // a zero-duration workout left out (`SyncScreen`): its count goes, nothing of it
         engine.streams = ["sleep": sleep, "workouts": workouts]
         engine.lastError = "422 sample out of range"
         engine.save(account: try #require(env.auth.accountID), defaults: env.defaults)
@@ -2175,18 +2181,30 @@ struct ReportProblemTests {
         // A check whose sources carry names and times of day.
         await TrackerCheckModel(env: env, health: MockHealthStore.garminLike(now: env.clock.now(), sleepOff: true),
                                 trackers: ["garmin"]).run()
+        // An Agree and continue timed on this phone (`AgreeTiming`): its line goes as `agree`.
+        var agreed = AgreeTiming(account: try #require(env.auth.accountID), at: env.clock.now(), session: .failFast)
+        (agreed.sent, agreed.answered, agreed.status, agreed.step, agreed.committed) = (3, 3_120, 204, 3_121, 5_000)
+        agreed.attempts = [AgreeTiming.Attempt(status: 204, durationMs: 3_080)]
+        agreed.confirmed = "ok"
+        env.persistence.saveDocument(agreed, key: AgreeTiming.documentKey, at: env.clock.now())
         profile.report.prepare(.preview)
         let post = profile.report.payload()
         let d = try #require(post.diagnostics)
 
         #expect(Set(d.keys) == FeedbackPayload.keys)
         #expect(d["trackers"] == "garmin,oura") // ids, never a device's name
+        // The agree line: durations, statuses and counts; no day, no time of day, no ID.
+        let mark = #"(?:\+\d+|-)"#
+        let agreeLine = try Regex(#"sent \#(mark) · answered \#(mark)(?: \(\d+; attempts (?:-|\d+/(?:\d+|-)(?:,\d+/(?:\d+|-))*)\))?"#
+            + #" · step \#(mark) · shown \#(mark) · confirmed (?:\+\d+ )?(?:ok|no_consent|none|failed \d+|dropped|-)"#
+            + #" · committed \#(mark) · session (?:fail_fast|default) · policy_read (?:yes|no) · busy_taps \d+"#,
+            as: Substring.self)
         let templates: [String: [Regex<Substring>]] = [
             "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z(?: \d+ms)?/],
             "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
             "sync": [/phase [a-z]+ · recent (?:true|false) · backfill (?:true|false)/,
                      /queue running (?:true|false) · queued (?:true|false) · backlog \d+ B/,
-                     /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)/],
+                     /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)(?: · invalid \d+)?/],
             "gates": [/-|[a-z_]+(?:,[a-z_]+)*/],
             // The flags' keys as the platform accepts them (`FeatureFlag`): identifiers, never free text.
             "flags": [/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01](?:,[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01])*/],
@@ -2194,6 +2212,7 @@ struct ReportProblemTests {
             "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
             "trackers": [/-|[a-z][a-z0-9_]*(?:,[a-z][a-z0-9_]*)*/],
             "sync_check": [/checked \d{4}-\d{2}-\d{2}/, /[a-z_]+ [a-z_]+(?: [a-z0-9_]+=[a-z_]+)+/],
+            "agree": [agreeLine],
         ]
         for (key, value) in d {
             let patterns = try #require(templates[key])
@@ -2206,12 +2225,15 @@ struct ReportProblemTests {
         #expect(!syncText.contains(":") && syncText.contains("newest \(DayFormat.string(from: wake))"))
         #expect(syncText.components(separatedBy: "\n").count == 2 + env.health.streams.count)
         #expect(!syncText.contains("422") && !syncText.contains("sample out of range")) // free text stays home
+        let streamLines = syncText.components(separatedBy: "\n").filter { $0.hasPrefix("stream ") }
+        #expect(streamLines.filter { $0.hasSuffix(" · invalid 1") }.map { $0.hasPrefix("stream workouts ") } == [true])
         let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
         #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
         #expect(!sent.contains("Connect") && !sent.contains("com.garmin") && !sent.contains("Alex's"))
         // Copy diagnostics carries the same codes on one line.
         let copied = profile.syncDetails.diagnostics
         #expect(copied.contains("sync check: checked \(DayFormat.string(from: env.clock.now())) · garmin needs_fix "))
+        #expect(copied.contains("\nagree: sent +3 · answered +3120 (204; attempts 204/3080) · step +3121 · shown - · "))
         #expect(!copied.contains("Connect") && !copied.contains("com.garmin"))
         // The install ID and other IDs in paths stay home: the only UUIDs are request IDs, in their place.
         #expect(!sent.lowercased().contains(install) && !sent.lowercased().contains(workout))

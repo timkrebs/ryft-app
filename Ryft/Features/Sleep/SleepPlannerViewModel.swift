@@ -402,6 +402,8 @@ final class BedtimePlanner {
     /// Bedtime & wake's page, one for every way in (Profile, Tonight, Sleep → Bedtime): one copy being edited, one save at a
     /// time.
     @ObservationIgnored private(set) lazy var editor = BedtimeScheduleEditor(planner: self)
+    /// The one writer of the local reminders (ADR 0024): the app's, through its state.
+    var reminders: ReminderScheduler { state.reminders }
 
     /// A bedtime that moved less than this keeps its reminder.
     static let rescheduleThreshold: TimeInterval = 10 * 60
@@ -409,6 +411,8 @@ final class BedtimePlanner {
     static let nightsAhead = 7
     static let reminderPrefix = "bedtime."
     static let wakePrefix = "wake."
+    /// `wake.0` (Monday) … `wake.6`: the notifications below iOS 26.
+    static let wakeIDs = (0..<7).map { wakePrefix + "\($0)" }
     static let cacheKey = "sleep.tonight"
 
     /// Tonight's plan as last fetched (offline-first).
@@ -429,7 +433,8 @@ final class BedtimePlanner {
 
     init(state: AppState, alarms: WakeAlarms? = nil) {
         self.state = state
-        self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier)
+        self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier,
+                                                 account: { [weak env = state.env] in env?.auth.accountID })
         systemAccount = state.env.auth.accountID
         load()
     }
@@ -861,21 +866,20 @@ final class BedtimePlanner {
         await removeReminders()
     }
 
+    /// None wanted: the scheduler takes away every `bedtime.*` it knows on iOS (read once per process), with no enumeration.
     private func removeReminders() async {
-        let pending = await env.notifier.pendingIDs().filter { $0.hasPrefix(Self.reminderPrefix) }
-        env.notifier.removePending(ids: pending)
+        await reminders.offerBedtime(.these([]), owner: owner)
     }
 
-    /// The reminders go and `schedule`'s are set (`reminders`). Stops when the schedule or the account changes meanwhile.
-    /// Demo data's plan sets none, and the account's stay.
+    /// `schedule`'s reminders (`reminders`), offered to the one writer of local requests (ADR 0024), which adds what
+    /// changed and removes the rest, for this owner only: an offer for one that isn't current is dropped, and a pass for one
+    /// that changes meanwhile adds nothing more. Demo data's plan sets none, and the account's stay.
     private func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan) async {
         guard !env.isDemo else { return }
-        let gen = generation, owner = self.owner
-        await cancelReminders()
-        for request in Self.reminders(schedule: schedule, plan: plan, now: now) {
-            guard gen == generation, owner == self.owner else { return }
-            try? await env.notifier.add(request)
-        }
+        let account = env.auth.accountID ?? ""
+        let wanted = Self.reminders(schedule: schedule, plan: plan, now: now)
+            .compactMap { LocalReminder.bedtime($0, account: account) }
+        await reminders.offerBedtime(.these(wanted), owner: owner)
     }
 
     /// Tonight's reminder from the plan; the following nights from tonight's time in bed at each night's wake (refined
@@ -1345,9 +1349,12 @@ extension WakeAlarms {
 
 final class SystemWakeAlarms: WakeAlarms {
     private let notifier: Notifier
+    /// Whose the notifications below iOS 26 are (`ryft.account`): the signed-in account when they're set.
+    private let account: @MainActor () -> String?
 
-    init(notifier: Notifier) {
+    init(notifier: Notifier, account: @escaping @MainActor () -> String? = { nil }) {
         self.notifier = notifier
+        self.account = account
     }
 
     var ringsLikeAnAlarm: Bool {
@@ -1384,31 +1391,42 @@ final class SystemWakeAlarms: WakeAlarms {
         }
         #endif
         // Below iOS 26: a notification at each weekday's wake time (it won't ring like an alarm).
-        // Time Sensitive breaks through Focus once the capability is added in Xcode; without it
-        // iOS delivers it as an ordinary notification.
+        let account = account() ?? ""
         for (i, hhmm) in times.enumerated() {
-            let parts = hhmm.split(separator: ":").compactMap { Int($0) }
-            guard parts.count == 2 else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = String(localized: "Time to get up")
-            content.body = String(localized: "Your wake time from Bedtime & wake.")
-            content.sound = .default
-            content.interruptionLevel = .timeSensitive
-            // Calendar weekday: Sunday 1 … Saturday 7; index 0 is Monday.
-            let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: parts[0], minute: parts[1],
-                                                                                     weekday: (i + 1) % 7 + 1),
-                                                        repeats: true)
-            try await notifier.add(UNNotificationRequest(identifier: BedtimePlanner.wakePrefix + "\(i)", content: content,
-                                                         trigger: trigger))
+            guard let request = Self.request(index: i, at: hhmm, account: account) else { continue }
+            try await notifier.add(request)
         }
     }
 
+    /// Weekday `index`'s wake notification (Monday 0) at "HH:MM", below iOS 26; nil for a malformed time. Time Sensitive
+    /// breaks through Focus once the capability is added in Xcode; without it iOS delivers it as an ordinary notification.
+    /// Shaped like RYFT's other local requests (`ryft: {category, day, account}`, the thread is the category), so it
+    /// presents while RYFT is open for the account it was set for (review S-3), and with previews hidden its category's
+    /// placeholder stands in.
+    static func request(index: Int, at hhmm: String, account: String) -> UNNotificationRequest? {
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Time to get up")
+        content.body = String(localized: "Your wake time from Bedtime & wake.")
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = PushCategories.wake
+        content.threadIdentifier = PushCategories.wake
+        content.userInfo = ["ryft": ["category": PushCategories.wake, "day": "", "account": account]]
+        // Calendar weekday: Sunday 1 … Saturday 7; index 0 is Monday.
+        let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: parts[0], minute: parts[1],
+                                                                                 weekday: (index + 1) % 7 + 1),
+                                                    repeats: true)
+        return UNNotificationRequest(identifier: BedtimePlanner.wakePrefix + "\(index)", content: content, trigger: trigger)
+    }
+
+    /// The wake notifications have fixed ids (one per weekday): removed by name, without reading iOS's pending set.
     func cancelAll() async {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
         #endif
-        let ours = await notifier.pendingIDs().filter { $0.hasPrefix(BedtimePlanner.wakePrefix) }
-        notifier.removePending(ids: ours)
+        notifier.removePending(ids: BedtimePlanner.wakeIDs)
     }
 }
 

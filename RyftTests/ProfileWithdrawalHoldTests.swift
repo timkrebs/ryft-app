@@ -182,7 +182,7 @@ struct ProfileWithdrawalHoldTests {
             try await w.wait("held") { find(w, Self.logOut)?.isEnabled == false }
             try await w.settle()
             try await expectHeld(w)
-            let footer = String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.")
+            let footer = String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.")
             #expect(w.node(footer) != nil, "the Privacy footer says what is happening")
 
             // A tap on either does nothing: Demo data stays off, no Log out confirmation, still signed in.
@@ -228,7 +228,7 @@ struct ProfileWithdrawalHoldTests {
             try await w.settle()
             try await expectLive(w)
             #expect(spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement], "\(spoken.lines)")
-            #expect(w.node(String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.")) == nil)
+            #expect(w.node(String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.")) == nil)
 
             await check.open()
             await withdrawing.value
