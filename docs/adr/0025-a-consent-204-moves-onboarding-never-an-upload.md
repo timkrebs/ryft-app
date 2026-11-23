@@ -70,7 +70,23 @@
    - So it does after a withdrawal sent with no answer (security review round 3, S-2): the `DELETE` may have landed.
      `ConsentState.withdrawalUnresolvedSince` is kept in defaults beside `withdrawnAt`, so a relaunch and a background
      launch hold too. It ends only on a `GET /v1/me` asked for after the attempt ended and stored (the withdrawal's own
-     re-read, asked since then, or the next check), a withdrawal answered, a new agreement, or another account.
+     re-read, asked since then, or the next check), a withdrawal answered, a new agreement, or another account or none
+     (a sign-out: `switchAccount`, and the account wipe for a launch that never ran it).
+   - **It is written before the `DELETE` leaves** (since: the attempt's start), so an app killed while the request is out
+     holds uploads at the next launch (security review round 4):
+     - a `204` records the withdrawal (`withdrawnAt`) and removes it;
+     - a refusal that left the consent as it was (`4xx`, `500`, `503`, offline) removes it, and an earlier one without an
+       answer stays;
+     - anything else, a `502` or `504` included (a gateway may answer after the `UPDATE` committed), moves it to when the
+       attempt ended: today's no-answer behaviour.
+   - **One dated after now is void** (the clock was set back): any stored `GET /v1/me` ends it, as it settles a void
+     agreement (decision 1).
+   - **The answer that ends it records the withdrawal first** when it doesn't show consent to the latest policy
+     (`withdrawnAt`, as `withdrew(at:)` does): a user write the store refuses can't open the gate again after the hold
+     is gone.
+   - **Still shows the consent:** the answer ends the hold, the withdrawal isn't sent again, and Profile says so plainly
+     ("didn't reach RYFT, syncing continues, try again"). Main behaves the same. Resending the idempotent `DELETE`
+     while RYFT shows the consent is the follow-up below.
    - A data gate opens only when the platform's own user shows consent to the fresh policy: stored from a `GET /v1/me`
      asked for at or after the `204`, with no refusal counted.
    - Writes the phone makes itself still only close the gate.
@@ -135,6 +151,10 @@ for the withdrawal (design.md D6, `SettingsWrite`).
   `403` or `X-RYFT-Gate`. That is the exposure ADR 0008 already bounds: at most one page per withdrawal made elsewhere.
 
 **Follow-ups:**
+- **"A withdrawal RYFT hasn't heard is sent again" (option A, security review round 4).** Keep the hold while RYFT still
+  shows the consent, and resend the `DELETE` on check, reconnect and launch. It ends on a `204`, a `/v1/me` without the
+  consent, a new Agree or an account change. It changes decision 3 (an answer that shows the consent no longer ends the
+  hold), so it needs an ios-architect note first; the privacy page should then say that uploads stop on the phone at once.
 - **Platform request (D8).** `GET /v1/me/sync` → `gate` should never be served from the cache (`docs/API_REQUESTS.md`).
   Decision 5 then has nothing to do, but it stays.
 - **`redeemInvite`'s re-check** should leave the step's request the same way (STATUS).

@@ -359,11 +359,18 @@ The suite is `ConsentAgreeTests` (Swift Testing, synthetic data). It uses these 
 - **A withdrawal without an answer** (security review round 3, S-2). The `DELETE` may have landed with its `204` lost,
   and the stored user still shows the consent. `ConsentState.withdrawalUnresolvedSince`, kept in defaults beside
   `withdrawnAt`, holds data meanwhile, also after a relaunch and in a background launch. It ends on a `/v1/me` asked
-  for after the attempt ended and stored, an answered withdrawal, a new Agree or another account. The re-read asks
-  since the cancellation, and every check and a reconnect ask while it's unresolved. A pause meanwhile names nothing
-  (N-a). What's left: RYFT may record the `DELETE` after a `/v1/me` that still showed the consent. The gate then
-  opens on that word, as it would after a withdrawal on another device (ADR 0008), and Train's session `PUT`, which
-  the platform doesn't gate, can go once.
+  for after the attempt ended and stored, an answered withdrawal, a new Agree, or another account or none (a sign-out;
+  the account wipe removes it too). The re-read asks since the cancellation, and every check and a reconnect ask while
+  it's unresolved. A pause meanwhile names nothing (N-a). What's left: RYFT may record the `DELETE` after a `/v1/me`
+  that still showed the consent. The gate then opens on that word, as it would after a withdrawal on another device
+  (ADR 0008), and Train's session `PUT`, which the platform doesn't gate, can go once. Profile says plainly that the
+  withdrawal didn't reach RYFT and syncing continues. Resending it is the follow-up (option A, ADR 0025).
+- **The app killed while the `DELETE` is out** (round 4). The hold is written before the request leaves (since: the
+  attempt's start), so a relaunch or a background wake holds until a `/v1/me` asked after it. A `204` records
+  `withdrawnAt` and removes it; a refusal that left the consent as it was (a `4xx`, `500`, `503`, offline) removes it, an
+  earlier unanswered one stays; a `502` or `504` and any other no-answer keep it. One dated after now (the clock set
+  back) is void, and any stored `/v1/me` ends it. The answer that ends it records `withdrawnAt` first when it shows no
+  consent to the latest policy, so a refused user save can't reopen the gate.
 - **A late answer after the 10 s deadline** (S1). The read goes on and lands: Agree's sentence goes once the consent
   step does, and a withdrawal without an answer keeps the consent sheet deferred however its re-read ends, so a later
   answer without the consent doesn't open it over Profile (code review round 2, 1 and 2; round 3, 3).
