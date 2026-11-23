@@ -1,6 +1,6 @@
 # Status — 2026-11-22
 
-## 2026-11-22: N3, local reminders (`feat/reminder-scheduler`, stacked on `feat/notifications`)
+## 2026-11-22: N3, local reminders (`feat/reminder-scheduler`; its plan and design merged as #136)
 
 Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7, §9–§12; ADR 0024).
 
