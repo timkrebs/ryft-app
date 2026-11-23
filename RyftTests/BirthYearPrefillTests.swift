@@ -420,8 +420,11 @@ struct BirthYearPrefillScreenTests {
         return find(w.window)
     }
 
-    /// The row of `year` on the wheel: "Choose your birth year" first, then the years newest first (2010 in 2026).
-    private static func row(_ year: Int) -> Int { 2010 - year + 1 }
+    /// The row of `year` on the wheel: "Choose your birth year" first, then the years as the view lists them. Taken from
+    /// `birthYears(now:)` on the state's own clock (`SystemClock`), so the row stays right in any year.
+    private static func row(_ year: Int) -> Int {
+        (OnboardingCoordinator.birthYears(now: .now).firstIndex(of: year) ?? -2) + 1
+    }
 
     /// A turn of the wheel as a finger ends it: the row selected, then the delegate told, as UIKit does.
     private static func turn(_ w: HostedWindow, to year: Int) async throws {

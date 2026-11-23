@@ -22,3 +22,6 @@
 Checked and sound (both reviewers): `core` is unchanged (types, observers, paging); there's no sheet after Not now on any path; the asked record is per account and wiped only on deletion; only the year reaches the view, and nothing is sent before Continue; the merge with #141 is clean; no entitlement or pbxproj change.
 
 For the user: the privacy policy (ryftlab.de) should say the birth year can come from Apple Health's date of birth, on tap, and that only the year is kept. Legal should confirm the basis. App Store Connect needs no change.
+
+### Re-verification (code-reviewer, round 1 fixes)
+C1, C3, C4–C6 resolved. C2's hosted wheel test hard-coded the 2026 wheel (`row(year) = 2010 - year + 1`) over a `SystemClock` state, so it would fail from 2027-01-01. Fixed by ios-lead: the row comes from `birthYears(now:)`. One gap left untested, accepted: `healthAllowed` skips Demo data (`!isDemo`), but no test covers it.
