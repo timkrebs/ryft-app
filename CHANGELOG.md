@@ -158,8 +158,6 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
-- Demo data moves on at midnight: with the app open past 00:00 in Demo data, Today and the other screens showed an empty day
-  until the next launch.
 - At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
   and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
   room (the first tip's title sat under the status bar).

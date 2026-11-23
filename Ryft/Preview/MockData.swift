@@ -33,34 +33,50 @@ enum MockData {
                                      UserSource(name: "Alex's iPhone", bundleId: "com.apple.health.3F0A",
                                                 kinds: [.steps], lastSeen: .now.addingTimeInterval(-600))])
 
-    /// Oldest first; the last element is today (the clock's, so after midnight the window has moved on one day).
-    static var history: [DailyScore] { nights.map(\.score) }
+    /// Oldest first; the last element is today: the day the process first read the mock.
+    static let history: [DailyScore] = nights.map(\.score)
 
     static var todayScore: DailyScore { history[history.count - 1] }
 
-    static var todayDetail: DayDetail { todayDetail(asOf: .now) }
+    /// The mock's day is the one its nights were built for, for the life of the process (`MockTrain.history` is frozen the
+    /// same way, and the workout→session links agree only while both are). Every read below anchors to it, never to
+    /// `.now`: past midnight `.now` is a day the table doesn't have, `detail(for: .now)` came back empty and
+    /// `todayDetail.workouts[0]` trapped with "Index out of range" (CI, 2026-11-23 00:00:15). A relaunch starts a new day.
+    static var todayDetail: DayDetail { Window(nights: nights).today }
 
-    /// Today's night as the clock `now` has it (the seam the midnight test crosses).
-    static func todayDetail(asOf now: Date) -> DayDetail { detail(for: now, asOf: now) }
+    static func detail(for date: Date) -> DayDetail { Window(nights: nights).detail(for: date) }
 
-    static func detail(for date: Date) -> DayDetail { detail(for: date, asOf: .now) }
+    /// The nights as a value, so a test can build one at an instant far from the real date and read it.
+    struct Window {
+        let nights: [Night]
 
-    static func detail(for date: Date, asOf now: Date) -> DayDetail {
-        let day = DayFormat.string(from: date)
-        guard let night = nights(asOf: now).first(where: { $0.score.day == day }) else {
-            return DayDetail(score: .empty(day: day), sleep: nil, workouts: [])
+        /// A window of the 90 nights ending on the day of `instant`.
+        init(endingOn instant: Date) { nights = MockData.makeNights(today: Calendar.current.startOfDay(for: instant)) }
+        init(nights: [Night]) { self.nights = nights }
+
+        /// The last night's day, as a date.
+        var lastDay: Date { nights.last.flatMap { DayFormat.date(from: $0.score.day) } ?? .now }
+
+        /// The window's own last day, whatever the wall clock says.
+        var today: DayDetail { detail(for: lastDay) }
+
+        func detail(for date: Date) -> DayDetail {
+            let day = DayFormat.string(from: date)
+            guard let night = nights.first(where: { $0.score.day == day }) else {
+                return DayDetail(score: .empty(day: day), sleep: nil, workouts: [])
+            }
+            var strain = night.strain
+            let sessions = MockTrain.sessions(on: day)
+            strain.sessions = sessions.isEmpty ? nil : sessions
+            let muscular = sessions.compactMap(\.muscularTrimp).reduce(0, +)
+            strain.muscularTrimp = muscular > 0 ? Int(muscular.rounded()) : 0
+            let workouts = night.workouts.map { w in
+                var linked = w
+                linked.muscularLoad = sessions.first { $0.id == w.sessionId }?.muscularTrimp
+                return linked
+            }
+            return DayDetail(score: night.score, sleep: night.sleep, strain: strain, workouts: workouts)
         }
-        var strain = night.strain
-        let sessions = MockTrain.sessions(on: day)
-        strain.sessions = sessions.isEmpty ? nil : sessions
-        let muscular = sessions.compactMap(\.muscularTrimp).reduce(0, +)
-        strain.muscularTrimp = muscular > 0 ? Int(muscular.rounded()) : 0
-        let workouts = night.workouts.map { w in
-            var linked = w
-            linked.muscularLoad = sessions.first { $0.id == w.sessionId }?.muscularTrimp
-            return linked
-        }
-        return DayDetail(score: night.score, sleep: night.sleep, strain: strain, workouts: workouts)
     }
 
     static var allWorkouts: [Workout] { nights.flatMap(\.workouts) }
@@ -107,7 +123,7 @@ enum MockData {
     }
 
     static func sleepRange(_ kind: SleepRangeKind) -> SleepRange {
-        let window = DayFormat.days(endingAt: .now, count: kind.days)
+        let window = DayFormat.days(endingAt: Window(nights: nights).lastDay, count: kind.days)
         let days = Set(window)
         let selected = nights.filter { days.contains($0.score.day) }
         let list = selected.map { n in
@@ -129,8 +145,8 @@ enum MockData {
 
     /// `GET /v1/trends` from the mock history: one point per scored day with a
     /// value (gaps absent, like the platform); `hrv`/`rhr` carry the latest baseline.
-    static func trend(_ metric: TrendMetric, range: TrendRange, today: Date = .now) -> TrendSeries {
-        let window = Set(DayFormat.days(endingAt: today, count: range.days))
+    static func trend(_ metric: TrendMetric, range: TrendRange, today: Date? = nil) -> TrendSeries {
+        let window = Set(DayFormat.days(endingAt: today ?? Window(nights: nights).lastDay, count: range.days))
         let days = history.filter { window.contains($0.day) }
         let points = days.compactMap { d in metric.mockValue(in: d).map { TrendPoint(day: d.day, value: $0) } }
         let values = points.compactMap(\.value)
@@ -180,31 +196,14 @@ enum MockData {
         static let napYesterday = 40
     }
 
-    private struct Night {
+    struct Night {
         let score: DailyScore
         let sleep: SleepDetail
         let strain: DayStrain
         let workouts: [Workout]
     }
 
-    /// The 90 nights ending on the day of `now`, built once per calendar day. They were once a `static let`, built at the
-    /// first read: a process alive across midnight then kept yesterday as its "today", and `todayDetail` (read at `.now`)
-    /// found no night, so `todayDetail.workouts[0]` trapped with "Index out of range" at 00:00.
-    private static func nights(asOf now: Date) -> [Night] {
-        let today = Calendar.current.startOfDay(for: now)
-        let key = DayFormat.string(from: today)
-        nightsLock.lock()
-        defer { nightsLock.unlock() }
-        if let built = nightsByDay[key] { return built }
-        let built = makeNights(today: today)
-        nightsByDay[key] = built
-        return built
-    }
-
-    private static var nights: [Night] { nights(asOf: .now) }
-
-    private nonisolated(unsafe) static var nightsByDay: [String: [Night]] = [:]
-    private static let nightsLock = NSLock()
+    private static let nights: [Night] = makeNights(today: Calendar.current.startOfDay(for: .now))
 
     private static func makeNights(today: Date) -> [Night] {
         var rng = SeededRandom(seed: 42)
