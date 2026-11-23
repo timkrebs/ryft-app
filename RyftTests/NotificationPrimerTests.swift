@@ -18,46 +18,65 @@ struct NotificationPrimerTests {
 
     // MARK: when
 
-    @Test("Shown only while iOS can ask: notDetermined and provisional; authorized, denied and ephemeral skip it",
-          arguments: [(UNAuthorizationStatus.notDetermined, true), (.provisional, true), (.authorized, false),
+    @Test("Shown only while iOS hasn't been asked: notDetermined; provisional, authorized, denied and ephemeral skip it (§4.3)",
+          arguments: [(UNAuthorizationStatus.notDetermined, true), (.provisional, false), (.authorized, false),
                       (.denied, false), (.ephemeral, false)])
     func onlyWhileIOSCanAsk(_ status: UNAuthorizationStatus, _ shows: Bool) {
         #expect(NotificationPrimerFacts.shows(firstRun: true, demo: false, status: status, answered: false,
-                                              healthIntroAnswered: true) == shows)
-        #expect(NotificationPrimerFacts.counts(demo: false, status: status, answered: false) == shows)
+                                              healthIntroAnswered: true, example: .morningScore) == shows)
+        #expect(NotificationPrimerFacts.counts(demo: false, status: status, answered: false, example: .morningScore) == shows)
     }
 
-    @Test("Never after the first run, in demo mode, once answered, or before Apple Health's step")
+    @Test("Never after the first run, in demo mode, once answered, before Apple Health's step, or with nothing that can arrive")
     func neverOutsideItsPlace() {
         let ok = (firstRun: true, demo: false, answered: false, health: true)
+        let example: NotificationPrimerExample? = .journal
         #expect(NotificationPrimerFacts.shows(firstRun: ok.firstRun, demo: ok.demo, status: .notDetermined,
-                                              answered: ok.answered, healthIntroAnswered: ok.health))
+                                              answered: ok.answered, healthIntroAnswered: ok.health, example: example))
         #expect(!NotificationPrimerFacts.shows(firstRun: false, demo: false, status: .notDetermined, answered: false,
-                                               healthIntroAnswered: true))
+                                               healthIntroAnswered: true, example: example))
         #expect(!NotificationPrimerFacts.shows(firstRun: true, demo: true, status: .notDetermined, answered: false,
-                                               healthIntroAnswered: true))
+                                               healthIntroAnswered: true, example: example))
         #expect(!NotificationPrimerFacts.shows(firstRun: true, demo: false, status: .notDetermined, answered: true,
-                                               healthIntroAnswered: true))
+                                               healthIntroAnswered: true, example: example))
         #expect(!NotificationPrimerFacts.shows(firstRun: true, demo: false, status: .notDetermined, answered: false,
-                                               healthIntroAnswered: false))
+                                               healthIntroAnswered: false, example: example))
+        #expect(!NotificationPrimerFacts.shows(firstRun: true, demo: false, status: .notDetermined, answered: false,
+                                               healthIntroAnswered: true, example: nil), "nothing can arrive")
+        #expect(!NotificationPrimerFacts.counts(demo: false, status: .notDetermined, answered: false, example: nil))
     }
 
-    @Test("An account whose iPhone already answered iOS has no primer step in its plan (the real wiring)",
-          arguments: [UNAuthorizationStatus.authorized, .denied])
+    @Test("An account whose iPhone already answered iOS, or allowed quiet delivery, has no primer step in its plan (the real wiring)",
+          arguments: [UNAuthorizationStatus.authorized, .denied, .provisional])
     func alreadyDeterminedIsNotAStep(_ status: UNAuthorizationStatus) async {
         notifier.status = status
-        let screens = Self.screens(notifier: notifier)
+        let screens = Self.screens(notifier: notifier, flags: [.pushEnabled: true, .notificationsReminders: true])
         await screens.onboarding.check()
         #expect(screens.onboarding.plan?.steps.contains(.notifications) == false)
         #expect(screens.push.status == status, "the registrar read the same answer the plan did")
         #expect(!NotificationPrimerFacts.shows(firstRun: screens.onboarding.isFirstRun, demo: false, status: screens.push.status,
-                                               answered: screens.push.isPrimerAnswered, healthIntroAnswered: true))
+                                               answered: screens.push.isPrimerAnswered, healthIntroAnswered: true,
+                                               example: .morningScore))
+    }
+
+    @Test("Not asked yet: the primer counts only while a notification can arrive; with neither flag the plan has one step fewer",
+          arguments: [(push: false, reminders: false, counted: false), (push: true, reminders: false, counted: true),
+                      (push: false, reminders: true, counted: true), (push: true, reminders: true, counted: true)])
+    func countedOnlyWhenSomethingArrives(_ flags: (push: Bool, reminders: Bool, counted: Bool)) async throws {
+        notifier.status = .notDetermined
+        let screens = Self.screens(notifier: notifier, flags: [.pushEnabled: flags.push, .notificationsReminders: flags.reminders])
+        await screens.onboarding.check()
+        let steps = try #require(screens.onboarding.plan?.steps)
+        #expect(steps.contains(.notifications) == flags.counted, "\(flags): \(steps)")
+        let others = steps.filter { $0 != .notifications }
+        #expect(steps.count == others.count + (flags.counted ? 1 : 0))
+        #expect(notifier.authorizationPrompts == 0, "planning asks iOS nothing")
     }
 
     @Test("Not asked yet: the primer is a counted step, after Apple Health")
     func notAskedIsAStep() async throws {
         notifier.status = .notDetermined
-        let screens = Self.screens(notifier: notifier)
+        let screens = Self.screens(notifier: notifier, flags: [.pushEnabled: true])
         await screens.onboarding.check()
         let steps = try #require(screens.onboarding.plan?.steps)
         #expect(steps.contains(.notifications))
@@ -110,12 +129,24 @@ struct NotificationPrimerTests {
 
     // MARK: the example
 
-    @Test("The example arrives for this account: the morning score with push on; else the journal when live; else not syncing")
-    func exampleFollowsWhatArrives() {
-        #expect(NotificationPrimerExample.choose(pushEnabled: true, journalLive: true) == .morningScore)
-        #expect(NotificationPrimerExample.choose(pushEnabled: true, journalLive: false) == .morningScore)
-        #expect(NotificationPrimerExample.choose(pushEnabled: false, journalLive: true) == .journal)
-        #expect(NotificationPrimerExample.choose(pushEnabled: false, journalLive: false) == .syncStale)
+    /// Review C1: the example is one that can arrive. The morning score is a push (`push.enabled`); the journal reminder and
+    /// "not syncing" are local kinds behind `notifications.reminders` (`ReminderScheduler`); with neither, nothing.
+    @Test("Every flag combination: the morning score with push on; else the journal (reminders on, journal live); else not syncing (reminders on); else none",
+          arguments: [true, false], [true, false])
+    func exampleFollowsWhatArrives(_ push: Bool, _ reminders: Bool) {
+        for journal in [true, false] {
+            let expected: NotificationPrimerExample? = push ? .morningScore : !reminders ? nil : journal ? .journal : .syncStale
+            #expect(NotificationPrimerExample.choose(pushEnabled: push, remindersOn: reminders, journalLive: journal) == expected,
+                    "push \(push), reminders \(reminders), journal \(journal)")
+            let flags = StaticFlags([.pushEnabled: push, .notificationsReminders: reminders])
+            #expect(NotificationPrimerExample.current(flags: flags, journalLive: journal) == expected, "read through the flags")
+        }
+    }
+
+    @Test("notifications.reminders not known yet counts as off, as the scheduler adds nothing then")
+    func remindersNotKnownIsOff() {
+        let flags = UnknownReminders()
+        #expect(NotificationPrimerExample.current(flags: flags, journalLive: true) == nil)
     }
 
     @Test("No health value, no count: no digit in any title or message", arguments: NotificationPrimerExample.allCases)
@@ -156,14 +187,50 @@ struct NotificationPrimerTests {
         }
     }
 
+    // MARK: the invite gate (review S1)
+
+    /// Continue behind a closed invite gate: iOS asks (the permission is the person's), but nothing registers with APNs and
+    /// nothing is sent; `ScreenModels`' invite-gate watch registers once the gate opens, once.
+    @Test("Continue behind the invite gate: no APNs registration, no POST; the gate opens: one registration")
+    func continueBehindTheInviteGate() async throws {
+        let api = MockPlatformAPI()
+        let status = APIStatus()
+        let screens = Self.screens(notifier: notifier, flags: [.pushEnabled: true], api: api, status: status)
+        status.observe([.inviteRequired], enforced: true)
+        let model = NotificationPrimerModel(push: screens.push, analytics: AppEnvironment.test().analytics)
+        #expect(await model.allow() == .granted && notifier.authorizationPrompts == 1)
+        #expect(notifier.remoteRegistrations == 0 && !notifier.registeredForRemote, "behind the gate: no APNs")
+        // A token APNs hands over anyway (an earlier session's registration) isn't sent behind the gate.
+        await screens.push.didRegister(deviceToken: Data([0x0A, 0x0B]))
+        #expect(api.count("registerPush") == 0, "no POST behind the gate")
+
+        status.resolved(.inviteRequired)
+        #expect(await eventually(timeout: .seconds(10)) { notifier.remoteRegistrations == 1 }, "the gate opened: registered")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(notifier.remoteRegistrations == 1, "once")
+    }
+
     // MARK: support
 
     /// The app's own graph of models on a test environment (signed in, not demo): `ScreenModels` wires the plan's inputs.
-    static func screens(notifier: MockNotifier) -> ScreenModels {
-        let state = AppState(env: .test(notifier: notifier))
+    static func screens(notifier: MockNotifier, flags: [FeatureFlag: Bool] = [:], api: MockPlatformAPI? = nil,
+                        status: APIStatus? = nil) -> ScreenModels {
+        let state = AppState(env: .test(api: api ?? MockPlatformAPI(), notifier: notifier, flags: flags))
         let sync = SyncService(env: state.env)
         return ScreenModels(state: state, sync: sync,
                             coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
-                            store: TrainPreview.store, library: TrainPreview.library, apiStatus: APIStatus())
+                            store: TrainPreview.store, library: TrainPreview.library, apiStatus: status ?? APIStatus())
     }
+}
+
+/// `notifications.reminders` with no answer yet (no config for the account): `known` is nil.
+@MainActor
+private final class UnknownReminders: FeatureFlagProvider {
+    private let base = StaticFlags([:])
+    func isOn(_ flag: FeatureFlag) -> Bool { base.isOn(flag) }
+    func source(of flag: FeatureFlag) -> FlagSource { base.source(of: flag) }
+    func newest(_ flag: FeatureFlag) -> Bool { base.newest(flag) }
+    var newestAnalytics: AnalyticsConfig? { nil }
+    func known(_ flag: FeatureFlag) -> Bool? { flag == .notificationsReminders ? nil : base.known(flag) }
+    var onNewest: (@MainActor () -> Void)?
 }

@@ -4594,7 +4594,6 @@
     "Taking longer than usual · Details" : {
       "comment" : "Today's status line when scoring takes over 3× the usual time; tapping opens Sync details."
     },
-    "Tell me when my first scores are ready" : {},
     "Tell RYFT what you wear to see how to set up your data." : {
       "comment" : "Devices & sync when no tracker is chosen."
     },

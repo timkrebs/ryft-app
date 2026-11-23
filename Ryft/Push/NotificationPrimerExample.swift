@@ -2,16 +2,30 @@ import Foundation
 import UserNotifications
 
 /// The one notification the first run's primer shows on its lock screen (first-run ui.md §4.3): one that **will** arrive for
-/// this account, or the mock lies. The morning score with `push.enabled`; without it the journal reminder when the journal is
-/// live, else "not syncing", which is live in every mode. No health value, no habit name, no count in a title or message
+/// this account, or the mock lies. The morning score with `push.enabled`; without it the journal reminder when
+/// `notifications.reminders` is on and the journal is live, else "not syncing" while `notifications.reminders` is on; with
+/// neither flag nothing can arrive, and there is no primer (`choose` is nil). No health value, no habit name, no count in a title or message
 /// (the lock-screen rule, notifications ui.md §5); the morning title is the form a locked phone shows with iOS's default
 /// "Show Previews: When Unlocked" (lead decision 1).
 enum NotificationPrimerExample: Equatable, Sendable, CaseIterable {
     case morningScore, journal, syncStale
 
-    /// `pushEnabled`: the `push.enabled` flag. `journalLive`: the journal is available (`JournalStore.isLive`).
-    static func choose(pushEnabled: Bool, journalLive: Bool) -> Self {
-        pushEnabled ? .morningScore : (journalLive ? .journal : .syncStale)
+    /// A notification that can arrive, or nil when none can. `pushEnabled`: `push.enabled` (the morning score is a push).
+    /// `remindersOn`: `notifications.reminders`, which gates the journal reminder and the "not syncing" fallback
+    /// (`ReminderScheduler`). `journalLive`: the journal is available (`JournalStore.isLive`).
+    static func choose(pushEnabled: Bool, remindersOn: Bool, journalLive: Bool) -> Self? {
+        if pushEnabled { return .morningScore }
+        guard remindersOn else { return nil }
+        return journalLive ? .journal : .syncStale
+    }
+
+    /// `choose` from the flags, read as the registrar and `ReminderScheduler` read them: `push.enabled` as `isOn` (what
+    /// `PushRegistrar` registers by), `notifications.reminders` as `known` (the scheduler adds a new kind only once it is
+    /// known on; not known yet is not on here either). No second source of truth.
+    @MainActor
+    static func current(flags: FeatureFlagProvider, journalLive: Bool) -> Self? {
+        choose(pushEnabled: flags.isOn(.pushEnabled), remindersOn: flags.known(.notificationsReminders) == true,
+               journalLive: journalLive)
     }
 
     /// The notification's title.
@@ -79,22 +93,23 @@ enum NotificationPrimerExample: Equatable, Sendable, CaseIterable {
 
 /// When the primer is a step of the first run (first-run ui.md §4.3). Pure: the caller reads the status and the answer.
 enum NotificationPrimerFacts {
-    /// iOS can still ask for alerts: never asked (`notDetermined`), or quiet delivery granted without a prompt
-    /// (`provisional`), where asking for alerts still prompts. `authorized`, `denied` and `ephemeral` skip the primer.
+    /// iOS hasn't been asked (`notDetermined`). `provisional` (quiet delivery granted without a prompt), `authorized`,
+    /// `denied` and `ephemeral` skip the primer (§4.3).
     static func iOSCanAsk(_ status: UNAuthorizationStatus) -> Bool {
-        status == .notDetermined || status == .provisional
+        status == .notDetermined
     }
 
-    /// The plan counts it (taken when the first run starts, before Apple Health): not demo data, iOS can ask, and this
-    /// account hasn't answered the primer on this phone. Whatever `push.enabled` says: the local kinds need the permission
-    /// too (notifications ui.md, lead decision 2).
-    static func counts(demo: Bool, status: UNAuthorizationStatus, answered: Bool) -> Bool {
-        !demo && iOSCanAsk(status) && !answered
+    /// The plan counts it (taken when the first run starts, before Apple Health): not demo data, iOS can ask, this account
+    /// hasn't answered the primer on this phone, and a notification can arrive (`example`, from
+    /// `NotificationPrimerExample.current`: nil when neither `push.enabled` nor `notifications.reminders` is on, and then the
+    /// permission would be asked for nothing).
+    static func counts(demo: Bool, status: UNAuthorizationStatus, answered: Bool, example: NotificationPrimerExample?) -> Bool {
+        !demo && iOSCanAsk(status) && !answered && example != nil
     }
 
     /// It shows now: the first run, after Apple Health's step was answered, and the plan's conditions still hold.
     static func shows(firstRun: Bool, demo: Bool, status: UNAuthorizationStatus, answered: Bool,
-                      healthIntroAnswered: Bool) -> Bool {
-        firstRun && healthIntroAnswered && counts(demo: demo, status: status, answered: answered)
+                      healthIntroAnswered: Bool, example: NotificationPrimerExample?) -> Bool {
+        firstRun && healthIntroAnswered && counts(demo: demo, status: status, answered: answered, example: example)
     }
 }

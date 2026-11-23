@@ -89,6 +89,14 @@ final class PushRegistrar {
         return defaults.bool(forKey: key(Self.primerAnsweredKey))
     }
 
+    /// A deleted account's answers on this phone (review S2): the primer's, Today's "Not now" and its date, and its first
+    /// sync. Its id never signs in again; nothing of it stays in UserDefaults.
+    static func forgetAnswers(of account: String, defaults: UserDefaults) {
+        for base in [primerAnsweredKey, dismissCountKey, dismissedAtKey, firstSyncKey] {
+            defaults.removeObject(forKey: "\(base).\(account)")
+        }
+    }
+
     /// The primer's answer, Continue or Not now.
     func markPrimerAnswered() {
         defaults.set(true, forKey: key(Self.primerAnsweredKey))
@@ -140,7 +148,8 @@ final class PushRegistrar {
     }
 
     /// "Allow" (Today's card) and Continue (the first run's primer): the system prompt, then APNs while `push.enabled` is on
-    /// (with it off only the local kinds are sent; `refresh()` registers once it is on).
+    /// and the invite gate is open (with the flag off only the local kinds are sent; behind the gate nothing registers, as in
+    /// `refresh()`, which registers once the flag is on or the gate opens: `ScreenModels`' invite-gate watch).
     @discardableResult
     func accept() async -> AskOutcome {
         let outcome: AskOutcome
@@ -151,7 +160,7 @@ final class PushRegistrar {
         }
         let granted = outcome == .granted
         status = await env.notifier.authorizationStatus()
-        if granted, isEnabled { env.notifier.registerForRemoteNotifications() }
+        if granted, isEnabled, !isInviteBlocked { env.notifier.registerForRemoteNotifications() }
         if granted { env.analytics.track(.featureUsed(.notificationsAllowed)) }
         revision += 1
         return outcome
@@ -175,9 +184,10 @@ final class PushRegistrar {
         lastError = error.localizedDescription
     }
 
-    /// `POST /v1/devices/{id}/push`, unless the platform already has exactly this.
+    /// `POST /v1/devices/{id}/push`, unless the platform already has exactly this. Never behind the invite gate, where the
+    /// platform refuses it and the token may still be an expired session's (NT7); `refresh()` sends once the gate opens.
     func send() async {
-        guard isEnabled, let token, let account else { return }
+        guard isEnabled, !isInviteBlocked, let token, let account else { return }
         let record = Record(account: account, token: token, env: PushEnvironment.current(), locale: Self.locale())
         guard env.persistence.document(Record.self, key: Self.recordKey) != record else { return }
         do {

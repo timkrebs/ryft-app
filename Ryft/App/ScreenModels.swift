@@ -86,14 +86,6 @@ final class ScreenModels {
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
         let push = PushRegistrar(env: state.env, apiStatus: apiStatus)
         self.push = push
-        // The first run's plan (first-run ui.md §2.2): Apple Health's explanation counts while it is still to come, the
-        // notification primer while iOS can still ask (its status read now, so the registrar and the plan agree).
-        onboarding.planInputs = { [env = state.env, push] in
-            let status = await push.readStatus()
-            return FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone,
-                                       notificationsPrimer: NotificationPrimerFacts.counts(demo: env.isDemo, status: status,
-                                                                                           answered: push.isPrimerAnswered))
-        }
         // `refresh` holds the registration while the invite gate is closed; an account that redeems its code has none
         // until the next app active otherwise (review code should-fix, round 3).
         inviteGateWatch = ObservationWatch(read: { _ = apiStatus.inviteBlocked }, changed: { [weak push] in
@@ -104,6 +96,17 @@ final class ScreenModels {
         state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
+        // The first run's plan (first-run ui.md §2.2): Apple Health's explanation counts while it is still to come, the
+        // notification primer while iOS can still ask (its status read now, so the registrar and the plan agree) and a
+        // notification can arrive (`push.enabled`, or `notifications.reminders` with the journal or "not syncing").
+        onboarding.planInputs = { [env = state.env, push, journal] in
+            let status = await push.readStatus()
+            let example = NotificationPrimerExample.current(flags: env.flags, journalLive: journal.isLive)
+            return FirstRunPlan.Inputs(healthIntro: env.health.isAvailable && !env.settings.healthIntroDone,
+                                       notificationsPrimer: NotificationPrimerFacts.counts(demo: env.isDemo, status: status,
+                                                                                           answered: push.isPrimerAnswered,
+                                                                                           example: example))
+        }
         // Its habits and answers decide the journal reminder; a day answered takes it away at once.
         state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,

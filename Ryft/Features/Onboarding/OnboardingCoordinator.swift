@@ -151,7 +151,7 @@ final class OnboardingCoordinator {
     private var firstRunDone = false
 
     /// The first run's steps, taken once when it starts (`FirstRunPlan`): "Step n of m" never changes its m during a run.
-    /// Nil before the first answer, for another account until its own, and in demo mode.
+    /// Nil before the first answer that knows the user, for another account until its own, and in demo mode.
     private(set) var plan: FirstRunPlan?
     /// What the plan needs beyond `facts`: Apple Health's explanation and the notification primer (`ScreenModels`, which
     /// knows the settings and the registrar). Nil: neither counts (tests and previews that build a coordinator alone).
@@ -421,9 +421,11 @@ final class OnboardingCoordinator {
     }
 
     /// The run's plan, once, from the answer just recorded (ui.md §2.2 rule 1). The device slot is decided here: the
-    /// coordinator holds the answers to "What do you wear?" and the setup screen.
+    /// coordinator holds the answers to "What do you wear?" and the setup screen. Only once the user is known: before that
+    /// (the first check timed out, or was offline with nothing cached) About you and wear can't be told apart from done, so
+    /// the plan stays nil and the next check takes it (review C2).
     private func takePlan(_ inputs: FirstRunPlan.Inputs?) {
-        guard var inputs, plan == nil, isFirstRun else { return }
+        guard var inputs, plan == nil, isFirstRun, facts.userKnown else { return }
         inputs.trackerSetup = FirstRunPlan.reservesDeviceSetup(devicesSetup: env.flags.isOn(.devicesSetup),
                                                                wearAsked: wearAsked, trackerSetupDone: trackerSetupDone,
                                                                needsSetup: !setupTrackers.isEmpty)

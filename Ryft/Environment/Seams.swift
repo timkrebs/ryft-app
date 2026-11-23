@@ -116,6 +116,8 @@ final class MockNotifier: Notifier {
     private(set) var deliveredIDs: [String] = []
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var registeredForRemote = false
+    /// `registerForRemoteNotifications` calls, counted.
+    private(set) var remoteRegistrations = 0
     private(set) var authorizationPrompts = 0
     /// System calls, counted: enumerations of the pending set, adds that reached it, and removal calls (by id or all).
     private(set) var pendingReads = 0
@@ -177,7 +179,10 @@ final class MockNotifier: Notifier {
         deliveredIDs.removeAll()
     }
 
-    func registerForRemoteNotifications() { registeredForRemote = true }
+    func registerForRemoteNotifications() {
+        registeredForRemote = true
+        remoteRegistrations += 1
+    }
     func unregisterForRemoteNotifications() { registeredForRemote = false }
 
     /// iOS showed `id`: it leaves the pending set for Notification Center. One that isn't pending (a server alert) is

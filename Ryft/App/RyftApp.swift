@@ -566,10 +566,12 @@ struct RootView: View {
                         .onAppear(perform: LaunchSignpost.screenAppeared)
                 // After Apple Health, while iOS can still ask: the app's one notification primer (first run only).
                 case .signedIn where needsNotificationPrimer:
-                    NotificationPrimerStep(model: NotificationPrimerModel(push: screens.push, analytics: env.analytics), example: primerExample,
-                                           progress: onboarding.progress(for: .notifications))
-                        .transition(.opacity)
-                        .onAppear(perform: LaunchSignpost.screenAppeared)
+                    if let example = primerExample {
+                        NotificationPrimerStep(model: NotificationPrimerModel(push: screens.push, analytics: env.analytics),
+                                               example: example, progress: onboarding.progress(for: .notifications))
+                            .transition(.opacity)
+                            .onAppear(perform: LaunchSignpost.screenAppeared)
+                    }
                 // After Apple Health, once: the chosen trackers' setup (`devices.setup`). The first sync runs.
                 case .signedIn where onboarding.showsTrackerSetup:
                     TrackerSetupStepView(model: onboarding, progress: onboarding.progress(for: .trackerSetup))
@@ -612,16 +614,18 @@ struct RootView: View {
         env.health.isAvailable && !settings.healthIntroDone
     }
 
-    /// After Apple Health in the first run, while iOS hasn't been asked about notifications and the primer wasn't answered
-    /// (first-run ui.md §4.3). Whatever `push.enabled` says: the example follows it.
+    /// After Apple Health in the first run, while iOS hasn't been asked about notifications, the primer wasn't answered and a
+    /// notification can arrive (first-run ui.md §4.3): the example follows `push.enabled` and `notifications.reminders`.
     private var needsNotificationPrimer: Bool {
         NotificationPrimerFacts.shows(firstRun: onboarding.isFirstRun, demo: env.isDemo, status: screens.push.status,
-                                      answered: screens.push.isPrimerAnswered, healthIntroAnswered: !needsHealthIntro)
+                                      answered: screens.push.isPrimerAnswered, healthIntroAnswered: !needsHealthIntro,
+                                      example: primerExample)
     }
 
-    /// A notification that will arrive for this account: the morning score with `push.enabled`, else a local kind.
-    private var primerExample: NotificationPrimerExample {
-        .choose(pushEnabled: env.flags.isOn(.pushEnabled), journalLive: screens.journal.isLive)
+    /// A notification that will arrive for this account (the morning score with `push.enabled`, else a local kind while
+    /// `notifications.reminders` is on), or nil: then no primer.
+    private var primerExample: NotificationPrimerExample? {
+        .current(flags: env.flags, journalLive: screens.journal.isLive)
     }
 
     private var onboarding: OnboardingCoordinator { screens.onboarding }

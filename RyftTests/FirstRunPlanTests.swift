@@ -172,6 +172,24 @@ struct FirstRunSnapshotTests {
         #expect(model.plan == nil && model.progress(for: .health) == nil)
     }
 
+    /// Review C2: a plan taken while the user isn't known would leave About you and wear out of the count (their facts need
+    /// the user), and they'd show later with no step rule.
+    @Test("The first check offline with no user known takes no plan; the next, online, counts About you and wear and numbers them")
+    func noPlanBeforeTheUserIsKnown() async {
+        let state = AppState(env: .test(flags: [.devicesSetup: true], online: false))
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        model.planInputs = { FirstRunPlan.Inputs(healthIntro: true, notificationsPrimer: true) }
+        await model.check()
+        #expect(state.user == nil && model.phase == .ready)
+        #expect(model.plan == nil && model.progress(for: .aboutYou) == nil, "nothing known yet: no plan")
+
+        state.env.connectivityMonitor.update(true)
+        await model.check(force: true)
+        #expect(model.plan?.steps == [.aboutYou, .wear, .health, .notifications, .trackerSetup])
+        #expect(model.progress(for: .aboutYou) == FirstRunProgress(step: 1, count: 5))
+        #expect(model.progress(for: .wear) == FirstRunProgress(step: 2, count: 5))
+    }
+
     @Test("Demo data: no plan, no progress")
     func demo() async {
         let model = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}

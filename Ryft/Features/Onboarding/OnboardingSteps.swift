@@ -69,7 +69,8 @@ enum OnboardingSpec {
 /// page instead (`OnboardingSpec.actionsEndPage`); a step that must stay pinned at every size uses `.pinnedBar { … }` on this view.
 struct OnboardingScreen<Hero: View, Content: View, Actions: View>: View {
     private let title: Text
-    private let lead: Text
+    /// Nil: no lead yet (a screen whose lead depends on something still being read: nothing is said until it's known).
+    private let lead: Text?
     private let showsLockup: Bool
     private let dismissible: Bool
     private let progress: FirstRunProgress?
@@ -81,7 +82,7 @@ struct OnboardingScreen<Hero: View, Content: View, Actions: View>: View {
     /// `dismissible`: the step can wait (`OnboardingCoordinator.canDefer`); as a sheet only then does it show the grabber.
     /// `progress`: the first run's "Step n of m", drawn only under the lock-up (never in a sheet).
     /// `actions`: the step's pill and its quiet action, pinned or, from AX1, at the end of the page.
-    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+    init(title: Text, lead: Text?, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
          @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.lead = lead
@@ -113,11 +114,13 @@ struct OnboardingScreen<Hero: View, Content: View, Actions: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                lead
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, OnboardingSpec.leadGap)
+                if let lead {
+                    lead
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, OnboardingSpec.leadGap)
+                }
                 VStack(alignment: .leading, spacing: 0) { content }
                     .padding(.top, OnboardingSpec.contentGap)
                 if actionsInline {
@@ -178,7 +181,7 @@ struct OnboardingScreen<Hero: View, Content: View, Actions: View>: View {
 }
 
 extension OnboardingScreen where Actions == EmptyView {
-    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+    init(title: Text, lead: Text?, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
          @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content) {
         self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
                   hero: hero, content: content, actions: { EmptyView() })
@@ -186,7 +189,7 @@ extension OnboardingScreen where Actions == EmptyView {
 }
 
 extension OnboardingScreen where Hero == EmptyView, Actions == EmptyView {
-    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+    init(title: Text, lead: Text?, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
          @ViewBuilder content: () -> Content) {
         self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
                   hero: { EmptyView() }, content: content, actions: { EmptyView() })
@@ -194,7 +197,7 @@ extension OnboardingScreen where Hero == EmptyView, Actions == EmptyView {
 }
 
 extension OnboardingScreen where Hero == EmptyView {
-    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+    init(title: Text, lead: Text?, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
          @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
                   hero: { EmptyView() }, content: content, actions: actions)

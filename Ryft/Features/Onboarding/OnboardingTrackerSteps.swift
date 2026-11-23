@@ -57,8 +57,9 @@ struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
     @State private var open: String?
-    /// The first sync runs (consent given, Apple Health asked): the lead says so.
-    @State private var syncRuns = false
+    /// The first sync runs (consent given, Apple Health asked): the lead says so. Nil until it is known: no lead is shown
+    /// (or read by VoiceOver) before then, so neither sentence is said when it is false (review C4).
+    @State private var syncRuns: Bool?
     /// Check sync was tapped: its model, made once on the tap; the result opens below the cards.
     @State private var check: TrackerCheckModel?
     /// Open from the start (previews, and a `-RyftSyncCheck` run's screenshots).
@@ -77,7 +78,7 @@ struct TrackerSetupStepView: View {
     var body: some View {
         let trackers = model.setupTrackers
         OnboardingScreen(title: trackers.count > 1 ? Text("Set up your trackers") : Text("Set up your tracker"),
-                         lead: Text(TrackerSetupLead.choose(syncRuns: syncRuns)),
+                         lead: syncRuns.map { Text(TrackerSetupLead.choose(syncRuns: $0)) },
                          showsLockup: true, progress: progress) {
             VStack(spacing: OnboardingSpec.actionGap) {
                 ForEach(trackers) { tracker in

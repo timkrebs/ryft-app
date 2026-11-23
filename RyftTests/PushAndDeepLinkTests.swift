@@ -616,3 +616,40 @@ struct InviteLinkTests {
         #expect(AppRoute(url: URL(string: "ryft://invite")!) == .today)
     }
 }
+
+// MARK: - a deleted account's answers (review S2)
+
+@MainActor
+@Suite("Push: a deleted account's answers leave the phone")
+struct PushAnswersDeletionTests {
+    @Test("Deleting the account removes its primer answer and Today's question's answers; another account's stay")
+    func deletionForgetsTheAnswers() async throws {
+        let clock = TestClock()
+        let client = MockAuthClient(session: .preview())
+        let auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
+                               wipeLocalData: { _ in true },
+                               deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               postAppleAuthorization: { _ in })
+        let env = AppEnvironment.test(clock: clock, auth: auth)
+        let state = AppState(env: env)
+        let account = try #require(auth.accountID)
+        let push = PushRegistrar(env: env)
+        push.markPrimerAnswered()
+        push.dismissPrompt()
+        push.syncSucceeded()
+        let keys = [PushRegistrar.primerAnsweredKey, PushRegistrar.dismissCountKey, PushRegistrar.dismissedAtKey,
+                    PushRegistrar.firstSyncKey].map { "\($0).\(account)" }
+        #expect(keys.allSatisfy { env.defaults.object(forKey: $0) != nil }, "answered before the deletion")
+        let other = "\(PushRegistrar.primerAnsweredKey).someone-else"
+        env.defaults.set(true, forKey: other)
+
+        let sync = SyncService.ungated(env: env)
+        let profile = ProfileViewModel(state: state, sync: sync,
+                                       coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock),
+                                       apiStatus: APIStatus())
+        await profile.deleteAccount()
+        #expect(auth.accountID != account, "deleted")
+        for key in keys { #expect(env.defaults.object(forKey: key) == nil, "\(key) left the phone") }
+        #expect(env.defaults.bool(forKey: other), "another account's answer stays")
+    }
+}
