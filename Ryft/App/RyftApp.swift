@@ -122,6 +122,10 @@ struct RyftApp: App {
                                  available: HealthKitManager.isAvailable) {
             Self.observeHealthKit(HealthKitManager.shared, coordinator: coordinator)
         }
+        // "Allow access" in Profile, Devices & sync or Check sync after "Not now": observers, delivery and a sync now.
+        AppEnvironment.live.healthAllowed = { [coordinator] in
+            Self.healthAllowed(AppEnvironment.live.health, coordinator: coordinator)
+        }
         // A sync that found HealthKit locked runs again once the phone is unlocked.
         BackgroundWork.resumeOnUnlock(coordinator: coordinator) { SyncService.shared.waitingForUnlock }
         // Quick actions, App Intents and the control start a workout once the tabs are on screen
@@ -468,6 +472,16 @@ struct RyftApp: App {
             try? await health.requestAuthorization(.core)
         }
         observeHealthKit(health, coordinator: coordinator)
+    }
+
+    /// `core` newly in the account's record outside bootstrap (`AppEnvironment.requestCoreAccess`: Profile, Devices &
+    /// sync, Check sync after "Not now"). Bootstrap's key is unchanged then, so this does what it would: the observers
+    /// (registered once: after "Not now" the launch already did, and `startObserving` keeps that set), `.immediate`
+    /// delivery again now that HealthKit was answered, and a sync, not awaited (the screen's status doesn't wait for it).
+    @MainActor
+    static func healthAllowed(_ health: HealthStore, coordinator: SyncCoordinator) {
+        observeHealthKit(health, coordinator: coordinator)
+        Task { await coordinator.run(.appActive) }
     }
 
     /// The launch's gate for the observers (a background launch runs nothing else before HealthKit delivers): an

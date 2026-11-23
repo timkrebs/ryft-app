@@ -98,8 +98,17 @@ request ran for, and the migration has two parts:
 - **Observers, at launch (sync).** `accessStatus` is async (`statusForAuthorizationRequest`), so it can't gate the
   background launch in `RyftApp.init`. The observers and background delivery therefore derive from
   `ledger.observedGroups` = `asked` ∪ (`healthIntroDone` ? `core`). An upgraded account keeps today's three observers on
-  its first background launch, before any bootstrap, with zero requests. For an intro declined with "Not now" they
-  are registered as before the fix. Observers on types RYFT may not read deliver nothing.
+  its first background launch, before any bootstrap, with zero requests. After "Not now" (`healthIntroDone` set,
+  nothing recorded) the launch and bootstrap still register `core`'s observers, but on types HealthKit was never asked
+  for: they deliver nothing, and enabling background delivery for them can't take effect (`try?` keeps it quiet).
+  Before the fix the sheet came right after "Not now", so the observers always followed a request; now they don't.
+- **A later Allow (review C1).** Profile → Data, Devices & sync and Check sync's "Allow access" go through
+  `AppEnvironment.requestCoreAccess`. When that request newly puts `core` in the account's record, it calls
+  `RyftApp.healthAllowed` right away, without a relaunch: `observeHealthKit` (the observers register once,
+  `startObserving` keeps the launch's set) enables `.immediate` delivery again now that HealthKit was answered, and a
+  sync runs (`coordinator.run(.appActive)`, not awaited by the screen). `BootstrapKey` doesn't change on an Allow,
+  which is why bootstrap can't do this. A request that throws, a second Allow (`core` already recorded), Demo data and
+  Check sync's demo scenario stores start nothing. `core`'s paging, anchors and stream order are unchanged.
 
 `connect()` (Continue) records `core` through the live store's request, like every request.
 

@@ -338,7 +338,7 @@ final class ProfileViewModel {
     func refreshHealthStatus() async { healthStatus = await env.health.accessStatus(.core) }
 
     func requestHealthAccess() async {
-        try? await env.health.requestAuthorization(.core)
+        await env.requestCoreAccess()
         await refreshHealthStatus()
     }
 
@@ -1980,7 +1980,7 @@ final class TrackerCheckModel {
 
     /// K9's Allow access: the system prompt, then the check.
     func requestAccess() async {
-        try? await health.requestAuthorization(.core)
+        await env.requestCoreAccess(on: health)
         await run()
     }
 
@@ -3003,7 +3003,7 @@ final class DevicesViewModel {
     func refreshHealthStatus() async { healthStatus = await env.health.accessStatus(.core) }
 
     func requestHealthAccess() async {
-        try? await env.health.requestAuthorization(.core)
+        await env.requestCoreAccess()
         await refreshHealthStatus()
     }
 
