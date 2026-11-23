@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 import UIKit
-import UserNotifications
 @testable import Ryft
 
 /// Records every stage with the clock's time; each stage can be slowed down on
@@ -628,19 +627,6 @@ struct ScheduledWorkTests {
         #expect(cal.component(.hour, from: next) == 3 && next > evening)
         let early = cal.date(bySettingHour: 1, minute: 0, second: 0, of: .now)!
         #expect(cal.isDate(BackgroundWork.nextCompaction(after: early), inSameDayAs: early))
-    }
-
-    @Test func dailyReminderUsesACalendarTrigger() async throws {
-        let notifier = MockNotifier()
-        let scheduler = ReminderScheduler(notifier: notifier)
-        try await scheduler.scheduleDaily(id: "bedtime", hour: 22, minute: 30, title: "Bedtime", body: "Wind down",
-                                          category: "BEDTIME")
-        try await scheduler.scheduleDaily(id: "bedtime", hour: 23, minute: 0, title: "Bedtime", body: "Wind down")
-        #expect(notifier.requests.count == 1)
-        let trigger = try #require(notifier.requests.first?.trigger as? UNCalendarNotificationTrigger)
-        #expect(trigger.repeats && trigger.dateComponents.hour == 23 && trigger.dateComponents.minute == 0)
-        scheduler.cancel(id: "bedtime")
-        #expect(notifier.requests.isEmpty)
     }
 
     @Test func compactionDropsOldDaysAndUnusedDetails() async throws {

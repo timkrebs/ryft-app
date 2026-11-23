@@ -15,10 +15,11 @@ private struct Graph {
     let store = TrainStore(inMemory: true)
     let vm: MyDayViewModel
 
-    /// `.now` for the clock: the mock day detail is generated around it.
+    /// Noon on the current day for the clock: the mock day detail is generated around `.now`, and the tests advance the clock
+    /// by up to 600 s, which must not cross midnight (it did at 23:55, and "today" changed under the test).
     init(seed: @escaping @Sendable (Date) -> [SportActivity] = { _ in [] },
          flags: [FeatureFlag: Bool] = [.todayMyDay: true], online: Bool = true) {
-        clock = TestClock(now: .now)
+        clock = TestClock(now: Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now) ?? .now)
         api = MockPlatformAPI(activities: MockActivitiesSource(now: { [clock] in clock.now() }, seed: seed))
         env = .test(api: api, clock: clock, flags: flags, online: online)
         state = AppState(env: env)

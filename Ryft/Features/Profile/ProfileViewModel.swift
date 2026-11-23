@@ -945,7 +945,7 @@ final class SyncDetailsModel {
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }
             let ignored = p.lastIgnored.map { "dup \($0.duplicate) out \($0.outsideWindow) unk \($0.unknownType)" } ?? "-"
-            lines.append("\(row.id): \(p.sent) rec \(p.bytes) B days \(p.days.count) newest \(p.newest.map { $0.ISO8601Format() } ?? "-") backfilled \(p.backfilled) last \(p.lastAccepted) ignored \(ignored)")
+            lines.append("\(row.id): \(p.sent) rec \(p.bytes) B days \(p.days.count) newest \(p.newest.map { $0.ISO8601Format() } ?? "-") backfilled \(p.backfilled) last \(p.lastAccepted) ignored \(ignored) invalid \(p.invalid)")
         }
         lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
         let states = state.resourceStates
@@ -2194,6 +2194,8 @@ struct FeedbackSync: Equatable, Sendable {
         let days: Int
         /// Only its day is sent.
         let newest: Date?
+        /// Records the platform would have refused, left out (`StreamProgress.invalid`); in the line when there are any.
+        var invalid = 0
     }
 
     var phase = SyncEngineState.Phase.idle.rawValue
@@ -2213,7 +2215,7 @@ extension FeedbackSync {
                   running: running, queued: queued, backlogBytes: backlogBytes ?? 0,
                   streams: streams.map { row in
                       Stream(id: row.id, records: row.progress?.sent ?? 0, days: row.progress?.days.count ?? 0,
-                             newest: row.progress?.newest)
+                             newest: row.progress?.newest, invalid: row.progress?.invalid ?? 0)
                   })
     }
 }
@@ -2302,6 +2304,7 @@ enum FeedbackPayload {
          "queue running \(sync.running) · queued \(sync.queued) · backlog \(sync.backlogBytes) B"]
             + sync.streams.map { s in
                 "stream \(s.id) · \(s.records) rec · \(s.days) days · newest \(s.newest.map(DayFormat.string) ?? "-")"
+                    + (s.invalid > 0 ? " · invalid \(s.invalid)" : "")
             }
     }
 

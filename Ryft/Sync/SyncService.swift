@@ -12,7 +12,7 @@ import UIKit
 import os
 
 /// Intervals for Instruments (os_signpost; "Points of Interest" shows them): a sync's
-/// stages (read, map, encode, upload, score-wait, refresh), the platform reads (a try's budget
+/// stages (read, map, screen, encode, upload, score-wait, refresh), the platform reads (a try's budget
 /// wait and fetch; a pull's spinner and its phases) and the launch.
 enum Signposts {
     static let sync = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "sync")
@@ -488,6 +488,9 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         /// The days its records fall on (a night by its wake), newest `maxDays`.
         var days: Set<String> = []
         var lastUploadAt: Date?
+        /// Records never sent because the platform would refuse their page for them (`SyncScreen`), counted once, by
+        /// the anchored reads (the first score's window reads them again there). Diagnostics only.
+        var invalid = 0
 
         static let maxDays = 120
 
@@ -508,6 +511,7 @@ struct SyncEngineState: Codable, Equatable, Sendable {
             recentRecords = try c.decodeIfPresent(Int.self, forKey: .recentRecords) ?? 0
             days = try c.decodeIfPresent(Set<String>.self, forKey: .days) ?? []
             lastUploadAt = try c.decodeIfPresent(Date.self, forKey: .lastUploadAt)
+            invalid = try c.decodeIfPresent(Int.self, forKey: .invalid) ?? 0
         }
     }
 
@@ -636,7 +640,9 @@ enum PendingDeletions {
 ///   more). Its anchor is committed only after its own upload.
 /// - **Pages by bytes.** A page holds as many records as fit `targetPageBytes` at the
 ///   bytes per record the last page of that stream measured; a `413` halves it for the
-///   rest of the run.
+///   rest of the run. Workouts stay within `SyncScreen.maxWorkouts`.
+/// - **Nothing the platform refuses.** A record ingest's `validate()` would answer the
+///   whole page with `422` for is left out and counted (`SyncScreen`); the anchor moves on.
 actor SyncEngine {
     struct Context: Sendable {
         let account: String
@@ -871,13 +877,18 @@ actor SyncEngine {
             if let nextStream { await report(.reading(nextStream)) }
             // One page ahead, never more: it reads (and maps) while this one uploads.
             async let ahead = Self.read(health, mode, nextStream, after: next?.after, limit: nextLimit)
-            guard try await upload(Self.withoutOwnWorkouts(page.delta), stream: stream, context: context, report: report) else {
+            // Without what the platform would refuse the whole page for: the anchor moves past it with the rest.
+            let screened = Self.screened(Self.withoutOwnWorkouts(page.delta), stream: stream)
+            guard try await upload(screened.delta, stream: stream, context: context, report: report) else {
                 // 413: drop what was read ahead and read this page again, smaller.
                 _ = try? await ahead
                 page = try await Self.read(health, mode, stream, after: cursor.after, limit: limit(for: stream)) ?? page
                 continue
             }
             if case .anchored = mode {
+                // Counted here only: the anchored reads hand out each record once, and the recent window's come again
+                // in the backfill.
+                if screened.invalid > 0 { state.streams[stream.anchorID, default: .init()].invalid += screened.invalid }
                 // The deletions before the anchor: once the anchor moves, HealthKit won't
                 // report them again.
                 if !page.deleted.isEmpty {
@@ -915,6 +926,14 @@ actor SyncEngine {
         return d
     }
 
+    /// `delta` without what ingest's `validate()` would refuse (`SyncScreen`), timed for Instruments with its counts.
+    private static func screened(_ delta: HealthDelta, stream: HealthStream) -> SyncScreen.Result {
+        let signpost = Signposts.sync.beginInterval("screen", id: Signposts.sync.makeSignpostID(), "\(stream.anchorID)")
+        let result = SyncScreen.screen(delta)
+        Signposts.sync.endInterval("screen", signpost, "\(result.invalid) invalid, \(result.trimmed) trimmed")
+        return result
+    }
+
     /// A page of `stream` (`nil`: nothing to read). Nonisolated: when read ahead it runs on
     /// the global executor beside the upload, mapping included.
     private static func read(_ health: HealthStore, _ mode: Mode, _ stream: HealthStream?, after: Data?,
@@ -932,7 +951,9 @@ actor SyncEngine {
     private func limit(for stream: HealthStream) -> Int {
         let perRecord = bytesPerRecord[stream] ?? Self.estimatedBytesPerRecord(stream)
         let fitting = Int(Double(Self.targetPageBytes) / max(perRecord, 1))
-        return max(Self.minimumPageSize, min(maxRecords, fitting))
+        let records = max(Self.minimumPageSize, min(maxRecords, fitting))
+        // More workouts in one request are a `422` for all of them.
+        return stream == .workouts ? min(records, SyncScreen.maxWorkouts) : records
     }
 
     /// Before a page measured it: a sample is ~200 bytes of JSON, a workout ~400.
@@ -955,7 +976,8 @@ actor SyncEngine {
         if let gate = await gate() { throw HeldAtGate(gate: gate) }
         await report(.uploading(stream, records: delta.count))
         let request = SyncRequest(deviceId: context.deviceID, deviceName: context.deviceName,
-                                  appVersion: context.appVersion, osVersion: context.osVersion,
+                                  appVersion: SyncScreen.version(context.appVersion),
+                                  osVersion: SyncScreen.version(context.osVersion),
                                   samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)
         let body = try await Self.encode(request)
         bytesPerRecord[stream] = Double(body.count) / Double(delta.count)

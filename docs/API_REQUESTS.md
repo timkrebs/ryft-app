@@ -3,6 +3,37 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Sync: an invalid record is ignored, not the whole request (open, 2026-11-22)
+
+From the hotfix `fix/sync-invalid-workout`. In production, one account's `POST /v1/sync` was answered `422` 20 times
+since its first sync, with the same 101-byte body: `workouts[0]: end must be after start`. Apple Health holds a workout
+with `end == start` (another app's, or a manual entry). Written against API.md as of the 2026-11-20 changelog entry.
+
+1. **SV1: screen invalid records one by one into `ignored`, instead of a `422` for the whole request (P1).**
+   - **Why.** `validate()` (`backend/cmd/ingest/main.go`) refuses the whole request for one record and stores none of
+     it. The app commits a page's anchor only after the platform accepted the page, so it can't move past a refused
+     one. Every run sends the same page again, and that stream and every stream drained after it stop for good. API.md
+     says "the app never retries a `422`"; in effect it retries it on every run. The fix drops these records in the app
+     before sending. Builds already in the field can't do that and stall the same way until they update. So would any
+     new rule the app doesn't mirror yet.
+   - **Proposal.** Move `validate()`'s per-record checks into `screen()`, record by record, the way unknown types and
+     records outside the window are handled today:
+     - A sample without `start` or with `end` before `start`, a sleep segment or workout whose `end` isn't after its
+       `start`, and a workout without `id` are dropped. They are counted in a new `ignored.<kind>.invalid`; `IgnoredCounts`
+       gains the field (additive).
+     - A `source_bundle_id` over 255 bytes is stored as null and the record kept (the app does the same). Please say if
+       the platform prefers to count it.
+     - An `app_version` or `os_version` over 64 bytes stays off the device row instead of refusing the request (the app
+       sends it as null).
+     - Keep `422` for what only a broken client sends: no `device_id`, over 5 000 workouts, over 2 000 deletions.
+   - **Contract.** API.md → `POST /v1/sync`: list `invalid` under `ignored` with these rules, say that one record no
+     longer refuses a request, and add the reason `invalid` to `ryft_sync_ignored_total`.
+   - **What the app does with it.** It already drops these records itself; Sync details' diagnostics count them per
+     stream (`invalid N`). Once API.md has the field, the app decodes `ignored.*.invalid` (absent: 0) next to the other
+     reasons, so what older builds still send shows too.
+   - **Question.** Can anything else answer a sync page with `422` or `400` because of one record's content? For
+     example a time Go can't parse (a year before 0001 or after 9999). The app would mirror it too.
+
 ## Consent and the sync status cache (open, 2026-11-22)
 
 1. **`GET /v1/me/sync` → `gate` is always current.**
@@ -142,6 +173,40 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
    - **What API.md says:** `SESSION_SCORED` and `PR` are sent "not during quiet hours". It doesn't say whether an alert is dropped or held until the window ends, while `MORNING_SCORE` explicitly holds.
    - **The app's reading:** dropped, the same as NT1. The Notifications page now says "Workout alerts are skipped".
    - **Request:** please confirm, or tell us they are held. The page's sentence would change.
+5. **NT5 (flag): `notifications.reminders` (P1, operator).**
+   - **What it gates:** the app's two new local reminders, the morning journal reminder and the "not syncing" fallback on the phone. Bedtime & wake's reminder is not gated.
+   - **Default:** off. `GET /v1/config` → `flags` has open keys, and the app's compiled default is off, so nothing changes until the flag exists and is on for an account.
+   - **Request:** create the flag at 0 % with an allow-list, like `train.import` and `analytics.enabled`. The operator raises it once the Notifications page with its switches (N4) has shipped.
+   - **Turning it off later** removes the reminders already scheduled on each phone at its next config read.
+6. **NT6 (later, optional): the journal reminder's setting on the account.**
+   - **Today:** the switch and the time live on the phone, per account. They survive a session expiry, and a sign-out clears them.
+   - **Later:** if users ask for the setting to follow them across devices, `NotificationPrefs` could gain `journal_reminder: {on: bool, minute: int}`.
+   - **Status:** nothing is needed now. This is filed so the shape is agreed before anyone builds it.
+7. **NT7 (P1, before `push.enabled` widens): a push token the account that left still holds.**
+   - **Today:** sign-out and account deletion send `DELETE /v1/devices/{id}/push` while the session still authorises
+     it. A session that expired can't, so the platform keeps that iPhone's token under the account. The app then
+     removes what Notification Center holds and unregisters from APNs.
+   - **Why that isn't enough:** unregistering only stops delivery until the app registers again. When the next account
+     on this iPhone registers, iOS often hands back the **same** token, and the platform moves a token only on an
+     accepted `POST /v1/devices/{id}/push`. Until then the token is live and still the old account's, so its
+     `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` reach the new account's lock screen. That `POST` is
+     refused behind the invite gate (`403 invite_required`), and it fails offline or on a `5xx`. Server alerts carry no
+     `ryft.account` yet (NT1), so the app can't tell them apart or clear them.
+   - **The same with a failed `DELETE`:** a sign-out whose `DELETE` failed (offline, a `5xx`) leaves the token under
+     the account in the same way. The app logs the failure and carries on with the sign-out. A `POST` still in flight
+     when the account leaves has the same effect if the platform accepts it: the app saves no record for it.
+   - **What the platform does already:** it drops a token when APNs answers `410` or `Unregistered`. Once iOS hands
+     the same token to the next registration, APNs has no reason to answer that, so this path doesn't end it.
+   - **What the app does meanwhile:** it doesn't register with APNs while the account is invite-blocked, and after a
+     refused `POST` with nothing accepted for the account it unregisters again until the next try.
+   - **Request (one of these):**
+     - when an account authenticates with `X-RYFT-Device-ID: D`, drop the tokens other accounts registered for `D`; or
+     - exempt `POST /v1/devices/{id}/push` from the invite gate, so the registration moves the token at once.
+
+     The first also covers the failed-`DELETE` case and an offline `POST`. Please also confirm that a `POST` for the
+     same `{id}` replaces the token it held, and state the outcome in API.md → `POST /v1/devices/{id}/push`.
+   - **Status:** the app's side is in N3 (round 3). Until the platform's side lands, a shared iPhone can show the
+     previous account's server alerts after an expiry.
 
 ## App Attest (answered, 2026-11-20)
 

@@ -1,5 +1,83 @@
 # Status — 2026-11-22
 
+## 2026-11-22: hotfix, a record the platform refuses no longer stalls the sync
+
+- **"sync: a workout without a duration no longer stops syncing"** (`fix/sync-invalid-workout`):
+  - The cause: one account's sync answered `422 "workouts[0]: end must be after start"` on every run. A zero-duration workout in Apple Health refused the whole page, its anchor never moved, and the backfill of the streams after it never finished.
+  - The fix: `Sync/SyncScreen.swift` leaves out what ingest's `validate()` would refuse, judged on the wire values (whole seconds). An over-long `source_bundle_id` or version is sent as nil. Workout pages are capped at 5 000. Sync details and Report a problem show `invalid N` per stream (counts only).
+  - Verification: unit tests against a fake platform that applies `validate()`'s rules, written from the Go source, plus mutants. **Simulator only:** not yet seen on a device with a real zero-duration HealthKit workout. The affected account is the real test once it updates.
+  - Platform: SV1 in `docs/API_REQUESTS.md` (P1). Ingest should ignore an invalid record, not refuse the request; only that protects builds already in the field.
+  - Follow-ups:
+    - **Stall-proofing:** an ios-architect note on bisecting a refused page, and on non-finite values that make `JSONEncoder` throw before any request is sent.
+    - **Report a problem:** the "What's included" list could mention the count.
+
+## 2026-11-23: the demo's days stay frozen at launch (`fix/midnight-index-crash`)
+
+- A hosted test run that crossed 00:00 trapped in `MockData.todayDetail.workouts[0]` ("Index out of range"): the mock's nights are built once, at the first read, and `todayDetail` read `.now`, a day the table didn't have. `todayDetail` and the other mock reads now anchor to the day the nights were built for, so they can't trap.
+- Unchanged for users: the demo's days stay frozen at launch, so an app left open past midnight shows the new day empty until relaunch, as before.
+- Follow-up: roll `MockData` and `MockTrain` over together, keyed by absolute day (the workout→session links need both to move at once).
+
+## 2026-11-22: N3, local reminders (`feat/reminder-scheduler`; its plan and design merged as #136)
+
+Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7, §9–§12; ADR 0024).
+
+- **Done:**
+  - `ReminderScheduler` (`Ryft/Push/`) is the one writer of RYFT's local requests: bedtime's wind-down, the journal
+    reminder and the "not syncing" fallback. Each kind is a pure plan, and a pass diffs the plans' wishes against
+    what the scheduler put on iOS. It reads iOS's pending set once per process. A pass that changes nothing makes no
+    system call.
+  - **Journal reminder:** on by default at 09:00 once habits are chosen. It covers the next 3 mornings as
+    `journal.<asked day>`. An answered day has none, and saving or reading it answered (also from another device)
+    removes it, pending and delivered, at once. It is held until quiet hours end. A tap opens the journal sheet on
+    that day (`/journal/<day>`). Delivered ones about a day other than yesterday go on app active.
+  - **"Not syncing" fallback:** `sync.stale.1` and `.2`, 20 h and 72 h after the last successful sync, between
+    09:00 and 21:00 and outside quiet hours. Only when the server's `SYNC_STALE` can't reach this iPhone: when
+    `push.enabled` is off, notifications aren't allowed or this account's registration isn't accepted.
+  - **Accounts:** the sign-out wipe removes every pending and delivered notification and the wake alarms.
+    `notifications.owner` catches what a kill or a store-only retry left. Demo data freezes the account's reminders.
+  - **Presentation:** every category has a placeholder for hidden previews. A local notification for another account
+    (or arriving in Demo data, the wake notification excepted: it carries no data) isn't presented and opens Today
+    only (`PushPresentation`).
+  - **Bedtime:** it now offers its reminders to the scheduler (`offerBedtime`). The wake notifications are removed by
+    their fixed ids.
+  - **Round 2** (`review.md`): the journal reminder and the fallback ship dark behind `notifications.reminders` (off;
+    not known yet keeps what's scheduled) and pause while consent is withdrawn or refused. A session that ends clears
+    Notification Center and unregisters APNs; an expiry keeps the journal setting. The wake notification below iOS 26
+    carries its account and the `WAKE` category, so it shows while RYFT is open. An earlier build's bedtime reminders
+    survive the update's first launch; the calendar follows the time zone; nothing is added while notifications aren't
+    allowed; a pass remembers its store reads. Notifications never open the sign-in callback or an invite, and with
+    nobody signed in none counts as the account's.
+  - **Round 3:** no APNs registration behind the invite gate, and none left after a refused `POST` (NT7 is now P1).
+    A wipe resumed after the first frame runs its notification step at launch. The wake notification shows in Demo
+    data too when its account matches. A shut gate takes the two kinds' delivered ones. Another account signing in
+    drops an expiry's parked journal setting. A pass decides by one read of iOS's answer.
+- **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
+  `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The operator opens `notifications.reminders`
+  once N4 lands (API_REQUESTS NT5). Every key is in the catalog, round 3's `HIDDEN_PREVIEW_BEDTIME` ("Bedtime
+  reminder") included (c45fa70). NT7 (an account's push token after it leaves) is the platform's.
+- **Measured** (Debug, simulator, mock notifier, on the shared CI Mac under load; round 2, review S4): with the journal
+  connected (live, habits on, no day cached) and this account's push registration saved, a pass that changes nothing
+  makes no system call and no SwiftData fetch, 0.11–0.15 ms (median of 500, two runs; p95 0.14–0.16 ms). Before the
+  misses and the record were remembered it made 4 fetches (3 journal days, the record): 0.33 ms (p95 0.55 ms). The
+  process's first pass (1 pending read, 1 status read, 7 bedtime and 3 journal adds) 2.3 ms against 3.7 ms (one sample
+  each, noisy: 10 ms in a run at load 240). Round 1's 0.10 ms had no journal. 50 syncs inside an hour, at most 1 add.
+  Before N3, every bedtime reschedule read iOS's pending set, removed and added all 7.
+- **Verification:** simulator and unit tests only. Not verified on a device: delivery at the floating wall times, the
+  BG refresh's pass, the sign-out's and the expiry's removal from Notification Center, APNs unregistration, the wake
+  notification in the foreground below iOS 26, a time-zone change, the hidden-preview placeholders, and a resumed
+  wipe's notification step in a background launch.
+- **Your steps (device):** see the N3 handback (journal reminder at 09:00 and its tap, the fallback after a kill from
+  the app switcher with `push.enabled` off, sign-out clearing Notification Center, previews hidden on the lock screen).
+  Two more:
+  - **Another account without a relaunch:** sign out, sign in as another account without relaunching the app.
+    Profile → Developer shows a new `didRegister` and an accepted `POST`, and a server alert for the new account
+    arrives.
+  - **A shared iPhone after an expiry (S-1):** with `push.enabled` on, let account A's session expire, then sign in
+    as B on the same iPhone while B is still behind the invite gate: no alert of A's arrives, and B registers
+    nothing. Once B redeems its invite (the gate opens), the app registers with APNs at once, without waiting for the
+    next app active, and B's `POST` goes out. Once it is accepted, A's alerts still don't arrive and B's do. Until the
+    platform answers NT7, an alert of A's between B's registration and the accepted `POST` is the known gap.
+
 ## 2026-11-22: Agree moves on at the consent's 204 (`fix/consent-agree-lag`, ADR 0025)
 
 - Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), for

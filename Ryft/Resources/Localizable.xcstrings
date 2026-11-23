@@ -2299,6 +2299,94 @@
     "Hero numbers" : {
       "comment" : "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn."
     },
+    "HIDDEN_PREVIEW_ACTIVITY_SCORED" : {
+      "comment" : "Lock screen with previews hidden: an activity (a run, a ride) was scored. No name, no value.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activity scored"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_BEDTIME" : {
+      "comment" : "Lock screen with previews hidden: the bedtime reminder. No sleep need or goal.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bedtime reminder"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_JOURNAL_REMINDER" : {
+      "comment" : "Lock screen with previews hidden: the journal reminder. No habit names.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Journal reminder"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_MORNING_SCORE" : {
+      "comment" : "Lock screen with previews hidden: a morning score arrived. Shown alone under the app name; no score.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your morning score is ready"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_PR" : {
+      "comment" : "Lock screen with previews hidden: a new personal record. No exercise, no weight.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New record"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_SESSION_SCORED" : {
+      "comment" : "Lock screen with previews hidden: a logged strength session was scored. No name, no value.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strength session scored"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_SYNC_STALE" : {
+      "comment" : "Lock screen with previews hidden: RYFT hasn't synced for a while (the server's or this iPhone's).",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your data may be behind"
+          }
+        }
+      }
+    },
+    "HIDDEN_PREVIEW_WAKE" : {
+      "comment" : "Lock screen with previews hidden: Bedtime & wake's wake notification (below iOS 26). No time.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wake-up time"
+          }
+        }
+      }
+    },
     "Hides the detailed chart" : {
       "comment" : "VoiceOver hint on an open trend card: a tap collapses the chart."
     },
@@ -2524,6 +2612,28 @@
     },
     "It's missing %@. Install the latest version of RYFT." : {
       "comment" : "Misconfigured build (Release only): the build settings it lacks, by their xcconfig names."
+    },
+    "JOURNAL_REMINDER_BODY" : {
+      "comment" : "The journal reminder's body: Today's journal card's sentence. No habit names.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A few taps, and RYFT shows how your habits change the morning after."
+          }
+        }
+      }
+    },
+    "JOURNAL_REMINDER_TITLE" : {
+      "comment" : "The journal reminder (a local notification, the morning after the day it asks about): its title. No habit names, no health values.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How was yesterday?"
+          }
+        }
+      }
     },
     "kcal" : {
       "comment" : "Kilocalories, the unit after an energy on Strain's and a workout's tiles: \"612 kcal\"."
@@ -3112,6 +3222,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Paused"
+          }
+        }
+      }
+    },
+    "SYNC_STALE_LOCAL_1_BODY" : {
+      "comment" : "The local \"not syncing\" notification's body (sync.stale.1). No hour count: it can fire 19 to about 30 hours after the last sync.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open RYFT to bring it up to date. Closing RYFT from the app switcher can stop background sync."
+          }
+        }
+      }
+    },
+    "SYNC_STALE_LOCAL_1_TITLE" : {
+      "comment" : "The local \"not syncing\" notification (sync.stale.1, about 20 hours after the last successful sync, 09:00–21:00): its title.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your data hasn't synced"
+          }
+        }
+      }
+    },
+    "SYNC_STALE_LOCAL_2_BODY" : {
+      "comment" : "The second local \"not syncing\" notification's body (sync.stale.2).",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It's been about three days since RYFT last synced. Open RYFT to catch up on your scores."
+          }
+        }
+      }
+    },
+    "SYNC_STALE_LOCAL_2_TITLE" : {
+      "comment" : "The second local \"not syncing\" notification (sync.stale.2, about 72 hours after the last successful sync): its title.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your data is still behind"
           }
         }
       }
@@ -6296,7 +6450,7 @@
       "isCommentAutoGenerated" : true
     },
     "How was yesterday?" : {
-      "comment" : "A placeholder text for the journal.",
+      "comment" : "The Today journal card's heading while yesterday is unanswered: a question to the user, not a placeholder.",
       "isCommentAutoGenerated" : true
     },
     "HRV" : {
