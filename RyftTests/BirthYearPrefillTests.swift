@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+import UIKit
 @testable import Ryft
 
 /// About you's "Use my birth year from Apple Health" (health-groups.md §7 and §9 test 13, ADR 0027): its states, the
@@ -19,9 +20,12 @@ struct BirthYearPrefillTests {
         let health: MockHealthStore
         let client: MockAuthClient
         let auth: AuthService
+        let env: AppEnvironment
         let model: OnboardingCoordinator
 
-        init(health: MockHealthStore = MockHealthStore(), signedInAs account: UUID = BirthYearPrefillTests.a) {
+        /// `sink`: analytics on (flag, config, opted in) into a recording sink.
+        init(health: MockHealthStore = MockHealthStore(), signedInAs account: UUID = BirthYearPrefillTests.a,
+             sink: FakeAnalyticsSink? = nil) {
             self.health = health
             let client = MockAuthClient(session: .preview(id: account))
             self.client = client
@@ -31,7 +35,19 @@ struct BirthYearPrefillTests {
                                    deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                    postAppleAuthorization: { _ in })
             self.auth = auth
-            let state = AppState(env: .test(api: api, health: health, auth: auth))
+            // The fake's record follows the signed-in account as the live store's does (`AccountScope`, which the
+            // session writes).
+            health.account = { AccountScope.current(defaults) }
+            let env: AppEnvironment
+            if let sink {
+                env = .test(api: api, health: health, auth: auth, flags: [.analyticsEnabled: true], analyticsSink: sink)
+                (env.flags as? StaticFlags)?.analytics = AnalyticsFixture.config
+                env.analytics.setOptIn(true)
+            } else {
+                env = .test(api: api, health: health, auth: auth)
+            }
+            self.env = env
+            let state = AppState(env: env)
             model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
             model.switchAccount(auth.accountID)
         }
@@ -65,9 +81,9 @@ struct BirthYearPrefillTests {
     @Test("Never asked: the button with its primer; asked before: the button alone")
     func theStatesBeforeATap() {
         #expect(Rig().model.birthYearPrefill == .notAsked)
-        let health = MockHealthStore()
-        health.asked = [.about]
-        #expect(Rig(health: health).model.birthYearPrefill == .askedBefore)
+        let rig = Rig()
+        rig.health.asked = [.about]
+        #expect(rig.model.birthYearPrefill == .askedBefore)
     }
 
     @Test("Asking: the state is asking until the sheet answers, and a second tap asks nothing")
@@ -178,9 +194,28 @@ struct BirthYearPrefillTests {
         await hold.open()
         #expect(await tap.value == nil)
         #expect(rig.health.birthYearReads.isEmpty, "not read for an account that didn't ask")
-        #expect(rig.model.birthYearPrefill != .filled)
-        #expect(rig.model.birthYearPrefill != .asking)
+        // Signed out: no record to read (no signed-out bucket), and no outcome of A's.
+        #expect(rig.model.birthYearPrefill == .notAsked)
+        #expect(rig.health.asked.isEmpty)
+        // The sheet A answered is A's: recorded for A, the account that asked, and for nobody else.
+        #expect(rig.health.askedByAccount == [Self.a.uuidString: [.about]])
         #expect(rig.api.mePatches.isEmpty)
+    }
+
+    @Test("The record is per account: after A's sheet, B reads not asked; A reads asked before again")
+    func theRecordIsPerAccount() async {
+        let rig = Rig()
+        rig.health.birthYearValue = 1990
+        #expect(await rig.model.prefillBirthYear() == 1990)
+        #expect(rig.health.asked == [.about])
+        await rig.signOut()
+        await rig.signIn(Self.b)
+        #expect(rig.health.asked.isEmpty)
+        #expect(rig.model.birthYearPrefill == .notAsked, "B's own record, not A's")
+        await rig.signOut()
+        await rig.signIn(Self.a)
+        #expect(rig.model.birthYearPrefill == .askedBefore)
+        #expect(rig.health.askedByAccount == [Self.a.uuidString: [.about]])
     }
 
     @Test("An account switch mid-request leaves no outcome, and A's late answer never touches B's own tap")
@@ -250,6 +285,37 @@ struct BirthYearPrefillTests {
         #expect(rig.model.birthYearPrefill == .outOfRange)
         rig.model.birthYearChosen()
         #expect(rig.model.birthYearPrefill == .askedBefore)
+    }
+
+    // MARK: analytics
+
+    @Test("No analytics event on the prefill path carries the year (the gate open, every capture checked)")
+    func noEventCarriesTheYear() async {
+        let sink = FakeAnalyticsSink()
+        let rig = Rig(sink: sink)
+        #expect(sink.starts.count == 1, "the gate is open: anything tracked would be captured")
+        rig.health.birthYearValue = 1990
+        #expect(await rig.model.prefillBirthYear() == 1990)
+        #expect(await rig.model.saveAboutYou(birthYear: 1990))
+        // What RootView tracks for the step, and the step's end.
+        rig.env.analytics.track(.onboardingStep(.aboutYou))
+        rig.model.finishAboutYou()
+        #expect(!sink.captures.isEmpty)
+        for capture in sink.captures {
+            #expect(!capture.properties.values.contains { $0.contains("1990") }, "\(capture.name)")
+            #expect(!capture.properties.keys.contains { $0.contains("birth") || $0.contains("year") }, "\(capture.name)")
+        }
+    }
+
+    /// The allow-list: no event of the closed list can carry a year at all, whatever the call site.
+    @Test("No event of the allow-list has a year-like value or a birth or year property")
+    func noEventCanCarryAYear() {
+        for event in AnalyticsEvent.everyCase {
+            for (key, value) in event.properties {
+                #expect(!key.contains("birth") && !key.contains("year") && !key.contains("age"), "\(event.name).\(key)")
+                #expect(Int(value).map { !(1900...2100).contains($0) } ?? true, "\(event.name).\(key) = \(value)")
+            }
+        }
     }
 
     @Test("A wheel change while asking doesn't end the request's state")
@@ -328,6 +394,78 @@ struct BirthYearPrefillScreenTests {
             #expect(!Self.text(w, "From Apple Health"))
             #expect(Self.node(w, "aboutYou.save")?.isEnabled == false, "the wheel untouched: nothing to send")
         } until: { Self.text($0, "outside the years RYFT offers") }
+    }
+
+    /// The step shown anew after a fill (its `@State` year gone): asked before, never "From Apple Health" under an
+    /// empty wheel, and nothing for Continue to send.
+    @Test("Filled once, then a fresh About you for the same account: the button, no caption, Continue off")
+    func aFillShownAnewReadsAsAskedBefore() async throws {
+        let state = MockBirthYearPrefill.state(health: MockBirthYearPrefill.health(.filled))
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        #expect(await model.prefillBirthYear() == MockBirthYearPrefill.year)
+        #expect(model.birthYearPrefill == .filled)
+        try await screen(AboutYouView(model: model).previewEnvironment(state)) { w in
+            #expect(!Self.text(w, "From Apple Health"))
+            #expect(!Self.text(w, "RYFT reads your date of birth and keeps only the year."), "asked before: no primer")
+            #expect(Self.node(w, "aboutYou.save")?.isEnabled == false, "an empty wheel: nothing to send")
+        } until: { Self.node($0, "aboutYou.useHealth") != nil }
+    }
+
+    /// The wheel's picker (SwiftUI's `.wheel` style is a `UIPickerView`).
+    private static func picker(_ w: HostedWindow) -> UIPickerView? {
+        func find(_ view: UIView) -> UIPickerView? {
+            if let picker = view as? UIPickerView { return picker }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        return find(w.window)
+    }
+
+    /// The row of `year` on the wheel: "Choose your birth year" first, then the years newest first (2010 in 2026).
+    private static func row(_ year: Int) -> Int { 2010 - year + 1 }
+
+    /// A turn of the wheel as a finger ends it: the row selected, then the delegate told, as UIKit does.
+    private static func turn(_ w: HostedWindow, to year: Int) async throws {
+        let picker = try #require(picker(w))
+        picker.selectRow(row(year), inComponent: 0, animated: false)
+        picker.delegate?.pickerView?(picker, didSelectRow: row(year), inComponent: 0)
+        try await w.settle()
+    }
+
+    /// `fillingFromHealth` marks only the fill's own change of the wheel. A fill of the year the wheel already shows
+    /// changes nothing and marks nothing, so the user's next turn still clears "From Apple Health".
+    @Test("The fill's own wheel change keeps From Apple Health; the user's next turn clears it, also after a same-year fill")
+    func theFillsChangeIsNotAChoice() async throws {
+        let health = MockHealthStore()
+        health.birthYearValue = 1990
+        let state = MockBirthYearPrefill.state(health: health)
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        try await HostedWindow.run(width: 390, height: 1_400, AboutYouView(model: model).previewEnvironment(state)
+            .environment(\.locale, Locale(identifier: "en_US"))) { w in
+            try await w.wait("the button", timeout: Self.wait) { Self.node(w, "aboutYou.useHealth") != nil }
+            try await w.settle()
+            #expect(Self.node(w, "aboutYou.save")?.isEnabled == false)
+            // The user turns the wheel to 1990 first; Apple Health then holds that same year.
+            try await Self.turn(w, to: 1990)
+            #expect(Self.node(w, "aboutYou.save")?.isEnabled == true, "a turn reaches the view's year")
+            #expect(Self.node(w, "aboutYou.useHealth")?.activate() == true)
+            try await w.wait("filled", timeout: Self.wait) { model.birthYearPrefill == .filled && Self.text(w, "From Apple Health") }
+            try await w.settle()
+            #expect(Self.text(w, "From Apple Health"), "the same year: the fill changed nothing, and kept its caption")
+
+            // The user's next turn is a choice: the caption goes, even though the fill moved nothing.
+            try await Self.turn(w, to: 1985)
+            try await w.wait("the choice", timeout: Self.wait) { model.birthYearPrefill == .askedBefore }
+            try await w.settle()
+            #expect(!Self.text(w, "From Apple Health"))
+            #expect(Self.node(w, "aboutYou.useHealth") != nil)
+
+            // A fill that moves the wheel (1985 → 1990): its own change isn't the user's choice.
+            #expect(Self.node(w, "aboutYou.useHealth")?.activate() == true)
+            try await w.wait("filled again", timeout: Self.wait) { model.birthYearPrefill == .filled && Self.text(w, "From Apple Health") }
+            try await w.settle()
+            #expect(model.birthYearPrefill == .filled)
+            #expect(Self.picker(w)?.selectedRow(inComponent: 0) == Self.row(1990))
+        }
     }
 
     @Test("Demo data: About you without the button")

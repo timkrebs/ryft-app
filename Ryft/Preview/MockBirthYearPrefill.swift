@@ -44,7 +44,8 @@ enum MockBirthYearPrefill {
     /// A signed-in account's graph (Demo data off) over `health`.
     static func state(health: MockHealthStore) -> AppState {
         let api = MockPlatformAPI(activities: .demoSource())
-        let defaults = UserDefaults(suiteName: "ryft.preview.prefill") ?? .standard
+        // A suite of its own each time, as `.test` makes: nothing a preview or a test writes reaches the next one.
+        let defaults = UserDefaults(suiteName: "ryft.preview.prefill.\(UUID().uuidString)") ?? .standard
         let env = AppEnvironment(
             settings: Settings(defaults: defaults), health: health, liveAPI: api, demoAPI: api, auth: .preview(),
             persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(), flags: StaticFlags([:]),

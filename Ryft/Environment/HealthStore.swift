@@ -539,8 +539,18 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var authorizationRequests: Int { requests.count }
     /// Every group an access status was asked for, in order.
     private(set) var statusQueries: [HealthPermissionGroup] = []
-    /// The record (in memory, the live store's is per account in `UserDefaults`): groups whose request returned.
-    var asked: Set<HealthPermissionGroup> = []
+    /// Whose record `asked` is, read at each use like the live store's `AccountScope.current(defaults)`. One fixed
+    /// account unless a test follows its `AuthService` (`{ AccountScope.current(authDefaults) }`); `nil` is signed out.
+    var account: () -> String? = { MockHealthStore.defaultAccount }
+    static let defaultAccount = "mock-account"
+    /// The record per account (in memory; the live store's is `health.asked.<account>` in `UserDefaults`).
+    private(set) var askedByAccount: [String: Set<HealthPermissionGroup>] = [:]
+    /// The current account's record: groups whose request returned for it. Signed out, it's empty and a write is
+    /// dropped, as in the live store (no signed-out bucket).
+    var asked: Set<HealthPermissionGroup> {
+        get { account().flatMap { askedByAccount[$0] } ?? [] }
+        set { if let account = account() { askedByAccount[account] = newValue } }
+    }
     /// Thrown by the next request (after it's counted), then cleared; nothing is recorded.
     var authorizationError: Error?
     /// What `birthYear()` answers: `nil` stands for refused, unset and never asked alike.
@@ -552,6 +562,9 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     /// Set off the main actor by `enableBackgroundDelivery()` and read by tests on it: under the lock.
     var backgroundDeliveryEnabled: Bool { locked { _backgroundDeliveryEnabled } }
     private var _backgroundDeliveryEnabled = false
+    /// How often `enableBackgroundDelivery()` ran (each launch, bootstrap and a later Allow call it again).
+    var backgroundDeliveryEnables: Int { locked { _backgroundDeliveryEnables } }
+    private var _backgroundDeliveryEnables = 0
     private(set) var observing = false
     private(set) var observerRegistrations = 0
     private(set) var resets = 0
@@ -592,32 +605,40 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var askedGroups: Set<HealthPermissionGroup> { asked }
 
     /// Like the live store: a group that isn't requestable throws (and is still listed in `requests`, so a test sees
-    /// the attempt). `access` is `core`'s answer.
+    /// the attempt). `access` is `core`'s answer, per install like HealthKit's. The record is the account's that was
+    /// current when the request started; signed out then, nothing is recorded.
     func requestAuthorization(_ group: HealthPermissionGroup) async throws {
         requests.append(group)
         guard group.isRequestable else { throw HealthPermissionError.notRequestable(group) }
+        let asker = account()
         await beforeAuthorizationReturns?()
         if let error = authorizationError {
             authorizationError = nil
             throw error
         }
-        asked.insert(group)
+        if let asker { askedByAccount[asker, default: []].insert(group) }
         if group == .core { access = .asked }
     }
 
-    /// `core`: `access`. Another requestable group: asked once its request returned. Not requestable: `unknown`.
+    /// `core`: `access`. Another requestable group: asked once any account's request for it returned (HealthKit's
+    /// answer is per install, not per account). Not requestable: `unknown`.
     func accessStatus(_ group: HealthPermissionGroup) async -> HealthAccess {
         statusQueries.append(group)
         if group == .core { return access }
         guard group.isRequestable else { return .unknown }
-        return asked.contains(group) ? .asked : .notAsked
+        return askedByAccount.values.contains { $0.contains(group) } ? .asked : .notAsked
     }
 
     func birthYear() async -> Int? {
         birthYearReads.append(asked)
         return birthYearValue
     }
-    func enableBackgroundDelivery() async { locked { _backgroundDeliveryEnabled = true } }
+    func enableBackgroundDelivery() async {
+        locked {
+            _backgroundDeliveryEnabled = true
+            _backgroundDeliveryEnables += 1
+        }
+    }
 
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         // Once, like the live store: launch and bootstrap both call it.

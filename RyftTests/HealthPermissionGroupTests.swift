@@ -365,6 +365,86 @@ struct HealthPermissionLedgerTests {
     }
 }
 
+/// The per-account path through the seam: the live store over a suite of its own, the sheet the test's (none can show
+/// in a test host). `AccountScope` is what the session writes; the store reads it at each use.
+@Suite("Health permission groups: the record through the live store")
+struct HealthLiveStoreRecordTests {
+    /// What the sheet was asked for, per request.
+    private final class Sheets {
+        var requested: [Set<String>] = []
+    }
+
+    private func store(_ d: UserDefaults, sheets: Sheets = Sheets(),
+                       during: @escaping () throws -> Void = {}) -> HealthStore {
+        HealthKitManager(defaults: d) { types in
+            sheets.requested.append(Set(types.map(\.identifier)))
+            try during()
+        }
+    }
+
+    @Test func aRequestRecordsForTheSignedInAccountAndEachAccountReadsItsOwn() async throws {
+        let d = suite(account: "A")
+        let health = store(d)
+        #expect(health.askedGroups.isEmpty)
+        try await health.requestAuthorization(.about)
+        #expect(health.askedGroups == [.about])
+        d.set("B", forKey: AccountScope.defaultsKey)
+        #expect(health.askedGroups.isEmpty, "B's own record, not A's")
+        try await health.requestAuthorization(.core)
+        #expect(health.askedGroups == [.core])
+        d.set("A", forKey: AccountScope.defaultsKey)
+        #expect(health.askedGroups == [.about])
+        #expect(d.stringArray(forKey: "health.asked.A") == ["about"])
+        #expect(d.stringArray(forKey: "health.asked.B") == ["core"])
+    }
+
+    @Test func theSheetAsksForTheGroupsTypesOnly() async throws {
+        let sheets = Sheets()
+        let health = store(suite(account: "A"), sheets: sheets)
+        try await health.requestAuthorization(.core)
+        try await health.requestAuthorization(.about)
+        #expect(sheets.requested == [todaysTen, ["HKCharacteristicTypeIdentifierDateOfBirth"]])
+    }
+
+    /// A switch while the sheet is up: the asker's record, and B's untouched.
+    @Test func anAccountSwitchDuringTheSheetRecordsForTheAsker() async throws {
+        let d = suite(account: "A")
+        let health = store(d) { d.set("B", forKey: AccountScope.defaultsKey) }
+        try await health.requestAuthorization(.core)
+        #expect(health.askedGroups.isEmpty)
+        #expect(d.stringArray(forKey: "health.asked.A") == ["core"])
+        #expect(d.object(forKey: "health.asked.B") == nil)
+    }
+
+    /// A sign-out while the sheet is up: recorded for the asker, nothing for "signed out", and nothing to read.
+    @Test func aSignOutDuringTheSheetRecordsForTheAskerOnly() async throws {
+        let d = suite(account: "A")
+        let health = store(d) { d.removeObject(forKey: AccountScope.defaultsKey) }
+        try await health.requestAuthorization(.about)
+        #expect(health.askedGroups.isEmpty)
+        #expect(d.dictionaryRepresentation().keys.filter { $0.hasPrefix("health.asked.") } == ["health.asked.A"])
+        #expect(d.stringArray(forKey: "health.asked.A") == ["about"])
+    }
+
+    @Test func aRefusedSheetRecordsNothing() async {
+        let d = suite(account: "A")
+        let health = store(d) { throw HKError(.errorAuthorizationDenied) }
+        await #expect(throws: HKError.self) { try await health.requestAuthorization(.about) }
+        #expect(health.askedGroups.isEmpty)
+        #expect(d.object(forKey: "health.asked.A") == nil)
+    }
+
+    @Test("A group that isn't requestable never reaches the sheet", arguments: notRequestable)
+    func aGroupThatIsNotRequestableNeverReachesTheSheet(_ group: HealthPermissionGroup) async {
+        let sheets = Sheets()
+        let d = suite(account: "A")
+        let health = store(d, sheets: sheets)
+        await #expect(throws: HealthPermissionError.notRequestable(group)) { try await health.requestAuthorization(group) }
+        #expect(sheets.requested.isEmpty)
+        #expect(d.object(forKey: "health.asked.A") == nil)
+    }
+}
+
 @Suite("Health permission groups: about")
 struct HealthAboutTests {
     @Test func theYearIsGregorian() throws {

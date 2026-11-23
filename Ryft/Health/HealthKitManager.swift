@@ -62,8 +62,18 @@ final class HealthKitManager {
 
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
-    /// The anchors' and the permission record's store.
-    let defaults = UserDefaults.standard
+    /// The anchors' and the permission record's store: `.standard` for the app, a suite of their own for tests.
+    let defaults: UserDefaults
+
+    /// The system sheet for a set of read types. HealthKit's own, unless a test of the record holds or fails it (no
+    /// sheet can show in a test host).
+    typealias Authorize = (_ read: Set<HKObjectType>) async throws -> Void
+    private let authorize: Authorize?
+
+    init(defaults: UserDefaults = .standard, authorize: Authorize? = nil) {
+        self.defaults = defaults
+        self.authorize = authorize
+    }
 
     // MARK: authorization (ADR 0027: by group, from `HealthPermissionGroup`)
 
@@ -79,8 +89,13 @@ final class HealthKitManager {
         guard group.isRequestable else { throw HealthPermissionError.notRequestable(group) }
         let types = Self.readTypes([group])
         let store = store
+        let authorize = authorize
         try await HealthPermissionLedger.recording(group, defaults: defaults) {
-            try await store.requestAuthorization(toShare: [], read: types)
+            if let authorize {
+                try await authorize(types)
+            } else {
+                try await store.requestAuthorization(toShare: [], read: types)
+            }
         }
     }
 
