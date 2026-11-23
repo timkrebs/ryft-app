@@ -296,11 +296,13 @@ struct SignedOutOnboardingTests {
         }
     }
 
-    // MARK: test 13: the pinned bars
+    // MARK: test 13: the actions at accessibility sizes
 
-    @Test("Apple Health, What do you wear? and Set up: both pinned actions reachable, the page clear of the bar, the bar ≤ 25 % at AX3 and ≤ 35 % at AX5",
+    /// First-run ui.md §3 row 7, §4.2 row 5, §6 row 5: from AX1 a step's actions end the page instead of pinning (a bar of
+    /// wrapped pills covered up to 40 % of the screen at AX5). Below AX1 they stay pinned (`FirstRunScreensTests.primerActions`).
+    @Test("Apple Health, What do you wear? and Set up at AX3 and AX5: the actions end the page, under its last element, both reachable",
           arguments: ["health", "wear", "setup"], [ax3, ax5])
-    func pinnedBars(_ screen: String, _ s: SizeCase) async throws {
+    func actionsEndThePage(_ screen: String, _ s: SizeCase) async throws {
         let state = AppState.preview()
         let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
         model.devices.stage(["garmin"])
@@ -317,26 +319,26 @@ struct SignedOutOnboardingTests {
             view = AnyView(TrackerSetupStepView(model: model, checkOpen: false).previewEnvironment(state))
             ids = ("trackerSetup.done", "trackerSetup.later")
         }
+        #expect(OnboardingSpec.actionsEndPage(at: s.size))
         try await run(s, view) { w in
             try await w.wait(screen) { w.nodes().contains { $0.identifier == ids.0 } }
             try await w.settle()
-            let primary = try #require(w.nodes().first { $0.identifier == ids.0 })
-            let quiet = try #require(w.nodes().first { $0.identifier == ids.1 })
+            if screen == "health" { expectNoOverlap(pageNodes(w, excluding: [ids.0, ids.1]), "health \(s.size)") }
+            // At the page's end: both actions on screen, under everything else on the page, in reading order.
+            try await scrollToEnd(w)
+            let nodes = w.nodes()
+            let primary = try #require(nodes.first { $0.identifier == ids.0 })
+            let quiet = try #require(nodes.first { $0.identifier == ids.1 })
             let limit = Self.height - Self.bottomInset
             #expect(primary.frame.minY >= 0 && quiet.frame.maxY <= limit + 0.5, "\(primary.frame) \(quiet.frame)")
             #expect(primary.frame.height >= 44 && quiet.frame.height >= 44)
-            // The bar from its rule to the home indicator's inset: a quarter at AX3; at AX5 the longest quiet action
-            // ("Show me again later") wraps to three lines.
-            let barTop = primary.frame.minY - PinnedBarSpec.topPadding
-            let bar = limit - barTop
-            let share = s.size == .accessibility5 ? 0.35 : 0.25
-            #expect(bar <= Self.height * share, "\(screen) bar \(bar) of \(Self.height) at \(s.size)")
-            if screen == "health" { expectNoOverlap(pageNodes(w, excluding: [ids.0, ids.1]), "health \(s.size)") }
-            // The page's last element can be scrolled clear of the bar.
-            try await scrollToEnd(w)
+            #expect(quiet.frame.minY >= primary.frame.maxY - 0.5, "the quiet action under the pill")
             let page = pageNodes(w, excluding: [ids.0, ids.1])
             let lowest = page.map(\.frame.maxY).max() ?? 0
-            #expect(lowest <= barTop + 0.5, "the page's end at \(lowest), the bar at \(barTop)")
+            #expect(primary.frame.minY >= lowest + OnboardingSpec.primaryGap - 1,
+                    "\(screen) at \(s.size): the page's end at \(lowest), the pill at \(primary.frame.minY)")
+            let order = nodes.compactMap(\.identifier)
+            #expect(order.firstIndex(of: ids.0).map { $0 < (order.firstIndex(of: ids.1) ?? 0) } == true, "pill, then quiet")
         }
     }
 

@@ -43,8 +43,8 @@ final class NotificationPrimerModel {
 /// "Hear from RYFT when it matters": after Apple Health and before tracker setup, while iOS can still ask
 /// (`NotificationPrimerFacts.shows`). One concrete example on a lock screen (`LockScreenMock`), chosen so it is a notification
 /// that will arrive (`NotificationPrimerExample.choose`), then the caption; Continue (busy while iOS asks: the pill's spinner,
-/// the title stays; its hint says iOS asks next) and Not now pinned. Nothing teal or Volt: the example reads as an example.
-/// VoiceOver: the title, "Step n of m", the lead, the mock as one sentence, the caption, Continue, Not now.
+/// the title stays; its hint says iOS asks next) and Not now pinned (from AX1 at the end of the page). Nothing teal or Volt:
+/// the example reads as an example. VoiceOver: the title, "Step n of m", the lead, the mock as one sentence, the caption, Continue, Not now.
 struct NotificationPrimerStep: View {
     @State var model: NotificationPrimerModel
     let example: NotificationPrimerExample
@@ -69,8 +69,7 @@ struct NotificationPrimerStep: View {
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, OnboardingSpec.actionGap)
-        }
-        .pinnedBar {
+        } actions: {
             PillButton(Text("Continue"), busy: isBusy) { await model.allow() }
                 .accessibilityHint(Text("iOS asks next", comment: "First run, notification primer: VoiceOver hint on Continue."))
                 .accessibilityIdentifier("notifications.continue")

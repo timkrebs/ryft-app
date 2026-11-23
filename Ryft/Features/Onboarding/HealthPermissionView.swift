@@ -61,7 +61,7 @@ final class HealthOnboardingViewModel {
 /// rule, the 72 pt outline mark (its pulse drawn once), the title and the lead; "On the next screen" (Tap Turn On All, then
 /// Allow: a partial grant is invisible, HealthKit never reports a refused read, so this is the one place to prevent it); "The
 /// ten kinds of data" in the Health app's own groups and names; the footnote and the policy link. Continue (busy while the
-/// system sheet is up: the pill's spinner, the title stays) and Not now pinned under the page.
+/// system sheet is up: the pill's spinner, the title stays) and Not now pinned under the page (from AX1 they end it).
 private struct HealthPermissionScreen: View {
     @State var model: HealthOnboardingViewModel
     let showsBusy: Bool
@@ -91,7 +91,7 @@ private struct HealthPermissionScreen: View {
                 OnboardingPoint(symbol: "bed.double", title: "Sleep", text: "Sleep")
             }
             .padding(.top, GroupedListSpec.groupSpacing)
-            Text("RYFT writes nothing to Apple Health. Your data goes to your RYFT account, where the scores are calculated. Never sold, never used for advertising.")
+            Text("RYFT writes nothing to Apple Health unless you turn on saving strength workouts. Your data goes to your RYFT account, where the scores are calculated. Never sold, never used for advertising.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -100,8 +100,7 @@ private struct HealthPermissionScreen: View {
                 .ryftLink()
                 .padding(.top, HealthPermissionSpec.linkGap)
                 .accessibilityIdentifier("health.privacy")
-        }
-        .pinnedBar {
+        } actions: {
             PillButton(Text("Continue"), busy: isBusy) {
                 await model.connect()
                 model.reportAnswer(continued: true)

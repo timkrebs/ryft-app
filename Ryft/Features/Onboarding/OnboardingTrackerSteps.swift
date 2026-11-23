@@ -26,8 +26,7 @@ struct TrackerPickerView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, OnboardingSpec.actionGap)
-        }
-        .pinnedBar {
+        } actions: {
             PillButton(Text("Continue")) { model.answerWear(picked) }
                 .disabled(picked.isEmpty)
                 .accessibilityIdentifier("wear.continue")
@@ -52,8 +51,8 @@ enum TrackerSetupLead {
 
 /// After Apple Health access (ui.md §3.5, first-run ui.md §6): one decision, set up now or later. The chosen trackers'
 /// setup cards, the first open and the others collapsed; Check sync as a text action under them (its result opens inline);
-/// Done and "Show me again later" pinned, both leading to the tabs. Nothing here is mandatory, and the lead says when the
-/// first sync already runs.
+/// Done and "Show me again later" pinned (from AX1 at the end of the page), both leading to the tabs. Nothing here is
+/// mandatory, and the lead says when the first sync already runs.
 struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
@@ -109,14 +108,13 @@ struct TrackerSetupStepView: View {
                     .padding(.top, OnboardingSpec.quietGap)
                     .accessibilityIdentifier("trackerSetup.checkSync")
             }
-        }
-        .task { syncRuns = await model.firstSyncRuns() }
-        .pinnedBar {
+        } actions: {
             PillButton(Text("Done"), systemImage: PillButton.Icon.confirm) { model.finishTrackerSetup(later: false) }
                 .accessibilityIdentifier("trackerSetup.done")
             LaterButton(title: "Show me again later") { model.finishTrackerSetup(later: true) }
                 .accessibilityIdentifier("trackerSetup.later")
         }
+        .task { syncRuns = await model.firstSyncRuns() }
         .onAppear { if checkOpen { openCheck() } }
     }
 

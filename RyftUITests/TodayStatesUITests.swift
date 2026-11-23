@@ -49,8 +49,13 @@ final class TodayStatesUITests: XCTestCase {
         let app = launch("import")
         XCTAssertTrue(app.staticTexts["Setting up RYFT"].waitForExistence(timeout: 15), "the import card")
         XCTAssertTrue(app.staticTexts["You can leave the app — RYFT keeps going in the background."].exists)
-        XCTAssertTrue(app.staticTexts["Tell me when my first scores are ready"].exists, "the push question, here")
+        // The card is about progress: the first run's primer asks about notifications, not the card (first-run ui.md §4.5).
+        XCTAssertFalse(app.staticTexts["Tell me when my first scores are ready"].exists, "no push question on the card")
+        XCTAssertFalse(app.descendants(matching: .any)["today.importCard.push"].exists, "no Allow or Not now on the card")
+        XCTAssertTrue(app.descendants(matching: .any)["Step 2 of 3: Uploading"].exists, "the steps, as one element")
         XCTAssertTrue(app.staticTexts["Uploading 12,400 readings"].exists, "the status line")
+        // The empty orbit holds the gauge's place but is never read (§5): no gauge of any kind for VoiceOver.
+        XCTAssertFalse(app.descendants(matching: .any)["today.importGauge"].exists, "the orbit is hidden from VoiceOver")
         XCTAssertFalse(app.descendants(matching: .any)["today.pendingGauge"].exists)
     }
 

@@ -115,4 +115,46 @@ struct FirstRunScreensTests {
             #expect(after.frame == mark.frame, "the mark never moves")
         }
     }
+
+    // MARK: the first run's actions (ui.md §3 row 7, §4.2 row 5, §6 row 5)
+
+    @Test("From AX1 a step's actions end the page; below it they are pinned")
+    func actionsEndThePageFromAX1() {
+        #expect(!OnboardingSpec.actionsEndPage(at: .large) && !OnboardingSpec.actionsEndPage(at: .xxxLarge))
+        #expect(OnboardingSpec.actionsEndPage(at: .accessibility1) && OnboardingSpec.actionsEndPage(at: .accessibility5))
+    }
+
+    @Test("Hosted: the primer's whole caption shows above the pinned bar; from AX1 Continue and Not now follow it on the page",
+          arguments: [false, true])
+    func primerActions(_ ax1: Bool) async throws {
+        let env = AppEnvironment.preview()
+        let primer = NotificationPrimerStep(model: NotificationPrimerModel(push: PushRegistrar(env: env), analytics: env.analytics),
+                                            example: .morningScore, progress: FirstRunProgress(step: 6, count: 7))
+            .environment(\.appEnvironment, env)
+            .environment(\.locale, Locale(identifier: "en_US"))
+        let caption = NotificationPrimerExample.caption
+        try await HostedWindow.run(width: 390, height: 844, typeSize: ax1 ? .accessibility1 : .large,
+                                   category: ax1 ? .accessibilityMedium : .large, primer) { w in
+            try await w.wait("Continue") { w.nodes().contains { $0.identifier == "notifications.continue" } }
+            try await w.settle()
+            let scroll = try #require(w.pageScrollView())
+            let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+            scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, end)), animated: false)
+            try await w.settle()
+            let nodes = w.nodes()
+            let text = try #require(nodes.firstIndex { $0.label == caption }, "the caption, whole, as one element")
+            let pill = try #require(nodes.firstIndex { $0.identifier == "notifications.continue" })
+            let later = try #require(nodes.firstIndex { $0.identifier == "notifications.notNow" })
+            #expect(text < pill && pill < later, "read in page order: the caption, Continue, Not now")
+            let bottom = nodes[text].frame.maxY, top = nodes[pill].frame.minY
+            if ax1 {
+                #expect(top - bottom >= OnboardingSpec.primaryGap - 1, "Continue \(top - bottom) pt under the caption")
+                #expect(nodes[later].frame.maxY <= w.window.bounds.maxY, "Not now on screen at the page's end")
+            } else {
+                // The bar's rule sits `topPadding` above the pill: the caption's last line ends above it.
+                #expect(bottom <= top - PinnedBarSpec.topPadding + 0.5, "the caption ends at \(bottom), the bar starts at \(top - 12)")
+                #expect(nodes[later].frame.maxY >= w.window.bounds.maxY - 120, "pinned at the window's foot")
+            }
+        }
+    }
 }

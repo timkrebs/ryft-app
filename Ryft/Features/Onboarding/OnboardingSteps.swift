@@ -55,14 +55,19 @@ enum OnboardingSpec {
     static let actionGap: CGFloat = 12, primaryGap: CGFloat = 20
     /// The quiet text action ("Not now", "Skip") right under its pill.
     static let quietGap: CGFloat = 4
+
+    /// A step's `actions` (first-run ui.md §3, §4.2, §6): pinned under the page below the accessibility sizes; from AX1 they
+    /// end the page, `primaryGap` under the content, as a bar of wrapped pills would cover most of the screen.
+    static func actionsEndPage(at size: DynamicTypeSize) -> Bool { size.isAccessibilitySize }
 }
 
 /// A step's frame: in the first run the lock-up row, 24 below it the title (26 Light, header trait), 12 below the lead
 /// (16 pt `textSecondary`), 24 below that the content; as a sheet (`showsLockup` false) the title starts 24 below the grabber.
 /// With `progress` (a first-run step, ui.md §2) the step rule sits 12 under the lock-up row and the title 20 under the rule.
 /// A `hero` (Apple Health's mark) goes between them, 20 above the title. One scroll, 20 from the sides, at most 480 wide,
-/// the keyboard dismissed by a drag. A long step pins its actions with `.pinnedBar { … }` on this view.
-struct OnboardingScreen<Hero: View, Content: View>: View {
+/// the keyboard dismissed by a drag. A step's `actions` are pinned in a `PinnedActionBar` under the page and, from AX1, end the
+/// page instead (`OnboardingSpec.actionsEndPage`); a step that must stay pinned at every size uses `.pinnedBar { … }` on this view.
+struct OnboardingScreen<Hero: View, Content: View, Actions: View>: View {
     private let title: Text
     private let lead: Text
     private let showsLockup: Bool
@@ -70,11 +75,14 @@ struct OnboardingScreen<Hero: View, Content: View>: View {
     private let progress: FirstRunProgress?
     private let hero: Hero?
     private let content: Content
+    private let actions: Actions
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// `dismissible`: the step can wait (`OnboardingCoordinator.canDefer`); as a sheet only then does it show the grabber.
     /// `progress`: the first run's "Step n of m", drawn only under the lock-up (never in a sheet).
+    /// `actions`: the step's pill and its quiet action, pinned or, from AX1, at the end of the page.
     init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
-         @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content) {
+         @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.lead = lead
         self.showsLockup = showsLockup
@@ -82,9 +90,26 @@ struct OnboardingScreen<Hero: View, Content: View>: View {
         self.progress = progress
         self.hero = hero()
         self.content = content()
+        self.actions = actions()
     }
 
+    private var hasActions: Bool { Actions.self != EmptyView.self }
+
     var body: some View {
+        if hasActions {
+            // One page whatever the size, the actions placed by a conditional (as `AnalyticsOptInSheet`): a text-size change
+            // across AX1 moves them and keeps the page and its scroll position.
+            let inline = OnboardingSpec.actionsEndPage(at: typeSize)
+            page(actionsInline: inline)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !inline { PinnedActionBar { actions } }
+                }
+        } else {
+            page(actionsInline: false)
+        }
+    }
+
+    private func page(actionsInline: Bool) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
@@ -95,6 +120,12 @@ struct OnboardingScreen<Hero: View, Content: View>: View {
                     .padding(.top, OnboardingSpec.leadGap)
                 VStack(alignment: .leading, spacing: 0) { content }
                     .padding(.top, OnboardingSpec.contentGap)
+                if actionsInline {
+                    VStack(spacing: PinnedBarSpec.spacing) { actions }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, OnboardingSpec.primaryGap)
+                        .accessibilityElement(children: .contain)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(maxWidth: OnboardingSpec.maxWidth)
@@ -146,11 +177,27 @@ struct OnboardingScreen<Hero: View, Content: View>: View {
     }
 }
 
-extension OnboardingScreen where Hero == EmptyView {
+extension OnboardingScreen where Actions == EmptyView {
+    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+         @ViewBuilder hero: () -> Hero, @ViewBuilder content: () -> Content) {
+        self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
+                  hero: hero, content: content, actions: { EmptyView() })
+    }
+}
+
+extension OnboardingScreen where Hero == EmptyView, Actions == EmptyView {
     init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
          @ViewBuilder content: () -> Content) {
         self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
-                  hero: { EmptyView() }, content: content)
+                  hero: { EmptyView() }, content: content, actions: { EmptyView() })
+    }
+}
+
+extension OnboardingScreen where Hero == EmptyView {
+    init(title: Text, lead: Text, showsLockup: Bool, dismissible: Bool = true, progress: FirstRunProgress? = nil,
+         @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.init(title: title, lead: lead, showsLockup: showsLockup, dismissible: dismissible, progress: progress,
+                  hero: { EmptyView() }, content: content, actions: actions)
     }
 }
 
