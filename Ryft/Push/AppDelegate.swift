@@ -12,8 +12,8 @@ struct PushHandlers {
     /// The read-model writes submitted so far are readable (`Repository.settledBeforeCompletion`, at most 2 s): awaited
     /// before that completion too.
     var settled: @MainActor () async -> Void = {}
-    /// Who is signed in, and whether Demo data is shown: a local notification for another account (or arriving in Demo data)
-    /// isn't presented and opens Today only (`PushPresentation`).
+    /// Who is signed in, and whether Demo data is shown: a local notification for another account (or arriving in Demo data,
+    /// the wake notification excepted) isn't presented and opens Today only (`PushPresentation`).
     var current: @MainActor () -> (account: String?, demo: Bool) = { (nil, false) }
 }
 

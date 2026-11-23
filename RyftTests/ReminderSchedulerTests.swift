@@ -1417,3 +1417,92 @@ struct ReminderRoundThreeTests {
         #expect(rig.notifier.deliveredIDs.isEmpty, "the second spell")
     }
 }
+
+// MARK: - round 4: the push registration around the invite gate and an account change
+
+@MainActor
+@Suite("Push: the invite gate opening, an account change during the POST, the launch repair")
+struct PushRound4Tests {
+    private let token = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01])
+
+    private func screens(_ rig: ReminderRig, status: APIStatus) -> ScreenModels {
+        let sync = SyncService(env: rig.env)
+        return ScreenModels(state: rig.state, sync: sync,
+                            coordinator: SyncCoordinator(steps: LiveSyncSteps(state: rig.state, sync: sync), clock: rig.clock),
+                            store: TrainPreview.store, library: TrainPreview.library, apiStatus: status)
+    }
+
+    /// Code should-fix: an account that redeems its code had no APNs registration until the next app active. `ScreenModels`
+    /// hands its `apiStatus` to the registrar (nit 2), watches the gate and refreshes when it opens.
+    @Test("Blocked by the invite gate, then the gate opens: the app registers with APNs, and the token reaches the platform once")
+    func theGateOpeningRegisters() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        let status = APIStatus()
+        let screens = screens(rig, status: status)
+        status.observe([.inviteRequired], enforced: true)
+        await screens.push.refresh()
+        #expect(!rig.notifier.registeredForRemote, "the registrar reads the status ScreenModels was given: held")
+
+        status.resolved(.inviteRequired)
+        #expect(await eventually(timeout: .seconds(10)) { rig.notifier.registeredForRemote }, "the gate opened: refreshed")
+        // APNs hands the token over once it is asked.
+        await screens.push.didRegister(deviceToken: token)
+        #expect(rig.api.count("registerPush") == 1)
+    }
+
+    /// Security nit 1: the success branch saved the record under whoever is current when the answer arrives.
+    @Test("A sign-out while the POST is out: its success saves no record")
+    func aSignOutDuringThePostSavesNothing() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        let push = PushRegistrar(env: rig.env, apiStatus: APIStatus())
+        let hold = RequestHold()
+        rig.api.beforeRegisterPush = { await hold.wait() }
+        let send = Task { await push.didRegister(deviceToken: token) }
+        #expect(await eventually(timeout: .seconds(10)) { hold.waiting == 1 })
+
+        await rig.auth.signOut()
+        #expect(rig.auth.accountID == nil)
+        hold.release()
+        await send.value
+        #expect(rig.api.count("registerPush") == 1)
+        #expect(rig.env.persistence.document(PushRegistrar.Record.self, key: PushRegistrar.recordKey) == nil,
+                "the token isn't recorded under the account that left")
+    }
+
+    /// Code nit 3: `account == self.account` before the unregister.
+    @Test("The account changes while the POST is out and it fails: the other account stays registered with APNs")
+    func aFailureAfterAnAccountChangeDoesNotUnregisterTheNextAccount() async {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        rig.flags.setOverride(.pushEnabled, true)
+        let push = PushRegistrar(env: rig.env, apiStatus: APIStatus())
+        let hold = RequestHold()
+        rig.api.beforeRegisterPush = { await hold.wait() }
+        let send = Task { await push.didRegister(deviceToken: token) }
+        #expect(await eventually(timeout: .seconds(10)) { hold.waiting == 1 })
+
+        rig.client.emit(.signedIn, .preview(id: accountB))
+        #expect(await eventually(timeout: .seconds(10)) { rig.auth.accountID == accountB.uuidString })
+        rig.notifier.registerForRemoteNotifications() // B's refresh
+        rig.api.failNext = APIError.http(503, "")
+        hold.release()
+        await send.value
+        #expect(rig.api.count("registerPush") == 1 && push.lastError != nil, "A's POST failed")
+        #expect(rig.notifier.registeredForRemote, "B's registration with APNs is not undone by A's failure")
+    }
+
+    /// Code nit 2: a kill between the SDK saving another account's session and the purge leaves that account's keys.
+    @Test("The launch repair drops the other accounts' journal reminder settings and keeps the signed-in account's")
+    func theLaunchRepairWipesTheJournalKeys() async throws {
+        let rig = ReminderRig(at: Berlin.at(2026, 11, 22, 14))
+        let a = try #require(rig.auth.accountID)
+        let other = JournalReminderStore.key(accountB.uuidString)
+        rig.defaults.set(Data([1]), forKey: JournalReminderStore.key(a))
+        rig.defaults.set(Data([2]), forKey: other)
+
+        rig.state.bindAccountHooks(rig.auth, apiStatus: APIStatus())
+        #expect(rig.defaults.data(forKey: other) == nil, "the other account's setting is gone")
+        #expect(rig.defaults.data(forKey: JournalReminderStore.key(a)) != nil, "the signed-in account's stays")
+    }
+}

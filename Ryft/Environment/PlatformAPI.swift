@@ -338,7 +338,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before `GET /v1/config` answers (tests hold the read open with it).
     var beforeConfig: (@Sendable () async -> Void)?
 
+    /// Runs before each `POST /v1/devices/{id}/push` is taken (tests hold one open with it, then script its answer).
+    var beforeRegisterPush: (@Sendable () async -> Void)?
+
     func registerPush(deviceID: UUID, _ registration: PushRegistration) async throws {
+        await beforeRegisterPush?()
         try enter("registerPush")
         lock.withLock { pushRegistrations.append(registration) }
     }

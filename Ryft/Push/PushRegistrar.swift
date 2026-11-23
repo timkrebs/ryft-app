@@ -152,6 +152,13 @@ final class PushRegistrar {
         do {
             try await env.liveAPI.registerPush(deviceID: env.settings.deviceId,
                                                PushRegistration(token: token, env: record.env, locale: record.locale))
+            // The account changed while the request was out (a sign-out's `DELETE` already ran, or another account
+            // signed in): the platform has this token under the account that left, and a saved record would say it
+            // is the current one's.
+            guard account == self.account else {
+                Self.log.notice("push registration answered after the account changed: not saved")
+                return
+            }
             env.persistence.saveDocument(record, key: Self.recordKey, at: env.clock.now())
             onRecordChanged?()
             lastError = nil

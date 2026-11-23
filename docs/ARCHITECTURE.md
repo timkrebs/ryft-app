@@ -575,7 +575,13 @@ the next sign-in. `ryft://train/session` (the Live Activity) stays with
 - **Registering:** `POST /v1/devices/{id}/push` with `{token, env, locale}`.
   - `env` comes from the signed profile's `aps-environment`.
   - It is sent again only when the account, token, environment or language changed
-    from the record kept in SwiftData.
+    from the record kept in SwiftData. An answer that arrives after the account changed (a sign-out, another sign-in)
+    saves no record.
+  - Behind the invite gate (`APIStatus.inviteBlocked`, or a standing `inviteRequired` refusal) the app doesn't
+    register with APNs, because the platform refuses the `POST` and iOS may hand back an expired session's token
+    (NT7). When the gate opens (`ScreenModels` watches `inviteBlocked`), `refresh()` runs at once.
+  - A refused or failed `POST` with nothing accepted for the account unregisters from APNs again, unless the
+    account changed meanwhile; the next launch or app active registers and sends again.
 - **Removing:** `DELETE` runs before sign-out and before account deletion, through
   `AuthService.beforeSignOut`. A failure is logged and ignored.
 
@@ -586,7 +592,8 @@ the next sign-in. `ryft://train/session` (the Live Activity) stays with
 - **Foreground and taps:** one pure function, `PushPresentation` (design.md §7 of
   `docs/work/2026-11-22-notifications/`). Taps follow `ryft.url`; `SYNC_STALE` has no URL, it opens Today and syncs;
   `BEDTIME` opens Today. A local notification (any trigger but a push's) for another account than the signed-in one,
-  or arriving while Demo data is shown, isn't presented and opens Today only. This iPhone's `SYNC_STALE` isn't
+  or arriving while Demo data is shown (the wake notification excepted: it carries no data), isn't presented and
+  opens Today only. This iPhone's `SYNC_STALE` isn't
   presented in the foreground: the open app syncs.
 - **Categories:** `MORNING_SCORE`, `SESSION_SCORED`, `PR`, `SYNC_STALE`, `ACTIVITY_SCORED` (registered before the
   platform sends it) and the local `BEDTIME`, `JOURNAL_REMINDER` and `WAKE` (the wake notification below iOS 26),

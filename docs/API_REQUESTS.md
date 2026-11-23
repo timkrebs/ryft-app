@@ -152,7 +152,8 @@ here blocks a release. Written against API.md as of the 2026-11-20 changelog ent
      refused behind the invite gate (`403 invite_required`), and it fails offline or on a `5xx`. Server alerts carry no
      `ryft.account` yet (NT1), so the app can't tell them apart or clear them.
    - **The same with a failed `DELETE`:** a sign-out whose `DELETE` failed (offline, a `5xx`) leaves the token under
-     the account in the same way. The app logs the failure and carries on with the sign-out.
+     the account in the same way. The app logs the failure and carries on with the sign-out. A `POST` still in flight
+     when the account leaves has the same effect if the platform accepts it: the app saves no record for it.
    - **What the platform does already:** it drops a token when APNs answers `410` or `Unregistered`. Once iOS hands
      the same token to the next registration, APNs has no reason to answer that, so this path doesn't end it.
    - **What the app does meanwhile:** it doesn't register with APNs while the account is invite-blocked, and after a

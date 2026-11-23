@@ -419,7 +419,7 @@ final class AppState {
 
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
-    /// session and the purge's save leaves the other account's rows, and a kill after an unpark leaves none parked.
+    /// session and the purge's save leaves the other account's rows (and journal reminder settings), and a kill after an unpark leaves none parked.
     /// `apiStatus`: whose requests the wipe forgets (`APIStatus.forgetRequests`; the app's shared one by default).
     func bindAccountHooks(_ auth: AuthService, apiStatus: APIStatus? = nil) {
         let apiStatus = apiStatus ?? .shared
@@ -437,6 +437,7 @@ final class AppState {
         if let account = auth.accountID {
             env.activities.purge(notBelongingTo: account)
             env.activities.unpark(account: account)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: account)
         }
     }
 

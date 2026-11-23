@@ -19,7 +19,8 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
   - **Accounts:** the sign-out wipe removes every pending and delivered notification and the wake alarms.
     `notifications.owner` catches what a kill or a store-only retry left. Demo data freezes the account's reminders.
   - **Presentation:** every category has a placeholder for hidden previews. A local notification for another account
-    (or arriving in Demo data) isn't presented and opens Today only (`PushPresentation`).
+    (or arriving in Demo data, the wake notification excepted: it carries no data) isn't presented and opens Today
+    only (`PushPresentation`).
   - **Bedtime:** it now offers its reminders to the scheduler (`offerBedtime`). The wake notifications are removed by
     their fixed ids.
   - **Round 2** (`review.md`): the journal reminder and the fallback ship dark behind `notifications.reminders` (off;
@@ -35,9 +36,8 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
     drops an expiry's parked journal setting. A pass decides by one read of iOS's answer.
 - **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
   `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The operator opens `notifications.reminders`
-  once N4 lands (API_REQUESTS NT5). Round 1's and round 2's keys (`HIDDEN_PREVIEW_WAKE` included) are in the catalog;
-  round 3's one new key, `HIDDEN_PREVIEW_BEDTIME` ("Bedtime reminder"), waits for the localization-editor, and until
-  then `sync-strings --check` lists it as missing. NT7 (an account's push token after it leaves) is the platform's.
+  once N4 lands (API_REQUESTS NT5). Every key is in the catalog, round 3's `HIDDEN_PREVIEW_BEDTIME` ("Bedtime
+  reminder") included (c45fa70). NT7 (an account's push token after it leaves) is the platform's.
 - **Measured** (Debug, simulator, mock notifier, on the shared CI Mac under load; round 2, review S4): with the journal
   connected (live, habits on, no day cached) and this account's push registration saved, a pass that changes nothing
   makes no system call and no SwiftData fetch, 0.11–0.15 ms (median of 500, two runs; p95 0.14–0.16 ms). Before the
@@ -57,7 +57,8 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
     arrives.
   - **A shared iPhone after an expiry (S-1):** with `push.enabled` on, let account A's session expire, then sign in
     as B on the same iPhone while B is still behind the invite gate: no alert of A's arrives, and B registers
-    nothing. Once B passes the gate and its `POST` is accepted, A's alerts still don't arrive and B's do. Until the
+    nothing. Once B redeems its invite (the gate opens), the app registers with APNs at once, without waiting for the
+    next app active, and B's `POST` goes out. Once it is accepted, A's alerts still don't arrive and B's do. Until the
     platform answers NT7, an alert of A's between B's registration and the accepted `POST` is the known gap.
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
