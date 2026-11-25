@@ -996,6 +996,7 @@ final class AuthService {
     /// re-syncs the full backfill) and per-user UserDefaults. False when the store may still hold the data.
     static func wipeSharedLocalData(_ wipe: Wipe) -> Bool {
         steps(of: wipe, before: {
+            HealthKitManager.shared.stopBodyMass()
             HealthKitManager.shared.resetAnchors()
             SyncEngineState.wipe(defaults: .standard)
             Settings.shared.clearPerUserState()

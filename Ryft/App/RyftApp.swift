@@ -136,19 +136,6 @@ struct RyftApp: App {
         TrainCoordinator.shared.demoAtLaunch(demoMode: Settings.shared.demoMode,
                                              signedIn: AuthService.shared.isSignedIn || AccountScope.current() != nil,
                                              protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable)
-        let workoutActive = TrainCoordinator.shared.active != nil
-        WorkoutLauncher.updateShortcutItems(resume: workoutActive)
-        // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
-        // first `.active`; nothing waits for it. Links, notifications and quick actions at connect end it
-        // (`QuickActionSceneDelegate`).
-        let launch = LaunchSequenceModel(
-            decision: LaunchPolicy.decide(.current(launchedInBackground: launchedInBackground,
-                                                   workoutActive: workoutActive)),
-            clock: AppEnvironment.live.clock)
-        _launch = State(initialValue: launch)
-        LaunchInterruptions.post = { [launch] in launch.send(.interrupted($0)) }
-        // "Open in" never interrupts a workout: the file waits (ui.md E7).
-        screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
         // The coordinator already holds the last run's session: it lets go of it, or a banner reads a deleted row.
@@ -158,6 +145,26 @@ struct RyftApp: App {
             Settings.shared.setColumn = nil
             Settings.shared.sessionLayout = .focused
         }
+        #endif
+        let workoutActive = TrainCoordinator.shared.active != nil
+        WorkoutLauncher.updateShortcutItems(resume: workoutActive)
+        // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
+        // first `.active`; nothing waits for it. Links, notifications and quick actions at connect end it
+        // (`QuickActionSceneDelegate`).
+        #if DEBUG && targetEnvironment(simulator)
+        let holdForTapTest = ProcessInfo.processInfo.arguments.contains("-RyftHoldLaunchForTap")
+        #else
+        let holdForTapTest = false
+        #endif
+        let launch = LaunchSequenceModel(
+            decision: LaunchPolicy.decide(.current(launchedInBackground: launchedInBackground,
+                                                   workoutActive: workoutActive)),
+            clock: AppEnvironment.live.clock, holdForTapTest: holdForTapTest)
+        _launch = State(initialValue: launch)
+        LaunchInterruptions.post = { [launch] in launch.send(.interrupted($0)) }
+        // "Open in" never interrupts a workout: the file waits (ui.md E7).
+        screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
+        #if DEBUG
         // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
         ImportDemoFiles.applyLaunchArguments(to: env)
         #endif
@@ -332,6 +339,8 @@ struct RyftApp: App {
                         Task { await screens.importer.open([url]) }
                         return
                     }
+                    // The active system authentication session owns provider completions.
+                    if url.scheme == "ryft", url.host == "connect" { return }
                     if trainCoordinator.handle(url) { return }
                     Task {
                         if await screens.router.open(url) { return }
@@ -654,6 +663,7 @@ struct RootView: View {
 /// view so the hosted tests and shots draw the same host as the app.
 struct RootTabs: View {
     @Environment(AppState.self) private var state
+    @Environment(TrainCoordinator.self) private var train
 
     var body: some View {
         TabView(selection: Bindable(state).selectedTab) {
@@ -666,6 +676,7 @@ struct RootTabs: View {
         .ryftTabBar(RyftTabBar(items: RyftTabBar.appTabs, selection: state.selectedTab.rawValue,
                                select: { state.selectedTab = AppTab(rawValue: $0) ?? state.selectedTab },
                                reselect: { if let tab = AppTab(rawValue: $0) { state.reselect(tab) } }))
+        .sheet(isPresented: Bindable(train).showsStart) { StartWorkoutSheet().presentedRoot() }
     }
 
     private func tab<Content: View>(_ tab: AppTab, @ViewBuilder _ content: () -> Content) -> some View {
@@ -708,6 +719,9 @@ enum DebugScreen: String {
     case welcomeParked = "welcome-parked"
     /// The usage analytics prompt, and Profile → Privacy's switch (phase 1 shows neither to anyone).
     case analyticsPrompt = "analytics-prompt", analyticsRow = "analytics-row"
+    #if targetEnvironment(simulator)
+    case nutrition
+    #endif
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -746,6 +760,9 @@ enum DebugScreen: String {
             DebugWelcomeParked()
         case .analyticsPrompt: AnalyticsOptInSheet { _ in }
         case .analyticsRow: AnalyticsOptInRowCapture()
+        #if targetEnvironment(simulator)
+        case .nutrition: NutritionSimulatorView()
+        #endif
         }
     }
 

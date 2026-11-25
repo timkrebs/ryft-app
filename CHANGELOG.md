@@ -11,6 +11,10 @@ Store "What's New".
 ## [Unreleased]
 
 ### Added
+- Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.
+- Nutrition coaching with fueling targets, recovery guidance, training goals, and optional Apple Health imports.
+- Devices & sync shows Garmin and Suunto direct connection availability from RYFT and gives
+  connected accounts a way to refresh status, reconnect and disconnect.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and

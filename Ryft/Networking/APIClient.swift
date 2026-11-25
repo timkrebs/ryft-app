@@ -353,7 +353,7 @@ final class APIClient: RyftDataSource {
     ]
 
     static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
-        openBehindInviteGate.contains("\(method) \(route(path))")
+        openBehindInviteGate.contains("\(method) \(route(path))") || isDirectConnectionDelete(method, path)
     }
 
     /// The host a request goes to: `POST /v1/sync` to `ingest` (`nil` when there's none: never the API

@@ -3063,7 +3063,7 @@ final class DevicesViewModel {
     /// `User.sources`: what sent data in the last 30 days, newest first, by RYFT's names.
     var sources: [SourceRow] {
         let catalog = catalog
-        return (state.user?.sources ?? []).map { s in
+        return (state.user?.sources ?? []).filter { $0.origin == .healthkit }.map { s in
             let ref = SourceRef(name: s.name, bundleID: s.bundleId, deviceModel: nil)
             let apple = s.bundleId?.lowercased().hasPrefix("com.apple.") ?? false
             return SourceRow(id: s.bundleId ?? s.name, name: catalog.displayName(ref), kinds: Self.kinds(s.kinds),
