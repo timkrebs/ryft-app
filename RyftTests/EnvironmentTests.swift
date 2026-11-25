@@ -140,14 +140,20 @@ struct MockPlatformTests {
 @MainActor
 struct SyncEngineTests {
     @Test func theNightGoesUpBeforeTheDayStreams() {
-        let order = HealthKitManager.shared.streams
+        let health = HealthKitManager.shared
+        let order = health.streams
         #expect(order.first == .sleep)
         #expect(Array(order.prefix(5)) == [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR),
                                            .quantity(.respiratoryRate), .quantity(.spo2)])
         let heartRate = order.firstIndex(of: .quantity(.heartRate)) ?? -1
         #expect((order.firstIndex(of: .workouts) ?? .max) < heartRate)
-        #expect(order.suffix(3) == [.quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)])
-        #expect(Set(order).count == SampleType.allCases.count + 2) // every type, once
+        let sharesBodyMass = health.sharesBodyMass
+        let optionalStreams: [HealthStream] = sharesBodyMass ? [.quantity(.bodyMass)] : []
+        let dayStreams: [HealthStream] = [.quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)]
+        #expect(Array(order.suffix(dayStreams.count + optionalStreams.count)) == dayStreams + optionalStreams)
+        let quantities = SampleType.allCases.filter { $0 != .bodyMass || sharesBodyMass }
+        #expect(Set(order) == Set([.sleep, .workouts] + quantities.map(HealthStream.quantity)))
+        #expect(Set(order).count == order.count)
     }
 
     @Test func readingMappingEncodingAndUploadingStayOffTheMainThread() async {
