@@ -83,8 +83,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'xcode-27' || fromJSON('["self-hosted", "macOS", "ARM64"]') }}
-    # The steps' budgets plus about 8 minutes for setup, build, results and cleanup. PRs and main: Unit 25 + UI smoke 25.
-    # Nightly: the Full plan's unit half 30 + its UI half 45.
+    # Nightly: the Full plan's unit half 30 + its UI half 45, plus ~15 for setup, build (3-4), results and cleanup (up to
+    # 3). PRs and main keep 75 (Unit 25 + UI smoke 25 and the same overhead).
     timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 90 || 75 }}
     env:
       # Pull requests and main run Unit + UISmoke; the nightly runs Full.
@@ -150,24 +150,28 @@ jobs:
       # TestPlans/Full (every unit and UI test plus the performance tests) in two steps, each with its own budget.
       # In one 45-minute step it timed out every night from 2026-11-21 on, all tests so far passing: the unit
       # half took ~19 minutes (5,093 Swift Testing tests, the hosted ones queueing on the main actor) and the UI half
-      # ~34 (103 tests, one simulator, no retries) (docs/CI.md → Tests).
+      # ~34 (103 tests, one simulator, no retries) (docs/CI.md → PR checks, Tests).
       - name: Full test plan, unit and performance
+        id: full-unit
         if: env.FULL == 'true'
         timeout-minutes: 30
         run: |
-          rm -rf build/FullUnit.xcresult
+          rm -rf build/FullUnit.xcresult build/Full.xcresult
+          # build/Full.xcresult: the one-step plan's bundle, so a kept workspace doesn't upload it again.
           xcodebuild test-without-building -scheme Ryft -testPlan Full -only-testing:RyftTests -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/FullUnit.xcresult
           xcrun xccov view --report --json build/FullUnit.xcresult > build/coverage.json
           python3 scripts/coverage.py build/coverage.json --summary "$GITHUB_STEP_SUMMARY"
       - name: Full test plan, UI
-        # Also after a red unit half, so one night reports both.
-        if: env.FULL == 'true' && !cancelled()
+        # Also after a red unit half, so one night reports both, but not when the build never got that far. No coverage:
+        # the floor reads the unit half's.
+        if: env.FULL == 'true' && !cancelled() && steps.full-unit.outcome != 'skipped'
         timeout-minutes: 45
         run: |
           rm -rf build/FullUI.xcresult
-          xcodebuild test-without-building -scheme Ryft -testPlan Full -only-testing:RyftUITests -destination "$DESTINATION" \
+          xcodebuild test-without-building -scheme Ryft -testPlan Full -only-testing:RyftUITests -enableCodeCoverage NO \
+            -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/FullUI.xcresult
       - name: Results

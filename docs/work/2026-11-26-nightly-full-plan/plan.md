@@ -21,7 +21,8 @@ The scheduled `ios.yml` run (FULL=true) gets through every test within its budge
 
 ## Decision
 Split Full into two steps with their own budgets, unit+performance 30 and UI 45. The UI step also runs after a red unit half.
-The job gets 90 minutes on schedule/dispatch and keeps 75 for PRs and main (the sum of the steps plus ~8 minutes of setup).
+The job gets 90 minutes on schedule/dispatch: 30 + 45 for the steps, plus ~15 for setup, build, results and cleanup.
+PRs and main keep 75. The UI step skips coverage, because the floor reads the unit half's.
 - Parallel UI clones were not chosen. It's the same loaded Mac, and timing-based UI tests get worse; it needs its own proof runs.
 - Parallel unit clones would not help either: the PR `Unit` step already uses them and takes as long.
 - Dropping UI tests from the nightly was not chosen: it is the only place the non-smoke UI tests run.
