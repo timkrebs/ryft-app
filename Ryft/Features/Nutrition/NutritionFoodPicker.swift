@@ -20,12 +20,18 @@ struct NutritionFoodPicker: View {
     private struct FoodRoute: Hashable {
         let food: NutritionFoodMatch
         let inputMethod: String
+        var editingID: UUID?
+    }
+
+    private struct QuickAddition {
+        let itemID: UUID
+        let route: FoodRoute
     }
 
     private static let debounce: Duration = .milliseconds(300)
     private static let queryLength = 2...100
     private static let pageSize = 20
-    private static let quickAddGrams = 100.0
+    private static let quickAdditionNoticeDuration: Duration = .seconds(10)
 
     let model: NutritionDiaryModel
     let api: APIClient
@@ -39,6 +45,8 @@ struct NutritionFoodPicker: View {
     @State private var searchesBarcode = false
     @State private var scanner = false
     @State private var detail: FoodRoute?
+    @State private var quickAddition: QuickAddition?
+    @State private var quickAddFeedback = 0
     @State private var createsFood = false
     @State private var matches: [NutritionFoodMatch] = []
     @State private var nextOffset: Int?
@@ -97,6 +105,7 @@ struct NutritionFoodPicker: View {
                         .foregroundStyle(Theme.textSecondary)
                         .accessibilityIdentifier("nutrition.selectionCount")
                 }
+                if let quickAddition { addedNotice(quickAddition) }
                 if items.count >= NutritionMealEditor.maximumItems {
                     GroupFooter(Text("A meal can contain up to \(NutritionMealEditor.maximumItems) foods."))
                 }
@@ -115,9 +124,24 @@ struct NutritionFoodPicker: View {
         }
         .defaultFocus($editing, true)
         .task(id: task) { await search(task.lookup) }
+        .task(id: quickAddition?.itemID) {
+            guard let id = quickAddition?.itemID,
+                  (try? await Task.sleep(for: Self.quickAdditionNoticeDuration)) != nil else { return }
+            if quickAddition?.itemID == id { quickAddition = nil }
+        }
+        .sensoryFeedback(.selection, trigger: quickAddFeedback)
         .navigationDestination(item: $detail) { entry in
-            NutritionFoodDetailView(model: model, food: entry.food, inputMethod: entry.inputMethod) { item in
-                append(item)
+            let starting = items.first { $0.id == entry.editingID }?.selection
+            NutritionFoodDetailView(model: model, food: entry.food, inputMethod: entry.inputMethod,
+                                    startingSelection: starting) { item in
+                if let id = entry.editingID {
+                    guard model.hasCurrentAccount, let index = items.firstIndex(where: { $0.id == id }) else { return }
+                    var replacement = item
+                    replacement.id = id
+                    items[index] = replacement
+                } else {
+                    append(item)
+                }
                 detail = nil
             }
         }
@@ -197,38 +221,68 @@ struct NutritionFoodPicker: View {
     }
 
     private func resultRow(_ food: NutritionFoodMatch, inputMethod: String) -> some View {
-        HStack(spacing: 0) {
+        let choice = food.quickSelection
+        let amount = food.describedSelection?.summary(locale: locale) ?? ""
+        let descriptions = [food.subtitle ?? food.brand, amount].filter { !$0.isEmpty }
+        return HStack(spacing: 0) {
             Button {
                 editing = false
                 detail = FoodRoute(food: food, inputMethod: inputMethod)
             } label: {
-                GroupedRowLabel(Text(verbatim: food.name), detail: food.brand.isEmpty ? nil : Text(verbatim: food.brand))
+                GroupedRowLabel(Text(verbatim: food.name),
+                                detail: descriptions.isEmpty ? nil : Text(verbatim: descriptions.joined(separator: " · ")))
             }
             .buttonStyle(.plain)
             .disabled(!canAdd)
             .accessibilityIdentifier("nutrition.food.\(food.id.uuidString.lowercased())")
             Button {
-                append(NutritionDraftItem(name: food.name, inputMethod: inputMethod,
-                                          selection: NutritionMealSelection(foodId: food.id, quantity: Self.quickAddGrams, unit: "g")))
-            } label: {
-                Label {
-                    NutritionDisplay.amount(Self.quickAddGrams, unit: "g").font(.ryft(.caption))
-                } icon: {
-                    Image(systemName: "plus")
+                guard canAdd, model.hasCurrentAccount else { return }
+                guard let choice else {
+                    editing = false
+                    detail = FoodRoute(food: food, inputMethod: inputMethod)
+                    return
                 }
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, GroupedListSpec.rowSpacing)
-                .frame(minHeight: Theme.Metrics.minHitTarget)
-                .background(Theme.surfaceRaised, in: Capsule())
+                let item = choice.draft(food: food, inputMethod: inputMethod, language: catalogLocale.language)
+                append(item)
+                quickAddition = QuickAddition(itemID: item.id,
+                                              route: FoodRoute(food: food, inputMethod: inputMethod, editingID: item.id))
+                quickAddFeedback += 1
+            } label: {
+                Image(systemName: "plus")
+                    .frame(minWidth: Theme.Metrics.minHitTarget, minHeight: Theme.Metrics.minHitTarget)
+                    .background(Theme.surfaceRaised, in: Circle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.textPrimary)
             .disabled(!canAdd)
-            .accessibilityLabel(Text("Add \(NutritionDisplay.number(Self.quickAddGrams)) g of \(food.name)"))
+            .accessibilityLabel(choice == nil ? Text("Choose an amount for \(food.name)") : Text("Add \(food.name)"))
+            .accessibilityValue(Text(verbatim: amount))
             .accessibilityIdentifier("nutrition.quickAdd.\(food.id.uuidString.lowercased())")
             .padding(.trailing, GroupedListSpec.rowInset)
         }
         .groupedRowHairline()
+    }
+
+    private func addedNotice(_ addition: QuickAddition) -> some View {
+        let name = addition.route.food.name
+        return VStack(alignment: .trailing, spacing: ValueChipSpec.spacing) {
+            UndoToast(message: String(localized: "Added \(name) to meal"),
+                      announcement: String(localized: "Added \(name) to meal. Undo available."),
+                      onUndo: {
+                          items.removeAll { $0.id == addition.itemID }
+                          quickAddition = nil
+                      },
+                      onDismiss: { quickAddition = nil },
+                      undoIdentifier: "nutrition.undoQuickAdd")
+            Button("Edit amount") {
+                editing = false
+                detail = addition.route
+                quickAddition = nil
+            }
+            .ryftLink()
+            .accessibilityIdentifier("nutrition.editQuickAdd")
+        }
+        .id(addition.itemID)
     }
 
     private func append(_ item: NutritionDraftItem) {
@@ -380,6 +434,7 @@ struct NutritionFoodDetailView: View {
     let model: NutritionDiaryModel
     let food: NutritionFoodMatch
     let inputMethod: String
+    var startingSelection: NutritionMealSelection?
     let selected: (NutritionDraftItem) -> Void
 
     @State private var detail: NutritionFoodDetail?
@@ -390,7 +445,10 @@ struct NutritionFoodDetailView: View {
     @State private var confirmsReport = false
     @State private var reporting = false
     @State private var reported = false
+    @State private var favorite: Bool?
+    @State private var updatingFavorite = false
     @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var language: String { NutritionCatalogLocale(locale: locale).language }
     private var displayName: String { detail?.displayName(language: language, fallback: food.name) ?? food.name }
@@ -404,23 +462,15 @@ struct NutritionFoodDetailView: View {
                     if detail == nil { PillButton(Text("Try again"), style: .secondary, busy: loading) { await load() } }
                 }
                 if let detail {
+                    foodSummary(detail)
                     let portion = chosenPortion(detail)
                     let preview = servingPreview(detail, portion: portion)
                     GroupedCard(Text("Amount")) {
-                        Picker("Measure", selection: Binding(get: { measure }, set: { choose($0, from: detail) })) {
-                            ForEach(detail.portions.filter(\.isSelectable)) { portion in
-                                Text(verbatim: portion.displayLabel(language: language))
-                                    .tag(portion.id.uuidString)
-                            }
-                            Text("Grams").tag("g")
-                            if supportsVolume(detail) { Text("Milliliters").tag("ml") }
-                        }
-                        .nutritionField()
-                        NutritionInputRow(title: Text("Quantity"), value: $quantity, numeric: true)
-                        if let preview, portion != nil, let weight = preview.weightG {
-                            GroupedRow.value(Text("Weight"), value: NutritionDisplay.amount(weight, unit: "g", locale: locale))
-                        } else if let preview, portion != nil, let volume = preview.volumeMl {
+                        amountControls(detail, portion: portion)
+                        if let preview, portion?.volumeMl != nil, let volume = preview.volumeMl {
                             GroupedRow.value(Text("Volume"), value: NutritionDisplay.amount(volume, unit: "mL", locale: locale))
+                        } else if let preview, portion != nil, let weight = preview.weightG {
+                            GroupedRow.value(Text("Weight"), value: NutritionDisplay.amount(weight, unit: "g", locale: locale))
                         }
                     }
                     if let preview {
@@ -435,7 +485,9 @@ struct NutritionFoodDetailView: View {
                     } else {
                         GroupFooter(Text("Enter a quantity with an available measure."))
                     }
-                    PillButton(Text("Add to meal")) { add(detail, portion: portion, weightG: preview?.weightG) }
+                    PillButton(startingSelection == nil ? Text("Add to meal") : Text("Apply amount")) {
+                        add(detail, portion: portion, preview: preview)
+                    }
                         .disabled(preview == nil)
                     if !detail.nutrients.isEmpty {
                         GroupedCard(Text("Catalog nutrients"), footer: Text("Values include their reference amount and unit.")) {
@@ -450,7 +502,8 @@ struct NutritionFoodDetailView: View {
                     if !detail.sources.isEmpty {
                         GroupedCard(Text("Food data sources")) {
                             ForEach(detail.sources) { source in
-                                GroupedRow.value(Text(verbatim: source.provider), value: Text(verbatim: source.licenseIdentifier))
+                                GroupedRow.value(Text(verbatim: source.provider), value: Text(verbatim: source.licenseIdentifier),
+                                                 detail: source.attribution.map { Text(verbatim: $0) })
                             }
                         }
                     }
@@ -471,35 +524,177 @@ struct NutritionFoodDetailView: View {
         }
     }
 
+    @ViewBuilder private func foodSummary(_ detail: NutritionFoodDetail) -> some View {
+        let subtitle = detail.subtitle ?? food.subtitle ?? food.brand
+        if !subtitle.isEmpty || favorite != nil {
+            HStack {
+                if !subtitle.isEmpty {
+                    Text(verbatim: subtitle)
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Spacer(minLength: 0)
+                if let favorite {
+                    CircleButton(systemImage: favorite ? "star.fill" : "star",
+                                 accessibilityLabel: favorite ? Text("Remove from favorites") : Text("Add to favorites")) {
+                        Task { await changeFavorite(!favorite) }
+                    }
+                    .disabled(updatingFavorite)
+                    .accessibilityIdentifier("nutrition.food.favorite")
+                }
+            }
+        }
+    }
+
+    private func amountControls(_ detail: NutritionFoodDetail, portion: NutritionFoodPortion?) -> some View {
+        let grid = [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 240 : 90), spacing: ValueChipSpec.spacing)]
+        return VStack(alignment: .leading, spacing: ValueChipSpec.spacing) {
+            if !detail.sortedPortions.isEmpty {
+                LazyVGrid(columns: grid, alignment: .leading, spacing: ValueChipSpec.spacing) {
+                    ForEach(detail.sortedPortions) { option in
+                        let id = option.id.uuidString
+                        amountChip(Text(verbatim: option.chipLabel(language: language)), value: id, detail: detail,
+                                   amount: catalogAmount(option))
+                            .accessibilityIdentifier("nutrition.portion.\(option.portionKey ?? id.lowercased())")
+                    }
+                }
+            }
+            ValueChipGroup {
+                amountChip(Text("Grams"), value: "g", detail: detail)
+                    .accessibilityIdentifier("nutrition.measure.grams")
+                if supportsVolume(detail) {
+                    amountChip(Text("Milliliters"), value: "ml", detail: detail)
+                        .accessibilityIdentifier("nutrition.measure.milliliters")
+                }
+            }
+            if let portion { multiplierChips(for: portion) }
+            quantityControl(household: portion != nil)
+        }
+        .padding(.horizontal, GroupedListSpec.rowInset)
+        .padding(.vertical, GroupedListSpec.rowSpacing)
+        .groupedRowHairline()
+    }
+
+    private func amountChip(_ title: Text, value: String, detail: NutritionFoodDetail, amount: Text? = nil) -> some View {
+        selectionChip(title, isSelected: measure == value, amount: amount) { choose(value, from: detail) }
+    }
+
+    private func multiplierChips(for portion: NutritionFoodPortion) -> some View {
+        let columns = [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 120 : 62), spacing: ValueChipSpec.spacing)]
+        return LazyVGrid(columns: columns, spacing: ValueChipSpec.spacing) {
+            ForEach(NutritionServingPreview.householdMultipliers, id: \.self) { multiplier in
+                let count = portion.quantity * multiplier
+                let label = NutritionDisplay.number(multiplier, locale: locale)
+                selectionChip(Text(verbatim: "\(label)×"), isSelected: parsedQuantity == count) {
+                    quantity = NutritionDisplay.editableQuantity(count, locale: locale)
+                    failure = nil
+                }
+                .disabled(!NutritionServingPreview.quantityLimits.contains(count))
+                .accessibilityIdentifier("nutrition.quantity.multiplier.\(multiplier)")
+            }
+        }
+    }
+
+    private func selectionChip(_ title: Text, isSelected: Bool, amount: Text? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                title.font(.ryft(.callout)).fixedSize(horizontal: false, vertical: true)
+                if let amount { amount.font(.ryft(.caption)).monospacedDigit() }
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, ValueChipSpec.horizontalPadding)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, minHeight: Theme.Metrics.minHitTarget)
+            .foregroundStyle(isSelected ? Theme.background : Theme.textPrimary)
+            .background(isSelected ? Theme.textPrimary : Theme.surfaceRaised,
+                        in: RoundedRectangle(cornerRadius: ValueChipSpec.height / 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func catalogAmount(_ portion: NutritionFoodPortion) -> Text? {
+        if let ml = portion.volumeMl { return NutritionDisplay.amount(ml, unit: "mL", locale: locale) }
+        if let grams = portion.weightG { return NutritionDisplay.amount(grams, unit: "g", locale: locale) }
+        return nil
+    }
+
+    private func quantityControl(household: Bool) -> some View {
+        let step = household ? NutritionServingPreview.householdStep : NutritionServingPreview.metricStep
+        let current = parsedQuantity
+        return HStack(spacing: ValueChipSpec.spacing) {
+            CircleButton(systemImage: "minus", accessibilityLabel: Text("Decrease quantity")) { adjustQuantity(-step) }
+                .disabled(current.map { $0 <= step } ?? true)
+                .accessibilityIdentifier("nutrition.quantity.decrease")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Quantity").font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
+                TextField("", text: $quantity)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .keyboardType(.decimalPad)
+                    .accessibilityLabel(Text("Quantity"))
+                    .accessibilityIdentifier("nutrition.quantity")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            CircleButton(systemImage: "plus", accessibilityLabel: Text("Increase quantity")) { adjustQuantity(step) }
+                .disabled(current.map { $0 > NutritionServingPreview.quantityLimits.upperBound - step } ?? true)
+                .accessibilityIdentifier("nutrition.quantity.increase")
+        }
+    }
+
+    private var parsedQuantity: Double? {
+        try? NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale)
+    }
+
+    private func adjustQuantity(_ step: Double) {
+        guard let current = parsedQuantity, NutritionServingPreview.quantityLimits.contains(current + step) else { return }
+        quantity = NutritionDisplay.editableQuantity(current + step, locale: locale)
+    }
+
+    private func changeFavorite(_ enabled: Bool) async {
+        guard !updatingFavorite else { return }
+        updatingFavorite = true
+        failure = nil
+        defer { updatingFavorite = false }
+        do {
+            try await model.setFavorite(enabled, foodID: food.id)
+            favorite = enabled
+        } catch {
+            if !error.isCancellation { failure = error.localizedDescription }
+        }
+    }
+
     private func supportsVolume(_ food: NutritionFoodDetail) -> Bool {
         food.densityGMl != nil || food.nutrients.contains { $0.referenceUnit == "ml" }
     }
 
     private func chosenPortion(_ food: NutritionFoodDetail) -> NutritionFoodPortion? {
-        food.portions.first { $0.isSelectable && $0.id.uuidString == measure }
+        food.sortedPortions.first { $0.id.uuidString == measure }
     }
 
     private func choose(_ choice: String, from food: NutritionFoodDetail) {
+        guard choice != measure else { return }
         measure = choice
         quantity = chosenPortion(food).map { NutritionDisplay.editableQuantity($0.quantity, locale: locale) } ?? "100"
         failure = nil
     }
 
     private func servingPreview(_ food: NutritionFoodDetail, portion: NutritionFoodPortion?) -> NutritionServingPreview? {
-        guard let count = try? NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale)
-        else { return nil }
+        guard let count = parsedQuantity else { return nil }
         return NutritionServingPreview(food: food, quantity: count, unit: portion?.unit ?? measure, portion: portion)
     }
 
-    private func add(_ food: NutritionFoodDetail, portion: NutritionFoodPortion?, weightG: Double?) {
+    private func add(_ food: NutritionFoodDetail, portion: NutritionFoodPortion?, preview: NutritionServingPreview?) {
         do {
             guard let count = try NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale) else {
                 throw NutritionInputError.invalidNumber
             }
             selected(NutritionDraftItem(name: displayName, inputMethod: inputMethod,
                                        selection: NutritionMealSelection(foodId: food.id, quantity: count,
-                                                                         unit: portion?.unit ?? measure, portionId: portion?.id),
-                                       portionLabel: portion?.displayLabel(language: language), weightG: weightG))
+                                                                         unit: portion?.unit ?? measure, portionId: portion?.id,
+                                                                         language: food.mealInputLanguage(language)),
+                                       portionLabel: portion?.displayLabel(language: language), weightG: preview?.weightG,
+                                       volumeMl: portion?.volumeMl == nil ? nil : preview?.volumeMl))
         } catch {
             failure = error.localizedDescription
         }
@@ -512,16 +707,13 @@ struct NutritionFoodDetailView: View {
         defer { loading = false }
         do {
             try model.needsCurrentAccount()
-            let result = try await model.foodDetail(food.id)
+            let result = try await model.foodDetail(food.id, language: language)
             try model.needsCurrentAccount()
             detail = result
-            let available = result.portions.filter(\.isSelectable)
-            if let portion = available.first(where: { !$0.estimated }) ?? available.first {
-                choose(portion.id.uuidString, from: result)
-            } else if NutritionServingPreview(food: result, quantity: 100, unit: "g", portion: nil) == nil,
-                      supportsVolume(result) {
-                choose("ml", from: result)
-            }
+            favorite = result.favorited ?? food.favorited
+            let selection = result.preferredSelection(editing: startingSelection)
+            measure = selection.portionId?.uuidString ?? selection.unit
+            quantity = NutritionDisplay.editableQuantity(selection.quantity, locale: locale)
         } catch {
             if !error.isCancellation { failure = error.localizedDescription }
         }

@@ -75,6 +75,25 @@ struct NutritionCatalogTests {
         #expect(!detail.nutrients.contains { $0.code == "sodium" })
     }
 
+    @Test func legacyDetailOmitsMealLanguageAndEnhancedDetailRetainsAttribution() throws {
+        let legacy = try decoder.decode(NutritionFoodDetail.self, from: Data(NutritionCatalogFixtures.detail.utf8))
+        let request = NutritionMealSelection(foodId: legacy.id, quantity: 100, unit: "g", language: legacy.mealInputLanguage("de"))
+        let fields = try #require(JSONSerialization.jsonObject(with: encoder.encode(request)) as? [String: Any])
+        #expect(fields["language"] == nil && legacy.sources.first?.attribution == nil)
+
+        let enhancedJSON = NutritionCatalogFixtures.detail.replacingOccurrences(of: #""sources":["#, with: #""favorited":false,"sources":["#)
+            .replacingOccurrences(of: #""license_identifier":"RYFT""#, with: #""license_identifier":"RYFT","attribution":"Source publisher fixture""#)
+        let enhanced = try decoder.decode(NutritionFoodDetail.self, from: Data(enhancedJSON.utf8))
+        #expect(enhanced.mealInputLanguage("de") == "de")
+        #expect(enhanced.sources.first?.attribution == "Source publisher fixture")
+    }
+
+    @Test func milkAmountUsesVolumeWhenCatalogAlsoProvidesMass() {
+        let glass = NutritionCatalogSelection(portionId: UUID(), quantity: 1, unit: "portion", shortLabel: "Glas",
+                                              gramWeight: 206, volumeMl: 200, kcal: 128)
+        #expect(glass.summary(locale: Locale(identifier: "de_DE")) == "Glas · 200 mL · 128 kcal")
+    }
+
     @Test func optionalFieldsUseTheAPIWireNames() throws {
         let query = NutritionFoodSearch(query: "apfel", language: "de", market: "DE", limit: 10, offset: 20)
         let body = try encoder.encode(query)
@@ -95,6 +114,58 @@ struct NutritionCatalogTests {
         #expect(swiss.language == "de" && swiss.market == "CH")
         let english = NutritionCatalogLocale(locale: Locale(identifier: "de_AT"), appLanguage: "en")
         #expect(english.language == "en" && english.market == "AT")
+    }
+
+    @Test func searchUsesCurrentLastSelectionThenDefaultAndLeavesReferenceForDisplay() throws {
+        let fixture = """
+        {"id":"a7e40c6e-bfb4-47eb-ad64-aea61136db01","name":"Apfel","brand":"","type":"generic","quality":"source_reported",
+         "subtitle":"Roh, mit Schale","favorited":true,
+         "default_portion":{"portion_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db04","quantity":1,"unit":"portion",
+           "label":"Mittelgroßer Apfel","short_label":"Mittel","gram_weight":182,"kcal":94.64,"protein_g":0.47},
+         "last_used_portion":{"portion_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db06","quantity":0.5,"unit":"portion",
+           "label":"Großer Apfel","short_label":"Groß","gram_weight":111.5,"kcal":57.98},
+         "reference_portion":{"quantity":100,"unit":"g","kcal":52}}
+        """
+        var result = try decoder.decode(NutritionFoodMatch.self, from: Data(fixture.utf8))
+        let choice = try #require(result.quickSelection)
+        #expect(result.favorited == true && result.subtitle == "Roh, mit Schale")
+        #expect(choice == result.lastUsedPortion && result.defaultPortion?.proteinG == 0.47)
+        #expect(choice.summary(locale: Locale(identifier: "de_DE")) == "Groß · 111,5 g · 58 kcal")
+        let item = choice.draft(food: result, inputMethod: "manual_search", language: "de")
+        let request = try #require(JSONSerialization.jsonObject(with: encoder.encode(item.request)) as? [String: Any])
+        #expect(request["portion_id"] as? String == choice.portionId?.uuidString)
+        #expect(request["quantity"] as? Double == 0.5 && request["language"] as? String == "de")
+        result.lastUsedPortion = NutritionCatalogSelection(quantity: 0.5, unit: "portion")
+        #expect(result.quickSelection == result.defaultPortion)
+        result.defaultPortion = nil
+        #expect(result.quickSelection == nil && result.describedSelection == result.referencePortion)
+    }
+
+    @Test func detailSortsSizeChipsAndUsesValidRecentOrExplicitDefault() throws {
+        let wire = """
+        [{"id":"a7e40c6e-bfb4-47eb-ad64-aea61136db06","source_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db01",
+          "label":"Large apple","quantity":1,"unit":"portion","estimated":false,"weight_g":223,
+          "portion_key":"large","short_label_de":"Groß","short_label_en":"Large","sort_order":30},
+         {"id":"a7e40c6e-bfb4-47eb-ad64-aea61136db04","source_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db01",
+          "label":"Medium apple","quantity":1,"unit":"portion","estimated":false,"weight_g":182,
+          "portion_key":"medium","short_label_de":"Mittel","short_label_en":"Medium","sort_order":20,"is_default":true},
+         {"id":"a7e40c6e-bfb4-47eb-ad64-aea61136db05","source_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db01",
+          "label":"Small apple","quantity":1,"unit":"portion","estimated":false,"weight_g":149,
+          "portion_key":"small","short_label_de":"Klein","short_label_en":"Small","sort_order":10}]
+        """
+        let portions = try decoder.decode([NutritionFoodPortion].self, from: Data(wire.utf8))
+        let detailJSON = NutritionCatalogFixtures.detail.replacingOccurrences(of: "[\(NutritionCatalogFixtures.portion)]", with: wire)
+        var food = try decoder.decode(NutritionFoodDetail.self, from: Data(detailJSON.utf8))
+        #expect(food.sortedPortions.map { $0.chipLabel(language: "de") } == ["Klein", "Mittel", "Groß"])
+        #expect(food.sortedPortions.map(\.weightG) == [149, 182, 223])
+        #expect(food.preferredSelection().portionId == portions[1].id)
+        food.lastUsedSelection = NutritionCatalogSelection(portionId: portions[0].id, quantity: 0.5, unit: "portion")
+        #expect(food.preferredSelection() == food.lastUsedSelection)
+        let portion = try #require(food.sortedPortions.last)
+        let half = try #require(NutritionServingPreview(food: food, quantity: 0.5, unit: "portion", portion: portion))
+        #expect(half.weightG == 111.5)
+        food.lastUsedSelection = NutritionCatalogSelection(portionId: UUID(), quantity: 0.5, unit: "portion")
+        #expect(food.preferredSelection().portionId == portions[1].id)
     }
 
     @Test func householdPreviewUsesCatalogWeightAndKeepsUnknownNutrients() throws {

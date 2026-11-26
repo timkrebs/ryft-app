@@ -72,6 +72,32 @@ struct NutritionDiaryTests {
         #expect(draft.selection.portionId == item.portionId)
     }
 
+    @Test func historicalPortionLabelAndAmountNeedNoCatalogRow() throws {
+        let body = """
+        {"id":"63cf1226-48cf-43c7-957e-c994ec3bbe61","food_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db01",
+         "food_name":"Apfel","brand":"","quantity":0.5,"unit":"portion",
+         "portion_id":"a7e40c6e-bfb4-47eb-ad64-aea61136db06","portion_label":"Großer Apfel",
+         "portion_short_label":"Groß","weight_g":111.5,"nutrients":{}}
+        """
+        let item = try APIClient.jsonDecoder.decode(NutritionMealItem.self, from: Data(body.utf8))
+        let draft = NutritionDraftItem(item)
+        #expect(draft.displayUnit == "Großer Apfel" && draft.selection.unit == "portion")
+        #expect(draft.selection.quantity == 0.5 && draft.gramsPerUnit == 223)
+        #expect(item.portionShortLabel == "Groß")
+        #expect(draft.request == NutritionMealSelection(itemId: item.id))
+    }
+
+    @Test func historicalDrinkRetainsVolumeAndKeepsSavedItemIdentity() throws {
+        let body = """
+        {"id":"63cf1226-48cf-43c7-957e-c994ec3bbe61","food_name":"Milch","brand":"","quantity":0.5,"unit":"portion",
+         "portion_label":"Glas","weight_g":103,"volume_ml":100,"nutrients":{}}
+        """
+        let item = try APIClient.jsonDecoder.decode(NutritionMealItem.self, from: Data(body.utf8))
+        let draft = NutritionDraftItem(item)
+        #expect(draft.millilitersPerUnit == 200 && draft.gramsPerUnit == 206)
+        #expect(draft.displayUnit == "Glas" && draft.request.itemId == item.id)
+    }
+
     @Test func decodesPartialTotalsAndBothScoringVersions() throws {
         let day = try APIClient.jsonDecoder.decode(NutritionDaily.self, from: Data(NutritionDiaryFixtures.daily.utf8))
         let energy = try #require(NutritionNutrient.energy.total(in: day.nutrients))

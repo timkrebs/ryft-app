@@ -123,25 +123,29 @@ struct NutritionDraftItem: Identifiable {
     let inputMethod: String
     let portionLabel: String?
     let gramsPerUnit: Double?
+    let millilitersPerUnit: Double?
     var selection: NutritionMealSelection
 
     init(name: String, inputMethod: String, selection: NutritionMealSelection,
-         portionLabel: String? = nil, weightG: Double? = nil) {
+         portionLabel: String? = nil, weightG: Double? = nil, volumeMl: Double? = nil) {
         self.name = name
         self.inputMethod = inputMethod
         self.selection = selection
         self.portionLabel = portionLabel
-        if let weightG, let quantity = selection.quantity, quantity > 0, selection.unit != "g" {
-            gramsPerUnit = weightG / quantity
+        if let quantity = selection.quantity, quantity > 0, selection.unit == "portion" || selection.unit == "serving" {
+            gramsPerUnit = weightG.map { $0 / quantity }
+            millilitersPerUnit = volumeMl.map { $0 / quantity }
         } else {
             gramsPerUnit = nil
+            millilitersPerUnit = nil
         }
     }
 
     init(_ saved: NutritionMealItem) {
         self.init(name: saved.foodName, inputMethod: "manual_entry",
                   selection: NutritionMealSelection(itemId: saved.id, foodId: saved.foodId, quantity: saved.quantity,
-                                                    unit: saved.unit, portionId: saved.portionId), weightG: saved.weightG)
+                                                    unit: saved.unit, portionId: saved.portionId),
+                  portionLabel: saved.portionLabel ?? saved.portionShortLabel, weightG: saved.weightG, volumeMl: saved.volumeMl)
     }
 
     var request: NutritionMealSelection {
@@ -153,6 +157,7 @@ struct NutritionDraftItem: Identifiable {
         if let portionLabel { return portionLabel }
         switch selection.unit {
         case "portion", "serving": return String(localized: "Portion")
+        case "ml": return "mL"
         default: return selection.unit ?? ""
         }
     }
@@ -233,7 +238,12 @@ final class NutritionDiaryModel {
     @ObservationIgnored private var readID = UUID()
     @ObservationIgnored private var days = NutritionReadCache<String, DayRead>(lifetime: 120, capacity: 7)
     @ObservationIgnored private var searches = NutritionReadCache<NutritionFoodSearch, NutritionFoodSearchPage>(lifetime: 120, capacity: 24)
-    @ObservationIgnored private var foods = NutritionReadCache<UUID, NutritionFoodDetail>(lifetime: 300, capacity: 20)
+    private struct FoodDetailKey: Hashable {
+        let id: UUID
+        let language: String
+    }
+
+    @ObservationIgnored private var foods = NutritionReadCache<FoodDetailKey, NutritionFoodDetail>(lifetime: 300, capacity: 20)
     @ObservationIgnored private var catalogGeneration = 0
 
     init(env: AppEnvironment, api: APIClient, account: String, timezone: String) {
@@ -349,21 +359,40 @@ final class NutritionDiaryModel {
         return page
     }
 
-    func foodDetail(_ id: UUID) async throws -> NutritionFoodDetail {
+    func foodDetail(_ id: UUID, language: String = APIClient.acceptLanguage) async throws -> NutritionFoodDetail {
         try needsCurrentAccount()
-        if let cached = foods.value(for: id, at: now) { return cached }
+        let key = FoodDetailKey(id: id, language: language)
+        if let cached = foods.value(for: key, at: now) { return cached }
         guard online, let api else { throw NutritionInputError.offline }
-        let detail = try await api.nutritionFood(id: id)
+        let generation = catalogGeneration
+        let detail = try await api.nutritionFood(id: id, language: language)
         try needsCurrentAccount()
-        foods.insert(detail, for: id, at: now)
+        if catalogGeneration == generation { foods.insert(detail, for: key, at: now) }
         return detail
     }
 
     func addedFood(_ food: NutritionFoodDetail) {
         guard hasCurrentAccount else { return }
+        catalogUsageChanged()
+        foods.insert(food, for: FoodDetailKey(id: food.id, language: APIClient.acceptLanguage), at: now)
+    }
+
+    func catalogUsageChanged() {
+        guard hasCurrentAccount else { return }
         catalogGeneration += 1
         searches.clear()
-        foods.insert(food, for: food.id, at: now)
+        foods.clear()
+    }
+
+    func setFavorite(_ enabled: Bool, foodID: UUID) async throws {
+        try needsCurrentAccount()
+        guard online, let env, let api else { throw NutritionInputError.offline }
+        let owner = AccountBinding(env)
+        try await env.auth.withBoundAccount(owner) {
+            try await api.setNutritionFoodFavorite(id: foodID, favorite: enabled)
+        }
+        try needsCurrentAccount()
+        catalogUsageChanged()
     }
 
     func showError(_ failure: Error) {
@@ -399,6 +428,7 @@ final class NutritionDiaryModel {
         guard online else { throw NutritionInputError.offline }
         let saved = try await api.createNutritionMeal(meal)
         try needsCurrentAccount()
+        catalogUsageChanged()
         store.removeDocument(key: key)
         pending = nil
         return saved

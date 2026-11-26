@@ -1,5 +1,12 @@
 # Status — 2026-11-24
 
+## 2026-11-25 · Everyday Nutrition portions
+
+- Live search shows the available catalog amount and calories. Quick add uses the last reusable selection or an explicit catalog default. Undo or edit the quantity before saving. Foods without either selection open their amount controls.
+- German Apple fixture sizes are 149, 182 and 223 g. Choose a household size, tap a multiplier, type a fraction, or use the step controls. Grams and supported milliliters remain available. The editable preview shows energy and macronutrients from the available references. Platform calculates the saved values.
+- The meal editor reopens saved portions with their original amount and label. The detail page shows publisher attribution when the catalog supplies it. Meal writes to the previous API omit the added language field when detail metadata is absent.
+- The local iPhone 17 Pro simulator build passed 137 unit and six Nutrition UI tests on iOS 27.2 using synthetic data. The German amount screen was captured and checked against the RYFT brand board. Production API and signed physical iPhone verification are separate release gates.
+
 ## 2026-11-25 · German Nutrition diary candidate
 
 - German app language requests a German food catalog. The market keeps Germany, Austria, or Switzerland when applicable and uses Germany as the default for German elsewhere.

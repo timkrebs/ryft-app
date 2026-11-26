@@ -13,13 +13,22 @@ extension APIClient {
         try await send("POST", path: "/v1/nutrition/foods/barcode", body: query)
     }
 
-    func nutritionFood(id: UUID) async throws -> NutritionFoodDetail {
-        try await send("GET", path: "/v1/nutrition/foods/\(id.uuidString.lowercased())", body: Optional<Int>.none)
+    func nutritionFood(id: UUID, language: String = APIClient.acceptLanguage) async throws -> NutritionFoodDetail {
+        try await send("GET", path: nutritionFoodPath(id) + "?language=\(Self.languageCode(language))",
+                       body: Optional<Int>.none)
     }
 
-    func nutritionFoodPortions(id: UUID) async throws -> [NutritionFoodPortion] {
-        try await send("GET", path: "/v1/nutrition/foods/\(id.uuidString.lowercased())/portions", body: Optional<Int>.none)
+    func nutritionFoodPortions(id: UUID, language: String = APIClient.acceptLanguage) async throws -> [NutritionFoodPortion] {
+        try await send("GET", path: nutritionFoodPath(id) + "/portions?language=\(Self.languageCode(language))",
+                       body: Optional<Int>.none)
     }
+
+    func setNutritionFoodFavorite(id: UUID, favorite: Bool) async throws {
+        _ = try await data(favorite ? "PUT" : "DELETE", path: nutritionFoodPath(id) + "/favorite",
+                           body: Optional<Int>.none)
+    }
+
+    private func nutritionFoodPath(_ id: UUID) -> String { "/v1/nutrition/foods/\(id.uuidString.lowercased())" }
 }
 
 extension APIClient {

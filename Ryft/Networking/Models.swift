@@ -2709,6 +2709,26 @@ struct NutritionFoodMatch: Decodable, Hashable, Identifiable, Sendable {
     let brand: String
     let type: String
     let quality: String
+    var subtitle: String?
+    var defaultPortion: NutritionCatalogSelection?
+    var lastUsedPortion: NutritionCatalogSelection?
+    var referencePortion: NutritionCatalogSelection?
+    var favorited: Bool?
+}
+
+/// A measured catalog selection with optional nutrient preview, also used for account-specific reuse.
+struct NutritionCatalogSelection: Decodable, Hashable, Sendable {
+    var portionId: UUID?
+    let quantity: Double
+    let unit: String
+    var label: String?
+    var shortLabel: String?
+    var gramWeight: Double?
+    var volumeMl: Double?
+    var kcal: Double?
+    var proteinG: Double?
+    var carbsG: Double?
+    var fatG: Double?
 }
 
 struct NutritionFoodSearchPage: Decodable, Equatable {
@@ -2742,6 +2762,7 @@ struct NutritionFoodSource: Codable, Equatable, Identifiable, Sendable {
     let sourceUrl: String
     let licenseIdentifier: String
     let sourceUpdatedAt: Date?
+    var attribution: String?
 }
 
 struct NutritionFoodPortion: Decodable, Equatable, Identifiable {
@@ -2754,6 +2775,11 @@ struct NutritionFoodPortion: Decodable, Equatable, Identifiable {
     let weightG: Double?
     let volumeMl: Double?
     let estimated: Bool
+    var portionKey: String?
+    var shortLabelEn: String?
+    var shortLabelDe: String?
+    var isDefault: Bool?
+    var sortOrder: Int?
 }
 
 struct NutritionFoodNutrient: Decodable, Equatable {
@@ -2779,6 +2805,11 @@ struct NutritionFoodDetail: Decodable, Equatable, Identifiable {
     let sources: [NutritionFoodSource]
     let portions: [NutritionFoodPortion]
     let nutrients: [NutritionFoodNutrient]
+    var subtitle: String?
+    var defaultPortion: NutritionCatalogSelection?
+    var lastUsedSelection: NutritionCatalogSelection?
+    var referencePortion: NutritionCatalogSelection?
+    var favorited: Bool?
 }
 
 // MARK: Direct wearable connections
@@ -2862,6 +2893,7 @@ struct NutritionMealSelection: Codable, Equatable, Sendable {
     var quantity: Double?
     var unit: String?
     var portionId: UUID?
+    var language: String?
 }
 
 struct NutritionMealWrite: Codable, Equatable, Sendable {
@@ -2923,6 +2955,8 @@ struct NutritionMealItem: Codable, Identifiable, Sendable {
     var sources: [NutritionFoodSource]?
     var calculationVersion: Int?
     var createdAt: Date?
+    var portionLabel: String?
+    var portionShortLabel: String?
 }
 
 struct NutritionMeal: Codable, Identifiable, Sendable {

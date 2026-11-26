@@ -29742,6 +29742,106 @@
           }
         }
       }
+    },
+    "Add %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hinzufügen"
+          }
+        }
+      }
+    },
+    "Choose an amount for %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menge für %@ auswählen"
+          }
+        }
+      }
+    },
+    "Added %@ to meal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ zur Mahlzeit hinzugefügt"
+          }
+        }
+      }
+    },
+    "Added %@ to meal. Undo available." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ zur Mahlzeit hinzugefügt. Du kannst das rückgängig machen."
+          }
+        }
+      }
+    },
+    "Edit amount" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menge bearbeiten"
+          }
+        }
+      }
+    },
+    "Apply amount" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menge übernehmen"
+          }
+        }
+      }
+    },
+    "Increase quantity" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menge erhöhen"
+          }
+        }
+      }
+    },
+    "Decrease quantity" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Menge verringern"
+          }
+        }
+      }
+    },
+    "Add to favorites" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu Favoriten hinzufügen"
+          }
+        }
+      }
+    },
+    "Remove from favorites" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus Favoriten entfernen"
+          }
+        }
+      }
     }
   },
   "version" : "1.3"

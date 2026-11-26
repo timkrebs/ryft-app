@@ -51,9 +51,100 @@ final class NutritionUITests: XCTestCase {
         XCTAssertTrue(match.label.contains("Apfel"))
         match.tap()
         XCTAssertTrue(app.staticTexts["Für diese Menge"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["78 kcal"].exists)
-        XCTAssertTrue(app.staticTexts["150 g"].exists)
+        XCTAssertTrue(app.staticTexts["94,6 kcal"].exists)
+        XCTAssertTrue(app.staticTexts["25,1 g"].exists)
+        XCTAssertTrue(app.staticTexts["0,5 g"].exists)
+        XCTAssertTrue(app.staticTexts["0,3 g"].exists)
+        let small = app.buttons["nutrition.portion.small"]
+        let medium = app.buttons["nutrition.portion.medium"]
+        let large = app.buttons["nutrition.portion.large"]
+        XCTAssertTrue(small.exists && medium.exists && large.exists)
+        XCTAssertTrue(small.label.contains("Klein") && small.label.contains("149 g"))
+        XCTAssertTrue(medium.label.contains("Mittel") && medium.label.contains("182 g"))
+        XCTAssertTrue(large.label.contains("Groß") && large.label.contains("223 g"))
+        let half = app.buttons["nutrition.quantity.multiplier.0.5"]
+        XCTAssertEqual(half.label, "0,5×")
+        XCTAssertEqual(app.buttons["nutrition.quantity.multiplier.1.0"].label, "1×")
+        XCTAssertEqual(app.buttons["nutrition.quantity.multiplier.1.5"].label, "1,5×")
+        XCTAssertEqual(app.buttons["nutrition.quantity.multiplier.2.0"].label, "2×")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Nutrition apple portions in German"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        large.tap()
+        half.tap()
+        XCTAssertTrue(app.staticTexts["111,5 g"].exists)
+        XCTAssertTrue(app.staticTexts["58 kcal"].exists)
+        app.buttons["nutrition.measure.grams"].tap()
+        XCTAssertTrue(app.staticTexts["52 kcal"].exists)
+        app.buttons["nutrition.quantity.increase"].tap()
+        XCTAssertTrue(app.staticTexts["57,2 kcal"].exists)
         XCTAssertTrue(app.buttons["Zur Mahlzeit hinzufügen"].exists)
+    }
+
+    @MainActor
+    func testQuickAddUndoEditAndReopenKeepsThePortionSnapshot() {
+        continueAfterFailure = false
+        let app = openGermanMealPicker()
+        let query = app.textFields["nutrition.foodQuery"]
+        query.tap()
+        query.typeText("Apfe")
+        let plus = app.buttons["nutrition.quickAdd.a7e40c6e-bfb4-47eb-ad64-aea61136db01"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 8))
+        plus.tap()
+        let undo = app.buttons["nutrition.undoQuickAdd"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        undo.tap()
+        XCTAssertFalse(app.buttons["nutrition.reviewMeal"].exists)
+        plus.tap()
+        app.buttons["nutrition.editQuickAdd"].tap()
+
+        let large = app.buttons["nutrition.portion.large"]
+        XCTAssertTrue(large.waitForExistence(timeout: 8))
+        large.tap()
+        app.buttons["nutrition.quantity.decrease"].tap()
+        app.buttons["Menge übernehmen"].tap()
+
+        let review = app.buttons["nutrition.reviewMeal"]
+        XCTAssertTrue(review.waitForExistence(timeout: 8))
+        review.tap()
+        let snapshot = NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Großer Apfel", "111,5 g")
+        XCTAssertTrue(app.buttons.containing(snapshot).firstMatch.exists)
+        let save = app.buttons["nutrition.meal.save"]
+        for _ in 0..<4 where !save.isHittable { app.swipeUp() }
+        save.tap()
+        let meal = app.buttons["nutrition.meal.ea0ac98d-9c71-410d-ac6a-61ce6f97f092"]
+        XCTAssertTrue(meal.waitForExistence(timeout: 10))
+        meal.tap()
+        XCTAssertTrue(app.buttons.containing(snapshot).firstMatch.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testQuickAddWithoutAReusableSelectionOpensAmounts() {
+        continueAfterFailure = false
+        let app = openGermanMealPicker()
+        let query = app.textFields["nutrition.foodQuery"]
+        query.tap()
+        query.typeText("Kaka")
+        let plus = app.buttons["nutrition.quickAdd.a7e40c6e-bfb4-47eb-ad64-aea61136db03"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 8))
+        plus.tap()
+        XCTAssertTrue(app.buttons["nutrition.measure.grams"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["nutrition.reviewMeal"].exists)
+    }
+
+    @MainActor
+    private func openGermanMealPicker() -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
+        app.launchArguments = ["-demoMode", "YES", "-RyftScreen", "nutrition", "-RyftNutritionDiaryOnly",
+                               "-AppleLanguages", "(de)", "-AppleLocale", "de_DE"]
+        app.launch()
+        let log = app.buttons["nutrition.logMeal"]
+        XCTAssertTrue(log.waitForExistence(timeout: 12))
+        for _ in 0..<4 where !log.isHittable { app.swipeUp() }
+        log.tap()
+        XCTAssertTrue(app.textFields["nutrition.foodQuery"].waitForExistence(timeout: 8))
+        return app
     }
 
     @MainActor

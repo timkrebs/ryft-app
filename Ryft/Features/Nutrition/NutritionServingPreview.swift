@@ -5,6 +5,49 @@ extension NutritionFoodMatch {
         guard type == "generic" || type == "branded" else { return nil }
         return FeedbackPost(message: "Food catalog issue: \(id.uuidString.lowercased())", category: .data)
     }
+
+    var quickSelection: NutritionCatalogSelection? {
+        [lastUsedPortion, defaultPortion].compactMap { $0 }.first(where: \.isSupported)
+    }
+
+    var describedSelection: NutritionCatalogSelection? {
+        quickSelection ?? referencePortion.flatMap { $0.isSupported ? $0 : nil }
+    }
+}
+
+extension NutritionCatalogSelection {
+    var isSupported: Bool {
+        guard NutritionServingPreview.quantityLimits.contains(quantity) else { return false }
+        switch unit {
+        case "g", "ml": return portionId == nil
+        case "portion", "serving": return portionId != nil
+        default: return false
+        }
+    }
+
+    var weightForDisplay: Double? { gramWeight ?? (unit == "g" ? quantity : nil) }
+    var volumeForDisplay: Double? { volumeMl ?? (unit == "ml" ? quantity : nil) }
+
+    func summary(locale: Locale) -> String {
+        var parts: [String] = []
+        if let title = shortLabel ?? label, !title.isEmpty { parts.append(title) }
+        if unit != "g", let volumeForDisplay {
+            parts.append("\(NutritionDisplay.number(volumeForDisplay, locale: locale)) mL")
+        } else if let weightForDisplay {
+            parts.append("\(NutritionDisplay.number(weightForDisplay, locale: locale)) g")
+        }
+        if let kcal, kcal.isFinite, kcal >= 0 {
+            parts.append("\(NutritionDisplay.number(kcal, locale: locale)) kcal")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    func draft(food: NutritionFoodMatch, inputMethod: String, language: String) -> NutritionDraftItem {
+        NutritionDraftItem(name: food.name, inputMethod: inputMethod,
+                           selection: .init(foodId: food.id, quantity: quantity, unit: unit, portionId: portionId, language: language),
+                           portionLabel: portionId == nil ? nil : (label ?? shortLabel),
+                           weightG: weightForDisplay, volumeMl: volumeForDisplay)
+    }
 }
 
 extension NutritionFoodPortion {
@@ -25,11 +68,55 @@ extension NutritionFoodPortion {
         default: return label
         }
     }
+
+    func chipLabel(language: String) -> String {
+        let short = language == "de" ? shortLabelDe : shortLabelEn
+        return short.flatMap { $0.isEmpty ? nil : $0 } ?? displayLabel(language: language)
+    }
+
+    var catalogSelection: NutritionCatalogSelection {
+        NutritionCatalogSelection(portionId: id, quantity: quantity, unit: unit)
+    }
 }
 
 extension NutritionFoodDetail {
     func displayName(language: String, fallback: String) -> String {
         names.first { !$0.alias && $0.language == language && !$0.label.isEmpty }?.label ?? fallback
+    }
+
+    func mealInputLanguage(_ language: String) -> String? {
+        // The previous API rejects unknown meal item fields. Enhanced details include a favorite status.
+        guard favorited != nil || defaultPortion != nil || lastUsedSelection != nil || referencePortion != nil else { return nil }
+        return language
+    }
+
+    var sortedPortions: [NutritionFoodPortion] {
+        portions.filter(\.isSelectable).sorted { a, b in
+            let left = a.sortOrder ?? Int.max
+            let right = b.sortOrder ?? Int.max
+            if left != right { return left < right }
+            if a.label != b.label { return a.label < b.label }
+            return a.id.uuidString < b.id.uuidString
+        }
+    }
+
+    func preferredSelection(editing current: NutritionMealSelection? = nil) -> NutritionCatalogSelection {
+        let edited = current.flatMap { item -> NutritionCatalogSelection? in
+            guard let quantity = item.quantity, let unit = item.unit else { return nil }
+            return NutritionCatalogSelection(portionId: item.portionId, quantity: quantity, unit: unit)
+        }
+        let portions = sortedPortions
+        let explicit = portions.filter { $0.isDefault == true }.map(\.catalogSelection)
+        let measured = portions.filter { !$0.estimated }.map(\.catalogSelection)
+        let candidates = [edited, lastUsedSelection, defaultPortion].compactMap { $0 }
+            + explicit + measured + portions.map(\.catalogSelection)
+        let grams = NutritionCatalogSelection(quantity: 100, unit: "g")
+        let milliliters = NutritionCatalogSelection(quantity: 100, unit: "ml")
+        return (candidates + [grams, milliliters]).first { candidate in
+            guard candidate.isSupported else { return false }
+            let portion = portions.first { $0.id == candidate.portionId }
+            return NutritionServingPreview(food: self, quantity: candidate.quantity, unit: candidate.unit, portion: portion) != nil
+        } ?? grams
     }
 }
 
@@ -37,6 +124,9 @@ extension NutritionFoodDetail {
 struct NutritionServingPreview {
     static let quantityLimits: ClosedRange<Double> = 0.000_001...100_000
     static let displayedNutrients: [NutritionNutrient] = [.energy, .protein, .carbs, .fat]
+    static let householdMultipliers = [0.5, 1.0, 1.5, 2.0]
+    static let householdStep = 0.5
+    static let metricStep = 10.0
 
     let weightG: Double?
     let volumeMl: Double?

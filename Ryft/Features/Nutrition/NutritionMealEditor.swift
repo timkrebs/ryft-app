@@ -22,6 +22,7 @@ struct NutritionMealEditor: View {
     let api: APIClient
     let finished: () -> Void
 
+    @Environment(\.locale) private var locale
     @State private var suggestion: NutritionFoodMatch?
     @State private var saved: NutritionMeal?
     @State private var consumedAt: Date
@@ -143,11 +144,16 @@ struct NutritionMealEditor: View {
 
     private func itemQuantity(_ item: NutritionDraftItem) -> Text {
         let quantity = item.selection.quantity ?? 0
-        let amount = NutritionDisplay.amount(quantity, unit: item.displayUnit)
-        guard let gramsPerUnit = item.gramsPerUnit else { return amount }
-        let household = "\(NutritionDisplay.number(quantity)) \(item.displayUnit)"
-        let weight = NutritionDisplay.number(quantity * gramsPerUnit)
-        return Text("\(household) · \(weight) g")
+        let household = "\(NutritionDisplay.number(quantity, locale: locale)) \(item.displayUnit)"
+        if let millilitersPerUnit = item.millilitersPerUnit {
+            let volume = NutritionDisplay.number(quantity * millilitersPerUnit, locale: locale)
+            return Text(verbatim: "\(household) · \(volume) mL")
+        }
+        if let gramsPerUnit = item.gramsPerUnit {
+            let weight = NutritionDisplay.number(quantity * gramsPerUnit, locale: locale)
+            return Text(verbatim: "\(household) · \(weight) g")
+        }
+        return Text(verbatim: household)
     }
 
     private func save() async {
@@ -161,6 +167,7 @@ struct NutritionMealEditor: View {
                 let patch = NutritionMealPatch(revision: saved.revision, consumedAt: consumedAt, mealType: type.rawValue,
                                                name: name, notes: notes, items: items.map(\.request))
                 _ = try await api.updateNutritionMeal(saved.id, patch)
+                model.catalogUsageChanged()
             } else {
                 let draft = request ?? NutritionMealWrite(
                     clientRequestId: UUID(), consumedAt: consumedAt, timezone: model.timezone, mealType: type.rawValue,
@@ -220,6 +227,7 @@ struct NutritionMealEditor: View {
             try model.needsCurrentAccount()
             try await api.deleteNutritionMeal(saved.id)
             try model.needsCurrentAccount()
+            model.catalogUsageChanged()
             finished()
         } catch {
             if !error.isCancellation { failure = error.localizedDescription }
@@ -248,6 +256,9 @@ private struct NutritionDraftQuantityView: View {
                             throw NutritionInputError.invalidNumber
                         }
                         if value != item.selection.quantity {
+                            if item.selection.itemId != nil, item.portionLabel != nil {
+                                item.selection.language = NutritionCatalogLocale(locale: locale).language
+                            }
                             item.selection.itemId = nil
                             item.selection.quantity = value
                         }
