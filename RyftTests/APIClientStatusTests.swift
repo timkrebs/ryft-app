@@ -147,8 +147,8 @@ struct APIClientStatusTests {
         let api = client()
         let page = try await api.searchNutritionFoods(.init(query: "Hähnchenbrust", language: "de"))
         let barcode = try await api.lookupNutritionBarcode(.init(barcode: "012345678905"))
-        let food = try await api.nutritionFood(id: id)
-        let portions = try await api.nutritionFoodPortions(id: id)
+        let food = try await api.nutritionFood(id: id, language: "de-AT")
+        let portions = try await api.nutritionFoodPortions(id: id, language: "en-GB")
 
         #expect(page.foods.first?.name == "Hähnchenbrust")
         #expect(barcode.gtin == "00012345678905")
@@ -160,7 +160,9 @@ struct APIClientStatusTests {
         #expect(requests.map { $0.url?.path } == [
             "/v1/nutrition/foods/search", "/v1/nutrition/foods/barcode", foodPath, foodPath + "/portions",
         ])
-        #expect(requests.allSatisfy { $0.url?.query == nil })
+        // Search and barcode carry the language in the body; detail and portions ask for theirs (`?language=`, D284),
+        // reduced to the two catalog languages.
+        #expect(requests.map { $0.url?.query } == [nil, nil, "language=de", "language=en"])
         #expect(requests.prefix(2).allSatisfy { $0.value(forHTTPHeaderField: "Content-Type") == "application/json" })
         #expect(bearers == Array(repeating: "Bearer token-1", count: 4))
     }
