@@ -37,7 +37,7 @@ struct NutritionFoodPicker: View {
     let api: APIClient
     @Binding var initialFood: NutritionFoodMatch?
     @Binding var items: [NutritionDraftItem]
-    let backToReview: (() -> Void)?
+    let onBack: () -> Void
     let review: () -> Void
 
     @State private var query = ""
@@ -77,7 +77,7 @@ struct NutritionFoodPicker: View {
 
     var body: some View {
         if let food = initialFood {
-            NutritionFoodDetailView(model: model, food: food, inputMethod: "manual_search") { item in
+            NutritionFoodDetailView(model: model, food: food, inputMethod: "manual_search", onBack: onBack) { item in
                 append(item)
                 initialFood = nil
             }
@@ -88,7 +88,10 @@ struct NutritionFoodPicker: View {
 
     private var searchPage: some View {
         let task = SearchTask(lookup: lookup, retry: retry, language: catalogLocale.language, market: catalogLocale.market)
-        return SubpageScaffold(Text("Add food"), navigation: backToReview.map { .back(.perform($0)) } ?? .back()) {
+        return SubpageScaffold(Text("Add food"), navigation: .back(.perform({
+            editing = false
+            onBack()
+        }))) {
             if !items.isEmpty {
                 PillButton(Text("Review"), style: .secondary, size: .compact) {
                     editing = false
@@ -133,7 +136,7 @@ struct NutritionFoodPicker: View {
         .navigationDestination(item: $detail) { entry in
             let starting = items.first { $0.id == entry.editingID }?.selection
             NutritionFoodDetailView(model: model, food: entry.food, inputMethod: entry.inputMethod,
-                                    startingSelection: starting) { item in
+                                    startingSelection: starting, onBack: { detail = nil }) { item in
                 if let id = entry.editingID {
                     guard model.hasCurrentAccount, let index = items.firstIndex(where: { $0.id == id }) else { return }
                     var replacement = item
@@ -435,6 +438,7 @@ struct NutritionFoodDetailView: View {
     let food: NutritionFoodMatch
     let inputMethod: String
     var startingSelection: NutritionMealSelection?
+    let onBack: () -> Void
     let selected: (NutritionDraftItem) -> Void
 
     @State private var detail: NutritionFoodDetail?
@@ -454,7 +458,7 @@ struct NutritionFoodDetailView: View {
     private var displayName: String { detail?.displayName(language: language, fallback: food.name) ?? food.name }
 
     var body: some View {
-        SubpageScaffold(Text(verbatim: displayName)) {
+        SubpageScaffold(Text(verbatim: displayName), navigation: .back(.perform(onBack))) {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 if loading { ProgressView() }
                 if let failure {

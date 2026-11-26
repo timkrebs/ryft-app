@@ -20,6 +20,7 @@ struct NutritionMealEditor: View {
 
     let model: NutritionDiaryModel
     let api: APIClient
+    let onBack: () -> Void
     let finished: () -> Void
 
     @Environment(\.locale) private var locale
@@ -39,9 +40,10 @@ struct NutritionMealEditor: View {
     @State private var request: NutritionMealWrite?
 
     init(model: NutritionDiaryModel, api: APIClient, meal: NutritionMeal?, suggested: NutritionFoodMatch? = nil,
-         finished: @escaping () -> Void) {
+         onBack: @escaping () -> Void, finished: @escaping () -> Void) {
         self.model = model
         self.api = api
+        self.onBack = onBack
         _suggestion = State(initialValue: suggested)
         self.finished = finished
         _saved = State(initialValue: meal)
@@ -57,7 +59,7 @@ struct NutritionMealEditor: View {
     var body: some View {
         if isAdding {
             NutritionFoodPicker(model: model, api: api, initialFood: $suggestion, items: $items,
-                                backToReview: hasReviewed ? { isAdding = false } : nil) {
+                                onBack: hasReviewed ? { isAdding = false } : onBack) {
                 hasReviewed = true
                 isAdding = false
             }
@@ -67,7 +69,7 @@ struct NutritionMealEditor: View {
     }
 
     private var reviewPage: some View {
-        SubpageScaffold(saved == nil ? Text("Log meal") : Text("Edit meal")) {
+        SubpageScaffold(saved == nil ? Text("Log meal") : Text("Edit meal"), navigation: .back(.perform(onBack))) {
             VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
                 foods
                 if let failure { InlineMessage(message: failure, systemImage: "exclamationmark.circle") }

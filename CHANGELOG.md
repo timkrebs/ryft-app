@@ -179,6 +179,7 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- Back exits a new or reopened Nutrition meal, including while food search has the keyboard open.
 - A workout without a duration in Apple Health (from another app, or entered by hand) no longer stops syncing. RYFT
   now leaves such a record out, like a sleep stage or reading that ends before it starts, and syncs everything else.
 - Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open, with Demo data on

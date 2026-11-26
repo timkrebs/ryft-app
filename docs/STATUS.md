@@ -1,5 +1,11 @@
 # Status — 2026-11-24
 
+## 2026-11-26 · Nutrition meal navigation
+
+- Back clears the destination that opened the meal editor. From food search opened inside a review, Back returns to that review and keeps its items. From Today quick log, cancelling the new meal returns to Today.
+- The final simulator snapshot passed 137 unit and six Nutrition UI tests. It includes cancelling food search with the keyboard open from both Today and the diary, and returning from a reopened meal while retaining its original portion.
+- The separately signed offline preview passed search Back with the keyboard open and Back from a reopened saved meal on iPhone 16 Pro. This used synthetic meal records. Production API and signed live-account validation remain open.
+
 ## 2026-11-25 · Everyday Nutrition portions
 
 - Live search shows the available catalog amount and calories. Quick add uses the last reusable selection or an explicit catalog default. Undo or edit the quantity before saving. Foods without either selection open their amount controls.

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct NutritionEntryView: View {
-    var opensMealEditor = false
+    var closeMealEditor: (() -> Void)?
 
     @Environment(\.appEnvironment) private var env
     @Environment(AppState.self) private var state
@@ -17,8 +17,8 @@ struct NutritionEntryView: View {
             let model = NutritionDiaryModel(env: env, api: api, account: account,
                                             timezone: state.user?.tz ?? TimeZone.current.identifier)
             Group {
-                if opensMealEditor {
-                    NutritionQuickLogView(model: model, api: api)
+                if let closeMealEditor {
+                    NutritionQuickLogView(model: model, api: api, closeMealEditor: closeMealEditor)
                 } else {
                     NutritionView(model: model)
                 }
@@ -32,18 +32,20 @@ struct NutritionQuickLogView: View {
     @State private var model: NutritionDiaryModel
     @State private var showsDiary: Bool
     let api: APIClient
+    let closeMealEditor: () -> Void
 
-    init(model: NutritionDiaryModel, api: APIClient) {
+    init(model: NutritionDiaryModel, api: APIClient, closeMealEditor: @escaping () -> Void) {
         _model = State(initialValue: model)
         _showsDiary = State(initialValue: model.pending != nil)
         self.api = api
+        self.closeMealEditor = closeMealEditor
     }
 
     var body: some View {
         if showsDiary {
             NutritionView(model: model)
         } else {
-            NutritionMealEditor(model: model, api: api, meal: nil) { showsDiary = true }
+            NutritionMealEditor(model: model, api: api, meal: nil, onBack: closeMealEditor) { showsDiary = true }
         }
     }
 }
@@ -83,7 +85,7 @@ struct NutritionView: View {
         }
         .navigationDestination(item: $editor) { entry in
             if let api = model.api {
-                NutritionMealEditor(model: model, api: api, meal: entry.meal) {
+                NutritionMealEditor(model: model, api: api, meal: entry.meal, onBack: { editor = nil }) {
                     editor = nil
                     Task { await model.reload() }
                 }

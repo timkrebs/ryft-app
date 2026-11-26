@@ -155,7 +155,7 @@ struct TodayView: View {
                 // The journal reminder's tap (`/journal/<day>`), also one that launched the app.
                 .onChange(of: screens.router.requestedJournalDay, initial: true) { _, day in openRequestedJournal(day) }
                 .navigationDestination(item: $nutritionOpening) { opening in
-                    NutritionEntryView(opensMealEditor: opening == .meal)
+                    NutritionEntryView(closeMealEditor: opening == .meal ? { nutritionOpening = nil } : nil)
                 }
                 .onChange(of: showsNutritionEntry) { _, available in if !available { nutritionOpening = nil } }
                 .onChange(of: env.auth.accountID) { _, _ in resetLogging() }

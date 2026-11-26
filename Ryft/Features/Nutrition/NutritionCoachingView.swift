@@ -27,7 +27,7 @@ struct NutritionCoachingView: View {
         }
         .task { await load() }
         .navigationDestination(item: $selected) { food in
-            NutritionMealEditor(model: model, api: api, meal: nil, suggested: food) {
+            NutritionMealEditor(model: model, api: api, meal: nil, suggested: food, onBack: { selected = nil }) {
                 selected = nil
                 Task {
                     await model.reload()

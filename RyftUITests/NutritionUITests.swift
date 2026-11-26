@@ -116,7 +116,22 @@ final class NutritionUITests: XCTestCase {
         let meal = app.buttons["nutrition.meal.ea0ac98d-9c71-410d-ac6a-61ce6f97f092"]
         XCTAssertTrue(meal.waitForExistence(timeout: 10))
         meal.tap()
-        XCTAssertTrue(app.buttons.containing(snapshot).firstMatch.waitForExistence(timeout: 8))
+        let savedItem = app.buttons.containing(snapshot).firstMatch
+        XCTAssertTrue(savedItem.waitForExistence(timeout: 8))
+        let back = app.buttons["subpage.back"]
+        app.buttons["nutrition.addFood"].tap()
+        XCTAssertTrue(app.textFields["nutrition.foodQuery"].waitForExistence(timeout: 8))
+        back.tap()
+        XCTAssertTrue(savedItem.waitForExistence(timeout: 8))
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        let logMeal = app.buttons["nutrition.logMeal"]
+        XCTAssertTrue(logMeal.waitForExistence(timeout: 8))
+        for _ in 0..<4 where !logMeal.isHittable { app.swipeUp() }
+        logMeal.tap()
+        cancelMealSearch(in: app)
+        XCTAssertTrue(logMeal.waitForExistence(timeout: 8))
+        XCTAssertTrue(meal.exists)
     }
 
     @MainActor
@@ -159,6 +174,12 @@ final class NutritionUITests: XCTestCase {
         let log = app.buttons["today.quickLog.meal"]
         XCTAssertTrue(log.waitForExistence(timeout: 8))
         log.tap()
+        cancelMealSearch(in: app)
+        XCTAssertTrue(plus.waitForExistence(timeout: 8))
+        XCTAssertTrue(plus.isHittable)
+        plus.tap()
+        XCTAssertTrue(log.waitForExistence(timeout: 8))
+        log.tap()
         searchAndSaveMeal(in: app)
         XCTAssertTrue(app.buttons["nutrition.logMeal"].exists)
         XCTAssertFalse(plus.isHittable)
@@ -166,6 +187,19 @@ final class NutritionUITests: XCTestCase {
         app.buttons["subpage.back"].tap()
         XCTAssertTrue(plus.waitForExistence(timeout: 8))
         XCTAssertTrue(plus.isHittable)
+    }
+
+    @MainActor
+    private func cancelMealSearch(in app: XCUIApplication) {
+        let query = app.textFields["nutrition.foodQuery"]
+        XCTAssertTrue(query.waitForExistence(timeout: 8))
+        query.tap()
+        query.typeText("Apf")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        let back = app.buttons["subpage.back"]
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        XCTAssertTrue(query.waitForNonExistence(timeout: 8))
     }
 
     @MainActor
