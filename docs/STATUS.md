@@ -4,7 +4,12 @@
 
 - Back clears the destination that opened the meal editor. From food search opened inside a review, Back returns to that review and keeps its items. From Today quick log, cancelling the new meal returns to Today.
 - The final simulator snapshot passed 137 unit and six Nutrition UI tests. It includes cancelling food search with the keyboard open from both Today and the diary, and returning from a reopened meal while retaining its original portion.
-- The separately signed offline preview passed search Back with the keyboard open and Back from a reopened saved meal on iPhone 16 Pro. This used synthetic meal records. Production API and signed live-account validation remain open.
+- Device results, from a separately signed offline preview build that is not in this repo:
+  - passed: search, the default 182 g, ½ small = 74.5 g, save and reopen, quick-add and undo;
+  - failed: Back in the meal editor, which this change fixes.
+  - The candidate's notes also say that the offline preview passed search Back with the keyboard open, and Back from a reopened saved meal, on iPhone 16 Pro with synthetic meal records.
+- **Open (device):** retest Back on a normal signed build against the live account, including Coaching → suggested food → Back and the quantity sheet's Back and Apply. Production API validation is also open. The contract is the platform draft stacked on ryft-platform#247.
+- In this repo since 2026-11-26: PRs #147 (the open-beta snapshot) and #148 (this work).
 
 ## 2026-11-25 · Everyday Nutrition portions
 
