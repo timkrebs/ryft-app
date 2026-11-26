@@ -8,7 +8,14 @@
   - passed: search, the default 182 g, ½ small = 74.5 g, save and reopen, quick-add and undo;
   - failed: Back in the meal editor, which this change fixes.
   - The candidate's notes also say that the offline preview passed search Back with the keyboard open, and Back from a reopened saved meal, on iPhone 16 Pro with synthetic meal records.
-- **Open (device):** retest Back on a normal signed build against the live account, including Coaching → suggested food → Back and the quantity sheet's Back and Apply. Production API validation is also open. The contract is the platform draft stacked on ryft-platform#247.
+- Landing review (#148): a save or delete that finishes after Back closes only its own editor. The back swipe from Add food keeps a reviewed draft. A definitive 4xx unfreezes Retry save. One six-decimal quantity rule applies everywhere. USDA `carbohydrates_total` counts as carbohydrates. Portions without `sort_order` keep the server's order. All simulator-verified (unit tests and `NutritionUITests` 7/7).
+- **Open (device):** retest on a normal signed build against the live account:
+  - the header Back;
+  - the swipe back from Add food with an unsaved item;
+  - a save still in flight while you go Back and open another meal;
+  - Coaching → suggested food → Back;
+  - the quantity sheet's Back and Apply.
+- **Open (production API):** validation. The contract is ryft-platform#248 (D284). The portions show only once the platform's step-2 feature build is live.
 - In this repo since 2026-11-26: PRs #147 (the open-beta snapshot) and #148 (this work).
 
 ## 2026-11-25 · Everyday Nutrition portions
