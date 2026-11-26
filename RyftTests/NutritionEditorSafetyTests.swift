@@ -96,6 +96,15 @@ struct NutritionEditorSafetyTests {
         tooFine.quantity = 0.3333333
         #expect(NutritionMealEditor.writableQuantities([fine]))
         #expect(!NutritionMealEditor.writableQuantities([fine, tooFine]))
+        #expect(throws: NutritionInputError.self, "nine decimals as typed") {
+            try NutritionServingPreview.parseQuantity("1,000000001", locale: german)
+        }
+        // An untouched saved row goes out as its item_id only: its stored quantity never blocks a save.
+        let stored = NutritionDraftItem(name: "Apfel", inputMethod: "manual_entry",
+                                        selection: NutritionMealSelection(itemId: UUID(), foodId: food.id, quantity: 0.3333333,
+                                                                          unit: "portion", portionId: portion.id))
+        #expect(NutritionMealEditor.writableQuantities([stored.request]))
+        #expect(!NutritionMealEditor.writableQuantities([stored.selection]))
     }
 
     // MARK: USDA carbohydrates

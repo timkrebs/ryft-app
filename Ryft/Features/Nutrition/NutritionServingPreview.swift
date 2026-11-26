@@ -138,10 +138,12 @@ struct NutritionServingPreview {
         return abs(scaled - scaled.rounded()) < 0.001
     }
 
-    /// A typed amount (empty is unknown), refused when it breaks `isValidQuantity`.
+    /// A typed amount (empty is unknown): at most six decimals as typed, then `isValidQuantity`.
     static func parseQuantity(_ text: String, locale: Locale) throws -> Double? {
         guard let value = try NutritionNumbers.parse(text, in: quantityLimits, locale: locale) else { return nil }
-        guard isValidQuantity(value) else { throw NutritionInputError.invalidNumber }
+        let decimals = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: locale.decimalSeparator ?? ".").dropFirst().first?.count ?? 0
+        guard decimals <= quantityFractionDigits, isValidQuantity(value) else { throw NutritionInputError.invalidNumber }
         return value
     }
 

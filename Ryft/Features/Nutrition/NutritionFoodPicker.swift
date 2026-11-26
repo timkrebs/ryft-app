@@ -496,7 +496,7 @@ struct NutritionFoodDetailView: View {
                     if !detail.nutrients.isEmpty {
                         GroupedCard(Text("Catalog nutrients"), footer: Text("Values include their reference amount and unit.")) {
                             ForEach(Array(detail.nutrients.enumerated()), id: \.offset) { _, value in
-                                let name = NutritionNutrient(rawValue: value.code)?.title ?? value.code.replacingOccurrences(of: "_", with: " ").capitalized
+                                let name = NutritionNutrient(catalogCode: value.code)?.title ?? value.code.replacingOccurrences(of: "_", with: " ").capitalized
                                 GroupedRow.value(Text(verbatim: name),
                                                  value: Text(verbatim: "\(NutritionDisplay.number(value.amount)) \(value.unit) / " +
                                                              "\(NutritionDisplay.number(value.referenceAmount)) \(value.referenceUnit)"))

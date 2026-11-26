@@ -186,7 +186,8 @@ struct NutritionMealEditor: View {
         defer { busy = false }
         do {
             try model.needsCurrentAccount()
-            guard Self.writableQuantities(items.map(\.selection)) else { throw NutritionInputError.invalidNumber }
+            // What goes out: an untouched saved row is only its `item_id`, so a stored quantity never blocks a save.
+            guard Self.writableQuantities(items.map(\.request)) else { throw NutritionInputError.invalidNumber }
             if let saved {
                 let patch = NutritionMealPatch(revision: saved.revision, consumedAt: consumedAt, mealType: type.rawValue,
                                                name: name, notes: notes, items: items.map(\.request))
