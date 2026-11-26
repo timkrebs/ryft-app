@@ -447,7 +447,8 @@ final class OnboardingCoordinator {
                 }
             // The App Attest codes are never a `gate` (API.md → Errors → App Attest).
             case .inviteRequired?, .importInProgress?, .importNotEnabled?, .appAttestRequired?,
-                 .appAttestChallengeInvalid?, .appAttestInvalid?, .appAttestKeyUnknown?:
+                 .appAttestChallengeInvalid?, .appAttestInvalid?, .appAttestKeyUnknown?,
+                 .unknownProvider?, .connectionLimit?, .connectTicketInvalid?, .connectExpired?:
                 break
             }
         }

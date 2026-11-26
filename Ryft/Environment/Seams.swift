@@ -224,6 +224,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// Training import from a CSV file (My Plans, Profile → Data, Open in) and its upload. Off, nothing is sent and a
     /// saved import waits (the kill switch). On in the PR that ships the import's "Open in" keys.
     case trainImport = "train.import"
+    /// The full Nutrition pilot, including optional HealthKit inputs and coaching.
+    case nutritionEnabled = "nutrition.enabled"
+    /// The Nutrition diary, catalog and totals without optional health coaching.
+    case nutritionDiaryEnabled = "nutrition.diary_enabled"
     /// The live session one exercise at a time (Focused). Off or absent, every session is List, whatever Profile says.
     /// The layout holds while the session is on screen; reopening picks up the flag, which suits a rollback (plan.md, L5).
     case focusedSession = "train.focused_session"
@@ -243,7 +247,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
-        case .analyticsEnabled, .notificationsReminders: return false
+        case .analyticsEnabled, .notificationsReminders, .nutritionEnabled, .nutritionDiaryEnabled: return false
         }
     }
 }
@@ -268,6 +272,17 @@ protocol FeatureFlagProvider: AnyObject {
     /// Called whenever `newest` or `newestAnalytics` may have changed: an answer applied (shown or pending), an
     /// account or demo switch, a reset, an override.
     var onNewest: (@MainActor () -> Void)? { get set }
+}
+
+enum NutritionAccess: Hashable {
+    case unavailable, diary, full
+}
+
+extension FeatureFlagProvider {
+    var nutritionAccess: NutritionAccess {
+        if newest(.nutritionEnabled) { return .full }
+        return newest(.nutritionDiaryEnabled) ? .diary : .unavailable
+    }
 }
 
 /// Compiled defaults plus local overrides: previews, tests, and the fallback before §8's remote flags.

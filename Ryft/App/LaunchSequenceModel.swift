@@ -83,12 +83,13 @@ final class LaunchSequenceModel {
     @ObservationIgnored private var intervalOpen = false
     @ObservationIgnored private var interval: OSSignpostIntervalState?
 
-    init(decision: LaunchDecision, clock: AppClock, signposts: Bool = true, marks: ((Mark) -> Void)? = nil) {
+    init(decision: LaunchDecision, clock: AppClock, signposts: Bool = true, holdForTapTest: Bool = false,
+         marks: ((Mark) -> Void)? = nil) {
         self.clock = clock
         self.signposts = signposts
         self.marks = marks
         let now = clock.now()
-        let sequence = LaunchSequence(decision: decision, createdAt: now)
+        let sequence = LaunchSequence(decision: decision, createdAt: now, holdForTapTest: holdForTapTest)
         self.sequence = sequence
         phase = sequence.phase(at: now)
         ending = sequence.ending(at: now)

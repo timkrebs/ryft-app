@@ -33,7 +33,7 @@ enum ProfileRow: String, CaseIterable, Hashable, Identifiable, Sendable {
     // Settings
     case notifications, journal, heroNumerals, bedtime
     // Privacy
-    case consent, reviewConsent, checkConsent, withdrawConsent, analytics
+    case consent, reviewConsent, checkConsent, withdrawConsent, nutritionPrivacy, analytics
     // Account
     case email, timezone, signInMethods, changePassword, deleteAccount, signedIn
     // About
@@ -116,8 +116,9 @@ enum ProfileRows {
             guard f.isSignedIn else { return [] }
             let analytics: [ProfileRow] = f.showsAnalytics ? [.analytics] : []
             guard !f.isDemo else { return [.consent] + analytics }
-            if f.consentAwaitsConfirmation { return [.consent, .checkConsent, .withdrawConsent] + analytics }
-            return [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent] + analytics
+            let consent: [ProfileRow] = f.consentAwaitsConfirmation
+                ? [.consent, .checkConsent, .withdrawConsent] : [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
+            return consent + [.nutritionPrivacy] + analytics
         case .account:
             guard f.isSignedIn else { return [.signedIn] }
             return (f.showsEmail ? [.email] : []) + (f.hasTimezone ? [.timezone] : []) + [.signInMethods]
@@ -148,7 +149,7 @@ enum ProfileRows {
 
 /// Where a push row goes (`GroupedRow.push(route:)`; the page's `navigationDestination(for:)` builds it).
 enum ProfileRoute: Hashable, Sendable {
-    case devices, syncDetails, notifications, journal, bedtime, signInMethods, reportProblem, licences
+    case devices, syncDetails, notifications, journal, bedtime, signInMethods, reportProblem, licences, nutritionPrivacy
     #if DEBUG
     case catalog, flags
     #endif

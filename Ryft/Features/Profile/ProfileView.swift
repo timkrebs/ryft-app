@@ -16,7 +16,7 @@ struct ProfileView: View {
     /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
     @State private var unsentAtLogOut = 0
     @State private var sendsFirst = false
-    @State private var showDeleteConfirm = false
+    @State private var deleteConfirmation: AccountBinding?
     @State private var showChangePassword = false
     @State private var showWithdrawConfirm = false
     /// Demo data switched off while workouts logged in the demo exist: what the confirmation counts (ADR 0019).
@@ -41,7 +41,7 @@ struct ProfileView: View {
         .safariSheet($legal)
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
         .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
-            ShareSheet(items: [$0.url], completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
+            DataExportShareSheet(file: $0, completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
                 .presentedRoot()
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
@@ -95,12 +95,14 @@ struct ProfileView: View {
                 Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
             }
         }
-        .alert("Delete your RYFT account?", isPresented: $showDeleteConfirm) {
+        .alert("Delete your RYFT account?",
+               isPresented: Binding(get: { deleteConfirmation != nil }, set: { if !$0 { deleteConfirmation = nil } }),
+               presenting: deleteConfirmation) { confirmation in
             Button("Delete account", role: .destructive) {
-                Task { await model.deleteAccount() }
+                Task { await model.deleteAccount(confirmedFor: confirmation) }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
+        } message: { _ in
             Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
         }
         .sheet(isPresented: $showChangePassword) {
@@ -113,7 +115,7 @@ struct ProfileView: View {
             if model.canExport {
                 Button("Export my data first") { Task { await model.export() } }
             }
-            Button("Delete account instead", role: .destructive) { showDeleteConfirm = true }
+            Button("Delete account instead", role: .destructive) { deleteConfirmation = AccountBinding(env) }
         } message: {
             Text("RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time.")
         }
@@ -318,6 +320,8 @@ struct ProfileView: View {
             // Not while Log out runs: its sign-out would end the withdrawal unsent; nor while Check with RYFT asks (the model
             // refuses both too).
             .disabled(model.loggingOut || model.checkingConsent)
+        case .nutritionPrivacy:
+            GroupedRow.push(Text("Nutrition privacy"), identifier: id, route: ProfileRoute.nutritionPrivacy)
         case .analytics:
             AnalyticsOptInRow()
         // Account
@@ -334,7 +338,9 @@ struct ProfileView: View {
             // A sheet over the page, not a page of its own: an action, no chevron.
             GroupedRow.action(Text("Change password"), identifier: id) { showChangePassword = true }
         case .deleteAccount:
-            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) { showDeleteConfirm = true }
+            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) {
+                deleteConfirmation = AccountBinding(env)
+            }
         case .signedIn:
             GroupedRow.value(Text("Signed in"), value: Text("No"), identifier: id)
         // About
@@ -548,6 +554,7 @@ struct ProfileView: View {
         case .signInMethods: SignInMethodsView()
         case .reportProblem: ReportProblemView(model: model.report)
         case .licences: LicensesView()
+        case .nutritionPrivacy: NutritionPrivacyEntryView()
         #if DEBUG
         case .catalog: DebugComponentCatalog()
         case .flags: FeatureFlagsDebugView()

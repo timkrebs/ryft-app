@@ -19,6 +19,7 @@ enum SampleType: String, Codable, CaseIterable, Sendable {
     case vo2max = "vo2max"
     case activeEnergy = "active_energy"
     case steps = "steps"
+    case bodyMass = "body_mass"
 }
 
 /// HealthKit sleep stage as uploaded. See `SleepStageKind` for the four
@@ -64,6 +65,8 @@ struct Workout: Codable, Identifiable, Hashable {
     /// The scoring model that computed `strain` (`GET /v1/model`); `nil` before versions existed.
     var modelVersion: String? = nil
     var sourceBundleId: String? = nil
+    var wasUserEntered: Bool? = nil
+    var tzOffsetSec: Int? = nil
 
     var duration: TimeInterval { end.timeIntervalSince(start) }
 }
@@ -1012,12 +1015,16 @@ struct Consent: Codable, Hashable, Sendable {
 }
 
 struct UserSource: Codable, Hashable, Sendable {
+    enum Origin: String, Codable, Sendable { case healthkit, direct }
+
+    let origin: Origin?
     let name: String
     let bundleId: String?
     let kinds: [SourceKind]
     let lastSeen: Date
 
-    init(name: String, bundleId: String?, kinds: [SourceKind], lastSeen: Date) {
+    init(name: String, bundleId: String?, kinds: [SourceKind], lastSeen: Date, origin: Origin? = .healthkit) {
+        self.origin = origin
         self.name = name
         self.bundleId = bundleId
         self.kinds = kinds
@@ -1028,6 +1035,11 @@ struct UserSource: Codable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
         bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
+        if let rawOrigin = try c.decodeIfPresent(String.self, forKey: .origin) {
+            origin = Origin(rawValue: rawOrigin)
+        } else {
+            origin = .healthkit
+        }
         kinds = try c.decodeLenientList(SourceKind.self, .kinds)
         lastSeen = try c.decode(Date.self, forKey: .lastSeen)
     }
@@ -1393,6 +1405,10 @@ enum APIErrorCode: String, Codable, CaseIterable, Sendable {
     case appAttestInvalid = "app_attest_invalid"
     /// `404` on `POST /v1/app-attest/token` only: the key isn't the account's (any more). A new key, then a token.
     case appAttestKeyUnknown = "app_attest_key_unknown"
+    case unknownProvider = "unknown_provider"
+    case connectionLimit = "connection_limit"
+    case connectTicketInvalid = "connect_ticket_invalid"
+    case connectExpired = "connect_expired"
 
     /// The two beta gates (`X-RYFT-Gate`, `SyncStatus.gate`, the onboarding screens). The import and App Attest codes
     /// are not gates.
@@ -2674,5 +2690,570 @@ extension KeyedDecodingContainer {
         if let i = try? decodeIfPresent(Int.self, forKey: key) { return i }
         if let d = try decodeIfPresent(Double.self, forKey: key) { return Int(d.rounded()) }
         return nil
+    }
+}
+
+// MARK: - Nutrition catalog (API.md → Nutrition)
+
+struct NutritionFoodSearch: Encodable, Hashable {
+    let query: String
+    var language: String?
+    var market: String?
+    var limit: Int?
+    var offset: Int?
+}
+
+struct NutritionFoodMatch: Decodable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    let name: String
+    let brand: String
+    let type: String
+    let quality: String
+}
+
+struct NutritionFoodSearchPage: Decodable, Equatable {
+    let foods: [NutritionFoodMatch]
+    let nextOffset: Int?
+}
+
+struct NutritionBarcodeQuery: Encodable, Equatable {
+    let barcode: String
+    var market: String?
+}
+
+struct NutritionBarcodeResult: Decodable, Equatable {
+    let gtin: String
+    let matches: [NutritionFoodMatch]
+    let conflicted: Bool
+    let truncated: Bool
+}
+
+struct NutritionFoodName: Decodable, Equatable {
+    let language: String
+    let label: String
+    let alias: Bool
+}
+
+struct NutritionFoodSource: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let provider: String
+    let externalId: String
+    let datasetVersion: String
+    let sourceUrl: String
+    let licenseIdentifier: String
+    let sourceUpdatedAt: Date?
+}
+
+struct NutritionFoodPortion: Decodable, Equatable, Identifiable {
+    let id: UUID
+    let sourceId: UUID
+    let label: String
+    let labels: [String: String]?
+    let quantity: Double
+    let unit: String
+    let weightG: Double?
+    let volumeMl: Double?
+    let estimated: Bool
+}
+
+struct NutritionFoodNutrient: Decodable, Equatable {
+    let code: String
+    let amount: Double
+    let unit: String
+    let referenceAmount: Double
+    let referenceUnit: String
+    let sourceId: UUID
+    let method: String
+    let quality: String
+}
+
+struct NutritionFoodDetail: Decodable, Equatable, Identifiable {
+    let id: UUID
+    let name: String
+    let brand: String
+    let type: String
+    let quality: String
+    let densityGMl: Double?
+    let qualityProfile: NutritionQualityProfile?
+    let names: [NutritionFoodName]
+    let sources: [NutritionFoodSource]
+    let portions: [NutritionFoodPortion]
+    let nutrients: [NutritionFoodNutrient]
+}
+
+// MARK: Direct wearable connections
+
+struct DirectConnectionsResponse: Decodable, Sendable {
+    let connections: [DirectConnection]
+    let available: [DirectConnectionOffer]
+    let providers: [DirectConnectionProvider]
+}
+
+struct DirectConnectionProvider: Decodable, Sendable {
+    let provider: String
+    let availability: String
+}
+
+struct DirectConnection: Decodable, Sendable {
+    let provider: String
+    let status: String
+    let connectedAt: Date
+    let lastDataAt: Date?
+    let provides: [String]
+    let history: String
+}
+
+struct DirectConnectionOffer: Decodable, Sendable {
+    let provider: String
+    let provides: [String]
+    let history: String
+    let accepting: Bool
+}
+
+struct DirectConnectionStart: Decodable, Sendable {
+    let authorizeUrl: URL
+    let expiresAt: Date
+}
+
+struct DirectConnectionConfirmation: Encodable, Sendable {
+    let ticket: String
+}
+
+struct DirectConnectionDeleted: Decodable, Sendable {
+    let status: String
+    let deregistered: Bool?
+    let dataDeleted: Bool
+}
+
+// MARK: - Nutrition diary and coaching (API.md → Nutrition)
+
+struct NutritionQualityProfile: Codable, Equatable, Sendable {
+    var nonStarchyVegetableFraction: Double?
+    var wholeFruitFraction: Double?
+    var nutsLegumesFraction: Double?
+    var redProcessedMeatFraction: Double?
+    var sugaryDrink: Bool?
+}
+
+struct NutritionNutrientWrite: Encodable, Sendable {
+    let code: String
+    let amount: Double
+    let unit: String
+    let referenceAmount: Double
+    let referenceUnit: String
+}
+
+struct NutritionCustomFood: Encodable, Sendable {
+    let clientRequestId: UUID
+    let name: String
+    let brand: String
+    let nutrients: [NutritionNutrientWrite]
+    let qualityProfile: NutritionQualityProfile?
+}
+
+struct NutritionFoodSubmission: Codable, Sendable {
+    let foodId: UUID
+    let status: String
+}
+
+struct NutritionMealSelection: Codable, Equatable, Sendable {
+    var itemId: UUID?
+    var foodId: UUID?
+    var quantity: Double?
+    var unit: String?
+    var portionId: UUID?
+}
+
+struct NutritionMealWrite: Codable, Equatable, Sendable {
+    let clientRequestId: UUID
+    let consumedAt: Date
+    let timezone: String
+    let mealType: String
+    let inputMethod: String
+    let name: String
+    let notes: String
+    let items: [NutritionMealSelection]
+
+    init(clientRequestId: UUID, consumedAt: Date, timezone: String, mealType: String, inputMethod: String,
+         name: String, notes: String, items: [NutritionMealSelection]) {
+        self.clientRequestId = clientRequestId
+        // The API and draft store encode whole seconds. Use that precision for retry comparisons too.
+        self.consumedAt = Date(timeIntervalSince1970: consumedAt.timeIntervalSince1970.rounded(.down))
+        self.timezone = timezone
+        self.mealType = mealType
+        self.inputMethod = inputMethod
+        self.name = name
+        self.notes = notes
+        self.items = items
+    }
+}
+
+struct NutritionMealPatch: Encodable, Sendable {
+    let revision: Int
+    var consumedAt: Date?
+    var timezone: String?
+    var mealType: String?
+    var name: String?
+    var notes: String?
+    var items: [NutritionMealSelection]?
+}
+
+struct NutritionSnapshot: Codable, Sendable {
+    let amount: Double
+    let unit: String
+    let sourceId: UUID
+    var referenceAmount: Double?
+    var referenceUnit: String?
+    var method: String?
+    var quality: String?
+}
+
+struct NutritionMealItem: Codable, Identifiable, Sendable {
+    let id: UUID
+    let foodId: UUID?
+    let foodName: String
+    let brand: String
+    let quantity: Double
+    let unit: String
+    let portionId: UUID?
+    let weightG: Double?
+    let nutrients: [String: NutritionSnapshot]
+    let qualityProfile: NutritionQualityProfile?
+    var volumeMl: Double?
+    var sources: [NutritionFoodSource]?
+    var calculationVersion: Int?
+    var createdAt: Date?
+}
+
+struct NutritionMeal: Codable, Identifiable, Sendable {
+    let id: UUID
+    let clientRequestId: UUID
+    let consumedAt: Date
+    let timezone: String
+    let localDate: String
+    let mealType: String
+    let inputMethod: String
+    let name: String
+    let notes: String
+    let revision: Int
+    let items: [NutritionMealItem]
+    var createdAt: Date?
+    var updatedAt: Date?
+}
+
+struct NutritionMealPage: Decodable, Sendable {
+    let meals: [NutritionMeal]
+    let nextOffset: Int?
+}
+
+struct NutritionMealExportPage: Decodable, Sendable {
+    static let pageSize = 25
+    let meals: [NutritionMeal]
+    let nextAfter: UUID?
+}
+
+struct NutritionTotal: Decodable, Sendable {
+    let knownSubtotal: Double
+    let unit: String
+    let knownItems: Int
+    let completeForLoggedItems: Bool
+}
+
+struct NutritionMealGlucose: Decodable, Identifiable, Sendable {
+    var id: UUID { mealId }
+    let mealId: UUID
+    let windowEnd: Date
+    let sampleCount: Int
+    let baselineMgDl: Double
+    let peakDeltaMgDl: Double
+    let iaucMgDlMin: Double
+    let endDeltaMgDl: Double
+    let peakScore: Double
+    let aucScore: Double
+    let recoveryScore: Double
+    let glucoseScore: Double
+}
+
+/// Component keys are matched against the published labels. A null value stays unknown.
+struct NutritionComponents: Decodable, Sendable {
+    private let scores: [String: Double?]
+
+    init(from decoder: Decoder) throws {
+        scores = try decoder.singleValueContainer().decode([String: Double?].self)
+    }
+
+    subscript(_ key: String) -> Double? {
+        // A dictionary decodes dynamic keys literally, including the nutrient units.
+        scores[key] ?? nil
+    }
+}
+
+struct NutritionDaily: Decodable, Identifiable, Sendable {
+    var id: String { localDate }
+    let localDate: String
+    let mealCount: Int
+    let itemCount: Int
+    let nutrients: [String: NutritionTotal]
+    let scoreVersion: String
+    let nutritionScore: Double?
+    let qualityScore: Double?
+    let glucoseScore: Double?
+    let breakdown: NutritionComponents
+    let mealGlucoseScores: [NutritionMealGlucose]
+    let chrononutritionPenalty: Double
+    let n2r: NutritionRecoveryScore?
+}
+
+struct NutritionGoals: Codable, Sendable {
+    let revision: Int
+    let targets: [String: Double]
+}
+
+struct NutritionGlucoseReading: Codable, Equatable, Sendable {
+    let timestamp: Date
+    let glucoseMgDl: Double
+}
+
+struct NutritionGlucoseBatch: Codable, Sendable {
+    let samples: [NutritionGlucoseReading]
+}
+
+struct NutritionRecoveryProfile: Codable, Sendable {
+    var bodyMassKg: Double
+    var sex: String
+    var sweatRateLPerH: Double?
+    var sweatNaMgPerL: Double?
+    var caffeineHalfLifeH: Double?
+    var expectedBedtime: String
+    var nextWorkoutStartAt: Date?
+}
+
+struct NutritionRecoveryBudget: Decodable, Sendable {
+    let strain: String
+    let workoutMinutes: Double?
+    let energyTargetKcal: Double
+    let workoutEnergyKcal: Double?
+    let carbTargetG: Double
+    let sweatSodiumMg: Double?
+    let sodiumExemptionMg: Double?
+    let postWorkoutCarbBudgetG: Double?
+}
+
+struct NutritionRecoveryScore: Decodable, Sendable {
+    let version: String
+    let n2rScore: Double?
+    let qualityScore: Double?
+    let components: NutritionComponents?
+    let glucoseScore: Double?
+    let budget: NutritionRecoveryBudget
+    let loggedKcal: Double?
+    let loggedCarbG: Double?
+    let loggedCarbComplete: Bool?
+    let coveredCarbG: Double?
+    let coveredAddedSugarG: Double?
+    let netAddedSugarG: Double?
+    let omega3DepotMg: Double?
+    let fuelMultiplier: Double
+    let alcoholGKg: Double?
+    let alcoholPenalty: Double?
+    let caffeineBedMg: Double?
+    let effectiveCaffeineHalfLifeH: Double?
+    let caffeinePenalty: Double?
+    let lateMealPenalty: Double?
+    let autonomicPenalty: Double?
+    let bedtime: Date?
+    let tags: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case version, n2rScore, qualityScore, components, glucoseScore, budget, loggedKcal, loggedCarbG, loggedCarbComplete
+        case coveredCarbG, coveredAddedSugarG, netAddedSugarG, omega3DepotMg, fuelMultiplier
+        case alcoholGKg, alcoholPenalty, caffeineBedMg, effectiveCaffeineHalfLifeH, caffeinePenalty, lateMealPenalty, autonomicPenalty, bedtime, tags
+    }
+}
+
+struct NutritionMorningBiometrics: Decodable, Sendable {
+    let wakeDate: String
+    let lnRmssd7dMean: Double?
+    let lnRmssd7dSd: Double?
+    let lnRmssd7dCv: Double?
+    let swc: Double?
+    let lnRmssdDelta: Double?
+    let rhrDelta: Double?
+    let change: String
+
+    /// The server reports a difference of natural logs. Convert it to the relative change in RMSSD.
+    var relativeHRVPercent: Double? {
+        guard let lnRmssdDelta else { return nil }
+        let percent = expm1(lnRmssdDelta) * 100
+        return percent.isFinite ? percent : nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case wakeDate, lnRmssd7dMean = "lnRmssd7DMean", lnRmssd7dSd = "lnRmssd7DSd", lnRmssd7dCv = "lnRmssd7DCv"
+        case swc, lnRmssdDelta, rhrDelta, change
+    }
+}
+
+struct NutritionGuidanceCard: Decodable, Sendable {
+    let code: String
+    let actions: [String]
+    let targets: [String: Double]?
+    let foods: [NutritionFoodMatch]
+}
+
+struct NutritionGuidance: Decodable, Sendable {
+    let localDate: String
+    let score: NutritionRecoveryScore?
+    let morningBiometrics: NutritionMorningBiometrics?
+    let cards: [NutritionGuidanceCard]
+}
+
+enum NutritionTrainingGoal: String, Codable, CaseIterable, Identifiable, Sendable {
+    case hypertrophy = "HYPERTROPHY"
+    case marathon = "MARATHON"
+    case cyclingRace = "CYCLING_RACE"
+    case recomposition = "FAT_LOSS_RECOMP"
+
+    var id: Self { self }
+}
+
+struct NutritionGoalProfile: Codable, Sendable {
+    var goal: NutritionTrainingGoal
+    var raceDate: String?
+    var heightCm: Double
+    var bodyFatPct: Double?
+    var ftpW: Double?
+    var hrMax: Double?
+    var hrRest: Double?
+    var gutTrained: Bool
+    var recreational: Bool
+    var sweatNaMgPerL: Double?
+    var goalAdjustment: Double?
+    var trainLow: Bool
+}
+
+struct NutritionPlannedSession: Codable, Sendable {
+    let startAt: Date
+    let sportType: String
+    let durationMin: Double
+    let classification: String
+
+    private enum CodingKeys: String, CodingKey {
+        case startAt, sportType, durationMin
+        case classification = "class"
+    }
+}
+
+struct NutritionCoachingFeedback: Codable, Sendable {
+    var intakeComplete = false
+    var isFastingDay = false
+    var plannedSession: NutritionPlannedSession?
+    var workoutMinutes: Double?
+    var preWorkoutMassKg: Double?
+    var postWorkoutMassKg: Double?
+    var fluidDuringWorkoutL: Double?
+    var urineDuringWorkoutL: Double?
+    var sweatPatchNaMgPerL: Double?
+    var intraWorkoutCarbsG: Double?
+    var giDistress: Double?
+    var rpe: Double?
+    var fatigue: Double?
+    var measuredRmrKcal: Double?
+    var cycleWaterKg: Double?
+    var reportedOvernightConfounder: Bool?
+    var trackedCycles: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case intakeComplete, isFastingDay, plannedSession, workoutMinutes, preWorkoutMassKg, postWorkoutMassKg
+        case fluidDuringWorkoutL, urineDuringWorkoutL, sweatPatchNaMgPerL, intraWorkoutCarbsG
+        case giDistress = "giDistress010", rpe = "rpe010", fatigue = "fatigue010"
+        case measuredRmrKcal, cycleWaterKg, reportedOvernightConfounder, trackedCycles
+    }
+
+    // The three scales have numeric path segments. Encode using their literal contract keys.
+    private enum ScaleKeys: String, CodingKey {
+        case giDistress = "gi_distress_0_10", rpe = "rpe_0_10", fatigue = "fatigue_0_10"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var data = encoder.container(keyedBy: CodingKeys.self)
+        try data.encode(intakeComplete, forKey: .intakeComplete)
+        try data.encode(isFastingDay, forKey: .isFastingDay)
+        try data.encodeIfPresent(plannedSession, forKey: .plannedSession)
+        try data.encodeIfPresent(workoutMinutes, forKey: .workoutMinutes)
+        try data.encodeIfPresent(preWorkoutMassKg, forKey: .preWorkoutMassKg)
+        try data.encodeIfPresent(postWorkoutMassKg, forKey: .postWorkoutMassKg)
+        try data.encodeIfPresent(fluidDuringWorkoutL, forKey: .fluidDuringWorkoutL)
+        try data.encodeIfPresent(urineDuringWorkoutL, forKey: .urineDuringWorkoutL)
+        try data.encodeIfPresent(sweatPatchNaMgPerL, forKey: .sweatPatchNaMgPerL)
+        try data.encodeIfPresent(intraWorkoutCarbsG, forKey: .intraWorkoutCarbsG)
+        try data.encodeIfPresent(measuredRmrKcal, forKey: .measuredRmrKcal)
+        try data.encodeIfPresent(cycleWaterKg, forKey: .cycleWaterKg)
+        try data.encodeIfPresent(reportedOvernightConfounder, forKey: .reportedOvernightConfounder)
+        try data.encodeIfPresent(trackedCycles, forKey: .trackedCycles)
+        var scales = encoder.container(keyedBy: ScaleKeys.self)
+        try scales.encodeIfPresent(giDistress, forKey: .giDistress)
+        try scales.encodeIfPresent(rpe, forKey: .rpe)
+        try scales.encodeIfPresent(fatigue, forKey: .fatigue)
+    }
+}
+
+struct NutritionFuelingPlan: Decodable, Sendable {
+    let carbMinGPerH: Double
+    let carbMaxGPerH: Double
+    let glucoseFructoseRatio: String?
+    let preRaceMinG: Double?
+    let preRaceMaxG: Double?
+    let postWorkoutFluidsL: Double?
+    let sweatSodiumMg: Double?
+}
+
+struct NutritionEnergyAvailability: Decodable, Sendable {
+    let state: String
+    let energyKcalPerKgFfm: Double?
+    let carbsGPerKg: Double?
+    let markers: [String]?
+}
+
+struct NutritionCoachingPlan: Decodable, Sendable {
+    let energyTargetKcal: Double
+    let proteinTargetG: Double
+    let carbTargetG: Double
+    let fatTargetG: Double
+    let netExerciseKcal: Double
+    let sessionClass: String
+    let deficitSuspended: Bool
+    let trainLow: Bool
+    let fueling: NutritionFuelingPlan?
+    let availability: NutritionEnergyAvailability
+}
+
+struct NutritionTrainingLoad: Decodable, Sendable {
+    let acute7d: Double
+    let chronic28dWeekly: Double
+    let acwr: Double?
+    let tsb: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case acute7d = "acute7D"
+        case chronic28dWeekly = "chronic28DWeekly"
+        case acwr, tsb
+    }
+}
+
+struct NutritionBriefing: Decodable, Sendable {
+    let localDate: String
+    let plan: NutritionCoachingPlan?
+    let readiness: String
+    let readinessReasons: [String]
+    let trainingLoad: NutritionTrainingLoad
+    let n2r: NutritionRecoveryScore?
+    let yesterdayN2r: NutritionRecoveryScore?
+    let morningBiometrics: NutritionMorningBiometrics?
+    let cards: [NutritionGuidanceCard]
+
+    private enum CodingKeys: String, CodingKey {
+        case localDate, plan, readiness, readinessReasons, trainingLoad, n2r, morningBiometrics, cards
+        case yesterdayN2r = "yesterdayN2R"
     }
 }

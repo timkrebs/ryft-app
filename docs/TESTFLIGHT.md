@@ -2,7 +2,7 @@
 
 How the beta gets from Xcode to 5–10 friends on external TestFlight, and past Beta App
 Review. The per-build "What to test" texts are in `docs/TESTFLIGHT_NOTES.md`; CI's
-nightly and weekly uploads are described in `docs/CI.md`.
+nightly upload and approved external distribution are described in `docs/CI.md`.
 
 Before the first external build, the platform must be live:
 - the Beta deploy: consent, invite gate, the demo account and the legal pages
@@ -19,13 +19,13 @@ only go up, and both paths can be mixed freely.
 - **Nightly** (`nightly.yml`, 01:00 UTC): archives `main` and uploads it to **Internal** when
   anything landed since the last build, with the commits as What to Test. The version stays
   whatever `VERSION` says; only the build number moves.
-- **Weekly** (`weekly.yml`, Mondays 07:00 Berlin): hands the newest processed build to
-  **External** with the week's commits, after you approve the `external-testflight`
-  environment. No rebuild.
+- **External** (`weekly.yml`, manual): after physical iPhone tests and explicit approval,
+  select their exact build number. Review the pinned build and source commit before approving
+  the `external-testflight` environment. CI distributes the existing build.
 - **A new version:** `make release BUMP=minor` (or `patch`, `major`, or `VERSION=X.Y.Z`) on a
   clean, up-to-date `main` opens the PR `release: X.Y.Z` (`VERSION` raised, CHANGELOG's
   Unreleased moved under it). Merge it when green; `release.yml` then tags `vX.Y.Z` and
-  uploads that tag to **Internal**. `DRY_RUN=1 make release BUMP=minor` shows what it would do.
+  uploads that merge commit to **Internal**. `DRY_RUN=1 make release BUMP=minor` shows what it would do.
   Details: `docs/CI.md` → Versions and build numbers.
 
 **Option A, Terminal:** `make archive` (Release, version from `VERSION`, build number
@@ -70,8 +70,9 @@ so no question appears.
 ## 3. External group "External"
 
 1. TestFlight → **External Testing** → **+** → group **External** (the name the workflows use).
-2. Add the build. The first build of a version goes to **Beta App Review**, which takes
-   about a day; later builds of the same version usually pass at once.
+2. Add only the exact build from the physical iPhone test record after explicit approval.
+   The first build of a version goes to **Beta App Review**, which takes about a day.
+   Later builds of the same version usually pass at once.
 3. Turn on **Public Link** and send it to friends together with an **invite code**
    (`../plattform` `OPERATIONS.md` → Invite codes; one code per person, or one code with
    `max_uses`). Without a code the app stops at "Invite code". Testers must be **16 or

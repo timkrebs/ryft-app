@@ -32,6 +32,7 @@ enum HealthStream: Hashable, Sendable {
             case .vo2max: return String(localized: "VO₂ max")
             case .activeEnergy: return String(localized: "active energy")
             case .steps: return String(localized: "steps")
+            case .bodyMass: return String(localized: "body mass")
             }
         }
     }
@@ -238,8 +239,9 @@ extension HealthKitManager: HealthStore {
     /// The night and the overnight vitals first (what the morning's score waits for),
     /// then workouts, then the high-volume day streams.
     var streams: [HealthStream] {
-        [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR), .quantity(.respiratoryRate), .quantity(.spo2),
-         .workouts, .quantity(.heartRate), .quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)]
+        let base: [HealthStream] = [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR), .quantity(.respiratoryRate), .quantity(.spo2),
+                                    .workouts, .quantity(.heartRate), .quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)]
+        return sharesBodyMass ? base + [.quantity(.bodyMass)] : base
     }
 
     var hasAnchors: Bool {
@@ -261,6 +263,9 @@ extension HealthKitManager: HealthStore {
                       limit: Int) async throws -> HealthPage {
         switch stream {
         case .quantity(let type):
+            guard type != .bodyMass || sharesBodyMass else {
+                return HealthPage(delta: HealthDelta(), anchor: nil, more: false)
+            }
             guard let spec = quantities.first(where: { $0.type == type }) else {
                 return HealthPage(delta: HealthDelta(), anchor: nil, more: false)
             }

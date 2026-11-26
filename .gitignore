@@ -11,6 +11,8 @@ xcuserdata/
 # Fetch locally with scripts/fetch-fonts.sh.
 Ryft/Resources/Fonts/*.otf
 Ryft/Resources/Fonts/*.ttf
+# Google Sans Medium is redistributed under its bundled SIL OFL.
+!Ryft/Resources/Fonts/GoogleSans-Medium.ttf
 .build/
 docs/screenshots/*-tmp.png
 # Local overrides; copy Config/*.xcconfig.example. Production.xcconfig is committed.

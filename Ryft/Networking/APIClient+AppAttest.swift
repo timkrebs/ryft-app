@@ -18,7 +18,7 @@ extension APIClient {
 
     static func isAppAttestExempt(_ method: String, _ path: String) -> Bool {
         let route = Self.route(path)
-        if appAttestExemptRoutes.contains("\(method) \(route)") { return true }
+        if appAttestExemptRoutes.contains("\(method) \(route)") || isDirectConnectionDelete(method, route) { return true }
         // `DELETE /v1/devices/{id}/push`: sign-out's unregistering.
         let parts = route.split(separator: "/", omittingEmptySubsequences: false)
         return method == "DELETE" && parts.count == 5 && parts[1] == "v1" && parts[2] == "devices" && !parts[3].isEmpty

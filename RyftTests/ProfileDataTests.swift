@@ -344,12 +344,12 @@ struct ProfileDataTests {
         #expect(rows { $0.canAskForHealth = true }.contains(.allowHealth) && rows { _ in }.contains(.openHealth))
         #expect(rows { $0.consentIsCurrent = false }.contains(.reviewConsent) && rows { _ in }.contains(.withdrawConsent))
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(consentIsCurrent: false, consentAwaitsConfirmation: true))
-                == [.consent, .checkConsent, .withdrawConsent], "given here, not confirmed yet: no Review and agree")
+                == [.consent, .checkConsent, .withdrawConsent, .nutritionPrivacy], "given here, not confirmed yet: no Review and agree")
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true)) == [.consent], "Demo data: no Review or Withdraw")
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false)).isEmpty)
         // A1: "Share usage analytics" only with `Analytics.showsToggle`, last in Privacy.
         #expect(!rows { _ in }.contains(.analytics))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true)) == [.consent, .withdrawConsent, .analytics])
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true)) == [.consent, .withdrawConsent, .nutritionPrivacy, .analytics])
         #expect(rows { $0.isSignedIn = false }.filter { [.signedIn, .deleteAccount, .signInMethods].contains($0) } == [.signedIn])
         #expect(rows { $0.canChangePassword = true }.contains(.changePassword) && !rows { _ in }.contains(.changePassword))
         // Hero numbers is always there (PR 4 tests 46–47).

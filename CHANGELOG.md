@@ -10,7 +10,15 @@ Store "What's New".
 
 ## [Unreleased]
 
+### Security
+- An account deletion stops if the signed-in account changes while the request is being prepared.
+
 ### Added
+- German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
+- Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.
+- Nutrition coaching with fueling targets, recovery guidance, training goals, and optional Apple Health imports.
+- Devices & sync shows Garmin and Suunto direct connection availability from RYFT and gives
+  connected accounts a way to refresh status, reconnect and disconnect.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and

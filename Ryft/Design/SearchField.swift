@@ -22,11 +22,13 @@ struct SearchField: View {
     @Binding private var text: String
     private let prompt: Text
     private let identifier: String?
+    private let focus: FocusState<Bool>.Binding?
 
-    init(text: Binding<String>, prompt: Text, identifier: String? = nil) {
+    init(text: Binding<String>, prompt: Text, identifier: String? = nil, focus: FocusState<Bool>.Binding? = nil) {
         _text = text
         self.prompt = prompt
         self.identifier = identifier
+        self.focus = focus
     }
 
     var body: some View {
@@ -35,15 +37,7 @@ struct SearchField: View {
                 .font(.system(size: SearchFieldSpec.glyphSize, weight: .regular))
                 .foregroundStyle(Theme.textTertiary)
                 .accessibilityHidden(true)
-            TextField(text: $text, prompt: prompt.fieldPrompt()) { prompt }
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(1)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                // As `FormField` names its field: the label view alone leaves UIKit's field unnamed once it has text.
-                .accessibilityLabel(prompt)
-                .accessibilityIdentifier(identifier ?? "")
+            if let focus { input.focused(focus) } else { input }
             if !text.isEmpty {
                 Button {
                     text = ""
@@ -64,6 +58,17 @@ struct SearchField: View {
         .frame(maxWidth: .infinity, minHeight: SearchFieldSpec.minHeight, alignment: .leading)
         .background(Theme.surface, in: Capsule())
         .contentShape(Capsule())
+    }
+
+    private var input: some View {
+        TextField(text: $text, prompt: prompt.fieldPrompt()) { prompt }
+            .font(.ryft(.body))
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(1)
+            .submitLabel(.search)
+            .autocorrectionDisabled()
+            .accessibilityLabel(prompt)
+            .accessibilityIdentifier(identifier ?? "")
     }
 }
 

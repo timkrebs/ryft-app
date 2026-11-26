@@ -1,8 +1,8 @@
 # TestFlight — What to test
 
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
-Test. RYFT is English only: new entries have an English section only (older entries still carry a
-German one, kept as history).
+Test. The automated upload uses the English notes. Prepare and review the matching German
+notes for the selected build before inviting the German-language beta cohort.
 
 ## Next build — Train keeps every workout (en)
 

@@ -42,7 +42,8 @@ struct AuthServiceTests {
     private static let deleted = AccountDeleted(status: "deleted", authUserDeleted: true, appleTokenRevoked: nil)
 
     private func make(_ client: MockAuthClient,
-                      deleteRemote: @escaping () async throws -> AccountDeleted = { AuthServiceTests.deleted }) -> AuthService {
+                      deleteRemote: @escaping () async throws -> AccountDeleted = { AuthServiceTests.deleted },
+                      authEntry: AuthEntry = .legacy) -> AuthService {
         let wipes = self.wipes, codes = self.appleCodes
         // Developer API key mode lives in the simulator's real defaults; these tests are about sessions.
         Settings.shared.apiKeyMode = false
@@ -51,7 +52,7 @@ struct AuthServiceTests {
                            postAppleAuthorization: { code in
                                codes.sent.append(code)
                                if let e = codes.error { throw e }
-                           })
+                           }, authEntry: authEntry)
     }
 
     /// Lets the `authStateChanges` observation task run.
@@ -159,6 +160,102 @@ struct AuthServiceTests {
         #expect(client.savedFullNames.count == 1)
     }
 
+    // MARK: Google OAuth and the account transition
+
+    @Test func authEntryDefaultsToLegacyAndSocialHidesEmail() {
+        #expect(AuthEntry(nil) == .legacy)
+        #expect(AuthEntry("unknown") == .legacy)
+        #expect(!AuthEntry.legacy.googleEnabled && AuthEntry.legacy.emailEnabled)
+        #expect(AuthEntry.transition.googleEnabled && AuthEntry.transition.emailEnabled)
+        #expect(AuthEntry.social.googleEnabled && !AuthEntry.social.emailEnabled)
+    }
+
+    @Test func googleOnlyExchangesTheActivePKCECallback() async {
+        let client = MockAuthClient(signInSession: .preview(provider: "google"))
+        let auth = make(client, authEntry: .social)
+        let callback = URL(string: "ryft://auth/oauth/callback?code=test-code")!
+        #expect(await auth.handle(callback))
+        #expect(await auth.handle(URL(string: "ryft://auth/callback?code=old-email-code")!))
+        #expect(client.openedLinks.isEmpty)
+        #expect(await auth.continueWithGoogle { _ in callback })
+        #expect(client.googleLinkRequests == [false])
+        #expect(client.openedLinks == [callback] && auth.provider == "google" && !auth.needsNewPassword)
+    }
+
+    @Test func malformedCancelledAndDisabledGoogleFlowsDoNotExchange() async {
+        let legacy = MockAuthClient()
+        #expect(await make(legacy).continueWithGoogle { _ in
+            Issue.record("Disabled Google opened the browser")
+            throw CancellationError()
+        } == false)
+        #expect(legacy.googleLinkRequests.isEmpty)
+
+        let client = MockAuthClient()
+        let auth = make(client, authEntry: .transition)
+        let wrongPath = URL(string: "ryft://auth/callback?code=test-code")!
+        let duplicate = URL(string: "ryft://auth/oauth/callback?code=one&code=two")!
+        let injection = URL(string: "ryft://auth/oauth/callback?code=one&access_token=unexpected")!
+        for url in [wrongPath, duplicate, injection] {
+            #expect(await auth.continueWithGoogle { _ in url } == false)
+        }
+        #expect(await auth.continueWithGoogle { _ in throw CancellationError() } == false)
+        #expect(auth.errorMessage == nil && client.openedLinks.isEmpty && !auth.isSignedIn)
+    }
+
+    @Test func explicitGoogleLinkKeepsTheEmailAccountsUUID() async {
+        let before = Session.preview(provider: "email")
+        let client = MockAuthClient(session: before, signInSession: .preview(id: before.user.id))
+        client.methods.append(.init(provider: "google", email: "different@example.com", addedAt: nil))
+        let auth = make(client, authEntry: .transition)
+        let callback = URL(string: "ryft://auth/oauth/callback?code=test-code")!
+        #expect(await auth.continueWithGoogle(linking: true) { _ in callback })
+        #expect(client.googleLinkRequests == [true])
+        #expect(auth.accountID == before.user.id.uuidString && auth.hasGoogleSignIn && wipes.calls == 0)
+    }
+
+    @Test func accountSwitchWhileGoogleLinkIsOpenStopsBeforeExchange() async {
+        let client = MockAuthClient(session: .preview(provider: "email"))
+        let auth = make(client, authEntry: .transition)
+        let other = Session.preview(id: UUID(), provider: "email")
+        let callback = URL(string: "ryft://auth/oauth/callback?code=test-code")!
+        #expect(await auth.continueWithGoogle(linking: true) { _ in
+            client.emit(.signedIn, other)
+            return callback
+        } == false)
+        await settle()
+        #expect(client.googleLinkRequests == [true] && client.openedLinks.isEmpty)
+        #expect(auth.accountID == other.user.id.uuidString && auth.linkError == nil)
+    }
+
+    @Test func unexpectedSubjectFromGoogleLinkIsDiscardedBeforePublication() async {
+        let before = Session.preview(provider: "email")
+        let other = Session.preview(id: UUID(), provider: "google")
+        let client = MockAuthClient(session: before, signInSession: other)
+        let auth = make(client, authEntry: .transition)
+        var published: [String] = []
+        auth.onAccountWillChange = { _, to, _ in if let to { published.append(to) } }
+        let callback = URL(string: "ryft://auth/oauth/callback?code=test-code")!
+        #expect(await auth.continueWithGoogle(linking: true) { _ in callback } == false)
+        await settle()
+        #expect(client.openedLinks == [callback] && client.currentSession == nil)
+        #expect(auth.accountID == nil && published.isEmpty)
+    }
+
+    @Test func googleStartsOnlyFromTheConfiguredAuthorizationService() {
+        let auth = URL(string: "https://auth.example.invalid/auth/v1")!
+        #expect(GoogleOAuth.acceptsAuthorization(auth.appendingPathComponent("authorize"), authURL: auth))
+        #expect(GoogleOAuth.acceptsAuthorization(URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!, authURL: auth))
+        for value in [
+            "http://auth.example.invalid/auth/v1/authorize",
+            "https://auth.example.invalid/unrelated",
+            "https://accounts.google.com.other.invalid/",
+            "https://accounts.google.com:8443/",
+            "https://name@accounts.google.com/",
+        ] {
+            #expect(!GoogleOAuth.acceptsAuthorization(URL(string: value)!, authURL: auth))
+        }
+    }
+
     // MARK: password reset
 
     @Test func resetLinkAsksForNewPassword() async {
@@ -262,7 +359,83 @@ struct AuthServiceTests {
         #expect(try await auth.refreshedAccessToken() == "refreshed-token")
     }
 
+    @Test func theSDKBearerMustStillBelongToThePublishedAccount() async {
+        let departing = Session.preview(id: UUID())
+        let incoming = Session.preview(id: UUID())
+        let client = MockAuthClient(session: departing)
+        let auth = make(client)
+
+        // The SDK has persisted the new session but has not yet delivered its signed-in event.
+        client.unlock(incoming)
+        await #expect(throws: CancellationError.self) { try await auth.accessToken() }
+        await #expect(throws: CancellationError.self) { try await auth.refreshedAccessToken() }
+        #expect(auth.accountID == departing.user.id.uuidString)
+        #expect(client.refreshCount == 0)
+        #expect(client.signOutCount == 0)
+    }
+
+    @Test func accountBoundRequestOnlyUsesTheConfirmingAccountsBearer() async throws {
+        let departing = Session.preview(id: UUID())
+        let incoming = Session.preview(id: UUID())
+        let client = MockAuthClient(session: departing, signInSession: incoming)
+        let auth = make(client)
+        let env = AppEnvironment.test(auth: auth)
+        let binding = AccountBinding(env)
+
+        let token = try await auth.withBoundAccount(binding) { try await auth.accessToken() }
+        #expect(token == "preview-token")
+        await #expect(throws: CancellationError.self) {
+            try await auth.withBoundAccount(binding) {
+                _ = await auth.handle(SupabaseConfig.redirectURL)
+                return try await auth.accessToken()
+            }
+        }
+        var started = false
+        await #expect(throws: CancellationError.self) {
+            try await auth.withBoundAccount(binding) { started = true }
+        }
+        #expect(!started)
+        #expect(auth.accountID == incoming.user.id.uuidString)
+    }
+
     // MARK: delete account
+
+    @Test func confirmedDeletionStopsIfPushCleanupChangesTheAccount() async {
+        let departing = Session.preview(id: UUID())
+        let incoming = Session.preview(id: UUID())
+        let client = MockAuthClient(session: departing, signInSession: incoming)
+        var deletions = 0
+        let auth = make(client) {
+            deletions += 1
+            return AuthServiceTests.deleted
+        }
+        auth.beforeSignOut = { _ = await auth.handle(SupabaseConfig.redirectURL) }
+
+        #expect(await auth.deleteAccount() == false)
+        #expect(deletions == 0)
+        #expect(auth.accountID == incoming.user.id.uuidString)
+        #expect(client.signOutCount == 0)
+    }
+
+    @Test func confirmedDeletionCannotUseTheNewAccountsBearer() async {
+        let departing = Session.preview(id: UUID())
+        let incoming = Session.preview(id: UUID())
+        let client = MockAuthClient(session: departing, signInSession: incoming)
+        var auth: AuthService!
+        var deletions = 0
+        auth = make(client) {
+            // The asynchronous API path has started, before it obtains its bearer.
+            _ = await auth.handle(SupabaseConfig.redirectURL)
+            _ = try await auth.accessToken()
+            deletions += 1
+            return AuthServiceTests.deleted
+        }
+
+        #expect(await auth.deleteAccount() == false)
+        #expect(deletions == 0)
+        #expect(auth.accountID == incoming.user.id.uuidString)
+        #expect(client.signOutCount == 0)
+    }
 
     @Test func deleteAccountThenLogsOut() async {
         var deleted = false
