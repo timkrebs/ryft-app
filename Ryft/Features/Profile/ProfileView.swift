@@ -583,7 +583,8 @@ extension ProfileRowFacts {
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
                   consentIsCurrent: model.consentIsCurrent, consentAwaitsConfirmation: model.consentAwaitsConfirmation,
                   showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
-                  hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
+                  hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport,
+                  nutritionAvailable: model.nutritionAvailable)
     }
 }
 

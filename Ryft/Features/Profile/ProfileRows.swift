@@ -76,6 +76,8 @@ struct ProfileRowFacts: Equatable, Sendable {
     /// The account's email when the name is the title (it was the account card's second line).
     var showsEmail = false
     var canExport = true
+    /// Nutrition (diary or full) is available for the account: Privacy gets its Nutrition privacy row.
+    var nutritionAvailable = false
 }
 
 /// The page's buttons row (§P5-6.1 row 4), each only when it applies.
@@ -118,7 +120,7 @@ enum ProfileRows {
             guard !f.isDemo else { return [.consent] + analytics }
             let consent: [ProfileRow] = f.consentAwaitsConfirmation
                 ? [.consent, .checkConsent, .withdrawConsent] : [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
-            return consent + [.nutritionPrivacy] + analytics
+            return consent + (f.nutritionAvailable ? [.nutritionPrivacy] : []) + analytics
         case .account:
             guard f.isSignedIn else { return [.signedIn] }
             return (f.showsEmail ? [.email] : []) + (f.hasTimezone ? [.timezone] : []) + [.signInMethods]
