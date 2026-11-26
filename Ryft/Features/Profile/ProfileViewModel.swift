@@ -478,6 +478,8 @@ final class ProfileViewModel {
     var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
     /// Profile → Training → Session layout. With the flag off a session is always List, so there is nothing to choose (L5).
     var showsSessionLayout: Bool { env.flags.isOn(.focusedSession) }
+    /// Profile → Privacy → Nutrition privacy, only while Nutrition (diary or full) is available for the account.
+    var nutritionAvailable: Bool { env.flags.nutritionAccess != .unavailable }
 
     // MARK: demo data
 

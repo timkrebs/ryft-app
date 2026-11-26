@@ -545,10 +545,11 @@ struct SignedOutOnboardingTests {
             for word in banned {
                 #expect(!text.contains(word), "\(path) has \(word)")
             }
-            // Synthetic data only: the one sample address.
+            // Synthetic data only: the one sample address, plus RYFT's support contact before sign-in (Welcome).
+            let allowed: Set<String> = ["alex@example.com", "support@ryftlab.de"]
             let found = addresses.matches(in: text, range: NSRange(text.startIndex..., in: text))
                 .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
-            #expect(found.allSatisfy { $0 == "alex@example.com" }, "\(path): \(found)")
+            #expect(found.allSatisfy(allowed.contains), "\(path): \(found)")
         }
         let auth = try Self.source("Features/Auth/AuthComponents.swift")
         #expect(!auth.contains("import AuthenticationServices"), "AuthComponents doesn't need AuthenticationServices")

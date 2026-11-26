@@ -283,6 +283,7 @@ struct ProfileDataTests {
         all.canChangePassword = true
         all.showsEmail = true
         all.showsAnalytics = true
+        all.nutritionAvailable = true
         var outdated = all
         outdated.consentIsCurrent = false
         outdated.devicesEnabled = false
@@ -344,12 +345,20 @@ struct ProfileDataTests {
         #expect(rows { $0.canAskForHealth = true }.contains(.allowHealth) && rows { _ in }.contains(.openHealth))
         #expect(rows { $0.consentIsCurrent = false }.contains(.reviewConsent) && rows { _ in }.contains(.withdrawConsent))
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(consentIsCurrent: false, consentAwaitsConfirmation: true))
-                == [.consent, .checkConsent, .withdrawConsent, .nutritionPrivacy], "given here, not confirmed yet: no Review and agree")
+                == [.consent, .checkConsent, .withdrawConsent], "given here, not confirmed yet: no Review and agree")
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true)) == [.consent], "Demo data: no Review or Withdraw")
         #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false)).isEmpty)
         // A1: "Share usage analytics" only with `Analytics.showsToggle`, last in Privacy.
         #expect(!rows { _ in }.contains(.analytics))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true)) == [.consent, .withdrawConsent, .nutritionPrivacy, .analytics])
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true)) == [.consent, .withdrawConsent, .analytics])
+        // Nutrition privacy only while Nutrition is available for the account; otherwise Privacy is exactly main's.
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true, nutritionAvailable: true))
+                == [.consent, .withdrawConsent, .nutritionPrivacy, .analytics])
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(consentIsCurrent: false, consentAwaitsConfirmation: true,
+                                                           nutritionAvailable: true))
+                == [.consent, .checkConsent, .withdrawConsent, .nutritionPrivacy])
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true, nutritionAvailable: true)) == [.consent])
+        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false, nutritionAvailable: true)).isEmpty)
         #expect(rows { $0.isSignedIn = false }.filter { [.signedIn, .deleteAccount, .signInMethods].contains($0) } == [.signedIn])
         #expect(rows { $0.canChangePassword = true }.contains(.changePassword) && !rows { _ in }.contains(.changePassword))
         // Hero numbers is always there (PR 4 tests 46–47).

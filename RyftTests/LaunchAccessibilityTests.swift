@@ -117,7 +117,13 @@ struct LaunchAccessibilityTests {
     private struct Entry: Decodable {
         let comment: String?
         let localizations: [String: Localization]?
-        struct Localization: Decodable {}
+        struct Localization: Decodable {
+            let stringUnit: StringUnit?
+        }
+        struct StringUnit: Decodable {
+            let state: String
+            let value: String
+        }
     }
 
     private struct Catalog: Decodable {
@@ -131,7 +137,8 @@ struct LaunchAccessibilityTests {
         return try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: url))
     }
 
-    @Test("The launch's strings are in the catalog, in English, with a comment for the translator", arguments: [
+    @Test("The launch's strings are in the catalog, in English with a German translation, with a comment for the translator",
+          arguments: [
         ("Loading RYFT", "VoiceOver status while the launch animation plays."),
         ("Engineered for peak.", "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up."),
     ])
@@ -140,7 +147,10 @@ struct LaunchAccessibilityTests {
         #expect(catalog.sourceLanguage == "en")
         let entry = try #require(catalog.strings[key], "'\(key)' is missing from Localizable.xcstrings")
         #expect(entry.comment == comment)
-        #expect(entry.localizations?.keys.contains(where: { $0 != "en" }) != true, "English only (CLAUDE.md)")
+        // German + English (CLAUDE.md): a reviewed German value, and no third language.
+        let german = try #require(entry.localizations?["de"]?.stringUnit, "'\(key)' has no German translation")
+        #expect(german.state == "translated" && !german.value.isEmpty && german.value != key)
+        #expect(Set((entry.localizations ?? [:]).keys).isSubset(of: ["en", "de"]))
     }
 
     /// The skip action is VoiceOver's, named with a string the catalog already had.
