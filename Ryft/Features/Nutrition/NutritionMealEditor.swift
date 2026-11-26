@@ -57,15 +57,36 @@ struct NutritionMealEditor: View {
     }
 
     var body: some View {
-        if isAdding {
-            NutritionFoodPicker(model: model, api: api, initialFood: $suggestion, items: $items,
-                                onBack: hasReviewed ? { isAdding = false } : onBack) {
-                hasReviewed = true
-                isAdding = false
+        Group {
+            if isAdding {
+                NutritionFoodPicker(model: model, api: api, initialFood: $suggestion, items: $items,
+                                    onBack: hasReviewed ? { isAdding = false } : onBack) {
+                    hasReviewed = true
+                    isAdding = false
+                }
+            } else {
+                reviewPage
             }
-        } else {
-            reviewPage
         }
+        // Add food from a reviewed meal is a step inside this page, not a page of its own: the back swipe would pop
+        // the whole editor and drop the draft, so it's off there (BackSwipeRule), and the header's Back returns to the review.
+        .navigationBarBackButtonHidden(Self.blocksBackSwipe(isAdding: isAdding, hasReviewed: hasReviewed))
+    }
+
+    nonisolated static func blocksBackSwipe(isAdding: Bool, hasReviewed: Bool) -> Bool { isAdding && hasReviewed }
+
+    /// After a failed create, the request "Retry save" resends with the same `client_request_id`, or nil when RYFT refused
+    /// it for good (a 4xx other than auth, conflict and rate limit: the payload itself is wrong, so the rows edit again).
+    /// Offline, timeouts, 5xx and the excluded 4xx may have reached RYFT, so they keep it.
+    /// Every quantity a write would send meets the platform's six-decimal rule (`NutritionServingPreview.isValidQuantity`).
+    nonisolated static func writableQuantities(_ selections: [NutritionMealSelection]) -> Bool {
+        selections.allSatisfy { $0.quantity.map(NutritionServingPreview.isValidQuantity) ?? true }
+    }
+
+    nonisolated static func retainedRequest(_ draft: NutritionMealWrite, after error: any Error) -> NutritionMealWrite? {
+        guard let code = (error as? APIError)?.status, (400..<500).contains(code), ![401, 403, 409, 429].contains(code)
+        else { return draft }
+        return nil
     }
 
     private var reviewPage: some View {
@@ -165,6 +186,7 @@ struct NutritionMealEditor: View {
         defer { busy = false }
         do {
             try model.needsCurrentAccount()
+            guard Self.writableQuantities(items.map(\.selection)) else { throw NutritionInputError.invalidNumber }
             if let saved {
                 let patch = NutritionMealPatch(revision: saved.revision, consumedAt: consumedAt, mealType: type.rawValue,
                                                name: name, notes: notes, items: items.map(\.request))
@@ -179,12 +201,10 @@ struct NutritionMealEditor: View {
                     _ = try await model.create(draft)
                 } catch {
                     if model.pending == draft {
-                        let code = (error as? APIError)?.status
-                        if let code, (400..<500).contains(code), code != 401, code != 403, code != 409, code != 429 {
-                            model.discardRejected(draft)
-                        } else {
-                            request = draft
-                        }
+                        // A definitive rejection unfreezes the rows (a later save is a new request); only an ambiguous
+                        // failure keeps the request ID and payload for Retry save.
+                        request = Self.retainedRequest(draft, after: error)
+                        if request == nil { model.discardRejected(draft) }
                     }
                     throw error
                 }
@@ -254,7 +274,7 @@ private struct NutritionDraftQuantityView: View {
                 if let failure { InlineMessage(message: failure, systemImage: "exclamationmark.circle") }
                 PillButton(Text("Apply quantity")) {
                     do {
-                        guard let value = try NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale) else {
+                        guard let value = try NutritionServingPreview.parseQuantity(quantity, locale: locale) else {
                             throw NutritionInputError.invalidNumber
                         }
                         if value != item.selection.quantity {

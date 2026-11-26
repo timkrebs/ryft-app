@@ -593,7 +593,7 @@ struct NutritionFoodDetailView: View {
                     quantity = NutritionDisplay.editableQuantity(count, locale: locale)
                     failure = nil
                 }
-                .disabled(!NutritionServingPreview.quantityLimits.contains(count))
+                .disabled(!NutritionServingPreview.isValidQuantity(count))
                 .accessibilityIdentifier("nutrition.quantity.multiplier.\(multiplier)")
             }
         }
@@ -647,11 +647,11 @@ struct NutritionFoodDetailView: View {
     }
 
     private var parsedQuantity: Double? {
-        try? NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale)
+        try? NutritionServingPreview.parseQuantity(quantity, locale: locale)
     }
 
     private func adjustQuantity(_ step: Double) {
-        guard let current = parsedQuantity, NutritionServingPreview.quantityLimits.contains(current + step) else { return }
+        guard let current = parsedQuantity, NutritionServingPreview.isValidQuantity(current + step) else { return }
         quantity = NutritionDisplay.editableQuantity(current + step, locale: locale)
     }
 
@@ -690,7 +690,7 @@ struct NutritionFoodDetailView: View {
 
     private func add(_ food: NutritionFoodDetail, portion: NutritionFoodPortion?, preview: NutritionServingPreview?) {
         do {
-            guard let count = try NutritionNumbers.parse(quantity, in: NutritionServingPreview.quantityLimits, locale: locale) else {
+            guard let count = try NutritionServingPreview.parseQuantity(quantity, locale: locale) else {
                 throw NutritionInputError.invalidNumber
             }
             selected(NutritionDraftItem(name: displayName, inputMethod: inputMethod,
@@ -862,7 +862,9 @@ struct NutritionCustomFoodView: View {
 
     private func add(_ created: NutritionFoodDetail) {
         do {
-            guard let value = try NutritionNumbers.parse(quantity, in: 0.000_001...100_000) else { throw NutritionInputError.invalidNumber }
+            guard let value = try NutritionServingPreview.parseQuantity(quantity, locale: .current) else {
+                throw NutritionInputError.invalidNumber
+            }
             selected(NutritionDraftItem(name: created.name, inputMethod: "manual_entry",
                                        selection: .init(foodId: created.id, quantity: value, unit: "g")))
         } catch {

@@ -134,6 +134,45 @@ final class NutritionUITests: XCTestCase {
         XCTAssertTrue(meal.exists)
     }
 
+    /// Add food from an unsaved, reviewed meal: neither the back swipe nor the header's Back loses the draft.
+    @MainActor
+    func testAddFoodFromAnUnsavedReviewKeepsTheDraftOnSwipeAndBack() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
+        app.launchArguments = ["-demoMode", "YES", "-RyftScreen", "nutrition", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let log = app.buttons["nutrition.logMeal"]
+        XCTAssertTrue(log.waitForExistence(timeout: 12))
+        for _ in 0..<4 where !log.isHittable { app.swipeUp() }
+        log.tap()
+        let query = app.textFields["nutrition.foodQuery"]
+        XCTAssertTrue(query.waitForExistence(timeout: 8))
+        query.tap()
+        query.typeText("apple")
+        let quickAdd = app.buttons["nutrition.quickAdd.a7e40c6e-bfb4-47eb-ad64-aea61136db02"]
+        XCTAssertTrue(quickAdd.waitForExistence(timeout: 8))
+        quickAdd.tap()
+        let review = app.buttons["nutrition.reviewMeal"]
+        XCTAssertTrue(review.waitForExistence(timeout: 8))
+        review.tap()
+        let item = app.buttons["Remove Apple Juice"]
+        XCTAssertTrue(item.waitForExistence(timeout: 8))
+
+        // The edge swipe and the content swipe on Add food stay on Add food.
+        app.buttons["nutrition.addFood"].tap()
+        XCTAssertTrue(query.waitForExistence(timeout: 8))
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.5))
+        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.6)))
+        XCTAssertFalse(query.waitForNonExistence(timeout: 2), "the swipe left the editor and dropped the draft")
+
+        // The header's Back returns to the review with the unsaved item.
+        app.buttons["subpage.back"].tap()
+        XCTAssertTrue(item.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["nutrition.meal.save"].exists)
+    }
+
     @MainActor
     func testQuickAddWithoutAReusableSelectionOpensAmounts() {
         continueAfterFailure = false

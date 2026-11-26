@@ -6,7 +6,7 @@ struct NutritionCoachingView: View {
 
     @State private var briefing: NutritionBriefing?
     @State private var fallback: NutritionGuidance?
-    @State private var selected: NutritionFoodMatch?
+    @State private var selected: NutritionSuggestedMealRoute?
     @State private var failure: String?
     @State private var loading = false
 
@@ -26,9 +26,10 @@ struct NutritionCoachingView: View {
             }
         }
         .task { await load() }
-        .navigationDestination(item: $selected) { food in
-            NutritionMealEditor(model: model, api: api, meal: nil, suggested: food, onBack: { selected = nil }) {
-                selected = nil
+        .navigationDestination(item: $selected) { route in
+            NutritionMealEditor(model: model, api: api, meal: nil, suggested: route.food,
+                                onBack: { NutritionRoutes.close(&selected, startedBy: route) }) {
+                NutritionRoutes.close(&selected, startedBy: route)
                 Task {
                     await model.reload()
                     await load()
@@ -79,7 +80,7 @@ struct NutritionCoachingView: View {
             ForEach(card.foods) { food in
                 GroupedRow.push(Text(verbatim: food.name), detail: food.brand.isEmpty ? nil : Text(verbatim: food.brand),
                                 icon: "fork.knife") {
-                    selected = food
+                    selected = NutritionSuggestedMealRoute(food: food)
                 }
                 .disabled(model.pending != nil)
             }

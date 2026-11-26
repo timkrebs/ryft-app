@@ -85,8 +85,11 @@ struct NutritionView: View {
         }
         .navigationDestination(item: $editor) { entry in
             if let api = model.api {
-                NutritionMealEditor(model: model, api: api, meal: entry.meal, onBack: { editor = nil }) {
-                    editor = nil
+                // A write that finishes after Back closes only its own editor, never one opened since; the diary
+                // reloads either way.
+                NutritionMealEditor(model: model, api: api, meal: entry.meal,
+                                    onBack: { NutritionRoutes.close(&editor, startedBy: entry) }) {
+                    NutritionRoutes.close(&editor, startedBy: entry)
                     Task { await model.reload() }
                 }
             }
@@ -194,7 +197,24 @@ struct NutritionView: View {
     }
 }
 
-private struct NutritionMealEditorRoute: Identifiable, Hashable {
+enum NutritionRoutes {
+    /// Clears `current` only while it is still `route`: a save or delete that finishes after the user went Back and
+    /// opened another editor must not close that one.
+    static func close<Route: Identifiable>(_ current: inout Route?, startedBy route: Route) {
+        if current?.id == route.id { current = nil }
+    }
+}
+
+/// Coaching's suggested food, one route per tap (the same food twice is two editors).
+struct NutritionSuggestedMealRoute: Identifiable, Hashable {
+    let id = UUID()
+    let food: NutritionFoodMatch
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+struct NutritionMealEditorRoute: Identifiable, Hashable {
     let id = UUID()
     var meal: NutritionMeal?
 

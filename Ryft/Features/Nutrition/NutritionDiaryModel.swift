@@ -210,8 +210,16 @@ enum NutritionNutrient: String, CaseIterable, Identifiable {
         }
     }
 
+    /// USDA's importer stores carbohydrates as `carbohydrates_total`; other sources use `carbohydrates`.
+    static let carbohydratesTotal = "carbohydrates_total"
+
+    /// A catalog nutrient's code, with the USDA carbohydrate alias.
+    init?(catalogCode code: String) {
+        if code == Self.carbohydratesTotal { self = .carbs } else { self.init(rawValue: code) }
+    }
+
     func total(in totals: [String: NutritionTotal]) -> NutritionTotal? {
-        totals[rawValue] ?? (self == .carbs ? totals["carbohydrates_total"] : nil)
+        totals[rawValue] ?? (self == .carbs ? totals[Self.carbohydratesTotal] : nil)
     }
 }
 

@@ -17,7 +17,7 @@ extension NutritionFoodMatch {
 
 extension NutritionCatalogSelection {
     var isSupported: Bool {
-        guard NutritionServingPreview.quantityLimits.contains(quantity) else { return false }
+        guard NutritionServingPreview.isValidQuantity(quantity) else { return false }
         switch unit {
         case "g", "ml": return portionId == nil
         case "portion", "serving": return portionId != nil
@@ -90,14 +90,14 @@ extension NutritionFoodDetail {
         return language
     }
 
+    /// By `sort_order`; ties, and a server without it, keep the server's order (not the English label's).
     var sortedPortions: [NutritionFoodPortion] {
-        portions.filter(\.isSelectable).sorted { a, b in
-            let left = a.sortOrder ?? Int.max
-            let right = b.sortOrder ?? Int.max
+        portions.enumerated().filter { $0.element.isSelectable }.sorted { a, b in
+            let left = a.element.sortOrder ?? Int.max
+            let right = b.element.sortOrder ?? Int.max
             if left != right { return left < right }
-            if a.label != b.label { return a.label < b.label }
-            return a.id.uuidString < b.id.uuidString
-        }
+            return a.offset < b.offset
+        }.map(\.element)
     }
 
     func preferredSelection(editing current: NutritionMealSelection? = nil) -> NutritionCatalogSelection {
@@ -127,13 +127,30 @@ struct NutritionServingPreview {
     static let householdMultipliers = [0.5, 1.0, 1.5, 2.0]
     static let householdStep = 0.5
     static let metricStep = 10.0
+    /// The platform holds a quantity at six decimals and refuses one it can't: the one rule for typed amounts, the
+    /// preview, quick add and meal writes.
+    static let quantityFractionDigits = 6
+
+    /// Within `quantityLimits` and representable at six decimals (`0,333333` is, `0,3333333` isn't).
+    static func isValidQuantity(_ quantity: Double) -> Bool {
+        guard quantity.isFinite, quantityLimits.contains(quantity) else { return false }
+        let scaled = quantity * 1_000_000
+        return abs(scaled - scaled.rounded()) < 0.001
+    }
+
+    /// A typed amount (empty is unknown), refused when it breaks `isValidQuantity`.
+    static func parseQuantity(_ text: String, locale: Locale) throws -> Double? {
+        guard let value = try NutritionNumbers.parse(text, in: quantityLimits, locale: locale) else { return nil }
+        guard isValidQuantity(value) else { throw NutritionInputError.invalidNumber }
+        return value
+    }
 
     let weightG: Double?
     let volumeMl: Double?
     let amounts: [NutritionNutrient: Double]
 
     init?(food: NutritionFoodDetail, quantity: Double, unit: String, portion: NutritionFoodPortion?) {
-        guard Self.quantityLimits.contains(quantity) else { return nil }
+        guard Self.isValidQuantity(quantity) else { return nil }
         var grams = unit == "g" ? quantity : 0
         var milliliters = unit == "ml" ? quantity : 0
         if let portion {
@@ -168,7 +185,7 @@ struct NutritionServingPreview {
         let ranked = compatible.sorted { Self.ranksBefore($0, $1, preferred: unit) }
         var known: [NutritionNutrient: Double] = [:]
         for item in ranked {
-            guard let nutrient = NutritionNutrient(rawValue: item.code), Self.displayedNutrients.contains(nutrient),
+            guard let nutrient = NutritionNutrient(catalogCode: item.code), Self.displayedNutrients.contains(nutrient),
                   known[nutrient] == nil else { continue }
             known[nutrient] = item.amount * measure(item) / item.referenceAmount
         }
