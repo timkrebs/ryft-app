@@ -28,7 +28,8 @@ struct PrivacyManifestTests {
         #expect((manifest["NSPrivacyTrackingDomains"] as? [Any])?.isEmpty == true)
     }
 
-    @Test(arguments: ["ProductInteraction", "OtherUsageData"])
+    /// `PerformanceData` is `latency_ms` and `duration_ms`, as range tokens (the Performance Data entry of #137's merge).
+    @Test(arguments: ["ProductInteraction", "OtherUsageData", "PerformanceData"])
     func usageAnalyticsAreDeclaredNotLinkedNotTrackingForAnalytics(_ type: String) throws {
         let entry = try collected(type)
         #expect(entry["\(Self.typePrefix)Linked"] as? Bool == false)

@@ -39,10 +39,25 @@ struct PostHogConfigurationTests {
     @Test func configurationKeepsTheLifecycleEventsAndTheContractsLimits() throws {
         let config = try config()
         #expect(config.captureApplicationLifecycleEvents)
-        #expect(config.personProfiles == .identifiedOnly)
+        #expect(config.personProfiles == .never)
         #expect(config.disableGeoIp)
         #expect(config.flushAt == 10)
         #expect(config.maxQueueSize == 200)
+    }
+
+    /// The SDK-free `AnalyticsSDKSettings` read back from the real `PostHogConfig`: one field drifting fails here.
+    @Test func theConfigurationReadsBackAsTheRequiredSettings() throws {
+        #expect(AnalyticsSDKSettings(try config()) == .required)
+        #expect(AnalyticsSDKSettings(PostHogSink.configuration(for: try #require(AnalyticsDestination(AnalyticsFixture.otherConfig)))) == .required)
+    }
+
+    @Test func aLoosenedConfigurationDoesNotReadBackAsRequired() throws {
+        let loosened = try config()
+        loosened.personProfiles = .identifiedOnly
+        #expect(AnalyticsSDKSettings(loosened) != .required)
+        let replay = try config()
+        replay.sessionReplay = true
+        #expect(AnalyticsSDKSettings(replay) != .required)
     }
 
     @Test func configurationSendsToTheDestinationOnly() throws {
@@ -88,7 +103,7 @@ struct PostHogConfigurationTests {
 
     @Test(arguments: ["$device_id", "$device_name", "$device_model", "$device_manufacturer", "$locale", "$timezone",
                       "$network_wifi", "$network_cellular", "$screen_width", "$screen_height", "$set", "$set_once", "url",
-                      "referring_application", "$referrer", "$ip", "$feature/x", "$active_feature_flags", "email", "distinct_id"])
+                      "referring_application", "$referrer", "$ip", "$feature/x", "$active_feature_flags", "distinct_id"])
     func everyOtherKeyIsRemoved(_ key: String) throws {
         let kept = try #require(PostHogSink.sanitized(event: "screen_viewed", properties: ["screen": "today", key: "x"]))
         #expect(kept[key] == nil)
@@ -96,10 +111,17 @@ struct PostHogConfigurationTests {
     }
 
     @Test(arguments: ["$app_version", "$app_build", "$os_name", "$os_version", "$device_type", "$lib", "$lib_version",
-                      "$session_id", "$process_person_profile", "$geoip_disable", "step", "screen", "feature", "status", "code"])
-    func theSDKsAppOSAndLibraryKeysStay(_ key: String) throws {
-        let kept = try #require(PostHogSink.sanitized(event: "feature_used", properties: [key: "x"]))
-        #expect(kept[key] != nil)
+                      "$session_id", "$process_person_profile", "$geoip_disable"])
+    func theSDKsAppOSAndLibraryKeysStayOnOurEvents(_ key: String) throws {
+        let kept = try #require(PostHogSink.sanitized(event: "feature_used", properties: ["feature": "journal_saved", key: "x"]))
+        #expect(kept[key] as? String == "x")
+        #expect(kept["feature"] as? String == "journal_saved")
+    }
+
+    @Test(arguments: Array(AnalyticsCatalog.sdkPropertyKeys.sorted()))
+    func everySDKKeyStaysOnALifecycleEvent(_ key: String) throws {
+        let kept = try #require(PostHogSink.sanitized(event: "Application Opened", properties: [key: "x"]))
+        #expect(Set(kept.keys) == [key])
     }
 
     @Test func theLifecycleEventsKeepTheirOwnKeys() throws {
@@ -119,12 +141,95 @@ struct PostHogConfigurationTests {
         #expect(Set(kept.keys) == ["version", "build"])
     }
 
-    @Test func theAllowListsAreExactlyTheContract() {
-        #expect(PostHogSink.allowedEvents == Set(AnalyticsEvent.everyCase.map(\.name))
-            .union(["Application Installed", "Application Opened", "Application Backgrounded"]))
-        #expect(!PostHogSink.allowedEvents.contains { $0.hasPrefix("$") })
-        #expect(!PostHogSink.allowedProperties.contains("$device_id"))
-        #expect(!PostHogSink.allowedProperties.contains("$set"))
+    /// The sink has no list of its own: what it keeps is `AnalyticsCatalog`'s, so the two can't drift.
+    @Test func theSinkKeepsExactlyTheCatalogueAndTheLifecycleEvents() {
+        let names = Set(AnalyticsEvent.everyCase.map(\.name))
+        #expect(names == AnalyticsCatalog.eventNames)
+        #expect(AnalyticsCatalog.sdkEventNames == ["Application Installed", "Application Opened", "Application Backgrounded"])
+        #expect(!AnalyticsCatalog.sdkEventNames.union(names).contains { $0.hasPrefix("$") })
+        #expect(!AnalyticsCatalog.sdkPropertyKeys.contains("$device_id"))
+        #expect(!AnalyticsCatalog.sdkPropertyKeys.contains("$set"))
+        for name in AnalyticsCatalog.sdkEventNames {
+            #expect(PostHogSink.sanitized(event: name, properties: [:]) != nil, "\(name)")
+        }
+        for name in names {
+            let takesNoKeys = AnalyticsCatalog.events[name]?.isEmpty == true
+            #expect((PostHogSink.sanitized(event: name, properties: [:]) != nil) == takesNoKeys,
+                    "\(name): with none of its keys it survives only if it has none")
+        }
+    }
+
+    // MARK: sanitiser against the catalogue
+
+    private static let searchCompleted: [String: Any] = [
+        "lookup": "name", "query_length": "3_5", "results_count": "2_5", "has_results": "true", "latency_ms": "250_499",
+    ]
+    private static let searchKeys: Set<String> = ["lookup", "query_length", "results_count", "has_results", "latency_ms"]
+
+    @Test func aValidCatalogueEventKeepsItsKeysAndTheAppVersionOnly() throws {
+        let properties = Self.searchCompleted.merging([
+            "$app_version": "1.0", "$device_id": "synthetic-device", "$locale": "de_DE", "$screen_width": 390,
+        ]) { _, new in new }
+        let kept = try #require(PostHogSink.sanitized(event: "nutrition_search_completed", properties: properties))
+        #expect(Set(kept.keys) == Self.searchKeys.union(["$app_version"]))
+        for key in Self.searchKeys { #expect(kept[key] as? String == Self.searchCompleted[key] as? String, "\(key)") }
+        #expect(kept["$app_version"] as? String == "1.0")
+    }
+
+    @Test func aLifecycleEventKeepsOnlyTheSDKPropertyKeys() throws {
+        let kept = try #require(PostHogSink.sanitized(event: "Application Backgrounded", properties: [
+            "$app_version": "1.0", "$os_name": "iOS", "from_background": false,
+            "lookup": "name", "screen": "today", "$device_id": "synthetic", "$locale": "de_DE",
+        ]))
+        #expect(Set(kept.keys) == ["$app_version", "$os_name", "from_background"])
+    }
+
+    /// Whatever the event, a name this sink isn't told about is dropped, even with nothing but allowed keys.
+    @Test(arguments: ["food_logged_raw", "$screen", "$identify", "Application Updated", "nutrition_search_completed_v2",
+                      "Application opened"])
+    func anEventOutsideTheCatalogueAndTheLifecycleSetIsDropped(_ name: String) {
+        #expect(PostHogSink.sanitized(event: name, properties: Self.searchCompleted) == nil)
+        #expect(PostHogSink.sanitized(event: name, properties: [:]) == nil)
+    }
+
+    /// One denied key anywhere drops the whole event: on a catalogue event, and on a lifecycle event.
+    @Test(arguments: ["hrv_ms", "sleep_duration", "weight", "food_name", "query", "kcal", "Sleep_Hours", "EMAIL", "quality_score"])
+    func aDeniedKeyDropsTheWholeEvent(_ key: String) {
+        #expect(PostHogSink.sanitized(event: "nutrition_search_completed", properties: Self.searchCompleted.merging([key: "1"]) { _, new in new }) == nil, "catalogue: \(key)")
+        #expect(PostHogSink.sanitized(event: "Application Opened", properties: ["$app_version": "1.0", key: "1"]) == nil, "lifecycle: \(key)")
+        #expect(PostHogSink.sanitized(event: "screen_viewed", properties: ["screen": "today", key: 1]) == nil, "non-string value: \(key)")
+    }
+
+    @Test func aValueOffItsListIsDropped() {
+        for value in ["secret_value_x", "Haferflocken", "someone@example.com", "", "6_10 ", "TRUE"] {
+            var properties = Self.searchCompleted
+            properties["query_length"] = value
+            #expect(PostHogSink.sanitized(event: "nutrition_search_completed", properties: properties) == nil, "\(value.debugDescription)")
+        }
+    }
+
+    @Test(arguments: ["lookup", "query_length", "results_count", "has_results", "latency_ms"])
+    func aNonStringValueOnAnOwnKeyDropsTheEvent(_ key: String) {
+        let values: [Any] = [true, 3, 2.5, ["a"]]
+        for value in values {
+            var properties = Self.searchCompleted
+            properties[key] = value
+            #expect(PostHogSink.sanitized(event: "nutrition_search_completed", properties: properties) == nil, "\(key) = \(value)")
+        }
+    }
+
+    @Test(arguments: ["lookup", "query_length", "results_count", "has_results", "latency_ms"])
+    func aMissingOwnKeyDropsTheEvent(_ key: String) {
+        var properties = Self.searchCompleted
+        properties[key] = nil
+        #expect(PostHogSink.sanitized(event: "nutrition_search_completed", properties: properties) == nil, "\(key)")
+    }
+
+    @Test func aKeyOfAnotherEventIsRemovedNotKept() throws {
+        // `unit_mode` belongs to `nutrition_food_logged`, not here: neither ours nor the SDK's on this event, so it goes.
+        let kept = try #require(PostHogSink.sanitized(event: "nutrition_search_completed",
+                                                      properties: Self.searchCompleted.merging(["unit_mode": "grams"]) { _, new in new }))
+        #expect(Set(kept.keys) == Self.searchKeys)
     }
 
     /// What `Analytics` sends passes through untouched: no event of ours is lost to the allow-lists.
