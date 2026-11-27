@@ -1,4 +1,25 @@
-# Status — 2026-11-24
+# Status — 2026-11-27
+
+## 2026-11-27 · Analytics: the PostHog SDK on the typed allow-list (#137 + #150)
+
+- #137 (posthog-ios exact 3.98.2, `PostHogSink`, `PostHogFence`, the onboarding opt-in step, ADR 0026) is merged with
+  `main` (a merge, no force-push), and the "Open (integration with #137)" list below is done:
+  - `beforeSend` (`PostHogSink.sanitized`) has no list of its own: a key `AnalyticsCatalog.isDeniedKey` names drops the
+    whole event; the lifecycle events keep only `sdkPropertyKeys`; our events keep `sdkPropertyKeys` and their own keys,
+    and their own part has to pass `AnalyticsCatalog.check` again; every other event and key is dropped.
+  - `personProfiles = .never`; `configuration(for:)` asserts `AnalyticsSDKSettings(config) == .required`
+    (`AnalyticsSDKSettings.init(_: PostHogConfig)`), and a test pins it.
+  - The opt-in copy (onboarding step, Profile → Privacy) names food search, logging and Sync now, English and German.
+  - `PrivacyInfo.xcprivacy` declares Performance Data (not linked, no tracking, Analytics) for `latency_ms` and
+    `duration_ms`; `docs/APP_STORE.md` lists it for App Store Connect.
+- User decisions (2026-11-27): opt-in, also in the beta; anonymous per-install ID, never `identify`; interactions only;
+  PostHog EU; "Discard client IP data" on; retention 12 months; DPA accepted.
+- Verified: the simulator build has zero warnings in our code. Unit tests: see the PR (CI runs the Unit plan). Nothing
+  has reached PostHog yet: the simulator gets the no-op sink, and `analytics.enabled` is off by default.
+- **Open (user):** a Debug device build launched with `-RyftAnalytics`, the flag on and `analytics` in the config: opt
+  in, watch PostHog's live events (only catalogue events and the three lifecycle events, no `$device_id`/`$locale`),
+  opt out, and check that nothing more arrives. App Store Connect → App Privacy: add Performance Data next to Product
+  Interaction and Other Usage Data (`docs/APP_STORE.md`). The privacy policy names PostHog EU.
 
 ## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
 
@@ -15,12 +36,12 @@
   were checked against the "interactions only" rule, and none changed. See `docs/ANALYTICS.md`.
 - Verified in the simulator only: the build has zero warnings, and 231 tests in 12 suites pass. Nothing has been sent,
   because the SDK isn't on `main` (#137).
-- **Open (integration with #137, whichever lands second):**
+- **Done in #137 (see above); was open (integration with #137, whichever lands second):**
   - `beforeSend` runs `AnalyticsCatalog.check` for our events and keeps only `sdkPropertyKeys` on `sdkEventNames`;
   - `personProfiles = .never`, and `configuration(for:)` asserts `AnalyticsSDKSettings(config) == .required`;
   - the opt-in copy (the onboarding step and the Profile toggle) names food search and logging and Sync now;
   - the manifest declares Performance Data (not linked, Analytics) for `latency_ms` and `duration_ms`.
-- **Open (user, PostHog and legal #252):** the retention period, the signed DPA, and "Discard client IP data" in the
+- **Decided (user, 2026-11-27; legal #252):** retention 12 months, DPA accepted, "Discard client IP data" on in the
   PostHog project.
 
 ## 2026-11-26 · Nutrition meal navigation
@@ -205,7 +226,6 @@ Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7
   - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle (a Nocturne row after #127), the events, and 99 tests.
   - Decision B: in phase 2 the opt-in becomes an onboarding step before `health`; the post-onboarding sheet can go then.
   - Nobody sees it until phase 2: the no-op sink can't send.
-  - Phase 2 (a follow-up session) needs the package added in Xcode first. Then it writes `PostHogSink`, `PrivacyInfo.xcprivacy`, the ADR for the second dependency, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and a `LicensesView` entry.
   - Right after phase 2 merges, the platform refreshes `web/config/app-packages.json` (`npm run licenses -- --sync`) with `posthog-ios` 3.98.2. The privacy text has to name PostHog EU as a processor.
 
 ## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
