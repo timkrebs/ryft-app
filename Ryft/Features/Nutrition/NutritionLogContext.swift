@@ -19,6 +19,17 @@ struct NutritionLogContext: Equatable, Sendable {
                              isFractional: Self.isFractional(selection))
     }
 
+    /// What a save sends: one `nutrition_food_logged` per distinct `(entry_point, unit_mode, is_fractional)` among the
+    /// items with a context, in first-seen order. Never one per food: with their timestamps those would add up to a
+    /// meal log, and the count would tell how many foods the meal has.
+    static func loggedEvents(_ items: [NutritionDraftItem]) -> [AnalyticsEvent] {
+        var seen = Set<AnalyticsEvent>()
+        return items.compactMap { item in
+            guard let event = item.logContext?.event(for: item.selection), seen.insert(event).inserted else { return nil }
+            return event
+        }
+    }
+
     /// `last_used_portion` when the selection is the food's last-used one; otherwise a catalogue portion is
     /// `curated_portion`, `ml` is `ml`, anything else grams.
     static func unitMode(_ selection: NutritionMealSelection, lastUsed: NutritionCatalogSelection?) -> AnalyticsUnitMode {

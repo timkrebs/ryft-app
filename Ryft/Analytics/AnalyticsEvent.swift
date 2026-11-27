@@ -403,12 +403,15 @@ enum AnalyticsSyncTrigger: String, AnalyticsToken {
     case profileButton = "profile_button"
 }
 
-/// `sync_completed` → `status`. `skipped`: nothing started (offline, or no data source).
+/// `sync_completed` → `status`, from the run's `SyncCoordinator.Outcome`. `failed`: an error or a cancellation;
+/// `skipped`: nothing started (offline, or no data source); `deferred`: HealthKit was locked
+/// (`Outcome.waitingForUnlock`), the rest follows the unlock.
 enum AnalyticsSyncStatus: String, AnalyticsToken {
-    case success, failed, skipped
+    case success, failed, skipped, deferred
 }
 
-/// `sync_completed` → `duration_ms`: from the tap to the run's end, as a bucket.
+/// `sync_completed` → `duration_ms`: from the tap to the end of the spinner phase (`pullToRefreshRun` returning),
+/// what the person waits for; not the coordinator's wait for scores. As a bucket.
 enum AnalyticsSyncDuration: String, AnalyticsToken {
     case under1000 = "lt_1000"
     case from1000To4999 = "1000_4999"

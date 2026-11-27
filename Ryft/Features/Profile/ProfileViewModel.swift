@@ -470,22 +470,29 @@ final class ProfileViewModel {
     }
 
     /// Profile's Sync now row: `syncNow()` with `sync_triggered` on the tap and `sync_completed` when the run it started
-    /// or joined ends (plan 2026-11-27, decision 10; the status retry and the connection test don't track). Success is
-    /// the coordinator's `Outcome` with neither an error nor a cancellation; skipped is a pull that started nothing
-    /// (offline, no data source). The duration runs from the tap to that end, on the environment's clock.
+    /// or joined ends (plan 2026-11-27, decision 10; the status retry and the connection test don't track). The status
+    /// is the coordinator's `Outcome`: failed with an error or a cancellation, deferred when HealthKit was locked
+    /// (`waitingForUnlock`), success otherwise; skipped is a pull that started nothing (offline, no data source). The
+    /// duration runs from the tap to `pullToRefreshRun` returning (the spinner the person waits for, not the
+    /// coordinator's wait for scores), on the environment's clock.
     func syncNowFromProfile() async {
         let source = AnalyticsSyncTrigger.profileButton
         let started = env.clock.uptime()
         env.analytics.track(.syncTriggered(source))
+        let run = await state.pullToRefreshRun(coordinator: coordinator)
+        let duration = AnalyticsSyncDuration(env.clock.uptime() - started)
         let status: AnalyticsSyncStatus
-        if let run = await state.pullToRefreshRun(coordinator: coordinator) {
+        if let run {
             let outcome = await run.value
-            status = outcome.error == nil && !outcome.cancelled ? .success : .failed
+            if outcome.error != nil || outcome.cancelled {
+                status = .failed
+            } else {
+                status = outcome.waitingForUnlock ? .deferred : .success
+            }
         } else {
             status = .skipped
         }
-        env.analytics.track(.syncCompleted(source, status: status,
-                                           duration: AnalyticsSyncDuration(env.clock.uptime() - started)))
+        env.analytics.track(.syncCompleted(source, status: status, duration: duration))
     }
 
     // MARK: notifications

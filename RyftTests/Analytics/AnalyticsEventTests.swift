@@ -120,7 +120,7 @@ struct AnalyticsEventTests {
         ])
         #expect(raw(AnalyticsUnitMode.self) == ["curated_portion", "last_used_portion", "grams", "ml"])
         #expect(raw(AnalyticsSyncTrigger.self) == ["profile_button"])
-        #expect(raw(AnalyticsSyncStatus.self) == ["success", "failed", "skipped"])
+        #expect(raw(AnalyticsSyncStatus.self) == ["success", "failed", "skipped", "deferred"])
         #expect(raw(AnalyticsSyncDuration.self) == ["lt_1000", "1000_4999", "5000_14999", "15000_59999", "60000+"])
     }
 

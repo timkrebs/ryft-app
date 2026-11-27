@@ -222,10 +222,8 @@ struct NutritionMealEditor: View {
                 }
             }
             try model.needsCurrentAccount()
-            // One `nutrition_food_logged` per food added in this editor session (rows of the saved meal have no context).
-            for item in items {
-                if let context = item.logContext { env.analytics.track(context.event(for: item.selection)) }
-            }
+            // `nutrition_food_logged`, deduplicated per save (rows of the saved meal have no context).
+            for event in NutritionLogContext.loggedEvents(items) { env.analytics.track(event) }
             finished()
         } catch {
             if (error as? APIError)?.status == 409, saved != nil {

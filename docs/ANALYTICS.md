@@ -28,7 +28,7 @@ ADR 0026. The allow-list is in `docs/work/2026-11-27-analytics-allowlist/plan.md
 | `Analytics.deliver` | Before the gate, `AnalyticsCatalog.check` refuses an unknown event, an unknown, missing or deny-listed key, a value not on its key's list, and any unsafe value (email-like, longer than 40, not `^[a-z0-9_+]{1,40}$`). A refusal never reaches the sink. In Debug it asserts; the message names the event and key, never the value. | `AnalyticsAllowListTests` (the deny-list) |
 | the gate | Sends only while `analytics.enabled` is on, the config has a valid destination, the user opted in, someone is signed in and demo mode is off. | `AnalyticsGateTests` |
 | `AnalyticsSDKSettings.required` | The SDK settings the design allows (below). The adapter's `configuration(for:)` must produce exactly this. | `AnalyticsSDKSettingsTests` (and #137's `PostHogSinkTests` once both are in) |
-| `PostHogSink` `beforeSend` (#137) | Drops any event or key the catalogue doesn't list, including whatever a later SDK adds. | #137's `PostHogSinkTests` |
+| `PostHogSink` `beforeSend` (#137) | Drops any event or key the catalogue doesn't list, including whatever a later SDK adds. At integration it must run `AnalyticsCatalog.check` for our events (key, value and event together, not a flat key list), and keep only `sdkPropertyKeys` on `sdkEventNames`. | #137's `PostHogSinkTests` |
 | `PostHogFence` (#137) | The SDK's network gets only `POST https://eu.i.posthog.com/batch`, and only while started. | #137's `PostHogSinkTests` |
 
 ### SDK settings (posthog-ios 3.98.2, #137)
@@ -44,7 +44,7 @@ ADR 0026. The allow-list is in `docs/work/2026-11-27-analytics-allowlist/plan.md
 | `capturePushNotificationSubscriptions`, `capturePushNotificationOpened` | off | would send the APNs token |
 | `errorTrackingConfig.autoCapture` | off | crash reports aren't in the policy |
 | `enableSwizzling`, `debug` | off | |
-| `personProfiles` | `.identifiedOnly`, and we never identify | so PostHog never creates a person profile; every event is anonymous |
+| `personProfiles` | `.never` (and we never identify) | no person profile is ever created, even after a stray `identify`. #137 still has `.identifiedOnly` and must follow |
 | `disableGeoIp` | on | no location from the IP |
 | `captureApplicationLifecycleEvents` | on | `Application Installed / Opened / Backgrounded`: the only SDK events kept |
 
@@ -60,12 +60,12 @@ Every value is one of the listed tokens. Bools are sent as `true` / `false`.
 | `screen_viewed` | `screen`: the tabs and 14 pushed screens (`AnalyticsScreen`) | a screen appears |
 | `feature_used` | `feature`: train_session_started, activity_added, sleep_added, journal_saved, sleep_schedule_saved, train_import_finished, data_exported, problem_reported, notifications_allowed, full_resync | the action succeeded (only a session's start: start plus finish would give a workout's duration) |
 | `error_shown` | `status`: a status bucket · `code`: the platform's error code token | an error card or inline failure shows (never its message or request id) |
-| `nutrition_search_completed` | `lookup`: name, barcode · `query_length`: 1_2, 3_5, 6_10, 11_20, 21+ · `results_count`: 0, 1, 2_5, 6_10, 11_20, 21+ · `has_results` · `latency_ms`: lt_250, 250_499, 500_999, 1000_1999, 2000_4999, 5000+ | a food search or barcode lookup returns its first page (not a failure, not "Load more") |
+| `nutrition_search_completed` | `lookup`: name, barcode · `query_length`: 1_2, 3_5, 6_10, 11_20, 21+ · `results_count`: 0, 1, 2_5, 6_10, 11_20, 21+ · `has_results` · `latency_ms`: lt_250, 250_499, 500_999, 1000_1999, 2000_4999, 5000+ | a food search or barcode lookup returns its first page: once per search, not again when the page reappears, not for a failure or "Load more". Pages and barcode results hold at most 20, so `11_20` includes a full page |
 | `nutrition_food_opened` | `rank_position`: 1 … 10, 10+ · `is_canonical_staple` (the catalogue's generic food, not branded or private) · `has_default_portion` · `has_last_used_portion` | a search result opens the food's detail |
-| `nutrition_food_logged` | `entry_point`: quick_add_button, detail_sheet, barcode, suggestion, private_food · `unit_mode`: curated_portion, last_used_portion, grams, ml · `is_fractional` (e.g. ½ or 1½ portions) | the meal is saved, once per food added in that editor |
+| `nutrition_food_logged` | `entry_point`: quick_add_button, detail_sheet, barcode, suggestion, private_food · `unit_mode`: curated_portion, last_used_portion, grams, ml · `is_fractional` (e.g. ½ or 1½ portions) | the meal is saved: one event per **distinct** combination among the foods added in that editor, so three quick-added gram foods send one event. The number of foods in a meal is never sent (a per-food event with timestamps would add up to a meal log) |
 | `nutrition_diary_reopened` | `has_preserved_portion_label` | a saved meal is opened again |
 | `sync_triggered` | `trigger_source`: profile_button | Profile → Sync now is tapped |
-| `sync_completed` | `trigger_source`: profile_button · `status`: success, failed, skipped · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ | that sync ends |
+| `sync_completed` | `trigger_source`: profile_button · `status`: success, failed, skipped (nothing started: offline or no data source), deferred (Apple Health locked) · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ | the sync run ends. `status` is the run's outcome; `duration_ms` runs from the tap to the end of the spinner phase the person waits for, not the platform's scoring afterwards |
 | `Application Installed`, `Application Opened`, `Application Backgrounded` | the SDK's app version and build, OS name and version, device type, library version, session id | the SDK, only while started |
 
 Checked against rule 3 on 2026-11-27: no existing event carries a health value, a name or free text. `sleep_added` and
@@ -90,33 +90,59 @@ Checked against rule 3 on 2026-11-27: no existing event carries a health value, 
 Proposed text for the policy's "Usage analytics" section, matching what the app does. It's English, as is the rest of
 the policy.
 
-> **Usage analytics (only if you say yes).** If you agree, RYFT sends anonymous usage events to PostHog, a product
-> analytics service run by PostHog Inc. We use only its EU cloud (eu.i.posthog.com), so the data is processed in the
-> EU. We use these events to see which parts of the app people use and where they get stuck, so we can improve RYFT.
-> Nothing is sent until you agree. The legal basis is your consent (Art. 6(1)(a) GDPR, § 25(1) TDDDG). You can
-> withdraw it at any time in Profile → Privacy → Share usage data. Sending stops at once, and events not yet sent are
-> deleted on your phone.
+> **Usage analytics (only if you say yes).** If you agree, RYFT sends pseudonymous usage events to PostHog, a product
+> analytics service run by PostHog Inc., which processes them on our behalf under a data processing agreement. The
+> controller is the one named in [section "Who is responsible"]. We use these events to see which parts of the app
+> people use and where they get stuck, so we can improve RYFT. We don't use them for advertising, and we don't link
+> them to your account.
+>
+> **Your consent.** Nothing is sent or stored for analytics until you agree. The legal basis is your consent
+> (Art. 6(1)(a) GDPR; for storing and reading the ID on your phone, § 25(1) TDDDG). You can withdraw it at any time in
+> Profile → Privacy → Share usage analytics. Sending stops at once, and events not yet sent are deleted from your
+> phone. Withdrawing doesn't affect the lawfulness of what was sent before.
 >
 > **What is sent.** A random ID that RYFT creates for this installation. It isn't your account, email, name or Apple
-> ID, and it's deleted when you turn analytics off or sign out (you get a new one if you turn it on again). With it:
-> which onboarding step and which screen you opened; which features you used (for example that you saved a journal
-> entry or started a training session); that an error was shown, by its type (for example "offline" or "500"); for
-> food logging, whether a search found anything, rough ranges for how long the search was and how many results it
-> had, how high up the result you chose was, and whether you added a food by quick add, the detail page or a barcode,
-> and in portions, grams or millilitres; for Profile → Sync now, that you tapped it and whether it worked, with a rough
-> duration; and when the app was installed, opened or closed, with the app version, iOS version and device type
-> (phone or tablet).
+> ID. It's deleted when you turn analytics off or sign out, and you get a new one if you turn analytics on again.
+> With it, these events:
+> - which onboarding step you're on, which screen you opened, and that you asked to connect Apple Health (not what you
+>   allowed);
+> - that the first sync finished;
+> - which features you used, for example that you saved a journal entry or started a training session;
+> - that an error was shown, by its type (for example "offline" or "500");
+> - for food logging: whether a search found anything, a range for how many characters it had, how many results it had
+>   and how long the results took; how high up the list the food you opened was, whether it's a generic or a branded
+>   food, and whether it had a default or last-used portion; when you save a meal, how you added its foods (quick add,
+>   the food's page, a barcode, a suggestion or a private food), whether in portions (catalogue or last-used), grams or
+>   millilitres, and whether a portion count was fractional, but not how many foods; and that you reopened a saved meal;
+> - for Profile → Sync now: that you tapped it, whether it worked, and a range for how long it took;
+> - when the app was installed, opened or closed, with the app version and build, iOS version, device type, the
+>   analytics library's version and a session ID.
 >
 > **What is never sent.** Your health data, or anything read from Apple Health or calculated from it (sleep, heart
 > rate, HRV, recovery, strain, weight, scores). What you type or search for, food names, amounts, calories or
-> nutrients. Your name, email or account ID. Screen recordings or taps. We don't use the events to identify you, we
-> don't link them to your account, we don't use them for advertising, and we don't share them with anyone else.
+> nutrients. Your name, email or account ID. No screen recordings, and nothing about your taps beyond the events listed
+> here. We don't share the events with anyone besides PostHog and its sub-processors.
 >
-> **Retention.** PostHog keeps the events for [**retention period — to be filled in from the PostHog project
-> settings**] and then deletes them. PostHog processes them on our behalf under a data processing agreement.
+> **Where.** The events are stored on PostHog's servers in the EU (eu.i.posthog.com). PostHog Inc. is a US company.
+> Where it accesses the data from the US, this is covered by [**the EU-US Data Privacy Framework / Standard Contractual
+> Clauses in the DPA — whichever applies**]. When the app connects, PostHog receives your IP address. We have set
+> PostHog to discard it and not to derive a location from it.
+>
+> **Retention.** Until they are sent, up to 200 events wait on your phone. PostHog keeps the events for [**retention
+> period, from the PostHog project settings**] and then deletes them.
+>
+> **Your rights.** You have the rights to access, erasure, restriction and objection, as set out in [section "Your
+> rights"]. Because the ID is random and not linked to your account, we can only find your events if you give us the
+> ID while it still exists. Once it's deleted (on opt-out or sign-out), we can no longer tell which events were yours
+> (Art. 11 GDPR).
 
 Facts the policy states that the code doesn't settle (for the user, with #252):
 - The retention period set in the PostHog project.
-- That the data processing agreement with PostHog is signed.
+- That the data processing agreement with PostHog is signed, and whether the transfer basis is the DPF or SCCs.
 - That "Discard client IP data" is on in the PostHog project. The app disables GeoIP, but the server still sees the
-  connection's IP. If that setting is off, the policy must say PostHog receives the IP address.
+  connection's IP. If that setting is off, drop the sentence "We have set PostHog to discard it…" and say PostHog
+  stores the IP address.
+- Whether legal wants the consent to cite Art. 9(2)(a) GDPR as well: the food events say how and when a meal was
+  logged, never what was in it.
+- The ID can't be shown in the app today, so "if you give us the ID" is only theoretical. Either add a "Copy analytics
+  ID" row later, or simplify that sentence to the Art. 11 statement.

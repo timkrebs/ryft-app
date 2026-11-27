@@ -354,7 +354,7 @@ struct AnalyticsAllowListTests {
         #expect(AnalyticsCatalog.events["nutrition_diary_reopened"] == ["has_preserved_portion_label": bools])
         #expect(AnalyticsCatalog.events["sync_triggered"] == ["trigger_source": ["profile_button"]])
         #expect(AnalyticsCatalog.events["sync_completed"] == [
-            "trigger_source": ["profile_button"], "status": ["success", "failed", "skipped"],
+            "trigger_source": ["profile_button"], "status": ["success", "failed", "skipped", "deferred"],
             "duration_ms": ["lt_1000", "1000_4999", "5000_14999", "15000_59999", "60000+"],
         ])
     }

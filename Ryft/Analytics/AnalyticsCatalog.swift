@@ -74,7 +74,6 @@ enum AnalyticsCatalog {
     /// `^[a-z0-9_+]{1,40}$`. Every allowed value is safe (a test pins it); this catches what a call site smuggled.
     static func isUnsafeValue(_ value: String) -> Bool {
         if let at = value.firstIndex(of: "@"), value[at...].contains(".") { return true }
-        if value.count > maximumValueLength { return true }
         let scalars = value.unicodeScalars
         return scalars.isEmpty || scalars.count > maximumValueLength || !scalars.allSatisfy(tokenScalars.contains)
     }
@@ -177,21 +176,21 @@ struct AnalyticsSDKSettings: Equatable, Sendable {
     var debug: Bool
     /// The one autocapture left on: Installed, Opened, Backgrounded (`AnalyticsCatalog.sdkEventNames`), for retention.
     var captureApplicationLifecycleEvents: Bool
-    /// `identifiedOnly` with `identifies == false`: a profile would need an `identify`, and RYFT never calls it, so
-    /// no profile is ever made (the user's decision: the anonymous per-install id only).
+    /// `never`: no person profile is made, not even by a stray `identify` (the brief: person profiles off; the user's
+    /// decision: the anonymous per-install id only). `identifies == false` keeps RYFT from calling it anyway.
     var personProfiles: PersonProfiles
     /// Whether RYFT ever calls `identify` (or `alias`): never, so events stay on the anonymous per-install id.
     var identifies: Bool
     /// PostHog derives a location from the IP when this is off; on, no location is stored.
     var disableGeoIp: Bool
 
-    /// What the design allows: everything off except the lifecycle events and the GeoIP switch; person profiles only
-    /// for identified users, and none is ever identified.
+    /// What the design allows: everything off except the lifecycle events and the GeoIP switch; person profiles never,
+    /// and nobody is ever identified.
     static let required = AnalyticsSDKSettings(
         sessionReplay: false, captureScreenViews: false, captureElementInteractions: false,
         captureSwiftUIElementInteractions: false, rageClicks: false, surveys: false, preloadFeatureFlags: false,
         sendFeatureFlagEvent: false, setDefaultPersonProperties: false, capturePushNotificationSubscriptions: false,
         capturePushNotificationOpened: false, crashAutocapture: false, swizzling: false, debug: false,
-        captureApplicationLifecycleEvents: true, personProfiles: .identifiedOnly, identifies: false, disableGeoIp: true
+        captureApplicationLifecycleEvents: true, personProfiles: .never, identifies: false, disableGeoIp: true
     )
 }

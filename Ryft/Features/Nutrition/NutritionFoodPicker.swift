@@ -73,6 +73,9 @@ struct NutritionFoodPicker: View {
     @State private var failure: String?
     @State private var cameraFailure: String?
     @State private var retry = 0
+    /// The search last reported as `nutrition_search_completed`: the page's `.task(id:)` restarts the same search when it
+    /// reappears (Back, Add to meal, Edit amount, Create private food), and that isn't a new one. A Retry is (`retry`).
+    @State private var reportedSearch: SearchTask?
     @FocusState private var editing: Bool
     @Environment(\.locale) private var locale
     @Environment(\.appEnvironment) private var env
@@ -144,7 +147,7 @@ struct NutritionFoodPicker: View {
             }
         }
         .defaultFocus($editing, true)
-        .task(id: task) { await search(task.lookup) }
+        .task(id: task) { await search(task) }
         .task(id: quickAddition?.itemID) {
             guard let id = quickAddition?.itemID,
                   (try? await Task.sleep(for: Self.quickAdditionNoticeDuration)) != nil else { return }
@@ -313,9 +316,11 @@ struct NutritionFoodPicker: View {
 
     /// A search result opens its detail (the row, or "+" without a quick selection): `nutrition_food_opened` with its
     /// 1-based place in the list (plan, decision 9; not for Edit amount, nor the suggestion).
+    /// A food that isn't in `matches` (any more) opens without the event: its rank is unknown, not 1.
     private func open(_ food: NutritionFoodMatch, lookup: Lookup) {
-        let rank = (matches.firstIndex { $0.id == food.id } ?? 0) + 1
-        env.analytics.track(food.openedEvent(rank: rank))
+        if let index = matches.firstIndex(where: { $0.id == food.id }) {
+            env.analytics.track(food.openedEvent(rank: index + 1))
+        }
         detail = FoodRoute(food: food, inputMethod: lookup.inputMethod, entryPoint: lookup.entryPoint(quickAdd: false))
     }
 
@@ -365,7 +370,8 @@ struct NutritionFoodPicker: View {
         }
     }
 
-    private func search(_ requested: Lookup?) async {
+    private func search(_ task: SearchTask) async {
+        let requested = task.lookup
         guard requested == lookup, !Task.isCancelled else { return }
         let id = UUID()
         requestID = id
@@ -380,7 +386,8 @@ struct NutritionFoodPicker: View {
             try await Task.sleep(for: Self.debounce)
             try model.needsCurrentAccount()
             // `latency_ms`: from after the debounce to the result, what the person waits for.
-            let started = ContinuousClock.now
+            let clock = env.clock
+            let started = clock.uptime()
             let count: Int
             switch requested {
             case .name(let name):
@@ -399,11 +406,14 @@ struct NutritionFoodPicker: View {
                 count = result.matches.count
             }
             resultFor = requested
-            // The first page or the barcode's result only: a failure isn't completed, Load more isn't a new search.
+            // The first page or the barcode's result only: a failure isn't completed, Load more isn't a new search,
+            // and the same search restarted by the page reappearing was reported already.
+            guard task != reportedSearch else { return }
+            reportedSearch = task
             let (kind, length) = requested.searchTokens
             env.analytics.track(.nutritionSearchCompleted(lookup: kind, queryLength: length,
                                                           results: AnalyticsResultCount(count),
-                                                          latency: AnalyticsLatency(ContinuousClock.now - started)))
+                                                          latency: AnalyticsLatency(clock.uptime() - started)))
         } catch {
             guard id == requestID, lookup == requested, !Task.isCancelled, !error.isCancellation else { return }
             failure = error.localizedDescription

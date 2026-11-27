@@ -47,8 +47,8 @@ struct AnalyticsSDKSettingsTests {
         #expect(settings[keyPath: row.keyPath] == row.expected, "\(row.field)")
     }
 
-    @Test func personProfilesAreIdentifiedOnlyAndNobodyIsEverIdentified() {
-        #expect(settings.personProfiles == .identifiedOnly)
+    @Test func noPersonProfileIsEverMadeAndNobodyIsEverIdentified() {
+        #expect(settings.personProfiles == .never)
         #expect(settings.identifies == false)
     }
 
@@ -79,9 +79,9 @@ struct AnalyticsSDKSettingsTests {
         var always = settings
         always.personProfiles = .always
         #expect(always != settings)
-        var never = settings
-        never.personProfiles = .never
-        #expect(never != settings)
+        var identifiedOnly = settings
+        identifiedOnly.personProfiles = .identifiedOnly
+        #expect(identifiedOnly != settings)
     }
 
     @Test func theSettingsAreAValue() {

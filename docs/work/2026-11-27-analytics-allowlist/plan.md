@@ -36,14 +36,21 @@ Branch `feat/analytics-allowlist` from `origin/main` (`bde11d8`), worktree `.wor
    error, not an event here). Load more isn't a new search.
 7. **`is_canonical_staple`** = the match's `type == "generic"`: a catalogue generic food, not branded and not private.
    The API has no "staple" field. If the platform adds one, the event switches to it and keeps its name.
-8. **`nutrition_food_logged` fires on a successful meal save**, once per item added in this editor session (a quick add
-   that was undone is gone by then). The entry point and unit mode travel on `NutritionDraftItem` as a local,
-   non-wire field. Rows loaded from a saved meal have none, so a reopen-and-save logs nothing for them.
+8. **`nutrition_food_logged` fires on a successful meal save**, deduplicated per save: once per distinct
+   `(entry_point, unit_mode, is_fractional)` among the items added in this editor session, in first-seen order
+   (`NutritionLogContext.loggedEvents`). Not once per food: with timestamps, per-food events add up to a meal log, and
+   their count would tell how many foods the meal has. A quick add that was undone is gone by then. The entry point
+   and unit mode travel on `NutritionDraftItem` as a local, non-wire field. Rows loaded from a saved meal have none, so
+   a reopen-and-save logs nothing for them.
 9. **`nutrition_food_opened`** fires when a search result opens the food detail: tapping the row, or "+" on a food
    without a quick selection. It doesn't fire for "Edit amount" after a quick add, nor for a suggestion.
 10. **`sync_triggered` / `sync_completed`** fire only for Profile's "Sync now" row (`trigger_source: profile_button`).
     The status retry and the connection test call `syncNow()` too, but don't track. `status` is `success` | `failed` |
-    `skipped` (pull-to-refresh returned without starting: offline, no data source).
+    `skipped` | `deferred`, from the run's `SyncCoordinator.Outcome` (awaited after the spinner ends): `failed` with an
+    `error` or `cancelled`; `skipped` when pull-to-refresh returned without starting (offline, no data source);
+    `deferred` when HealthKit was locked (`Outcome.waitingForUnlock`; the rest follows the unlock). `duration_ms` runs
+    from the tap to `pullToRefreshRun` returning: the spinner phase the person waits for, not the coordinator's
+    wait for scores (up to 300 s).
 11. **Existing events vs rule 3:** every existing property is a closed token. None carries a value from HealthKit,
     a name, a query or a number. `health_access_requested`, `sleep_added` and `first_sync_completed` name an interaction,
     not health. No change beyond moving them under the catalogue.
@@ -68,7 +75,7 @@ case syncCompleted(AnalyticsSyncTrigger, status: AnalyticsSyncStatus, duration: 
 | `nutrition_food_logged` | `entry_point`: quick_add_button, detail_sheet, barcode, suggestion, private_food · `unit_mode`: curated_portion, last_used_portion, grams, ml · `is_fractional`: true, false |
 | `nutrition_diary_reopened` | `has_preserved_portion_label`: true, false |
 | `sync_triggered` | `trigger_source`: profile_button |
-| `sync_completed` | `trigger_source`: profile_button · `status`: success, failed, skipped · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ |
+| `sync_completed` | `trigger_source`: profile_button · `status`: success, failed, skipped, deferred · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ |
 
 Bucket initialisers (total): `AnalyticsQueryLength(characters:)` (≤2 → 1_2), `AnalyticsResultCount(_:)` (≤0 → 0),
 `AnalyticsLatency(_ duration: Duration)` (by milliseconds), `AnalyticsRank(position:)` (1-based, ≤1 → 1, ≥11 → 10+),
@@ -128,6 +135,7 @@ func deliver(_ name: String, properties: [String: String])  // internal: catalog
 - A4 Every bucket's `init` is total and its boundaries are pinned (e.g. 249 ms → lt_250, 250 → 250_499; rank 10 → 10, 11 → 10+).
 - A5 `AnalyticsSDKSettings.required` has replay off, screen views off, element interactions off (UIKit and SwiftUI),
   rage clicks off, surveys and flags off, push capture off, crash autocapture off, swizzling off, person profiles
-  `identifiedOnly` with `identifies == false` (so no profile is ever made), GeoIP off, and lifecycle on.
+  `never` (the brief: person profiles off, so even a stray `identify` makes none) with `identifies == false`, GeoIP
+  off, and lifecycle on.
 - A6 The six new events fire at the places in decisions 6 to 10, with the tokens the code there knows. Zero warnings,
   and the Unit plan is green.
