@@ -12,17 +12,18 @@ struct SyncStatusButton: View {
     @State private var success = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The rotate effect's speed: 1 is the system's own pace, about a turn a second.
+    nonisolated static let rotationSpeed: Double = 1
+
     var body: some View {
         Button(action: syncNow) {
-            Group {
-                if state == .syncing {
-                    SyncOrbitMark(animated: !reduceMotion)
-                        .frame(width: TodayHeader.calendarIconSize, height: TodayHeader.calendarIconSize)
-                } else {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: TodayHeader.calendarIconSize, weight: .regular))
-                }
-            }
+            // The arrows turn while syncing (continuous, about a turn a second): the common iOS "it's working" and
+            // what the device test expected. Under Reduce Motion they stand still; the accessibility value says
+            // "Syncing" either way.
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: TodayHeader.calendarIconSize, weight: .regular))
+                .symbolEffect(.rotate.clockwise.wholeSymbol, options: .repeat(.continuous).speed(Self.rotationSpeed),
+                              isActive: state == .syncing && !reduceMotion)
         }
         .buttonStyle(CircleButtonStyle())
         .overlay(alignment: .topTrailing) {
@@ -127,23 +128,6 @@ struct SyncStatusButton: View {
         Task {
             if await sync() { success += 1 }
         }
-    }
-}
-
-private struct SyncOrbitMark: View {
-    let animated: Bool
-    @State private var rotates = false
-
-    var body: some View {
-        RyftMark()
-            .rotationEffect(.degrees(animated && rotates ? 360 : 0))
-            .task(id: animated) {
-                if animated {
-                    withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) { rotates = true }
-                } else {
-                    rotates = false
-                }
-            }
     }
 }
 

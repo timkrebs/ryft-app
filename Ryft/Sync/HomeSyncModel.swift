@@ -23,6 +23,14 @@ final class HomeSyncModel {
 
     @ObservationIgnored private var active: Run?
     @ObservationIgnored private var generation = 0
+    /// A sync of this model is running, from the trigger to the end of its run (its scoring wait included). Observed: the
+    /// button spins for the whole run, not only while a page is being POSTed (device test of #151: a pass with nothing
+    /// new never POSTs, so the button went from the tap straight to green).
+    private(set) var runInFlight = false
+    /// A person's trigger shows syncing at least until then (`minimumSyncingTime`), however fast the run is.
+    private var syncingShownUntil: Date?
+    /// Long enough that a tap always reads as "it did something".
+    nonisolated static let minimumSyncingTime: TimeInterval = 0.8
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator) {
         app = state
@@ -34,7 +42,9 @@ final class HomeSyncModel {
     var state: SyncIndicatorState {
         let now = now
         let localUpload = app.isDemo ? app.demoSyncAt : app.env.settings.lastSync
-        return .resolve(.init(uploading: app.isDemo ? app.demoSyncInFlight : upload.isPostingPage,
+        let shown = syncingShownUntil.map { now < $0 } ?? false
+        let posting = app.isDemo ? app.demoSyncInFlight : upload.isPostingPage
+        return .resolve(.init(uploading: runInFlight || shown || posting,
                               lastUpload: localUpload,
                               uploadFailure: app.isDemo ? nil : upload.uploadFailure,
                               healthAccessMissing: healthAccessMissing, status: app.syncStatus,
@@ -68,7 +78,7 @@ final class HomeSyncModel {
         let nextMinute = hasSyncTime ? now.addingTimeInterval(60 - now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)) : nil
         let dates = [scoringWaitStartedAt?.addingTimeInterval(SyncIndicatorState.scoringLimit),
                      app.syncStatus?.scoresPendingSince?.addingTimeInterval(SyncIndicatorState.scoringLimit),
-                     lastSync?.addingTimeInterval(SyncIndicatorState.freshnessLimit), nextMinute]
+                     lastSync?.addingTimeInterval(SyncIndicatorState.freshnessLimit), nextMinute, syncingShownUntil]
         return dates.compactMap { $0 }.filter { $0 > now }.min()
     }
 
@@ -140,6 +150,8 @@ final class HomeSyncModel {
     @discardableResult
     func sync(trigger: SyncTriggerSource) async -> AnalyticsSyncStatus? {
         let run = active ?? start(trigger)
+        // After `start` read the state for `previous_state`. The quiet foreground sync spins for its run only.
+        if trigger != .autoForeground { showSyncing() }
         if trigger == .homescreenPullToRefresh {
             _ = await run.spinner.value
             return nil
@@ -151,7 +163,14 @@ final class HomeSyncModel {
     /// (plan 2026-11-27, decision 10: only the Sync now row of Profile tracks).
     func syncUntracked() async {
         let run = active ?? start(nil)
+        showSyncing()
         _ = await run.spinner.value
+    }
+
+    /// A person's trigger: syncing for at least `minimumSyncingTime` from now, also when it joins a running sync.
+    private func showSyncing() {
+        let until = clock.now().addingTimeInterval(Self.minimumSyncingTime)
+        syncingShownUntil = max(syncingShownUntil ?? until, until)
     }
 
     /// `trigger` nil: not tracked (`syncUntracked`).
@@ -184,7 +203,10 @@ final class HomeSyncModel {
             let duration = AnalyticsSyncDuration(clock.uptime() - started)
             let outcome = await run?.value
             // The run is over for this model whatever follows; a reset (another account) already cleared it.
-            if generation == self.generation { active = nil }
+            if generation == self.generation {
+                active = nil
+                runInFlight = false
+            }
             guard generation == self.generation, binding.isCurrent(in: app.env) else { return AnalyticsSyncStatus.failed }
             let status: AnalyticsSyncStatus
             if let outcome {
@@ -204,6 +226,7 @@ final class HomeSyncModel {
         }
         let run = Run(spinner: spinner, completion: completion)
         active = run
+        runInFlight = true
         return run
     }
 
@@ -211,6 +234,8 @@ final class HomeSyncModel {
         generation += 1
         active?.spinner.cancel()
         active = nil
+        runInFlight = false
+        syncingShownUntil = nil
         foregroundCheck?.cancel()
         foregroundCheck = nil
         foregroundBinding = nil

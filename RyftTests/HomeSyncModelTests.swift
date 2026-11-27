@@ -34,6 +34,37 @@ struct HomeSyncModelTests {
         return false
     }
 
+    /// Device test of #151: a tap with nothing new never POSTed, so the button skipped `.syncing`. A tap shows it for the
+    /// whole run (the HealthKit read included) and for at least `minimumSyncingTime`, however fast the run is.
+    @Test func aTapShowsSyncingUntilTheRunEndsAndForAtLeastTheMinimum() async throws {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.uploadDuration = .seconds(2)
+        let (model, app, _) = graph(clock: clock, steps: steps)
+        app.env.settings.lastSync = clock.now().addingTimeInterval(-60)
+        #expect(model.state != .syncing)
+
+        let tap = Task { await model.sync(trigger: .homescreenTopRight) }
+        try #require(await eventually { steps.isUploading })
+        #expect(model.state == .syncing, "while Apple Health is read, before any POST")
+        clock.advance(by: .seconds(1))
+        #expect(model.state == .syncing, "past the minimum, the run still goes on")
+        clock.advance(by: .seconds(1))
+        _ = await tap.value
+        #expect(!model.runInFlight)
+        #expect(model.state != .syncing, "the run ended after the minimum: syncing ends with it")
+
+        // A run faster than the minimum still shows syncing until it has passed.
+        steps.uploadDuration = .zero
+        let quick = Task { await model.sync(trigger: .homescreenTopRight) }
+        _ = await quick.value
+        #expect(!model.runInFlight)
+        #expect(model.state == .syncing, "the run is over, the 0.8 s are not")
+        clock.advance(by: .milliseconds(800))
+        #expect(model.state != .syncing)
+    }
+
     @Test func quietForegroundUsesStatusOnlyUntilFiveMinutesHavePassed() async {
         let clock = TestClock()
         let steps = FakeSteps(clock: clock)
