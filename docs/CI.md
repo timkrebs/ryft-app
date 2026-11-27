@@ -69,7 +69,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   | --- | --- | --- |
   | `Unit` | PRs, `main` | `RyftTests` without `PerformanceTests`; parallel, random order, 60 s per test, coverage of the `Ryft` target only |
   | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them `JumpToNextUITests`, four of `FocusedSessionUITests` and the two of `NocturneGateKeyboardUITests` that keep Report a problem's bar above a real keyboard, about 40 s, which no hosted test can show (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 25 minutes. Green runs took 11–13 minutes in mid-November 2026, and one timed out at 15 with every test so far passing, because the runner is the Mac the agents build on. Still, a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
-  | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
+  | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests`, in two steps: `-only-testing:RyftTests` (30 minutes, coverage from it) and `-only-testing:RyftUITests` (45 minutes, no coverage, run even after a red unit half). No retries. The job has 90 minutes on these runs, 75 otherwise. In one 45-minute step it timed out every night from 2026-11-21 to 26 with every test so far passing: the unit half took ~19 minutes (5,093 Swift Testing tests in 1,073 s on 11-25, against 2,181 in 34 s on 11-04; after the first ~3.5 minutes the hosted SwiftUI tests run at about one per second, queued on the main actor), and the UI half ~34 (103 tests on one simulator; `FocusedSessionUITests` alone ~11). Nothing waits for this run: `nightly.yml` uploads to TestFlight whatever it says. |
 
   - Swift Testing parallelism is capped at 4 tests in flight (`Unit` and `Full`,
     `environmentVariableEntries` → `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`). Uncapped,
@@ -87,7 +87,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     `platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro`, because `scripts/ci-simulator.sh` always takes the newest runtime.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
     artifacts
-- **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run, writes
+- **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run (nightly: the `RyftTests` half of `Full`), writes
   a table to the job summary and fails when an area falls below its floor in
   `scripts/coverage-floor.json`. The areas are `Networking/`, `Sync/`, `Persistence/`
   and `Features/*ViewModel*`. The floors were set on 2026-10-20 at the measured value
