@@ -4,8 +4,7 @@ import UIKit
 @testable import Ryft
 
 /// Profile's decisions (docs/work/2026-11-16-nocturne/design.md §P5-12 tests 31–33; §P5-6): the identity's title, initials
-/// and arc; the status row's word, dot and tap for each sync line; and the row inventory, with every identifier the page
-/// had before Nocturne in its place and each row shown when it applies.
+/// and arc, the status word, dot and tap for each sync line, and the rows of the top groups and each subpage.
 @MainActor
 @Suite("T5.4: Profile data")
 struct ProfileDataTests {
@@ -82,13 +81,13 @@ struct ProfileDataTests {
         #expect(model.provider == "apple" && !model.canChangePassword)
         #expect(model.identity.title == "alex@privaterelay.appleid.com" && model.identity.initials == "A")
         #expect(model.accountEmail == "alex@privaterelay.appleid.com", "the session's email")
-        #expect(!model.showsEmailRow, "the email is the title already")
+        #expect(model.showsEmailRow, "Account also shows the email used as the Profile title")
         #expect(model.timezone == nil, "no zone of the demo's person")
         #expect(model.status(line: .upToDate(nil, demo: true)).source == "Demo data")
         let facts = ProfileRowFacts(model, journalLive: graph.screens.journal.isLive, bedtimeEnabled: graph.screens.bedtime.isEnabled)
-        let rows = ProfileRows.groups(facts).flatMap(\.rows)
-        #expect(!rows.contains(.changePassword) && !rows.contains(.email) && !rows.contains(.timezone))
-        try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
+        let rows = ProfilePage.sections(.account, facts).flatMap(\.rows)
+        #expect(!rows.contains(.changePassword) && rows.contains(.email) && !rows.contains(.timezone))
+        try await HostedWindow.run(width: 390, height: 4400, graph.page(.account)) { w in
             try await w.settle()
             let labels = w.nodes().map(\.label)
             #expect(!labels.contains { $0.contains("Alex Doe") }, "\(labels.filter { $0.contains("Alex") })")
@@ -96,7 +95,7 @@ struct ProfileDataTests {
         }
     }
 
-    @Test("Security: Demo data on while signed in never shows the demo's consent; signed out there is no Privacy group")
+    @Test("Security: Demo data on while signed in never shows the demo's consent; signed out there is no consent card")
     func demoConsent() async throws {
         let graph = try await ProfileShotGraph.make("demo")
         defer { graph.tearDown() }
@@ -120,18 +119,18 @@ struct ProfileDataTests {
         #expect(detail.hasPrefix("Demo data is on"), "\(detail)")
         // No Review or Withdraw: in demo mode they would reach the demo's platform, never the account.
         let facts = ProfileRowFacts(model, journalLive: false, bedtimeEnabled: true)
-        #expect(ProfileRows.rows(.privacy, facts) == [.consent])
-        try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
+        #expect(ProfilePage.sections(.privacyAndData, facts).first?.rows == [.consent])
+        try await HostedWindow.run(width: 390, height: 4400, graph.page(.privacyAndData)) { w in
             try await w.settle()
             let labels = w.nodes().flatMap { [$0.label, $0.value ?? ""] }
             #expect(!labels.contains { $0.contains(Fmt.date(demoConsent.grantedAt)) || $0.contains("Agreed on") }, "\(labels)")
             #expect(!labels.contains("Withdraw consent") && !labels.contains("Review and agree"))
-            #expect(w.node("Health-data consent", exactly: true)?.value == "Not shown")
+            #expect(w.nodes().first { $0.identifier == ProfileRow.consent.identifier }?.value == "Not shown")
         }
         let signedOut = try await ProfileShotGraph.make("signed-out")
         defer { signedOut.tearDown() }
         let outFacts = ProfileRowFacts(signedOut.screens.profile, journalLive: false, bedtimeEnabled: true)
-        #expect(!ProfileRows.groups(outFacts).contains { $0.group == .privacy }, "signed out: no account, no consent")
+        #expect(!ProfilePage.sections(.privacyAndData, outFacts).contains { $0.id == .consent })
         #expect(signedOut.screens.profile.consentDetail == nil)
     }
 
@@ -274,118 +273,151 @@ struct ProfileDataTests {
 
     // MARK: 33. rows
 
-    private var everyRow: [ProfileRowFacts] {
-        var all = ProfileRowFacts()
-        all.devicesEnabled = true
-        all.canAskForHealth = true
-        all.showsSessionLayout = true
-        all.journalLive = true
-        all.canChangePassword = true
-        all.showsEmail = true
-        all.showsAnalytics = true
-        all.nutritionAvailable = true
-        var outdated = all
-        outdated.consentIsCurrent = false
-        outdated.devicesEnabled = false
-        var signedOut = all
-        signedOut.isSignedIn = false
-        // Given on this iPhone, RYFT's confirmation still out: Check with RYFT.
-        var unconfirmed = all
-        unconfirmed.consentAwaitsConfirmation = true
-        return [all, outdated, signedOut, unconfirmed]
-    }
+    private let oldRows: Set<ProfileRow> = [
+        .birthYear, .maxHR, .sleepBase, .rescore, .devices, .appleHealth, .allowHealth, .openHealth, .lastSync,
+        .deviceID, .syncNow, .syncDetails, .importTraining, .demoMode, .jumpToNext, .sessionLayout, .saveWorkouts,
+        .notifications, .journal, .heroNumerals, .bedtime, .consent, .reviewConsent, .checkConsent, .withdrawConsent,
+        .nutritionPrivacy, .analytics, .email, .timezone, .signInMethods, .changePassword, .deleteAccount, .signedIn,
+        .version, .reportProblem, .privacyPolicy, .terms, .appleHealthPrivacy, .garminHealth, .licences,
+    ]
 
-    private func identifiers(_ facts: ProfileRowFacts) -> Set<String> {
-        let rows = ProfileRows.groups(facts).flatMap(\.rows).filter { !$0.setsOwnIdentifier }.map(\.identifier)
-        return Set(rows + ProfileRows.buttons(facts).map(\.identifier))
-    }
-
-    @Test("Spec 33: every identifier of the page before Nocturne has its row, button or dialog")
-    func inventory() {
-        let shown = everyRow.map(identifiers).reduce(into: Set<String>()) { $0.formUnion($1) }
-        let dialogs: Set<String> = [ProfileRows.logOutSendFirst, ProfileRows.logOutAnyway, ProfileRows.demoDiscard,
-                                    ProfileRows.demoKeep, ProfileRows.devCatalog, ProfileRows.devFlags]
-        for id in ["profile.signInMethods", "profile.logOut", "profile.bedtime", "profile.devices", "profile.saveWorkouts",
-                   "profile.sleepBase", "profile.syncDetails", "profile.notifications", "profile.journal",
-                   "profile.reportProblem", "profile.jumpToNext", "profile.sessionLayout", "profile.demoMode",
-                   "profile.heroNumerals"] {
-            #expect(shown.contains(id), "\(id)")
-        }
-        for id in ["profile.logOut.sendFirst", "profile.logOut.anyway", "profile.demo.discard", "profile.demo.keep",
-                   "dev.catalog", "dev.flags"] {
-            #expect(dialogs.contains(id), "\(id)")
-        }
-        // Every row shows in one state or another: none is left without a place.
-        let rows = everyRow.map { Set(ProfileRows.groups($0).flatMap(\.rows)) }.reduce(into: Set<ProfileRow>()) { $0.formUnion($1) }
-        #expect(rows == Set(ProfileRow.allCases), "\(Set(ProfileRow.allCases).subtracting(rows))")
-    }
-
-    @Test("Spec 33: the groups' order and titles")
+    @Test("The five groups and their rows, in order")
     func groupOrder() {
-        #expect(ProfileRows.groups(ProfileRowFacts()).map(\.group)
-                == [.aboutYou, .devicesAndSync, .training, .settings, .privacy, .account, .about])
+        let facts = ProfileRowFacts(journalLive: true)
+        let groups = ProfileRows.groups(facts)
+        #expect(groups.map(\.group) == [.you, .general, .data, .resources, .legal])
+        #expect(groups.map(\.rows) == [
+            [.bodyAndBaselines], [.account, .notifications, .display, .training, .journal, .bedtime],
+            [.devices, .privacyAndData], [.whatsNew, .reportProblem, .rateApp],
+            [.privacyPolicy, .terms, .appleHealthPrivacy, .garminHealth, .licences],
+        ])
+        #expect(!facts.showsPlus)
+        // The moved rows keep their pre-P1 identifiers (UI tests and support find them by these).
+        #expect(ProfileRow.devices.identifier == "profile.devices")
+        #expect(ProfileRow.reportProblem.identifier == "profile.reportProblem")
     }
 
-    @Test("Spec 33: rows follow their switches")
-    func visibility() {
-        func rows(_ change: (inout ProfileRowFacts) -> Void) -> [ProfileRow] {
-            var facts = ProfileRowFacts()
-            change(&facts)
-            return ProfileRows.groups(facts).flatMap(\.rows)
+    @Test("Every pre-P1 row has its home when visible across account, demo and devices states", arguments: [false, true])
+    func homes(devicesEnabled: Bool) {
+        var live = ProfileRowFacts(devicesEnabled: devicesEnabled, canAskForHealth: true, showsSessionLayout: true,
+                                   journalLive: true, showsAnalytics: true, canChangePassword: true, showsEmail: true,
+                                   nutritionAvailable: true)
+        var demo = live
+        demo.isDemo = true
+        var signedOutDemo = demo
+        signedOutDemo.isSignedIn = false
+        let consentActions: Set<ProfileRow> = [.reviewConsent, .checkConsent, .withdrawConsent]
+        let accountRows: Set<ProfileRow> = [.email, .timezone, .signInMethods, .changePassword, .deleteAccount]
+        // With tracker setup on, the Garmin link goes, and DevicesAndSyncView's own `devices.*` controls stand in for
+        // RYFT's read access and Sync details (DevicesUITests covers them).
+        let healthLink: Set<ProfileRow> = devicesEnabled
+            ? [.garminHealth, .appleHealth, .allowHealth, .openHealth, .syncDetails] : []
+
+        func check(_ facts: ProfileRowFacts, hidden: Set<ProfileRow>) {
+            for group in ProfileRows.groups(facts) {
+                #expect(Set(group.rows).count == group.rows.count)
+            }
+            for page in ProfilePage.allCases {
+                for section in ProfilePage.sections(page, facts) {
+                    #expect(Set(section.rows).count == section.rows.count)
+                }
+            }
+            for row in oldRows {
+                let home = ProfileRows.home(of: row, facts)
+                #expect((home == .hidden) == hidden.contains(row), "\(row) → \(home)")
+                switch row {
+                case .saveWorkouts:
+                    #expect(home == .multiple([.page(.training, .training), .page(.devicesAndSync, .healthWrites)]))
+                case .deleteAccount where facts.isSignedIn:
+                    #expect(home == .multiple([.page(.account, .account), .page(.privacyAndData, .yourData)]))
+                default:
+                    if case .multiple = home { Issue.record("\(row) has more than one home") }
+                }
+            }
         }
-        #expect(!rows { $0.showsTraining = false }.contains(.jumpToNext), "no Training group")
-        #expect(!ProfileRows.groups(ProfileRowFacts(showsTraining: false)).contains { $0.group == .training })
-        #expect(rows { $0.showsSessionLayout = true }.contains(.sessionLayout))
-        #expect(!rows { _ in }.contains(.sessionLayout))
-        #expect(!rows { $0.showsNotifications = false }.contains(.notifications))
-        #expect(rows { $0.journalLive = true }.contains(.journal) && !rows { _ in }.contains(.journal))
-        #expect(!rows { $0.bedtimeEnabled = false }.contains(.bedtime))
-        #expect(rows { $0.devicesEnabled = true }.contains(.devices) && !rows { $0.devicesEnabled = true }.contains(.garminHealth))
-        #expect(!rows { _ in }.contains(.devices) && rows { _ in }.contains(.garminHealth))
-        #expect(rows { $0.canAskForHealth = true }.contains(.allowHealth) && rows { _ in }.contains(.openHealth))
-        #expect(rows { $0.consentIsCurrent = false }.contains(.reviewConsent) && rows { _ in }.contains(.withdrawConsent))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(consentIsCurrent: false, consentAwaitsConfirmation: true))
-                == [.consent, .checkConsent, .withdrawConsent], "given here, not confirmed yet: no Review and agree")
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true)) == [.consent], "Demo data: no Review or Withdraw")
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false)).isEmpty)
-        // A1: "Share usage analytics" only with `Analytics.showsToggle`, last in Privacy.
-        #expect(!rows { _ in }.contains(.analytics))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true)) == [.consent, .withdrawConsent, .analytics])
-        // Nutrition privacy only while Nutrition is available for the account; otherwise Privacy is exactly main's.
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(showsAnalytics: true, nutritionAvailable: true))
-                == [.consent, .withdrawConsent, .nutritionPrivacy, .analytics])
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(consentIsCurrent: false, consentAwaitsConfirmation: true,
-                                                           nutritionAvailable: true))
-                == [.consent, .checkConsent, .withdrawConsent, .nutritionPrivacy])
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isDemo: true, nutritionAvailable: true)) == [.consent])
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(isSignedIn: false, nutritionAvailable: true)).isEmpty)
-        #expect(rows { $0.isSignedIn = false }.filter { [.signedIn, .deleteAccount, .signInMethods].contains($0) } == [.signedIn])
-        #expect(rows { $0.canChangePassword = true }.contains(.changePassword) && !rows { _ in }.contains(.changePassword))
-        // Hero numbers is always there (PR 4 tests 46–47).
-        #expect(rows { $0.showsNotifications = false; $0.bedtimeEnabled = false }.contains(.heroNumerals))
-        #expect(ProfileRows.buttons(ProfileRowFacts()) == [.export, .logOut])
-        #expect(ProfileRows.buttons(ProfileRowFacts(isSignedIn: false)) == [.export], "the demo exports, nothing to log out")
-        #expect(ProfileRows.buttons(ProfileRowFacts(canExport: false)) == [.logOut])
+
+        check(live, hidden: healthLink.union([.signedIn, .reviewConsent, .checkConsent]))
+        check(demo, hidden: healthLink.union(consentActions).union([.signedIn, .nutritionPrivacy]))
+        check(signedOutDemo, hidden: healthLink.union(consentActions).union(accountRows).union([.consent, .analytics, .nutritionPrivacy]))
+        live.consentIsCurrent = false
+        check(live, hidden: healthLink.union([.signedIn, .withdrawConsent, .checkConsent]))
+        live.consentAwaitsConfirmation = true
+        check(live, hidden: healthLink.union([.signedIn, .reviewConsent]))
+
+        #expect(ProfileRows.home(of: .devices, live) == .top(.data))
+        #expect(ProfileRows.home(of: .reportProblem, live) == .top(.resources))
+        #expect(ProfileRows.home(of: .version, live) == .page(.whatsNew, .version))
     }
 
-    @Test("Spec 33, hosted: the page carries the rows' identifiers, and the model's facts")
+    @Test("Page sections follow their flags and end with destructive actions")
+    func visibility() {
+        let gated = ProfileRowFacts(showsTraining: false, showsNotifications: false, bedtimeEnabled: false, canExport: false)
+        #expect(ProfileRows.rows(.general, gated) == [.account, .display])
+        #expect(ProfilePage.sections(.training, gated).isEmpty)
+        #expect(ProfilePage.sections(.display, gated).flatMap(\.rows) == [.heroNumerals])
+        #expect(ProfileRows.home(of: .saveWorkouts, gated) == .hidden)
+        #expect(ProfileRows.home(of: .allowHealth, gated) == .hidden)
+        #expect(ProfileRows.home(of: .changePassword, gated) == .hidden)
+        #expect(ProfileRows.home(of: .export, gated) == .hidden)
+
+        let signedIn = ProfileRowFacts(showsSessionLayout: true, consentAwaitsConfirmation: true, showsAnalytics: true,
+                                      canChangePassword: true, showsEmail: true, nutritionAvailable: true)
+        #expect(ProfilePage.sections(.account, signedIn).flatMap(\.rows) ==
+                [.email, .timezone, .signInMethods, .changePassword, .logOutRow, .deleteAccount])
+        #expect(ProfilePage.sections(.training, signedIn).flatMap(\.rows) ==
+                [.jumpToNext, .sessionLayout, .saveWorkouts, .importTraining])
+        #expect(ProfilePage.sections(.devicesAndSync, signedIn).map(\.rows) ==
+                [[.appleHealth, .openHealth], [.lastSync, .syncNow, .deviceID], [.saveWorkouts], [.rescore, .demoMode], [.syncDetails]])
+        #expect(ProfilePage.sections(.privacyAndData, signedIn).map(\.rows) ==
+                [[.consent, .checkConsent, .withdrawConsent], [.analytics], [.nutritionPrivacy], [.export, .deleteAccount]])
+        let destructive: Set<ProfileRow> = [.deleteAccount, .withdrawConsent]
+        for page in ProfilePage.allCases {
+            for section in ProfilePage.sections(page, signedIn) {
+                #expect(section.rows.dropLast().allSatisfy { !destructive.contains($0) })
+            }
+        }
+
+        let signedOutDemo = ProfileRowFacts(isSignedIn: false, isDemo: true)
+        #expect(ProfilePage.sections(.account, signedOutDemo).flatMap(\.rows) == [.signedIn])
+        #expect(ProfilePage.sections(.privacyAndData, signedOutDemo).flatMap(\.rows) == [.export])
+        #expect(ProfileRows.buttons(signedIn) == [.logOut])
+        #expect(ProfileRows.buttons(gated) == [.logOut])
+        #expect(ProfileRows.buttons(signedOutDemo).isEmpty)
+    }
+
+    @Test("Hosted: the top page's identifiers and the moved identifiers on their own pages")
     func hostedIdentifiers() async throws {
         let graph = try await ProfileShotGraph.make("signed-in")
         defer { graph.tearDown() }
         let model = graph.screens.profile
         let facts = ProfileRowFacts(model, journalLive: graph.screens.journal.isLive, bedtimeEnabled: graph.screens.bedtime.isEnabled)
         #expect(facts.isSignedIn && facts.devicesEnabled && facts.canExport)
+        let topIDs = ProfileRows.groups(facts).flatMap(\.rows).map(\.identifier) + ["profile.identity", "profile.logOut"]
         try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
             try await w.settle()
-            // One element per identifier: a UI test's lookup finds exactly one, of the control's own type.
             let found = Self.identifiers(in: w.host.view)
-            for id in identifiers(facts).union(["profile.identity"]) {
-                #expect(found[id] == 1, "\(id): \(found[id] ?? 0)")
+            for id in topIDs { #expect(found[id] == 1, "\(id): \(found[id] ?? 0)") }
+            #expect(found[ProfileRows.devCatalog] == nil && found[ProfileRows.devFlags] == nil)
+        }
+
+        let pages: [(ProfileRoute, [String])] = [
+            (.body, ["profile.birthYear", "profile.maxHR", "profile.sleepBase"]),
+            (.account, ["profile.signInMethods", "profile.logOutRow", "profile.deleteAccount"]),
+            (.display, ["profile.heroNumerals"]),
+            (.training, ["profile.jumpToNext", "profile.saveWorkouts", "profile.importTraining"]),
+            (.devices, ["profile.lastSync", "profile.syncNow", "profile.demoMode", "profile.saveWorkouts"]),
+            (.privacyAndData, ["profile.consent", "profile.export", "profile.deleteAccount"]),
+            (.whatsNew, ["profile.version"]),
+        ]
+        for (route, rowIDs) in pages {
+            try await HostedWindow.run(width: 390, height: 4400, graph.page(route)) { w in
+                try await w.settle()
+                let found = Self.identifiers(in: w.host.view)
+                for id in rowIDs { #expect(found[id] == 1, "\(id): \(found[id] ?? 0)") }
+                #if DEBUG
+                if route == .devices { #expect(found[ProfileRows.devCatalog] == 1 && found[ProfileRows.devFlags] == 1) }
+                #endif
             }
-            #expect(found["profile.importTraining", default: 0] > 0, "B's import rows keep theirs")
-            #if DEBUG
-            #expect(found[ProfileRows.devCatalog] == 1 && found[ProfileRows.devFlags] == 1)
-            #endif
         }
     }
 
@@ -414,7 +446,7 @@ struct ProfileDataTests {
     @Test("The Hero numbers menu row: the choice as its value, a 46 pt row, inside the window at AX3")
     func heroNumbersRow() async throws {
         let s = Settings(defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard)
-        let row = GroupedCard(Text(verbatim: "Settings")) { HeroNumbersMenuRow(selection: Bindable(s).heroNumerals) }
+        let row = GroupedCard { HeroNumbersMenuRow(selection: Bindable(s).heroNumerals) }
             .padding(.horizontal, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         for (typeSize, category) in [(DynamicTypeSize.large, UIContentSizeCategory.large), (.accessibility3, .accessibilityExtraLarge)] {

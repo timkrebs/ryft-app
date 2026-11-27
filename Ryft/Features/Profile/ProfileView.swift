@@ -1,28 +1,14 @@
 import SwiftUI
-import UIKit
 
-/// Profile's main list in Nocturne (docs/work/2026-11-16-nocturne/design.md §P5-6): the header, the identity row, the app's
-/// real rows in seven grouped cards (`ProfileRows`), the buttons row, and the Developer group in Debug builds. The subpages
-/// are pushed (`ProfileRoute`) and keep their code (PR 6 C restyles them); every sheet and dialog is as before.
+/// Profile's identity, five groups and Log out. The stack builds each subpage; the prompts sit above it.
 struct ProfileView: View {
     @Environment(ScreenModels.self) private var screens
-    @Environment(Settings.self) private var settings
     @Environment(\.appEnvironment) private var env
-    @Environment(\.openURL) private var openURL
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var showLogOutConfirm = false
-    /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
-    @State private var unsentAtLogOut = 0
-    @State private var sendsFirst = false
-    @State private var deleteConfirmation: AccountBinding?
-    @State private var showChangePassword = false
-    @State private var showWithdrawConfirm = false
-    /// Demo data switched off while workouts logged in the demo exist: what the confirmation counts (ADR 0019).
-    @State private var confirmDemoExit: DemoWorkouts?
+    @State private var prompts = ProfilePrompts()
     @State private var legal: LegalPage?
-    @State private var editing: BodySetting?
+    @State private var path: NavigationPath
     /// The identity row's tap: Sync details, pushed.
     @State private var showsSyncDetails = false
 
@@ -30,42 +16,51 @@ struct ProfileView: View {
 
     private typealias L = ProfileLayout
 
+    /// Previews and hosted tests can start with a page already on the stack.
+    init(initialRoute: ProfileRoute? = nil) {
+        var path = NavigationPath()
+        if let initialRoute { path.append(initialRoute) }
+        _path = State(initialValue: path)
+    }
+
     var body: some View {
-        NavigationStack {
+        @Bindable var prompts = prompts
+        NavigationStack(path: $path) {
             ScreenScaffold(showsHeader: false) {
                 page
             }
             .navigationDestination(for: ProfileRoute.self) { destination($0) }
             .navigationDestination(isPresented: $showsSyncDetails) { SyncDetailsView(model: model.syncDetails) }
         }
+        .environment(prompts)
         .safariSheet($legal)
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
         .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
             DataExportShareSheet(file: $0, completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
                 .presentedRoot()
         }
-        .bodySettingSheet($editing, editor: model.bodySettings)
+        .bodySettingSheet($prompts.editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
         // The Journal row is there while the journal is live: after the Demo data switch forgot the other side's, this
         // side's is asked for here too (as Today and Insights ask), so the row doesn't wait for them.
         .task(id: model.demoMode) {
             if screens.journal.availability == .unknown { await screens.journal.load() }
         }
-        .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
-            if unsentAtLogOut > 0 {
+        .confirmationDialog("Log out of RYFT?", isPresented: $prompts.showLogOutConfirm, titleVisibility: .visible) {
+            if prompts.unsentAtLogOut > 0 {
                 // Send first (10 s at most), then log out if nothing is left and it's still the same account;
                 // otherwise ask again with what's left. Not offered when nothing can be sent now.
                 if model.sendFirst == .available {
                     Button {
                         Task {
-                            sendsFirst = true
+                            prompts.sendsFirst = true
                             let outcome = await model.sendFirstThenLogOut()
-                            sendsFirst = false
+                            prompts.sendsFirst = false
                             // Asked again with what's left; never under a held Log out (D6: `.held`, or a withdrawal
                             // that began as the wait ended).
                             if case .unsent(let left) = outcome, !model.withdrawingConsent {
-                                unsentAtLogOut = left
-                                showLogOutConfirm = true
+                                prompts.unsentAtLogOut = left
+                                prompts.showLogOutConfirm = true
                             }
                         }
                     } label: {
@@ -85,19 +80,19 @@ struct ProfileView: View {
                 }
             }
         } message: {
-            if unsentAtLogOut > 0, model.sendFirst == .offline {
-                Text("\(unsentAtLogOut) activities or nights haven't reached RYFT yet, and you're offline. Logging out deletes them from this iPhone.",
+            if prompts.unsentAtLogOut > 0, model.sendFirst == .offline {
+                Text("\(prompts.unsentAtLogOut) activities or nights haven't reached RYFT yet, and you're offline. Logging out deletes them from this iPhone.",
                      comment: "Log out offline with uploads pending (Send first isn't offered); the number of activities and nights.")
-            } else if unsentAtLogOut > 0 {
-                Text("\(unsentAtLogOut) activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone.",
+            } else if prompts.unsentAtLogOut > 0 {
+                Text("\(prompts.unsentAtLogOut) activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone.",
                      comment: "Log out with uploads pending; the number of activities and nights.")
             } else {
                 Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
             }
         }
         .alert("Delete your RYFT account?",
-               isPresented: Binding(get: { deleteConfirmation != nil }, set: { if !$0 { deleteConfirmation = nil } }),
-               presenting: deleteConfirmation) { confirmation in
+               isPresented: Binding(get: { prompts.deleteConfirmation != nil }, set: { if !$0 { prompts.deleteConfirmation = nil } }),
+               presenting: prompts.deleteConfirmation) { confirmation in
             Button("Delete account", role: .destructive) {
                 Task { await model.deleteAccount(confirmedFor: confirmation) }
             }
@@ -105,26 +100,26 @@ struct ProfileView: View {
         } message: { _ in
             Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
         }
-        .sheet(isPresented: $showChangePassword) {
+        .sheet(isPresented: $prompts.showChangePassword) {
             SetNewPasswordView(mode: .change).presentedRoot()
         }
-        .confirmationDialog("Withdraw your consent?", isPresented: $showWithdrawConfirm, titleVisibility: .visible) {
+        .confirmationDialog("Withdraw your consent?", isPresented: $prompts.showWithdrawConfirm, titleVisibility: .visible) {
             Button("Withdraw consent", role: .destructive) {
                 Task { await model.withdrawConsent() }
             }
             if model.canExport {
                 Button("Export my data first") { Task { await model.export() } }
             }
-            Button("Delete account instead", role: .destructive) { deleteConfirmation = AccountBinding(env) }
+            Button("Delete account instead", role: .destructive) { prompts.deleteConfirmation = AccountBinding(env) }
         } message: {
             Text("RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time.")
         }
         // Cancel keeps the demo running: nothing is called. Confirm works out again what goes (`endDemo`).
         .confirmationDialog(Text("Turn off Demo data?",
                                  comment: "Profile → Demo data switched off while workouts logged in the demo exist"),
-                            isPresented: Binding(get: { confirmDemoExit != nil },
-                                                 set: { if !$0 { confirmDemoExit = nil } }),
-                            titleVisibility: .visible, presenting: confirmDemoExit) { _ in
+                            isPresented: Binding(get: { prompts.confirmDemoExit != nil },
+                                                 set: { if !$0 { prompts.confirmDemoExit = nil } }),
+                            titleVisibility: .visible, presenting: prompts.confirmDemoExit) { _ in
             Button(role: .destructive) {
                 Task { await model.endDemo() }
             } label: {
@@ -141,412 +136,71 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: the page (§P5-6.1)
+    // MARK: - the page
 
     private var page: some View {
-        let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled,
-                                    showsAnalytics: env.analytics.showsToggle)
-        let groups = ProfileRows.groups(facts)
+        let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled)
         return VStack(alignment: .leading, spacing: 0) {
             ScreenHeader(title: Text("Profile"))
             ProfileIdentitySection(showsSyncDetails: $showsSyncDetails)
                 .padding(.top, L.headerToIdentity)
-            ForEach(groups) { entry in
-                if entry.group == .about {
-                    // The brand lock-up above the About group (as before), a group's gap above and under it.
+            // The RYFT Plus slot stays hidden until StoreKit ships (ProfileRowFacts.showsPlus).
+            ForEach(ProfileRows.groups(facts)) { entry in
+                if entry.group == .legal {
                     BrandLockup()
                         .frame(maxWidth: .infinity)
                         .padding(.top, L.groupGap)
                 }
-                group(entry.group, rows: entry.rows)
-                    .padding(.top, entry.group == .about ? L.lockUpToGroup
-                        : entry.id == groups.first?.id ? L.identityToFirstGroup : L.groupGap)
+                group(entry)
+                    .padding(.top, entry.group == .legal ? L.lockUpToGroup
+                        : entry.group == .you ? L.identityToFirstGroup : L.groupGap)
             }
-            buttons(ProfileRows.buttons(facts))
-            #if DEBUG
-            ProfileDeveloperGroup(model: model)
-                .padding(.top, L.buttonsToDeveloper)
-            #endif
+            if ProfileRows.buttons(facts).contains(.logOut) { logOutButton }
         }
     }
 
-    /// A group's card; its footer only when there is one, so an empty footer adds no gap.
-    @ViewBuilder private func group(_ group: ProfileGroup, rows: [ProfileRow]) -> some View {
-        if hasFooter(group) {
-            GroupedCard(GroupTitle(group.title)) { self.rows(rows) } footer: { footer(group) }
-        } else {
-            GroupedCard(group.title) { self.rows(rows) }
+    private func group(_ entry: ProfileRows.Shown) -> some View {
+        let footer = entry.group == .legal
+            ? Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.") : nil
+        return GroupedCard(entry.group.title, footer: footer) { ProfileRowList(rows: entry.rows) }
+    }
+
+    // MARK: - Log out
+
+    /// While a consent withdrawal is on its way (D6), the pill dims, with the reason under it and in its VoiceOver hint.
+    private var logOutButton: some View {
+        let held = model.withdrawingConsent
+        return VStack(alignment: .leading, spacing: L.buttonsToMessage) {
+            PillButton(Text("Log out"), style: .secondary, busy: prompts.sendsFirst || model.loggingOut) {
+                prompts.confirmLogOut(model)
+            }
+            .disabled(held)
+            .accessibilityHint(prompts.logOutHint(model))
+            .accessibilityIdentifier(ProfileButton.logOut.identifier)
+            if held {
+                Text(verbatim: ProfileViewModel.withdrawalHoldReason)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
+            }
         }
+        .animation(Theme.Motion.respecting(reduceMotion), value: held)
+        .padding(.top, L.buttonsTop)
     }
 
-    private func rows(_ rows: [ProfileRow]) -> some View {
-        ForEach(rows) { self.row($0) }
-    }
-
-    // MARK: rows (§P5-6.2)
-
-    // One switch over every row: the rows are the app's own, each with its behaviour from before Nocturne. Each row's
-    // identifier is on its control (`GroupedRow`'s `identifier:`), one element per identifier.
-    // swiftlint:disable:next cyclomatic_complexity function_body_length
-    @ViewBuilder private func row(_ row: ProfileRow) -> some View {
-        let editor = model.bodySettings
-        let id = row.identifier
-        switch row {
-        // About you
-        case .birthYear:
-            BirthYearMenuRow(editor: editor)
-        case .maxHR:
-            // The saved value, or "Saving…" while a change is out (the value on its way is the editor page's alone).
-            GroupedRow.push(Text("Maximum heart rate"), value: Text(verbatim: editor.rowValue(.maxHR, saved: editor.maxHRText)),
-                            detail: editor.rowDetail(.maxHR).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
-                            identifier: id) {
-                editing = .maxHR
-            }
-            .detailParts(editor.rowDetailParts(.maxHR))
-        case .sleepBase:
-            GroupedRow.push(Text("Baseline sleep need"),
-                            value: Text(verbatim: editor.rowValue(.sleepBase, saved: editor.sleepBaseText)),
-                            detail: editor.rowDetail(.sleepBase).map { Text(verbatim: $0) }, hint: Text("Opens the editor"),
-                            identifier: id) {
-                editing = .sleepBase
-            }
-            .detailParts(editor.rowDetailParts(.sleepBase))
-        case .rescore:
-            GroupedRow.action(Text("Rescore the last 90\u{00A0}days"), systemImage: "arrow.clockwise", busy: editor.rescoring,
-                              identifier: id) {
-                Task { await editor.rescore() }
-            }
-            .disabled(!editor.canSave || (editor.saving && !editor.rescoring))
-        // Devices and sync
-        case .devices:
-            GroupedRow.push(Text("Devices & sync"), value: Text(verbatim: model.devices.summary), identifier: id,
-                            route: ProfileRoute.devices)
-        case .appleHealth:
-            GroupedRow.value(Text("Apple Health"), value: Text(verbatim: model.healthStatusText)
-                .foregroundStyle(model.healthNeedsAttention ? Theme.warning : Theme.textTertiary), identifier: id)
-        case .allowHealth:
-            GroupedRow.action(Text("Allow access"), systemImage: "heart", identifier: id) {
-                Task { await model.requestHealthAccess() }
-            }
-        case .openHealth:
-            GroupedRow.action(model.devices.isEnabled ? Text("Open Health") : Text("Open Health permissions"),
-                              systemImage: "arrow.up.right", hint: Self.healthAppHint, identifier: id) {
-                HealthLinks.open(with: openURL)
-            }
-        case .lastSync:
-            GroupedRow.value(Text("Last sync"), value: Text(verbatim: model.lastSyncText), identifier: id)
-        case .deviceID:
-            GroupedRow.value(Text("Device ID"), value: Text(verbatim: model.deviceIDText), identifier: id)
-        case .syncNow:
-            GroupedRow.action(Text("Sync now"), detail: model.isSyncing ? Text(verbatim: model.syncProgress) : nil,
-                              systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing, identifier: id) {
-                Task { await model.syncNowFromProfile() }
-            }
-            .disabled(!model.canSync && !model.isSyncing)
-        case .syncDetails:
-            GroupedRow.push(Text("Sync details"), identifier: id, route: ProfileRoute.syncDetails)
-        case .importTraining:
-            // Area B's rows (`ImportProfileRows`, their own identifiers), each laid out as a grouped row.
-            ImportProfileRows()
-                .frame(maxWidth: .infinity, minHeight: L.rowMinHeight, alignment: .leading)
-                .padding(.horizontal, GroupedListSpec.rowInset)
-                .groupedRowHairline()
-        case .demoMode:
-            // Off with workouts logged in the demo asks first; the switch reads on until the exit has run. Held (no tap) while a
-            // consent withdrawal is on its way, the reason as its detail, which is part of its label (D6): the switch alone
-            // dims, the title and the reason stay at full ink so the sentence stays readable.
-            let held = model.withdrawingConsent
-            GroupedRow.toggle(Text("Demo data"),
-                              detail: held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason)
-                                  : Text("Show a realistic sample history instead of your server."),
-                              identifier: id, isOn: demoSwitch)
-                .accessibilityHint(!model.showsDemoExitHint ? Text(verbatim: "")
-                    : Text("Turning it off discards the workouts logged with Demo data.",
-                           comment: "Only while such workouts exist"))
-                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
-                .disabled(held)
-                .animation(Theme.Motion.respecting(reduceMotion), value: held)
-        // Training
-        case .jumpToNext:
-            GroupedRow.toggle(Text("Advance to the next exercise",
-                                   comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one."),
-                              detail: Text("Jumps to the next set when you finish an exercise.",
-                                           comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\"."),
-                              identifier: id, isOn: Bindable(settings).jumpToNextExercise)
-        case .sessionLayout:
-            SessionLayoutMenuRow(selection: Bindable(settings).sessionLayout)
-        case .saveWorkouts:
-            // On only while iOS still allows it; otherwise where to allow it (under the card).
-            GroupedRow.toggle(Text("Save strength workouts to Apple Health"),
-                              detail: Text("Each workout you log appears in Fitness and Health. Only the workout: no heart rate."),
-                              identifier: id,
-                              isOn: Binding(get: { WorkoutHealthExport.shared.isWriting }, set: { on in
-                                  if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
-                              }))
-        // Settings
-        case .notifications:
-            GroupedRow.push(Text("Notifications"), identifier: id, route: ProfileRoute.notifications)
-        case .journal:
-            GroupedRow.push(Text("Journal"), identifier: id, route: ProfileRoute.journal)
-        case .heroNumerals:
-            HeroNumbersMenuRow(selection: Bindable(settings).heroNumerals)
-        case .bedtime:
-            GroupedRow.push(Text("Bedtime & wake"), value: Text(verbatim: screens.bedtime.summary),
-                            detail: screens.bedtime.summaryDetail.map { Text(verbatim: $0) }, identifier: id,
-                            route: ProfileRoute.bedtime)
-                .detailParts(screens.bedtime.summaryDetailParts)
-        // Privacy
-        case .consent:
-            GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: model.consentText)
-                .foregroundStyle(model.consentNeedsAttention ? Theme.warning : Theme.textTertiary), identifier: id)
-        case .reviewConsent:
-            GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward, identifier: id) {
-                model.reviewConsent()
-            }
-        case .checkConsent:
-            // Sync now's glyph: it asks RYFT again. Busy, the row ignores taps itself and its spinner stays bright (UI
-            // validation round 3, 1); offline it can't ask: dimmed, the hint says why, and the footer when it asks again.
-            GroupedRow.action(Text("Check with RYFT",
-                                   comment: "Profile → Privacy: asks RYFT again whether it has the consent given on this iPhone."),
-                              systemImage: "arrow.triangle.2.circlepath", busy: model.checkingConsent,
-                              hint: model.checkConsentHint.map { Text(verbatim: $0) }, identifier: id) {
-                Task { await model.checkConsent() }
-            }
-            .disabled(!model.canCheckConsent && !model.checkingConsent)
-        case .withdrawConsent:
-            GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
-                showWithdrawConfirm = true
-            }
-            // Not while Log out runs: its sign-out would end the withdrawal unsent; nor while Check with RYFT asks (the model
-            // refuses both too).
-            .disabled(model.loggingOut || model.checkingConsent)
-        case .nutritionPrivacy:
-            GroupedRow.push(Text("Nutrition privacy"), identifier: id, route: ProfileRoute.nutritionPrivacy)
-        case .analytics:
-            AnalyticsOptInRow()
-        // Account
-        case .email:
-            GroupedRow.value(Text("Email"), value: Text(verbatim: model.accountEmail ?? ""), identifier: id)
-        case .timezone:
-            GroupedRow.value(Text("Timezone"), value: Text(verbatim: model.timezone ?? ""),
-                             detail: model.timezoneDetail.map { Text(verbatim: $0) }, identifier: id)
-        case .signInMethods:
-            // The provider was the account card's badge ("Apple", "Email").
-            GroupedRow.push(Text("Sign-in methods"), value: model.providerBadge.map { Text(verbatim: $0.title) },
-                            identifier: id, route: ProfileRoute.signInMethods)
-        case .changePassword:
-            // A sheet over the page, not a page of its own: an action, no chevron.
-            GroupedRow.action(Text("Change password"), identifier: id) { showChangePassword = true }
-        case .deleteAccount:
-            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) {
-                deleteConfirmation = AccountBinding(env)
-            }
-        case .signedIn:
-            GroupedRow.value(Text("Signed in"), value: Text("No"), identifier: id)
-        // About
-        case .version:
-            GroupedRow.value(Text("Version"), value: Text(verbatim: Self.version), identifier: id)
-        case .reportProblem:
-            let waiting = model.report.waiting
-            GroupedRow.push(Text("Report a problem"), value: waiting > 0 ? Text("\(waiting) waiting to send") : nil,
-                            identifier: id, route: ProfileRoute.reportProblem)
-                .task { model.report.reloadWaiting() }
-        case .privacyPolicy:
-            // The policy in force (`GET /v1/config`), in the in-app Safari sheet (`safariSheet` catches `LegalPage` URLs).
-            GroupedRow.linkOut(Text("Privacy Policy"), hint: Self.inAppHint, identifier: id, url: model.policyPage.url)
-        case .terms:
-            GroupedRow.linkOut(Text("Terms of Use"), hint: Self.inAppHint, identifier: id, url: LegalPage.terms.url)
-        case .appleHealthPrivacy:
-            if let url = URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/") {
-                GroupedRow.linkOut(Text("Apple Health privacy"), hint: Self.browserHint, identifier: id, url: url)
-            }
-        case .garminHealth:
-            if let url = URL(string: "https://support.garmin.com/?q=apple%20health") {
-                GroupedRow.linkOut(Text("Garmin Connect and Apple Health"), hint: Self.browserHint, identifier: id, url: url)
-            }
-        case .licences:
-            GroupedRow.push(Text("Licences"), identifier: id, route: ProfileRoute.licences)
-        }
-    }
-
-    /// The Demo data switch: on at once; off asks first when the demo logged workouts, and stays on when refused.
-    private var demoSwitch: Binding<Bool> {
-        Binding(get: { model.demoMode }, set: { on in
-            guard !on else {
-                Task { await model.setDemoMode(true) }
-                return
-            }
-            switch model.switchingDemoOff() {
-            case .confirm(let workouts): confirmDemoExit = workouts
-            case .exit: Task { await model.endDemo() }
-            case .refused: break // the switch stays on, and the message under the card says why
-            }
-        })
-    }
-
-    /// The link-outs' hints: a web page outside RYFT, a page in RYFT's own sheet, the Health app.
-    static let browserHint = GroupedRow.webLinkHint
-    static let inAppHint = Text("Opens the page in RYFT",
-                                comment: "VoiceOver hint of Profile's Privacy Policy and Terms of Use: they open in RYFT's own browser sheet.")
-    static let healthAppHint = Text("Opens the Health app", comment: "VoiceOver hint of Profile's Open Health row.")
-
-    // MARK: footers: notices and sentences under each card, 8 below it
-
-    private func hasFooter(_ group: ProfileGroup) -> Bool {
-        switch group {
-        case .aboutYou, .settings, .about: return true
-        case .devicesAndSync:
-            return model.syncNotice != nil || model.demoExitError != nil || !model.devices.isEnabled
-                || !model.devices.healthAccessSteps.isEmpty
-        case .training: return WorkoutHealthExport.shared.needsAccess || model.showsSessionLayout
-        case .privacy: return model.consentError != nil || model.consentCheckMessage != nil || model.consentDetail != nil
-        case .account: return !model.isSignedIn || model.accountError != nil
-        }
-    }
-
-    @ViewBuilder private func footer(_ group: ProfileGroup) -> some View {
-        switch group {
-        case .aboutYou:
-            let editor = model.bodySettings
-            FooterStack {
-                if let error = editor.birthYearError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
-                }
-                // A save whose answer came after its editor page went: said here, where the user is.
-                if editor.errorMissed, let error = editor.error {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
-                        .accessibilityIdentifier("profile.bodySettingsError")
-                }
-                RescoreStatus(editor: editor)
-                GroupFooter(Text("Changing a setting doesn't rescore past days on its own."))
-            }
-        case .devicesAndSync:
-            FooterStack {
-                switch model.syncNotice {
-                case .retrying(let notice):
-                    InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
-                case .failed(let message, let details):
-                    InlineMessage(message: message, systemImage: "exclamationmark.arrow.triangle.2.circlepath", details: details)
-                case nil:
-                    EmptyView()
-                }
-                if let error = model.demoExitError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
-                }
-                // With `devices.setup` the path to RYFT's permission comes from the catalog, and Devices & sync has each
-                // tracker's own steps.
-                if model.devices.isEnabled {
-                    if !model.devices.healthAccessSteps.isEmpty {
-                        GroupFooter(Text(verbatim: model.devices.healthAccessSteps.joined(separator: " ")))
-                    }
-                } else {
-                    GroupFooter(Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT)."))
-                }
-            }
-        case .training:
-            FooterStack {
-                if WorkoutHealthExport.shared.needsAccess { HealthWriteAccessHint() }
-                if model.showsSessionLayout {
-                    GroupFooter(Text("Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout.",
-                                     comment: "Footer under Profile → Training → Session layout."))
-                }
-            }
-        case .settings:
-            GroupFooter(Text("Large numbers on Today, Sleep and Strain.",
-                             comment: "Footer under Profile → Display → Hero numbers: where the dots or thin digits show."))
-        case .privacy:
-            FooterStack {
-                if let error = model.consentError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
-                }
-                if let unanswered = model.consentCheckMessage {
-                    InlineMessage(message: unanswered, systemImage: "exclamationmark.circle", details: model.consentCheckDetails,
-                                  identifier: "privacy.checkUnanswered")
-                }
-                if let detail = model.consentDetail {
-                    GroupFooter(consentFooter(detail))
-                }
-            }
-        case .account:
-            if model.isSignedIn {
-                if let error = model.accountError {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.accountErrorDetails)
-                }
-            } else {
-                GroupFooter(Text("Turn off Demo data to log in or create an account."))
-            }
-        case .about:
-            GroupFooter(Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns."))
-        }
-    }
-
-    /// "Agreed on 3 Nov 2026 · policy 2026-11. Read the policy": the policy in force beside Withdraw consent, in the in-app
-    /// sheet (`safariSheet` catches its `LegalPage` URL); the link in the link ink, underlined (`InlineLink`).
-    private func consentFooter(_ detail: String) -> Text {
-        let words = String(localized: "Read the policy",
-                           comment: "Link at the end of Profile → Privacy's footer: opens the privacy policy in force in RYFT.")
-        // One unit: the link wraps as a whole, never inside itself (UI validation round 3, 2).
-        var link = AttributedString(words.replacingOccurrences(of: " ", with: "\u{00A0}"))
-        link.link = model.policyPage.url
-        return Text(InlineLink.styled(AttributedString(detail + " ") + link))
-    }
-
-    // MARK: the buttons row (§P5-6.1 row 4)
-
-    /// Log out is held while a consent withdrawal is on its way (D6): dimmed, no tap, the reason under the row (8 below it)
-    /// and as its VoiceOver hint; the line itself is hidden from VoiceOver, so the reason is read once.
-    @ViewBuilder private func buttons(_ buttons: [ProfileButton]) -> some View {
-        if !buttons.isEmpty {
-            let stacked = typeSize.isAccessibilitySize
-            let held = model.withdrawingConsent && buttons.contains(.logOut)
-            VStack(alignment: .leading, spacing: L.buttonsToMessage) {
-                let layout = stacked ? AnyLayout(VStackLayout(spacing: L.buttonsGap)) : AnyLayout(HStackLayout(spacing: L.buttonsGap))
-                layout {
-                    ForEach(buttons) { button in
-                        switch button {
-                        case .export:
-                            PillButton(Text("Export data", comment: "Profile: the button that creates a file of your data to share or save."),
-                                       systemImage: PillButton.Icon.download, busy: model.exporting) {
-                                await model.export()
-                            }
-                            .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
-                            .accessibilityIdentifier(button.identifier)
-                        case .logOut:
-                            // Busy while Send first waits, and while the sign-out deletes the push registration.
-                            PillButton(Text("Log out"), style: .secondary, busy: sendsFirst || model.loggingOut) {
-                                unsentAtLogOut = model.unconfirmedActivities
-                                showLogOutConfirm = true
-                            }
-                            // As wide as its title plus 22 a side beside Export; full width when the row stacks.
-                            .fixedSize(horizontal: !stacked && buttons.count > 1, vertical: false)
-                            .disabled(held)
-                            .accessibilityHint(held ? Text(verbatim: ProfileViewModel.withdrawalHoldReason) : Text(verbatim: ""))
-                            .accessibilityIdentifier(button.identifier)
-                        }
-                    }
-                }
-                if held {
-                    Text(verbatim: ProfileViewModel.withdrawalHoldReason)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityHidden(true)
-                }
-                if let error = model.exportError {
-                    InlineMessage(message: error, systemImage: "square.and.arrow.up")
-                }
-            }
-            .animation(Theme.Motion.respecting(reduceMotion), value: held)
-            .padding(.top, L.buttonsTop)
-        }
-    }
-
-    // MARK: subpages (PR 6 C restyles them)
+    // MARK: - subpages
 
     @ViewBuilder private func destination(_ route: ProfileRoute) -> some View {
         switch route {
-        case .devices: DevicesAndSyncView(model: model.devices)
+        case .body: ProfilePageView(page: .body)
+        case .account: ProfilePageView(page: .account)
+        case .display: ProfilePageView(page: .display)
+        case .training: ProfilePageView(page: .training)
+        case .privacyAndData: ProfilePageView(page: .privacyAndData)
+        case .whatsNew: ProfilePageView(page: .whatsNew)
+        case .devices: ProfileDevicesAndSyncPage()
         case .syncDetails: SyncDetailsView(model: model.syncDetails)
         case .notifications: NotificationSettingsView()
         case .journal: JournalSettingsView(store: screens.journal)
@@ -562,11 +216,13 @@ struct ProfileView: View {
         }
     }
 
+    static let healthAppHint = Text("Opens the Health app", comment: "VoiceOver hint of Profile's Open Health row.")
+
     static var version: String { AppInfo.version }
 }
 
 /// A card's footer parts, 8 apart (`GroupedListSpec.footerGap`); nothing when there are none.
-private struct FooterStack<Content: View>: View {
+struct FooterStack<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -575,10 +231,12 @@ private struct FooterStack<Content: View>: View {
 }
 
 extension ProfileRowFacts {
-    /// The page's facts: the model's account, flags and switches, and the two shared stores'.
+    /// The model's account, flags and switches, and the two shared stores' availability.
     @MainActor
     init(_ model: ProfileViewModel, journalLive: Bool, bedtimeEnabled: Bool, showsAnalytics: Bool = false) {
-        self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
+        let devicesEnabled = model.devices.isEnabled
+        self.init(isSignedIn: model.isSignedIn, devicesEnabled: devicesEnabled,
+                  canAskForHealth: devicesEnabled ? model.devices.canAskForHealth : model.canAskForHealth,
                   showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
                   consentIsCurrent: model.consentIsCurrent, consentAwaitsConfirmation: model.consentAwaitsConfirmation,
@@ -605,129 +263,13 @@ private struct ProfileIdentitySection: View {
     }
 }
 
-// MARK: - developer (Debug builds only)
-
-#if DEBUG
-/// Platform overrides for a compose stack, API key mode (`AUTH_MODE=apikey`), request IDs of recent failures and a connection
-/// test, in the page's grouped card (§P5-6.2: the same rows). Not in Release; English only, never in the catalog.
-private struct ProfileDeveloperGroup: View {
-    let model: ProfileViewModel
-    @Environment(ScreenModels.self) private var screens
-    @Environment(Settings.self) private var settings
-    private let apiStatus = APIStatus.shared
-
-    var body: some View {
-        // Held as Demo data is (D6, security review N-1): another platform or another credential mid-way would end the
-        // withdrawal unsent, or send it somewhere else.
-        let held = model.withdrawingConsent
-        GroupedCard(GroupTitle(Text(verbatim: "Developer"))) {
-            GroupedRow.push(Text(verbatim: "Component catalog"), identifier: ProfileRows.devCatalog, route: ProfileRoute.catalog)
-            GroupedRow.push(Text(verbatim: "Feature flags"), identifier: ProfileRows.devFlags, route: ProfileRoute.flags)
-            GroupedRow.value(Text(verbatim: "Push registration"), value: Text(verbatim: screens.push.lastResult ?? "—"))
-            field("API URL override") {
-                TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
-                    .keyboardType(.URL)
-                    .accessibilityIdentifier(ProfileRows.devAPIURL)
-            }
-            .disabled(held)
-            field("Ingest URL override (compose: :8081, needed with an API override)") {
-                TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
-                          text: Bindable(settings).devIngestURLOverride)
-                    .keyboardType(.URL)
-                    .accessibilityIdentifier(ProfileRows.devIngestURL)
-            }
-            .disabled(held)
-            GroupedRow.toggle(Text(verbatim: "API key mode"),
-                              detail: Text(verbatim: held ? "Held while your consent withdrawal is on its way."
-                                                          : "Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey."),
-                              identifier: ProfileRows.devAPIKeyMode, isOn: Bindable(settings).apiKeyMode)
-                // Held, the switch alone dims, so "Held while…" stays readable (as Demo data's).
-                .toggleStyle(RyftToggleStyle(dimsLabel: !held))
-                .disabled(held)
-            if settings.apiKeyMode {
-                field("API key") {
-                    SecureField("Bearer token", text: Bindable(settings).devAPIKey)
-                }
-                .disabled(held)
-            }
-            GroupedRow.toggle(Text(verbatim: "Show request IDs"), isOn: Bindable(settings).showRequestIDs)
-            if settings.showRequestIDs {
-                requestIDs
-            }
-            GroupedRow.action(Text(verbatim: "Test connection"), systemImage: "network", busy: model.testingConnection) {
-                Task { await model.testConnection() }
-            }
-        } footer: {
-            FooterStack {
-                switch model.connection {
-                case .ok(let text):
-                    InlineMessage(message: text, systemImage: "checkmark.circle", announces: false)
-                case .failed(let text):
-                    InlineMessage(message: text, systemImage: "exclamationmark.circle")
-                case nil:
-                    EmptyView()
-                }
-                GroupFooter(Text(verbatim: "Debug builds only."))
-            }
-        }
-    }
-
-    /// A text field under its label, in the card's row padding.
-    private func field<Field: View>(_ label: String, @ViewBuilder field: () -> Field) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: label)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-            field()
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textPrimary)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(Theme.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .padding(.horizontal, GroupedListSpec.rowInset)
-        .padding(.vertical, GroupedListSpec.textPadding)
-        .groupedRowHairline()
-    }
-
-    @ViewBuilder private var requestIDs: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if apiStatus.failures.isEmpty {
-                Text(verbatim: "No failed requests since launch.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-            ForEach(apiStatus.failures) { f in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "\(f.status) \(f.method) \(redactedPath(f.path))")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(verbatim: "\(f.requestID ?? "–") · \(f.date.formatted(date: .omitted, time: .standard))")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Theme.textTertiary)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, GroupedListSpec.rowInset)
-        .padding(.vertical, GroupedListSpec.textPadding)
-        .groupedRowHairline()
-    }
-}
-#endif
-
 // MARK: - previews (dark; default and AX3; design.md §P5-11)
 
 #if DEBUG
 /// Profile on a graph of its own: signed in or not, Demo data on or off, the account and today's strain as the state needs.
 /// Syncing is the identity row's preview (`ProfileIdentity.swift`): the line comes from the sync's own state.
 @MainActor
-private enum ProfilePreview {
+enum ProfilePreview {
     enum Case {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
         /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
@@ -743,7 +285,7 @@ private enum ProfilePreview {
         case consentCheckFailed
     }
 
-    static func page(_ kind: Case, ax3: Bool = false) -> some View {
+    static func page(_ kind: Case, route: ProfileRoute? = nil, devicesEnabled: Bool = true, ax3: Bool = false) -> some View {
         let demo = kind == .signedOutDemo || kind == .signedInDemo
         let defaults = UserDefaults(suiteName: "ryft.preview.profile") ?? .standard
         let settings = Settings(defaults: defaults)
@@ -766,7 +308,7 @@ private enum ProfilePreview {
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
                                  persistence: TrainStore(inMemory: true),
                                  clock: withdrawing || checking ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
-                                 flags: StaticFlags([.devicesSetup: true]),
+                                 flags: StaticFlags([.devicesSetup: devicesEnabled]),
                                  connectivity: .preview(online: kind != .offline && kind != .consentUnconfirmedOffline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
@@ -782,7 +324,7 @@ private enum ProfilePreview {
         let screens = ScreenModels(state: state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                    store: TrainPreview.store, library: TrainPreview.library)
-        return ProfileView()
+        return ProfileView(initialRoute: route)
             // The confirmation's Withdraw consent, tapped; or Check with RYFT.
             .task {
                 if withdrawing { await screens.profile.withdrawConsent() }
@@ -819,16 +361,6 @@ private enum ProfilePreview {
     }
 }
 
-/// The buttons row on its own: exporting (the Export pill busy) beside Log out.
-private struct ProfileButtonsPreview: View {
-    var body: some View {
-        HStack(spacing: ProfileLayout.buttonsGap) {
-            PillButton(Text(verbatim: "Export data"), systemImage: PillButton.Icon.download, busy: true) {}
-            PillButton(Text(verbatim: "Log out"), style: .secondary) {}.fixedSize(horizontal: true, vertical: false)
-        }
-    }
-}
-
 #Preview("Profile · signed in") { ProfilePreview.page(.signedIn) }
 #Preview("Profile · signed in · AX3") { ProfilePreview.page(.signedIn, ax3: true) }
 #Preview("Profile · no name (email)") { ProfilePreview.page(.noName) }
@@ -843,16 +375,12 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
-#Preview("Profile · consent not confirmed yet") { ProfilePreview.page(.consentUnconfirmed) }
-#Preview("Profile · consent not confirmed yet · AX3") { ProfilePreview.page(.consentUnconfirmed, ax3: true) }
-#Preview("Profile · consent not confirmed yet · offline") { ProfilePreview.page(.consentUnconfirmedOffline) }
-#Preview("Profile · consent not confirmed yet · checking") { ProfilePreview.page(.consentChecking) }
-#Preview("Profile · consent not confirmed yet · check failed") { ProfilePreview.page(.consentCheckFailed) }
-#Preview("Profile · consent not confirmed yet · check failed · AX3") { ProfilePreview.page(.consentCheckFailed, ax3: true) }
+#Preview("Profile · consent not confirmed yet") { ProfilePreview.page(.consentUnconfirmed, route: .privacyAndData) }
+#Preview("Profile · consent not confirmed yet · AX3") { ProfilePreview.page(.consentUnconfirmed, route: .privacyAndData, ax3: true) }
+#Preview("Profile · consent not confirmed yet · offline") { ProfilePreview.page(.consentUnconfirmedOffline, route: .privacyAndData) }
+#Preview("Profile · consent not confirmed yet · checking") { ProfilePreview.page(.consentChecking, route: .privacyAndData) }
+#Preview("Profile · consent not confirmed yet · check failed") { ProfilePreview.page(.consentCheckFailed, route: .privacyAndData) }
+#Preview("Profile · consent not confirmed yet · check failed · AX3") { ProfilePreview.page(.consentCheckFailed, route: .privacyAndData, ax3: true) }
 #Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
 #Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
-#Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }
-#Preview("Profile · exporting · AX3", traits: .sizeThatFitsLayout) {
-    DarkPreview { ProfileButtonsPreview() }.environment(\.dynamicTypeSize, .accessibility3)
-}
 #endif

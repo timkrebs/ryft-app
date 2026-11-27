@@ -5,9 +5,11 @@ import SwiftUI
 /// Profile → Devices & sync (Nocturne PR 6 C2, design-pr6-c-settings.md §4.4, drafts c-05 … c-05x): what you wear and each
 /// tracker's card, Check sync (the page's one primary, in flow after the thing it checks), what Apple Health has seen, RYFT's
 /// own Health access, and Sync details for support. The cached list says when it was loaded (the offline-first rule).
-struct DevicesAndSyncView: View {
+struct DevicesAndSyncView<Header: View, Extra: View>: View {
     let model: DevicesViewModel
-    var placement: DevicesPagePlacement = .pushed
+    let placement: DevicesPagePlacement
+    private let header: Header
+    private let extra: Extra
 
     @Environment(ScreenModels.self) private var screens
     @Environment(\.appEnvironment) private var env
@@ -24,6 +26,14 @@ struct DevicesAndSyncView: View {
     #if DEBUG && targetEnvironment(simulator)
     @State private var directFixture = DirectConnectionsSimulatorFixture.requested()
     #endif
+
+    init(model: DevicesViewModel, placement: DevicesPagePlacement = .pushed,
+         @ViewBuilder header: () -> Header, @ViewBuilder extra: () -> Extra) {
+        self.model = model
+        self.placement = placement
+        self.header = header()
+        self.extra = extra()
+    }
 
     private var directAPI: (any DirectConnectionsAPI)? {
         #if DEBUG && targetEnvironment(simulator)
@@ -43,6 +53,7 @@ struct DevicesAndSyncView: View {
     var body: some View {
         SubpageScaffold(Text("Devices & sync"), navigation: placement.navigation, isSheet: placement.isSheet) {
             VStack(alignment: .leading, spacing: 0) {
+                header
                 trackers
                 if model.trackers.isEmpty {
                     choose.padding(.top, GroupedListSpec.groupSpacing)
@@ -62,6 +73,7 @@ struct DevicesAndSyncView: View {
                 }
                 .padding(.top, GroupedListSpec.groupSpacing)
                 #endif
+                extra
                 syncDetails.padding(.top, GroupedListSpec.groupSpacing)
             }
         }
@@ -346,6 +358,12 @@ struct DevicesAndSyncView: View {
             .padding(.vertical, DevicesSpec.blockPadding)
             .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
             .groupedRowHairline()
+    }
+}
+
+extension DevicesAndSyncView where Header == EmptyView, Extra == EmptyView {
+    init(model: DevicesViewModel, placement: DevicesPagePlacement = .pushed) {
+        self.init(model: model, placement: placement, header: { EmptyView() }, extra: { EmptyView() })
     }
 }
 

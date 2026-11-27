@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// Profile → About → Licences in Nocturne (PR 6 C §4.9): the open-source packages and the typeface in the app, one group of
+/// Profile → Legal → Licences in Nocturne (PR 6 C §4.9): the packages, fonts and food data in the app, one group of
 /// link-out rows (the name, "MIT · Supabase" under it, ↗) that open the licence in Safari. The legal wording, names,
 /// licences and holders are unchanged; no group title.
 struct LicensesView: View {
     struct Entry: Identifiable {
         let name: String
         let license: String
-        let holder: String
+        let holder: String?
         let url: String
         var id: String { name }
+        var detail: String { holder.map { "\(license) · \($0)" } ?? license }
     }
 
     static let entries: [Entry] = [
@@ -31,6 +32,8 @@ struct LicensesView: View {
               url: "https://www.fontshare.com/fonts/satoshi"),
         Entry(name: "Google Sans Medium", license: "SIL Open Font License 1.1", holder: "The Google Sans Project Authors",
               url: "https://github.com/googlefonts/googlesans"),
+        Entry(name: "Max Rubner-Institut (2025): Bundeslebensmittelschlüssel (BLS), Version 4.0 — Deutsche Nährstoffdatenbank. Karlsruhe. DOI: 10.25826/Data20251217-134202-0",
+              license: "CC BY 4.0", holder: nil, url: "https://creativecommons.org/licenses/by/4.0/"),
     ]
 
     var body: some View {
@@ -38,7 +41,7 @@ struct LicensesView: View {
             GroupedCard {
                 ForEach(Self.entries) { entry in
                     if let url = URL(string: entry.url) {
-                        GroupedRow.linkOut(Text(verbatim: entry.name), detail: Text(verbatim: "\(entry.license) · \(entry.holder)"),
+                        GroupedRow.linkOut(Text(verbatim: entry.name), detail: Text(verbatim: entry.detail),
                                            hint: Text("Opens the licence in Safari"), url: url)
                     }
                 }

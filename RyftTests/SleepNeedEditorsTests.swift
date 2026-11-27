@@ -1444,13 +1444,13 @@ struct BodySettingsPlacementHostedTests {
         }
     }
 
-    /// Profile as the app builds it (`ScreenModels`), its rows and About you's footer.
+    /// Profile as the app builds it (`ScreenModels`), the Body and baselines rows and footer.
     private func profile(_ state: AppState) -> (AnyView, ScreenModels) {
         let sync = SyncService.ungated(env: state.env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock)
         let screens = ScreenModels(state: state, sync: sync, coordinator: coordinator, store: TrainPreview.store,
                                    library: TrainPreview.library, apiStatus: APIStatus())
-        let view = ProfileView()
+        let view = ProfileView(initialRoute: .body)
             .environment(\.appEnvironment, state.env)
             .environment(screens)
             .environment(state.env.settings)
@@ -1465,7 +1465,7 @@ struct BodySettingsPlacementHostedTests {
         return (AnyView(view), screens)
     }
 
-    @Test("Profile: the row says Saving…, then the saved value; a failure with no editor open is in About you's footer")
+    @Test("Profile: the row says Saving…, then the saved value; a failure with no editor open is in the Body and baselines footer")
     func profileRows() async throws {
         let (api, platform) = C3Platform.api()
         let gate = Gate()
@@ -1487,7 +1487,7 @@ struct BodySettingsPlacementHostedTests {
             #expect(!w.nodes().contains { ($0.value ?? "").contains("8h") }, "the value on its way is the editor's alone")
             await gate.open()
             _ = await saving.value
-            try await w.wait("the failure, where the user is", timeout: hostedWait) { w.node(noAnswerWords, exactly: true) != nil }
+            try await w.wait("the failure, where the user is", timeout: hostedWait) { w.nodes().contains { $0.identifier == "profile.bodySettingsError" && $0.label.contains(noAnswerWords) } }
             #expect(w.nodes().first { $0.identifier == id }?.value == "7h 30m, Set by you · learned 7h 52m")
         }
     }

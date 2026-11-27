@@ -83,6 +83,8 @@ Store "What's New".
 - Optional usage analytics, off unless you opt in, never with health data (not active yet).
 
 ### Changed
+- Profile groups body settings, app preferences, data, resources and legal links. Account and Privacy and data both offer
+  account deletion. Nutrition settings groups targets, scoring and data.
 - Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once this iPhone hears back
   from RYFT; until then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is
   given, with Check with RYFT and Withdraw consent. While a withdrawal is on its way, nothing syncs, and if RYFT

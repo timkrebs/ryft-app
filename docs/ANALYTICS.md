@@ -98,7 +98,7 @@ the policy.
 >
 > **Your consent.** Nothing is sent or stored for analytics until you agree. The legal basis is your consent
 > (Art. 6(1)(a) GDPR; for storing and reading the ID on your phone, § 25(1) TDDDG). You can withdraw it at any time in
-> Profile → Privacy → Share usage analytics. Sending stops at once, and events not yet sent are deleted from your
+> Profile → Privacy and data → Share usage analytics. Sending stops at once, and events not yet sent are deleted from your
 > phone. Withdrawing doesn't affect the lawfulness of what was sent before.
 >
 > **What is sent.** A random ID that RYFT creates for this installation. It isn't your account, email, name or Apple
@@ -114,7 +114,7 @@ the policy.
 >   food, and whether it had a default or last-used portion; when you save a meal, how you added its foods (quick add,
 >   the food's page, a barcode, a suggestion or a private food), whether in portions (catalogue or last-used), grams or
 >   millilitres, and whether a portion count was fractional, but not how many foods; and that you reopened a saved meal;
-> - for Profile → Sync now: that you tapped it, whether it worked, and a range for how long it took;
+> - for Profile → Devices and sync → Sync now: that you tapped it, whether it worked, and a range for how long it took;
 > - when the app was installed, opened or closed, with the app version and build, iOS version, device type, the
 >   analytics library's version and a session ID.
 >

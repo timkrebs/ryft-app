@@ -94,6 +94,10 @@ final class FocusedSessionUITests: XCTestCase {
 
     private func training(in app: XCUIApplication) -> XCUIElement {
         app.tab("Profile").tap()
+        let page = element(app, "profile.training")
+        requireExists(page, "Profile → Training")
+        reveal(page, in: app)
+        page.tap()
         let toggle = element(app, "profile.jumpToNext")
         requireExists(toggle, "Profile → Training")
         reveal(toggle, in: app)

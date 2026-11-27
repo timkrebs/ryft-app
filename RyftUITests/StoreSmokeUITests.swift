@@ -1,6 +1,6 @@
 import XCTest
 
-/// The App Review walkthrough: Welcome → Log in → every tab → Profile → Delete account → Cancel.
+/// The App Review walkthrough: Welcome → Log in → every tab → Profile → Account → Delete account → Cancel.
 ///
 /// The signed-in test needs the reviewer demo account and skips without it. Credentials
 /// never live in the repo; pass them to the test runner, e.g.
@@ -33,7 +33,7 @@ final class StoreSmokeUITests: XCTestCase {
     /// Scrolls until `element` can be tapped.
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         var tries = 0
-        while !element.isHittable && tries < 10 {
+        while tries < 10 && (!element.isHittable || element.frame.maxY >= app.tabBar.frame.minY) {
             app.swipeUp()
             tries += 1
         }
@@ -44,7 +44,11 @@ final class StoreSmokeUITests: XCTestCase {
     func testDemoTabsWalkthrough() throws {
         let app = launch(demo: true)
         walkTabs(app)
-        XCTAssertTrue(app.staticTexts["Demo data"].waitForExistence(timeout: 5), "Profile shows the demo switch")
+        let devices = app.buttons["profile.devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 5))
+        reveal(devices, in: app)
+        devices.tap()
+        XCTAssertTrue(app.switches["profile.demoMode"].waitForExistence(timeout: 5), "Profile shows the demo switch")
     }
 
     @MainActor
@@ -85,7 +89,12 @@ final class StoreSmokeUITests: XCTestCase {
 
         walkTabs(app)
 
-        let delete = app.buttons["Delete account"]
+        let account = app.buttons["profile.account"]
+        XCTAssertTrue(account.waitForExistence(timeout: 5))
+        reveal(account, in: app)
+        account.tap()
+        let delete = app.buttons["profile.deleteAccount"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
         reveal(delete, in: app)
         delete.tap()
         let alert = app.alerts["Delete your RYFT account?"]
@@ -93,7 +102,7 @@ final class StoreSmokeUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
 
         XCTAssertFalse(alert.exists)
-        XCTAssertTrue(app.buttons["Delete account"].exists, "still signed in")
+        XCTAssertTrue(delete.exists, "still signed in")
         XCTAssertTrue(app.tab("Profile").isSelected)
     }
 }

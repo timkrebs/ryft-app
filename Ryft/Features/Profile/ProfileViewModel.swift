@@ -126,8 +126,8 @@ final class ProfileViewModel {
     /// The status tap's work in flight (tests await it).
     @ObservationIgnored private(set) var statusWork: Task<Void, Never>?
 
-    /// The Email row: only while the name is the title (an email title says it already; "Apple ID" has none).
-    var showsEmailRow: Bool { isSignedIn && identity.source == .name && accountEmail != nil }
+    /// The Account page shows the email whenever the signed-in account has one.
+    var showsEmailRow: Bool { isSignedIn && accountEmail != nil }
 
     /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
     var provider: String? { accountUser?.provider ?? auth.provider }

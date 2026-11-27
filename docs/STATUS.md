@@ -1,5 +1,11 @@
 # Status — 2026-11-24
 
+## 2026-11-27 · Profile groups (P1)
+
+- Drafted the five Profile groups and their subpages, shared confirmation state, Devices & sync with or without tracker setup,
+  and the Nutrition settings groups. See `CODEX_NOTES.md` for row homes, localization and verification.
+- Xcode build, simulator checks and the strings sync are open for review.
+
 ## 2026-11-27 · Today’s sync indicator
 
 - Today's header has a sync button (syncing, up to date, stale, error; a long press lists each source's last sync). Today's button, pull to refresh, Profile → Sync now and the quiet foreground sync (> 5 min since the last) go through one `HomeSyncModel`. Green only after `freshness` is `current` and today was reloaded (API.md → The sync button, D297).

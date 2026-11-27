@@ -15,7 +15,7 @@ struct ProfileWithdrawalHoldTests {
     private let reason = ProfileViewModel.withdrawalHoldReason
     private static let demo = ProfileRow.demoMode.identifier
     private static let logOut = ProfileButton.logOut.identifier
-    private static let export = ProfileButton.export.identifier
+    private static let export = ProfileRow.export.identifier
     private static let withdraw = ProfileRow.withdrawConsent.identifier
 
     private static var shotFormat: UIGraphicsImageRendererFormat {
@@ -90,9 +90,7 @@ struct ProfileWithdrawalHoldTests {
         try await onScreen(w, Self.logOut, above: above, probe)
     }
 
-    /// The lit pixels where the line under the buttons row goes, from 8 under Log out (the last pill, side by side or
-    /// stacked), `depth` deep. Live, 9: above where the Developer group (Debug builds) starts, 18 under the row. Held, down
-    /// to the next node VoiceOver reads: the line and nothing else.
+    /// The lit pixels in a band starting 8 points below Log out, where the hold reason goes.
     private static func litUnderButtons(_ pixels: WindowPixels, _ pill: CGRect, depth: CGFloat) -> Int {
         let band = CGRect(x: 0, y: pill.maxY + ProfileLayout.buttonsToMessage, width: 390, height: depth)
         return pixels.count(in: band) { max($0.r, $0.g, $0.b) > 0.3 }
@@ -117,53 +115,29 @@ struct ProfileWithdrawalHoldTests {
         return (pixels.brightest(in: label), pixels.brightest(in: detail ?? label), pixels.brightest(in: track))
     }
 
-    /// Held: both untappable, the reason in the switch's label and Log out's hint, nothing else reads it out, the line drawn
-    /// under the buttons, Log out drawn dimmed, and Export still live.
+    /// The main page's pill is held and dimmed, and VoiceOver reads the reason as its hint.
     private func expectHeld(_ w: HostedWindow) async throws {
-        let demo = try node(w, Self.demo)
-        #expect(!demo.isEnabled, "the Demo data switch takes no tap")
-        #expect(demo.label.contains(reason) || demo.value?.contains(reason) == true,
-                "the reason is the switch's detail: \(demo.label) / \(demo.value ?? "nil")")
-        #expect(!demo.label.contains(String(localized: "Show a realistic sample history instead of your server.")))
         let logOut = try node(w, Self.logOut)
         #expect(logOut.label == String(localized: "Log out") && !logOut.isEnabled, "Log out takes no tap")
         #expect(logOut.hint == reason, "Log out's hint: \(logOut.hint ?? "nil")")
-        // Read once: the switch carries it, the line under the buttons doesn't.
-        let saying = w.nodes().filter { $0.label.contains(reason) || ($0.value ?? "").contains(reason) }
-        #expect(saying.map(\.identifier) == [Self.demo], "\(saying.map(\.label))")
-        #expect(try node(w, Self.export).isEnabled, "Export still works")
-        #if DEBUG
-        // Security review N-1: the platform overrides and API key mode are held too.
-        try expectDeveloperOverrides(w, held: true)
-        #endif
-        // The band ends above the next thing VoiceOver reads under the row (the Developer group in Debug builds). The line
-        // is hidden from VoiceOver, so only it can be lit there: without it the band is the live gap (`expectLive`).
-        let (lit, ink, pill, depth) = try await atButtons(w) { pixels, pill in
-            let next = w.nodes().map(\.frame.minY).filter { $0 > pill.maxY }.min() ?? pill.maxY + 120
-            let depth = next - pill.maxY - ProfileLayout.buttonsToMessage - 1
-            return (Self.litUnderButtons(pixels, pill, depth: depth), Self.logOutInk(pixels, pill), pill, depth)
+        #expect(!w.nodes().contains { $0.label.contains(reason) }, "the line beneath the pill is hidden from VoiceOver")
+        let (lit, ink) = try await atButtons(w) { pixels, pill in
+            (Self.litUnderButtons(pixels, pill, depth: 48), Self.logOutInk(pixels, pill))
         }
-        #expect(lit > 200, "the reason drawn under the buttons row: \(lit) lit in \(depth) under \(pill)")
+        #expect(lit > 200, "the reason drawn under Log out: \(lit) lit pixels")
         #expect(ink < 0.5, "Log out dimmed: \(ink)")
     }
 
-    /// Live: both take taps, no reason anywhere, no line under the buttons, Log out at full ink.
+    /// Live: the pill takes taps at full ink, and the line below it is gone.
     private func expectLive(_ w: HostedWindow) async throws {
-        let demo = try node(w, Self.demo)
-        #expect(demo.isEnabled)
-        #expect(!(demo.label + (demo.value ?? "")).contains(reason))
         let logOut = try node(w, Self.logOut)
         #expect(logOut.isEnabled && (logOut.hint ?? "").isEmpty, "hint: \(logOut.hint ?? "nil")")
-        #if DEBUG
-        try expectDeveloperOverrides(w, held: false)
-        #endif
-        let depth = ProfileLayout.buttonsToDeveloper - ProfileLayout.buttonsToMessage - 1
-        let (lit, ink, pill) = try await atButtons(w) { (Self.litUnderButtons($0, $1, depth: depth), Self.logOutInk($0, $1), $1) }
-        #expect(lit == 0, "nothing under the buttons row: \(lit) lit under \(pill)")
-        #expect(ink > 0.8, "Log out at full ink: \(ink) in \(pill)")
+        let (lit, ink) = try await atButtons(w) { (Self.litUnderButtons($0, $1, depth: 9), Self.logOutInk($0, $1)) }
+        #expect(lit == 0, "nothing under Log out: \(lit) lit pixels")
+        #expect(ink > 0.8, "Log out at full ink: \(ink)")
     }
 
-    @Test("Withdrawing: Demo data and Log out held with the reason, taps do nothing; live again and announced once RYFT confirms",
+    @Test("Withdrawing: Log out held with the reason, live again and announced once RYFT confirms",
           .timeLimit(.minutes(2)))
     func heldUntilConfirmed() async throws {
         let graph = try await ProfileShotGraph.make("signed-in", clock: Self.stoppedClock())
@@ -183,13 +157,11 @@ struct ProfileWithdrawalHoldTests {
             try await w.settle()
             try await expectHeld(w)
             let footer = String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.")
-            #expect(w.node(footer) != nil, "the Privacy footer says what is happening")
+            #expect(profile.consentDetail == footer, "the Privacy and data footer says what is happening")
 
-            // A tap on either does nothing: Demo data stays off, no Log out confirmation, still signed in.
-            try node(w, Self.demo).activate()
+            // Tapping the held pill opens no confirmation.
             try node(w, Self.logOut).activate()
             try await w.settle()
-            #expect(!graph.settings.demoMode, "Demo data stays off")
             #expect(w.presentedView == nil, "no Log out confirmation")
             #expect(graph.state.env.auth.isSignedIn)
             #expect(spoken.lines.isEmpty, "nothing announced while it runs")
@@ -201,7 +173,7 @@ struct ProfileWithdrawalHoldTests {
             try await expectLive(w)
             #expect(api.count("revokeConsent") == 1)
             #expect(spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement], "\(spoken.lines)")
-            #expect(w.node(footer) == nil)
+            #expect(profile.consentDetail != footer)
         }
     }
 
@@ -228,7 +200,7 @@ struct ProfileWithdrawalHoldTests {
             try await w.settle()
             try await expectLive(w)
             #expect(spoken.lines == [ProfileViewModel.consentWithdrawnAnnouncement], "\(spoken.lines)")
-            #expect(w.node(String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.")) == nil)
+            #expect(profile.consentDetail != String(localized: "Withdrawing your consent. Nothing syncs while it's on its way."))
 
             await check.open()
             await withdrawing.value
@@ -236,7 +208,7 @@ struct ProfileWithdrawalHoldTests {
         }
     }
 
-    @Test("Logging out (the push registration still being deleted): Log out busy, Withdraw consent disabled, nothing sent (round 3, C)",
+    @Test("Logging out (the push registration still being deleted): Withdraw consent disabled, nothing sent (round 3, C)",
           .timeLimit(.minutes(2)))
     func noWithdrawalWhileLoggingOut() async throws {
         let graph = try await ProfileShotGraph.make("signed-in")
@@ -245,12 +217,11 @@ struct ProfileWithdrawalHoldTests {
         let signOut = Gate()
         graph.state.env.auth.beforeSignOut = { await signOut.wait() }
         let profile = graph.screens.profile
-        try await HostedWindow.run(width: 390, height: Self.height, graph.view) { w in
+        try await HostedWindow.run(width: 390, height: Self.height, graph.page(.privacyAndData)) { w in
             try await w.settle()
             #expect(try node(w, Self.withdraw).isEnabled)
             let loggingOut = Task { await profile.logOut() }
-            let busy = String(localized: "In progress")
-            try await w.wait("busy") { find(w, Self.logOut)?.value == busy }
+            try await w.wait("busy") { profile.loggingOut && find(w, Self.withdraw)?.isEnabled == false }
             try await w.settle()
             #expect(try node(w, Self.withdraw).isEnabled == false, "Withdraw consent takes no tap")
             try node(w, Self.withdraw).activate()
@@ -265,7 +236,7 @@ struct ProfileWithdrawalHoldTests {
         }
     }
 
-    @Test("A failed withdrawal: live again, the failure under Privacy, nothing announced", .timeLimit(.minutes(2)))
+    @Test("A failed withdrawal: live again, the failure in Privacy and data, nothing announced", .timeLimit(.minutes(2)))
     func liveAgainAfterAFailure() async throws {
         let graph = try await ProfileShotGraph.make("signed-in", clock: Self.stoppedClock())
         defer { graph.tearDown() }
@@ -277,18 +248,14 @@ struct ProfileWithdrawalHoldTests {
         let spoken = Spoken()
         profile.announce = { spoken.lines.append($0) }
         let message = String(localized: "Something went wrong on RYFT's side. Try again later.")
-        try await HostedWindow.run(width: 390, height: Self.height, graph.view) { w in
+        try await HostedWindow.run(width: 390, height: Self.height, graph.page(.privacyAndData)) { w in
             try await w.settle()
             let withdrawing = Task { await profile.withdrawConsent() }
-            try await w.wait("held") { find(w, Self.logOut)?.isEnabled == false }
-            try await w.settle()
-            try await expectHeld(w)
-
+            try await w.wait("held") { profile.withdrawingConsent }
             await gate.open()
             await withdrawing.value
             try await w.wait("the message") { w.node(message, exactly: true) != nil }
-            try await w.settle()
-            try await expectLive(w)
+            #expect(!profile.withdrawingConsent)
             #expect(profile.consentError == message)
             #expect(spoken.lines.isEmpty, "a failure announces itself through its message: \(spoken.lines)")
         }
@@ -336,53 +303,76 @@ struct ProfileWithdrawalHoldTests {
         #expect(await inviting.value == false)
     }
 
-    @Test("Held at the default size and at AX3 (the buttons stacked): the same hold, the line under the last pill, Demo data's switch alone dimmed",
-          .timeLimit(.minutes(2)), arguments: [false, true])
+    @Test("Held at the default size and AX3: Log out, Demo data and the Debug overrides", .timeLimit(.minutes(2)),
+          arguments: [false, true])
     func heldAtBothSizes(ax3: Bool) async throws {
         let graph = try await ProfileShotGraph.make("withdrawing")
         defer { graph.tearDown() }
-        try await HostedWindow.run(width: 390, height: Self.height, typeSize: ax3 ? .accessibility3 : .large,
-                                   category: ax3 ? .accessibilityExtraLarge : .large, graph.view) { w in
+        let size: DynamicTypeSize = ax3 ? .accessibility3 : .large
+        let category: UIContentSizeCategory = ax3 ? .accessibilityExtraLarge : .large
+        let shotDir = ProcessInfo.processInfo.environment["PROFILE_SHOTS_DIR"]
+        let shotSize = ax3 ? "ax3" : "default"
+        try await HostedWindow.run(width: 390, height: Self.height, typeSize: size, category: category, graph.view) { w in
             try await w.wait("held") { find(w, Self.logOut)?.isEnabled == false }
-            try await w.settle()
             try await expectHeld(w)
-            if ax3 {
-                let export = try node(w, Self.export).frame, logOut = try node(w, Self.logOut).frame
-                #expect(logOut.minY > export.maxY, "stacked from AX1: Log out under Export")
+            if let shotDir {
+                let data = try await atButtons(w, above: 520) { _, pill in try shot(w, startingAt: pill.minY - 520) }
+                try data.write(to: URL(fileURLWithPath: "\(shotDir)/profile-withdrawing-buttons-\(shotSize).png"))
             }
-            // Demo data: the switch alone dims; the title and the reason stay at full ink (the reason is the point).
+        }
+        try await HostedWindow.run(width: 390, height: Self.height, typeSize: size, category: category,
+                                   graph.page(.account)) { w in
+            try await w.settle()
+            let row = try node(w, ProfileRow.logOutRow.identifier)
+            #expect(!row.isEnabled && row.hint == reason)
+            row.activate()
+            try await w.settle()
+            #expect(w.presentedView == nil, "the held row opens no confirmation")
+        }
+        try await HostedWindow.run(width: 390, height: Self.height, typeSize: size, category: category,
+                                   graph.page(.privacyAndData)) { w in
+            try await w.settle()
+            #expect(try node(w, Self.export).isEnabled, "Export still works")
+        }
+        try await HostedWindow.run(width: 390, height: Self.height, typeSize: size, category: category,
+                                   graph.page(.devices)) { w in
+            try await w.settle()
+            let demo = try node(w, Self.demo)
+            #expect(!demo.isEnabled, "the Demo data switch takes no tap")
+            #expect(demo.label.contains(reason) || demo.value?.contains(reason) == true, "the switch reads the hold reason")
+            #expect(!demo.label.contains(String(localized: "Show a realistic sample history instead of your server.")))
+            demo.activate()
+            #expect(!graph.settings.demoMode, "Demo data stays off")
             let ink = try await onScreen(w, Self.demo) { Self.demoInk($0, $1) }
             #expect(ink.title > 0.8, "Demo data's title at full ink (textPrimary, 0.95): \(ink.title)")
-            #expect(ink.detail > 0.44 && ink.detail < 0.6, "the reason at full ink (the detail's textTertiary, 0.49): \(ink.detail)")
+            #expect(ink.detail > 0.44 && ink.detail < 0.6, "the reason at full ink (textTertiary, 0.49): \(ink.detail)")
             #expect(ink.track > 0.1 && ink.track < 0.3, "the switch's track dimmed to 35 % (0.22): \(ink.track)")
             #if DEBUG
-            // Round 3, D: API key mode's "Held while…" reads at full ink too; its switch alone dims.
+            try expectDeveloperOverrides(w, held: true)
             let key = try await onScreen(w, ProfileRows.devAPIKeyMode) { Self.demoInk($0, $1) }
             #expect(key.title > 0.8 && key.detail > 0.44 && key.detail < 0.6 && key.track > 0.1 && key.track < 0.3,
                     "API key mode: the title and reason at full ink, the track dimmed: \(key)")
             #endif
-            // With `PROFILE_SHOTS_DIR`: one screen around the buttons row, clear of a paged shot's seams (the paged
-            // `profile-withdrawing-*` shots can cut through the pill).
-            if let dir = ProcessInfo.processInfo.environment["PROFILE_SHOTS_DIR"] {
-                let image = try await atButtons(w, above: 520) { _, pill in
-                    // One screen (844) of the window, the pill 520 under its top.
-                    UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: max(0, pill.minY - 520), width: 390, height: 844),
-                                            format: Self.shotFormat).image { _ in
-                        w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
-                    }
-                }
-                let data = try #require(image.pngData())
-                try data.write(to: URL(fileURLWithPath: "\(dir)/profile-withdrawing-buttons-\(ax3 ? "ax3" : "default").png"))
-                let demoImage = try await onScreen(w, Self.demo, above: 300) { _, row in
-                    UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: max(0, row.minY - 300), width: 390, height: 844),
-                                            format: Self.shotFormat).image { _ in
-                        w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
-                    }
-                }
-                let demoData = try #require(demoImage.pngData())
-                try demoData.write(to: URL(fileURLWithPath: "\(dir)/profile-withdrawing-demo-\(ax3 ? "ax3" : "default").png"))
+            if let shotDir {
+                let data = try await onScreen(w, Self.demo, above: 300) { _, row in try shot(w, startingAt: row.minY - 300) }
+                try data.write(to: URL(fileURLWithPath: "\(shotDir)/profile-withdrawing-demo-\(shotSize).png"))
             }
+
+            await graph.releaseWithdrawal()
+            try await w.wait("Demo data live") { find(w, Self.demo)?.isEnabled == true }
+            let liveDemo = try node(w, Self.demo)
+            #expect(!liveDemo.label.contains(reason))
+            #if DEBUG
+            try expectDeveloperOverrides(w, held: false)
+            #endif
         }
-        await graph.releaseWithdrawal()
+    }
+
+    private func shot(_ w: HostedWindow, startingAt y: CGFloat) throws -> Data {
+        let image = UIGraphicsImageRenderer(bounds: CGRect(x: 0, y: max(0, y), width: 390, height: 844),
+                                            format: Self.shotFormat).image { _ in
+            w.window.drawHierarchy(in: w.window.bounds, afterScreenUpdates: true)
+        }
+        return try #require(image.pngData())
     }
 }

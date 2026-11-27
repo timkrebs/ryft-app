@@ -365,6 +365,36 @@ struct ProfileIdentityRow: View {
     }
 }
 
+/// The same status line without the identity, on Devices & sync. The card opens Sync details.
+struct ProfileSyncStatusTile: View {
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        let status = screens.profile.status(line: screens.today.syncLine)
+        GroupedCard {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                NavigationLink(value: ProfileRoute.syncDetails) {
+                    HStack(alignment: .firstTextBaseline, spacing: ProfileLayout.statusDotGap) {
+                        ProfileStatusDot(dot: status.dot)
+                        Text(verbatim: status.text(now: context.date))
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textSecondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, GroupedListSpec.rowInset)
+                    .padding(.vertical, GroupedListSpec.textPadding)
+                    .frame(maxWidth: .infinity, minHeight: GroupedListSpec.rowMinHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: status.spoken(now: context.date)))
+                .accessibilityHint(Text("Opens sync details", comment: "VoiceOver hint for the status tile on Devices and sync."))
+            }
+        }
+    }
+}
+
 /// The status line's tap target: the line keeps its own height in the layout, its target reaches
 /// `SyncStatusLineView.verticalOutset` past it above and below (44 pt or more for one line), as Today's status row's does.
 private struct StatusTapTarget: ViewModifier {
