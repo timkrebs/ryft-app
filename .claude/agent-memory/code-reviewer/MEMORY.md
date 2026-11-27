@@ -1,8 +1,8 @@
 - [Today-state review checks](review_checks_today_state.md) — day words, per-body cost, first-frame catalog, widget republish triggers, readiness⇔recovery
 - [Outbox/queue review checks](review-checks-outbox-queues.md) — stale snapshots, late answers, epoch timing, never-sent markers, unknown 403 codes, whole-batch 4xx
-- [Shared transport/coalescing checks](review-checks-shared-transport.md) — error-shape audits, cancellable waits, joined replays, global holds, debounced-save flush, flakes
-- [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merge-tree, merged-in open PRs
-- [Derived states](review-checks-derived-states.md) — server aggregates, night flags, kept starts, after-midnight, derive-once, nil on unscored days
+- [Shared transport/coalescing checks](review-checks-shared-transport.md) — error shapes, cancellable waits, late landings after deadlines, global holds, debounced flush
+- [Merge/wiring review checks](review-checks-merges-and-wiring.md) — merge survival, xcstrings dicts, hidden UI wired, merged-in PRs, deleted views' stale keys
+- [Derived states](review-checks-derived-states.md) — server aggregates, after-midnight, nil unscored, ScoringWord.state, tonight = BedtimePlanner
 - [Dark launch + remote content](review-checks-dark-launch.md) — flag-off leaks, shared string keys, RootView modifiers, remote glyphs, launch args
 - [Wire drafts + flags](review-checks-wire-drafts-and-flags.md) — flag key grammar vs platform, stub errors recorded as success, whole-doc PUTs, cache removal
 - [Numeric pipelines](review-checks-numeric-pipelines.md) — noise vs design, few-seed tests, limit hysteresis, sliding multipath, window anchors, swiftc probes
@@ -13,6 +13,46 @@
 - [Multi-step flows](review-checks-multistep-flows.md) — stale prepare Tasks after back/forward, reused sheets with side effects, auto-seen results
 - [Session UI planners](review-checks-session-ui.md) — planner vs nextUp warm-ups, children:.ignore, VO on collapse, cover updates while dismissing, fold vs keypad
 - [Undo windows + held uploads](review-checks-undo-windows.md) — queued ops leak held state, tasks outliving Finish, chained plan PUTs, probe copies
-- [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, String enums, parity exceptions, legacy-removal field loss, task id vs env flag, phaseAnimator
-- [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, enum collapse, probe recipe
+- [Shared widget gauges](review-checks-shared-widget-gauges.md) — widget number fit, parity exceptions, task id vs env flag, v3 halo-clip/entrance-end tautologies
+- [Local overrides of server state](review-checks-local-overrides.md) — answer window vs poll delay, joined flights, stale so-far, since-markers vs clock, probe recipe
 - [Design notes before code](review-checks-design-notes.md) — "only site" claims, dark value of swaps, ticket order, Shared visibility, stale base
+- [Tokens + dark-only](review-checks-tokens-dark-only.md) — Info.plist names deleted colorsets, project-xcconfig accent, mid-branch ADRs, scheme asserts, icons
+- [Design components ahead of screens](review-checks-design-components.md) — glow-tile text colours, doc drift, fixedSize HStack overflow, FP ties, test guard bounds
+- [Launch overlays](review-checks-launch-overlays.md) — side effects under the cover, XCUITest dumps, idle waits, hand-off geometry, .global across TabView
+- [Async write queues](review-checks-async-write-queues.md) — unawaited clear, one lock value+save, no escalation, as-of without order, 0xdead10cc, harness gaps
+- [Large-text fixes](review-checks-large-text.md) — ViewThatFits lifetimes (probed), bounds at capped size, per-test fails-on-main, pixel diff, custom Layout agreement
+- [Polling rules (settle/wait)](review-checks-polling-rules.md) — mutate each clause vs the PR tests (swiftc probe), injected clock, what sampling cannot see
+- [Ownership marker lists](review-checks-ownership-lists.md) — marker after row, prune vs fallback store, unobserved body reads, pre-upgrade rows, stale ADR amendments
+- [Deployment target + Info.plist keys](review-checks-deployment-target.md) — INFOPLIST_KEY_* inert on app target, OS switch tables, Xcode-version vs 26.1 APIs
+- [Screen loads (.task(id:))](review-checks-screen-loads.md) — new task starts before old unwinds (probed), defer-clobbered flags, swallowed-error absences, clamped deep links
+- [Trend cards](review-checks-trend-cards.md) — degenerate bands, deltas differing by range (recurs), "Last night" on older nights, offline as-of, HH:MM
+- [Form and onboarding restyles](review-checks-form-restyles.md) — label-as-placeholder, .task autofocus on pop, pop-gesture keepers (hidesBackButton), over-applied fallbacks
+- [List rewrites](review-checks-list-rewrites.md) — status word vs timestamp, ids on wrappers, rows moved into gated groups, leftovers, test-count claims vs logs
+- [Mutant + OS-run evidence](review-checks-mutant-evidence.md) — which assertion a mutant failed, gated probes, mtimes vs runs, delayed Tasks holding rows
+- [Screen restyles](review-checks-screen-restyles.md) — pixel tolerance, unused spec consts, shared inks, API-impossible mocks, unplaced issues, endless loads
+- [Detail pages](review-checks-detail-pages.md) — try? loaders vs "none yet", re-reads dropping data, windowed counts, plurals in shots, two roundings, per-kind pages
+- [List + session sheets](review-checks-list-and-sheets.md) — compact pills stacked only at AX3 (tnum CoreText), trailing pills truncating labels, vacuous save tests, Cancel mid-await
+- [Row adapters on shared rows](review-checks-row-adapters.md) — preview-only closures, 320 x xxxL word breaks, key comments, fake offline tests
+- [Activity sheets + detail](review-checks-activity-sheets.md) — "waiting for HR" on unsent rows, hidden units, grid circles at 320, chip-row squeeze, DatePicker value vs label
+- [Settings subpages](review-checks-settings-subpages.md) — FormField drops lineLimit (AX prompt cut), "nothing changed" vs lost responses, List-row notices mute, silent tap guards
+- [Sync status pages](review-checks-sync-status-pages.md) — "Up to date" from last-good stamp, gated reads uncounted, every outbox, placement presenters, sheet insets
+- [Refusals as states](review-checks-refusal-states.md) — what the old drop let through, 2xx-undecodable, queued creates vs online callers, silent 422s, Retry with no dependency
+- [Form reads + whole saves](review-checks-form-reads-and-saves.md) — banner retry skips commit gate, post-await saves after day switch, reads rebuilding over edits
+- [Autosave editors](review-checks-autosave-editors.md) — save chains awaiting the network, stale drafts in other tabs, async Turn off, conditional push hosts
+- [Setting editors](review-checks-setting-editors.md) — connectivity hangs, failure-time offline, busy flags left by stale-owner exits, modal locks, 2xx-unreadable
+- [Widget surfaces + Live Activities](review-checks-widget-surfaces.md) — privacySensitive escapes placeholder (probed), per-device accessory sizes, test-only models, Volt scope, ages
+- [Dependent ops past refusals](review-checks-dependent-op-answers.md) — answers overwriting edits, foreign-id fixtures, waits past guards, catch-all 4xx, unfixable 422s
+- [Flow restyles with live results](review-checks-flow-restyles.md) — dropped hidesBackButton vs other branch keepers, "imported" incl. server-kept, muted live notices, catalog gaps, untapped pill tests
+- [Side-effect passes](review-checks-side-effect-passes.md) — memo not reset after undo, sibling stale surfaces, off-main mock races (no approachable), OS probes
+- [Area integration reviews](review-checks-area-integration.md) — #Preview w/o DEBUG, sibling merge-tree, offline/failure fixes on one page only, try? cancel = offline, carried items
+- [Shared write waits + account-bound stores](review-checks-shared-write-waits.md) — demo shares env.persistence, not-latest exits skip marks, abandoned writes reorder, log-checked green claims
+- [Presented-root styles + shared rules](review-checks-presented-styles.md) — root tint/toggleStyle miss sheets (iOS 27.2), no app AccentColor, one "vs 7 d" rule, demo-aware online
+- [Demo/account split rounds](review-checks-side-split-rounds.md) — read-backs after unsent refreshes, 3 forgetter wirings, .test previews lose coach-done, isLive rows vanish
+- [Combine guards + token lints](review-checks-combine-guards-and-lints.md) — side guard at Save only after a merge, Demo keeps sheets up, lint snippet probes, duplicate formatters
+- [Fix-round re-verification](review-checks-fix-round-reverify.md) — caller-vs-flight binding, read chains past a reset, scan scope, shared error fields, waiter resume sites, forgetters w/o generation
+- [Action patches of server overviews](review-checks-action-patches.md) — refresh in flight undoes patch, actions out of order, UserDefaults keys across parallel suites, platform SQL as contract
+- [Header moves + deletions](review-checks-header-unification.md) — ids/dismiss paths, pinned vs scrolled headers, edge vs scrollTo(.top) (probed), mock resets, scans
+- [Control holds over a flight](review-checks-control-holds.md) — held button vs running task/re-shown dialog, no-answer as "No connection", stopped TestClock budget, git show only
+- [Flow vs gate splits](review-checks-flow-vs-gate-splits.md) — cached state opens gate early, every consent reader, untested pre-T answers, unbounded re-reads, no-settle flags on joins
+- [Notification schedulers](review-checks-notification-schedulers.md) — Calendar.current snapshots, upgrade teardowns, denied retries, mid-pass nil caches, BG-read gates
+- [Validator mirrors](review-checks-validator-mirrors.md) — wire-second compares, bytes vs chars, other 4xx/500 paths, empty-page anchors, diagnostics allowlist

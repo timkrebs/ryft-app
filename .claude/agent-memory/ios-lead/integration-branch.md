@@ -21,5 +21,13 @@ Plan the merge sequence to fit that, and check that `git diff <integration-commi
 `APIClient.exchange`). The integration branch (#31) caught the cross-PR seams, such as the epoch on T1's new code paths and one
 shared path redaction. It came up green before any merge.
 
+**Include every PR of the batch, even ones that are already green and don't conflict textually** (2026-11-17, Nocturne
+PR 4 #117, AX3 #115, P1 #116). I trial-merged only #117 + #116, and #115 then broke #117's build after it landed: #115's
+new test code called `HostedWindow.Node(...)` without the `hint:` parameter #117 had added. That was a semantic conflict
+with no textual one, and it cost a red CI cycle. Strict-build the trial (`RYFT_STRICT_WARNINGS=YES`, see
+[[strict-warnings-build]]) and run the Unit plan on it. The hosted-geometry suites (`FocusedRowInViewTests`,
+`FocusedPolishHostedTests`, `LargeTextHostedTests`: "the layout to settle") time out under load. Rerun them alone before
+suspecting the change.
+
 **How to apply:** any brief that produces two or more code PRs touching the same files. Also, a CI UI-smoke failure on only
 one PR line isn't automatically "infra"; keep a tally of red runs, with and without the PR. See [[parallel-worktrees]].

@@ -26,6 +26,10 @@ Merged-in open PRs (T4 review, 2026-10-23): a ticket branch that merged another 
 via synchronized folders) can't land before it. Check `git merge-base --is-ancestor <merged tip> origin/main` and
 `gh pr view <n> --json state`; say the merge order explicitly, or the squash carries the other PR's pbxproj.
 
+Deleted views (PR 4 CR7, 2026-11-17): deleting a file leaves its catalog keys in `Localizable.xcstrings`; the next Xcode IDE
+build marks them `stale` (xcodebuild does not) and `make lint` (`scripts/lint-strings.py`) then fails for whoever commits the
+catalog. For each removed `String(localized:)`/`Text("…")` key, `git grep` the tip; delete the ones with no other use.
+
 **Why:** both were the non-obvious parts of the T5/integration review; the merges themselves were clean.
 **How to apply:** run the survival check on any multi-branch integration; on "wire up" PRs, trace each value from the
 previously hidden call site to where it's rendered. See [[review-checks-shared-transport]].

@@ -3,22 +3,44 @@
 - [Synchronized folders](project_synchronized_folders.md) — synchronized since #39; non-Swift files bundled; never a `Build/` folder (git + SwiftFormat skip it)
 - [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
 - [Unsigned host, simulators](project_unsigned_host_and_simulators.md) — HKSource.default() crashes unsigned builds; erase vanished sims
-- [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang / "Failed to terminate" = XCTest crash-log wait; read the spindump
-- [Simulator and tools](project_simulator_and_tools.md) — own sim via CI_SIM_NAME; vanished sim → erase; failed run → `2>&1 | cat`; iPhone Duo pre-existing failures
+- [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang = crash-log wait; "crashed in (null)": grep Staging stderr
+- [Simulator and tools](project_simulator_and_tools.md) — vanished sim → erase; `test()` parens; UI tests need -testPlan UISmoke; sims share products
 - [SF Symbol availability](reference_sf_symbol_availability.md) — CoreGlyphs name_availability.plist: symbol → iOS release (target is 17)
 - [Swift Testing macro pitfalls](project_swift_testing_macro_pitfalls.md) — nested #require, try in #expect, case `none` vs Optional, `?.x == nil` passes on nil
 - [Track fixture evaluation](project_track_fixture_evaluation.md) — SwiftPM harness runs track tests in seconds; 20 seeds; one probe seed misleads
-- [Strings catalog insertion](project_strings_catalog_insertion.md) — xcstrings round-trips byte-identical via json; add keys with only + lines
+- [Strings catalog insertion](project_strings_catalog_insertion.md) — text insertion only, English only; file has two sorted runs, insert by neighbours
 - [Import mapping harness](project_import_mapping_harness.md) — swiftc harness for matcher/aliases in seconds; built-in fixture ids; real sample counts only
 - [Wall clock and DST](project_wall_clock_dst.md) — Calendar.nextDate fails 30-min DST zones; resolve local times by UTC offsets
 - [Tests pin decisions](feedback_tests_pin_decisions.md) — reviews run mutants; test first/last, increments, thresholds; fuzz bounds must be able to fail
 - [SwiftData group container](project_swiftdata_group_container.md) — .automatic copies app-container store into empty group; signed sim builds; signposts via log show
 - [Demo setting in tests](project_demo_setting_in_tests.md) — never write Settings.shared.demoMode in unit tests; host app is in demo, singletons read it
 - [simctl spawn harness](project_simctl_spawn_harness.md) — Release numbers via swiftc + simctl spawn; macOS mutant harness; xcodebuild test leaves sim shut down
+- [Launch A/B on the shared Mac](project_launch_ab_on_shared_mac.md) — passes drift with load; procstart->init is the control; both orders; skip anchors on first-screen
 - [Required-reason APIs](project_required_reason_apis.md) — manifest declares only UserDefaults; no file timestamps; prove with nm -u
 - [SwiftData upgrade test](project_swiftdata_upgrade_test.md) — old @Model nested in a test enum, temp-URL store, reopen with TrainStore.schema
 - [SyncMachine silent edges](project_sync_machine_silent_edges.md) — advance(to:) ignores unlisted edges (idle → failed, → awaitingScores); assert phase
-- [Isolation and optional pitfalls](project_isolation_and_optional_pitfalls.md) — MainActor defaults in parameters fail; `self?.f() ?? x` swallows f's nil
+- [Isolation and optional pitfalls](project_isolation_and_optional_pitfalls.md) — MainActor defaults fail; `self?.f() ?? x` swallows nil; UserDefaults in @Sendable observers warns
 - [Import upload harness](project_import_upload_harness.md) — I5 uploader tests: two fakes, private demo switch; wipe-then-release for dropped answers
 - [Today scenario shots](project_today_scenario_shots.md) — screenshots.sh inherits sim text size + coach marks; set content_size, -coachMarks.today.done YES
+- [Model actor thread](project_model_actor_thread.md) — iOS 17.0: maker's thread runs jobs; 27.2: awaiter's; make AND await off main
+- [Minimum iOS 18.6](project_minimum_ios18.md) — user decision 2026-11-18 (not 18.0); no iOS 17-only workarounds; target PR separate
+- [SwiftData two containers, iOS 17](project_swiftdata_two_containers_ios17.md) — 17.0: only the newest container takes inserts; reopen measured, not merged
+- [OS runtime probes](project_os_runtime_probes.md) — print shows in xcodebuild unless parallel (use Issue.record); -only-testing Outer/Inner; 18.0 and 26.0 sims since 11-18
 - [Repetitions and mock calls](project_repetitions_and_mock_calls.md) — api.calls unlocked → use api.count; -test-iterations says passed with issues; joiners(for:)
+- [SwiftData batch delete](project_swiftdata_batch_delete.md) — delete(model:) skips unsaved inserts; batched writers fetch and delete each
+- [BackgroundWork completion tests](project_background_work_tests.md) — FakeSteps touched = [] or it waits for scoring; own clock; cancellable settle
+- [Mutation runner](project_mutation_runner.md) — python table of text mutants; build + per-suite run; restore in finally; killpg; commit first
+- [Seed after refresh](project_seed_after_refresh.md) — await pullPhases + settled() before setters; repro races with the one test alone
+- [CI runner shares the Mac](project_ci_runner_shares_the_mac.md) — swap/disk exhaustion → exit 70; UI smoke near its 15-min cap (load = timeout); pgrep -f self-match
+- [SwiftData deleted rows, iOS 18/26](project_swiftdata_deleted_row_ios18.md) — 18.0, 18.6, 26.0 trap on a deleted row's relationships even if pre-read; release holders
+- [SwiftData NaN is NULL](project_swiftdata_nan_null.md) — a saved Double.nan reads back nil; use .infinity for an EncodingError test
+- [Locale tests, device region](project_locale_tests_device_region.md) — sims are en_US@rg=DE; a de_DE-only locale test passes without the locale; test en_US and de_DE
+- [SwiftUI push shapes](project_swiftui_push_shapes.md) — a value link under two isPresented/item pushes does nothing; push it by item
+- [ReadScheduler weak env](project_read_scheduler_weak_env.md) — scheduler holds env weakly; keep test envs alive or every read is "offline"
+- [state.reset() keeps the store](project_state_reset_keeps_store.md) — reset ≠ wipe in tests; never end a turn to wait (forced hand-back); midnight Activities flake
+- [Test defaults isolation](project_test_defaults_isolation.md) — .standard keys race in parallel suites; inject UserDefaults, a suite per rig; uninstall after mutants
+- [Split ordered commits](project_split_commits_from_ahead_tree.md) — stage script per commit; stash --keep-index builds the index; pop by sha
+- [MockNotifier authorization](project_mock_notifier_authorization.md) — starts .notDetermined; scheduler adds only when allowed; bedtime tests authorize; run full Unit
+- [Protected data guard](project_protected_data_guard.md) — isProtectedDataAvailable is false whenever locked; guard only destructive branches
+- [Wire precision for Go rules](project_wire_precision_go_rules.md) — mirror platform checks on encoded values: whole seconds, distantPast = Go zero, bytes after NUL strip
+- [Entitlements hook](project_entitlements_hook.md) — pre-edit-guard refuses *.entitlements edits even if a brief asks; give Xcode steps

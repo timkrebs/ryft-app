@@ -29,14 +29,36 @@ code or timing.
 #33). Bound against the algorithmic failure you're guarding (e.g. quadratic → seconds), never against "fast" on this Mac.
 Don't brief implementers with "well under 100 ms".
 
-**The self-hosted runner is this Mac** (`mbpro-m4pro-app`), the same machine the local agents build and test on. On
+**The self-hosted runner is this Mac**, the same machine the local agents build and test on. On
 2026-10-29, main's UI smoke after #72 took 9 minutes before its first test started, while several agent simulators were busy,
 and hit the 15-minute step limit with all 21 cases passing. A timed-out step can leave its `.xcresult` in the kept
 workspace; the next run then fails with "Existing file at -resultBundlePath" before any test runs. #74 removes the bundle
 first. Before calling a red step a regression, compare when the step started with when its first test started.
+
+**"pending 0" can still mean running (2026-11-15).** On #109, `gh pr checks` and `gh run list` showed the iOS jobs as
+`pending 0` / `queued` for all 17 minutes of a job that went on to pass. To see whether it really runs:
+- `xcrun simctl list devices`: a booted `RYFT CI <run>-<attempt>` means the job is running;
+- `pgrep -fl Runner`: shows a `Runner.Worker`.
+
+Don't call that a stuck runner.
 
 **Wedged CI simulator (2026-10-30).** Symptom: every branch fails the Unit step before any test runs, with "test runner hung before establishing connection" (after about 6 min) or "Simulator device failed to launch … did not return a process handle", while `main` was green on the same runner shortly before. Load alone doesn't explain it: it persisted at load 5.
 - **Prove it first:** run the branch on a fresh `simctl create` simulator. Both branches passed there.
 - **Fix:** with no job in progress, `simctl delete` the "RYFT CI" device. `scripts/ci-simulator.sh` recreates it on the next run, and the user's own simulators are untouched.
 - **Don't** just keep rerunning, and don't `shutdown all` or restart CoreSimulatorService without the user.
 - **Root fix: #80** (opened 2026-10-30). It gives every CI job its own simulator, "RYFT CI <run>-<attempt>", and an `if: always()` cleanup step deletes it and its clones. The hang recurred 8+ times while it waited. A PR branched before #80 still runs the old reusing script, so the delete-and-rerun fix applies to it until it merges `main`.
+
+**Jobs stay "queued" for an hour: the runner is offline (2026-11-19).** The listener log
+(`~/actions-runners/ryft-app/_diag/Runner_*.log`) ended with `TaskAgentSessionExpiredException: Runner session is invalid`
+at 04:00Z. The listener then exits with code 0, and the launch agent (`actions.runner.<owner>-ryft-app.<runner name>`,
+no KeepAlive) doesn't restart it. Its exact label: `ls ~/Library/LaunchAgents | grep actions.runner`.
+- **Check:** `gh api repos/<owner>/ryft-app/actions/runners` shows `offline`.
+- **Fix:** `launchctl kickstart gui/$(id -u)/<that label>`. Twenty seconds later it was
+  online and took the queued job.
+- Check this first whenever a run sits in `queued` and no `Runner.Worker` process exists.
+
+**"Unable to boot device because it cannot be located on disk" (2026-11-18).** A storage-cleanup task of the user's had
+recreated `~/Library/Developer/CoreSimulator` mid-run, so every older simulator, Xcode's defaults included, stayed listed
+by `simctl` but had no data folder. Check `ls -ld ~/Library/Developer/CoreSimulator` (a fresh date gives it away) and
+`[ -d …/Devices/<udid> ]` for each device. Delete our stale "RYFT …" devices, rerun the failed job, and tell the agents
+their simulators are gone. It isn't the PR.

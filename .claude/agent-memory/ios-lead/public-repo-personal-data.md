@@ -22,5 +22,11 @@ Every example matched his file: dates, workout times, durations, day names, and 
 token scan (fields of the sample CSVs grepped across the docs) caught them before the design PR (#41). ui.md had copied two
 of them too.
 
+**His name counts too (2026-11-19):** `main` had his first name, his full name and "<first name>'s Apple Watch" in MockData,
+PreviewAuth, fixtures, tests and doc comments ("Good evening, <first name>"), so demo renders greeted him by name. PR 5 (tabs)
+replaced them with "Alex"/"Alex Doe"; b8bd0ce did the last comments. Check with `git grep -n -w -E "<first>|<last>" <branch> --
+Ryft RyftTests RyftUITests RyftWidgets Shared`, using the names from `git config user.name` (plain `\b` doesn't work in
+git grep -E). The copyright line and ADR "Deciders" are fine. Don't write his name into memory files either: they're public too.
+
 **How to apply:** any brief that mentions samples, exports, screenshots or "my data". Run the scan before every docs commit in
 that feature, and tell the user what was redacted. See [[device-sessions]] for the same care on his iPhone.

@@ -1,6 +1,6 @@
 ---
 name: review-checks-local-overrides
-description: RYFT review checks for phone-side words that override the platform's state (scoring ledger, "requested after" rules, joined flights, stale so-far accessors), plus the probe/mutant recipe
+description: RYFT review checks for phone-side words that override the platform's state (scoring ledger, "requested after" rules, joined flights, stale so-far accessors, persisted since-markers vs clock set back, failures kept across accounts), plus the probe/mutant recipe
 metadata:
   type: feedback
 ---
@@ -39,6 +39,18 @@ Use a fresh `simctl create` device with `-parallel-testing-enabled NO`; reused d
 often fails to exit after the tests finish. Wait for `Test run with [1-9]`, then kill only your own xcodebuild. Never
 `simctl shutdown all`: a CI device may be booted, and the classifier denies it. Run mutants in two batches
 (about 1 minute to build and 1 minute to test each). Several mutants per batch work if they target different tests.
+
+Consent agree lag round 4 (2026-11-23, read-only re-review):
+- **Persisted "since" markers ended only by `askedAt >= since`** (`withdrawalUnresolvedSince`): a clock set back after
+  writing one makes every later read "older", so the hold never ends and all uploads stay paused with nothing named.
+  The agreement got a void rule for the same thing (round 1 N-3, round 2 #5); check every new wall-clock marker for
+  its own void rule (`TestClock.set(_:)` is the user changing the date).
+- **A failure kept in a long-lived view model with its request ID** (Profile's Check with RYFT): ScreenModels' rule
+  says a step's failure and request ID are the side's and go with the account-state forgetters, and
+  `ProfileViewModel.accountChanged(from:)` doesn't clear new ones. Grep each new `private var …Failure` against it.
+- **Value-identical keyed strings** (`syncdetails.workouts.paused` = "Paused"): a call-site revert to the plain key is
+  invisible to unit tests, and CI's `make lint` runs without a build, so nothing marks the key stale. Say so; don't
+  ask for a test that can't exist.
 
 **Why:** these are the defects that remained after the PR's own mutation check passed (9 of 9 mutants caught).
 **How to apply:** use these checks with [[review-checks-derived-states]] and [[review_checks_today_state]] whenever
