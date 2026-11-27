@@ -14,7 +14,7 @@
 #     (Today's rows, ui.md §1.6); nightGap scoringSlow (the night hint and "Taking longer than usual")
 #     blockedHRV blockedNoNight blockedOura learningHRV (honest calibration: N1, N2, N1 both signals, S2; design.md §7 rev. 2)
 #     learningRestingHR learningRestingHRScored blockedEarly (F3: S1 counting resting HR, S2 with it, N1 early)
-# The app is English only, so the shots show the English clock: `-AppleICUForce12HourTime NO` below, as a user's setting.
+# These screenshot fixtures use US English text and the 12-hour clock.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -54,7 +54,8 @@ for tab in $TABS; do
     *) set -- -RyftTab "$tab" ;;
   esac
   name="$tab-dark"
-  xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -AppleICUForce12HourTime NO >/dev/null
+  xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" \
+    -AppleLanguages '(en)' -AppleLocale en_US -AppleICUForce12HourTime NO >/dev/null
   sleep "${SHOT_DELAY:-3}"
   xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1
   echo "$OUT/$name.png"

@@ -10,7 +10,16 @@ Store "What's New".
 
 ## [Unreleased]
 
+### Security
+- An account deletion stops if the signed-in account changes while the request is being prepared.
+
 ### Added
+- Nutrition search shows reusable portions and calories when the catalog supplies them. Tap plus to add a portion, or open the amount picker to choose a size, fraction or metric amount.
+- German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
+- Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.
+- Nutrition coaching with fueling targets, recovery guidance, training goals, and optional Apple Health imports.
+- Devices & sync shows Garmin and Suunto direct connection availability from RYFT and gives
+  connected accounts a way to refresh status, reconnect and disconnect.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and
@@ -170,6 +179,7 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- Back exits a new or reopened Nutrition meal, including while food search has the keyboard open.
 - A workout without a duration in Apple Health (from another app, or entered by hand) no longer stops syncing. RYFT
   now leaves such a record out, like a sleep stage or reading that ends before it starts, and syncs everything else.
 - Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open, with Demo data on

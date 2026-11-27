@@ -1,4 +1,72 @@
-# Status — 2026-11-22
+# Status — 2026-11-24
+
+## 2026-11-26 · Nutrition meal navigation
+
+- Back clears the destination that opened the meal editor. From food search opened inside a review, Back returns to that review and keeps its items. From Today quick log, cancelling the new meal returns to Today.
+- The final simulator snapshot passed 137 unit and six Nutrition UI tests. It includes cancelling food search with the keyboard open from both Today and the diary, and returning from a reopened meal while retaining its original portion.
+- Device results, from a separately signed offline preview build that is not in this repo:
+  - passed: search, the default 182 g, ½ small = 74.5 g, save and reopen, quick-add and undo;
+  - failed: Back in the meal editor, which this change fixes.
+  - The candidate's notes also say that the offline preview passed search Back with the keyboard open, and Back from a reopened saved meal, on iPhone 16 Pro with synthetic meal records.
+- Landing review (#148): a save or delete that finishes after Back closes only its own editor. The back swipe from Add food keeps a reviewed draft. A definitive 4xx unfreezes Retry save. One six-decimal quantity rule applies everywhere. USDA `carbohydrates_total` counts as carbohydrates. Portions without `sort_order` keep the server's order. All simulator-verified (unit tests and `NutritionUITests` 7/7).
+- **Open (device):** retest on a normal signed build against the live account:
+  - the header Back;
+  - the swipe back from Add food with an unsaved item;
+  - a save still in flight while you go Back and open another meal;
+  - Coaching → suggested food → Back;
+  - the quantity sheet's Back and Apply.
+- **Open (production API):** validation. The contract is ryft-platform#248 (D284). The portions show only once the platform's step-2 feature build is live.
+- In this repo since 2026-11-26: PRs #147 (the open-beta snapshot) and #148 (this work).
+
+## 2026-11-25 · Everyday Nutrition portions
+
+- Live search shows the available catalog amount and calories. Quick add uses the last reusable selection or an explicit catalog default. Undo or edit the quantity before saving. Foods without either selection open their amount controls.
+- German Apple fixture sizes are 149, 182 and 223 g. Choose a household size, tap a multiplier, type a fraction, or use the step controls. Grams and supported milliliters remain available. The editable preview shows energy and macronutrients from the available references. Platform calculates the saved values.
+- The meal editor reopens saved portions with their original amount and label. The detail page shows publisher attribution when the catalog supplies it. Meal writes to the previous API omit the added language field when detail metadata is absent.
+- The local iPhone 17 Pro simulator build passed 137 unit and six Nutrition UI tests on iOS 27.2 using synthetic data. The German amount screen was captured and checked against the RYFT brand board. Production API and signed physical iPhone verification are separate release gates.
+
+## 2026-11-25 · German Nutrition diary candidate
+
+- German app language requests a German food catalog. The market keeps Germany, Austria, or Switzerland when applicable and uses Germany as the default for German elsewhere.
+- Food detail prefers the localized catalog name and offers source-backed portions, grams and supported volumes. Quantity changes update a separate estimate. A saved diary entry still uses Platform's nutrient calculation.
+- Food issue reports use the existing authenticated feedback endpoint and contain only the public catalog record ID in the message.
+- The new `nutrition.diary_enabled` flag opens the diary and totals. The existing `nutrition.enabled` flag retains the full pilot with scores, coaching and optional imports. Signed-in accounts can stop sharing weigh-ins and delete previously uploaded glucose via Profile → Privacy → Nutrition privacy even when both flags are off.
+- German catalogue and Simulator acceptance, English fallbacks outside reviewed surfaces, the signed physical App and production API scope still need release verification. No App release or production change was made.
+
+## 2026-11-25 · RYFT-08 account changes during auth
+
+- Account deletion keeps the account generation that opened the confirmation through the action's task, push cleanup and bearer acquisition.
+- Platform requests accept a Supabase bearer only for the published account, including refresh. Regression tests cover an unpublished SDK session and account switches during deletion preparation.
+- Simulator and physical device validation remain open for the isolated fix.
+
+## 2026-11-25 · Nutrition and wearable release candidate
+
+- The candidate includes the current consent-onboarding update from main. The user’s existing health-data consent and upload gates apply during tracker onboarding.
+- Nutrition meal search and save, direct-provider onboarding and launch dismissal have UI smoke coverage. The simulator fixture holds the launch overlay open for the dismissal test.
+- The Garmin Personal API preview is available in Debug builds. A live Garmin activity list was verified on iPhone over USB. Garmin and Suunto partner sign-in depend on provider availability returned by Platform.
+- Nutrition stays on the existing allow-list. Use the allow-listed account for a TestFlight smoke pass covering search, save, camera barcode access and the opt-in HealthKit inputs.
+
+## 2026-11-24 · Nutrition diary and coaching
+
+- Today opens Nutrition when the signed-in account has `nutrition.enabled`. The diary uses the account time zone and shows partial nutrient coverage, score components, meal glucose windows, and seven days of history.
+- Food search, barcode entry and scanning, private foods, meal edits and deletion, and nutrient targets use the released Platform routes. A pending meal retains its exact create request for a safe retry.
+- **Log meal** opens the editor. If an earlier save is pending, the diary offers **Retry save**. New requests use whole seconds so the local draft and the API request agree on the meal timestamp.
+- Coaching shows the training-day plan, readiness, fueling targets, energy-availability guardrails, recovery factors, and suggested foods. Nutrition settings include the opt-in recovery profile, training goals, session feedback, and reviewed glucose import from CSV or Apple Health. Sharing Apple Health weigh-ins is a separate opt-in.
+- Passed 46 selected simulator unit tests, the score/search/meal-save UI test, 20 focused Nutrition and sync regression checks, and `make lint`. A signed local Debug build was installed and launched on the iPhone 16 Pro.
+- Production remains at 0% rollout with one allow-listed account. Use that account with Demo data off, then open **Today → Nutrition**. Production returned HTTP 200 for food search and food detail, and HTTP 201 for a meal save after the timestamp fix. Camera permissions and Nutrition-specific Apple Health reads need an on-device check. The App stays local.
+
+## 2026-11-24 · Direct wearable connections
+
+- Profile → Devices & sync now shows the Platform's Garmin and Suunto catalog, connection state, data capabilities and latest received data. Account linking uses the system authorization browser and an account-bound Platform confirmation. Disconnect asks before deleting direct data.
+- The production Platform release is deployed. Garmin and Suunto direct connections remain disabled pending partner onboarding. The production `devices.setup` flag is unset. Use the existing Debug launch override for local device testing.
+- The iPhone 18 Pro simulator passed 62 selected unit tests and two UI tests, including the existing tracker setup flow. The direct connection UI also passed on iPhone 17e at Accessibility Medium. The local App lint and entitlement checks passed. The iPhone 16 Pro is paired over USB. The signed Debug build contains the wearable screens, and the RYFT app was observed running on the phone. With Demo data off, Tim confirmed that Garmin and Suunto both show Coming soon, the last status stays visible offline and refreshes after reconnecting, and Check sync finds the expected Apple Health data.
+- The App changes are local. [iPhone installation and testing](DIRECT_CONNECTIONS_TESTING.md)
+
+## 2026-11-24: Nutrition catalog client
+
+- The App can call the Platform's authenticated food search, barcode lookup, food detail and portions endpoints. The `nutrition.enabled` flag defaults off.
+- Catalog fixtures cover German names, barcode leading zeros, pagination, provenance, explicit nutrient zeros and unknown measurements. The App and tests built successfully, and all 38 tests in the catalog and APIClient status suites passed on iOS 27.2. `make lint` passed.
+- The catalog later became the search provider for the diary above. [Local App test and catalog smoke commands](../../plattform/docs/architecture/nutrition/07-implementation-roadmap.md#run-the-app-catalog-tests)
 
 ## 2026-11-22: hotfix, a record the platform refuses no longer stalls the sync
 

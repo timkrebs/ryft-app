@@ -15,8 +15,8 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 | --- | --- | --- |
 | `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
 | `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build. A manual run takes optional `notes` (max 4000 characters, English: the script sends the text to `en-US`, the app's only language) instead of the commit list: `gh workflow run nightly.yml -f notes="$(cat notes.txt)"` |
-| `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test (a manual run can pass `notes` as in `nightly.yml`), submitted for beta review |
-| `release.yml` | a push to `main` that changes `VERSION` (a merged `make release` PR) | tag `vX.Y.Z` on that commit, archive the tag, upload, group **Internal**; see [Versions](#versions-and-build-numbers) |
+| `weekly.yml` | manual dispatch on `main` after physical iPhone testing and explicit approval | the selected build goes to **External** after the environment review, with its commit range as What to Test or explicit `notes` |
+| `release.yml` | a push to `main` that changes `VERSION` (a merged `make release` PR) | tag `vX.Y.Z` on that commit, archive the triggering commit, upload, group **Internal**; see [Versions](#versions-and-build-numbers) |
 | `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
 
 ## The self-hosted Mac
@@ -48,8 +48,9 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 
 ## PR checks (`ios.yml`)
 
-- **Strings:** `scripts/lint-strings.py` requires the catalogs to be English only and complete (no `de` localization)
-  and nothing stale.
+- **Strings:** `scripts/lint-strings.py` requires English source strings and complete German translations in the
+  App, widget and permission catalogs. It rejects stale entries and incomplete plurals in either language.
+  `make strings` preserves existing translations and extracts new English keys for translation.
 - **Style:** `.swiftformat` is a small rule set the code already follows
   (`swiftformat --lint .`; `make format` applies it). `.swiftlint.yml` fails only on
   errors, and the disabled rules each have a reason in the file. To widen either one,
@@ -121,7 +122,9 @@ App Store Connect.
 
 ### Secrets (Settings → Environments → `internal-testflight` and `external-testflight`)
 
-Each environment holds the same three secrets; `external-testflight` asks for approval per run.
+Each environment holds the same three secrets. Configure `external-testflight` with required reviewers,
+prevent self-review, and limit deployment to `main`. The reviewer confirms that the build number and
+source commit in the candidate job summary match the physical iPhone test record and explicit approval.
 Set them with `gh secret set <NAME> --env <environment>` (it prompts for the value).
 
 | Secret | Value |
@@ -167,7 +170,7 @@ xcconfigs from the examples.
      run; that's why the first half stays on your Mac. Merge it like any other PR (squash).
   3. **After the merge:** `release.yml` runs on the push to `main` that changed `VERSION`. It
      refuses a version that isn't a raise (a reverted release PR) and a `vX.Y.Z` tag on another
-     commit, tags the merge commit, and calls `_testflight.yml` for that tag: group **Internal**,
+     commit, tags the merge commit, and calls `_testflight.yml` with the triggering commit SHA for group **Internal**.
      What to Test "RYFT X.Y.Z" plus the commits since the previous `v*` tag. A re-run finds its
      own tag and carries on. The tag push uses `GITHUB_TOKEN`, as the `build/<number>` tags do.
   - It shares the concurrency group `testflight` with the nightly, so it waits for an upload
@@ -186,15 +189,14 @@ The script uses only the Python standard library; `openssl` signs the ES256 JWT.
      Connect adds every build there itself and refuses a manual assignment, so the script logs
      "Internal gets every build automatically" and moves on
   4. with `--external`, submits it for beta review (an existing submission is fine)
-- `latest-build` prints the newest processed build number.
-- `--self-test` checks the internal-group logic offline.
+- `latest-build` prints the newest processed build number for inventory.
+- `validate-external-build N` validates the RYFT build number before an external candidate enters approval.
+- `--self-test` checks group assignment and rejects invalid, mismatched or ambiguous build selection offline.
 
-**Weekly notes:** the commits between the tag `testflight-external` (the last external
-build) and `build/<number>`. After distributing, the tag moves.
-
-**The 07:00 Berlin schedule:** GitHub cron runs in UTC. `weekly.yml` is scheduled at
-05:00 and 06:00 UTC, and its first step continues only when it's 07 in Europe/Berlin.
-That's one run in summer (CEST) and one in winter (CET).
+**External release notes.** The candidate job resolves `build/<number>` before approval and gives the
+approval job that build number and exact commit. A missing build tag stops the run. Notes list the
+commits between the recorded candidate and `testflight-external`. Distribution moves the external
+tag to the recorded candidate commit.
 
 ## Runbook
 
@@ -204,5 +206,5 @@ That's one run in summer (CEST) and one in winter (CET).
   - a build stuck in processing times out after 60 min in Distribute
 - **External group, first build:** Apple's beta review takes about a day. Later builds
   of the same version usually pass at once.
-- **Re-run the weekly by hand:** Actions → Weekly external TestFlight → Run workflow
-  (skips the hour check).
+- **Distribute an approved build externally.** Actions → External TestFlight → Run workflow on
+  `main`. Enter the exact build number from the physical test record and provide any release notes.

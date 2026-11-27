@@ -140,14 +140,20 @@ struct MockPlatformTests {
 @MainActor
 struct SyncEngineTests {
     @Test func theNightGoesUpBeforeTheDayStreams() {
-        let order = HealthKitManager.shared.streams
+        let health = HealthKitManager.shared
+        let order = health.streams
         #expect(order.first == .sleep)
         #expect(Array(order.prefix(5)) == [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR),
                                            .quantity(.respiratoryRate), .quantity(.spo2)])
         let heartRate = order.firstIndex(of: .quantity(.heartRate)) ?? -1
         #expect((order.firstIndex(of: .workouts) ?? .max) < heartRate)
-        #expect(order.suffix(3) == [.quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)])
-        #expect(Set(order).count == SampleType.allCases.count + 2) // every type, once
+        let sharesBodyMass = health.sharesBodyMass
+        let optionalStreams: [HealthStream] = sharesBodyMass ? [.quantity(.bodyMass)] : []
+        let dayStreams: [HealthStream] = [.quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)]
+        #expect(Array(order.suffix(dayStreams.count + optionalStreams.count)) == dayStreams + optionalStreams)
+        let quantities = SampleType.allCases.filter { $0 != .bodyMass || sharesBodyMass }
+        #expect(Set(order) == Set([.sleep, .workouts] + quantities.map(HealthStream.quantity)))
+        #expect(Set(order).count == order.count)
     }
 
     @Test func readingMappingEncodingAndUploadingStayOffTheMainThread() async {
@@ -1547,6 +1553,8 @@ struct ReportProblemTests {
         let env = AppEnvironment.test(flags: [.devicesSetup: true])
         let model = ReportProblemModel(env: env, apiStatus: APIStatus()) { Self.sync }
         model.message = "Today said calibrating after a full week."
+        #expect(!model.includeDiagnostics && model.payload().diagnostics == nil)
+        model.includeDiagnostics = true
         #expect(model.payload().diagnostics?["sync_check"] == nil && model.syncCheck == nil) // no check: no key, no row
         let store = MockHealthStore.garminLike(now: env.clock.now(), sleepOff: true)
         await TrackerCheckModel(env: env, health: store, trackers: ["garmin", "iphone"]).run()
@@ -1690,6 +1698,8 @@ struct ReportProblemTests {
         let api = MockPlatformAPI()
         let (model, env) = model(api)
         model.category = .data
+        #expect(!model.includeDiagnostics && model.payload().requestIds.isEmpty)
+        model.includeDiagnostics = true
         #expect(model.canSend)
         await model.send()
         #expect(model.result == .sent && !model.sending)
@@ -1698,7 +1708,7 @@ struct ReportProblemTests {
         let posted = try #require(api.feedbackPosts.first)
         #expect(posted.category == .data && posted.diagnostics?["sync"] == Self.syncText)
         // The next report starts fresh.
-        #expect(model.message.isEmpty && model.category == .other && model.includeDiagnostics)
+        #expect(model.message.isEmpty && model.category == .other && !model.includeDiagnostics)
     }
 
     @Test func offlineItIsQueuedAndSentOnReconnect() async {
@@ -1720,12 +1730,13 @@ struct ReportProblemTests {
     @Test func theQueueSurvivesARelaunch() async {
         let api = MockPlatformAPI()
         let (model, env) = model(api, online: false)
+        model.includeDiagnostics = true
         await model.send()
         #expect(model.result == .queued)
 
         // The app was closed: a new model over the same store finds the report and sends it.
         let relaunched = ReportProblemModel(env: env, apiStatus: APIStatus()) { FeedbackSync() }
-        #expect(relaunched.waiting == 1 && relaunched.message.isEmpty)
+        #expect(relaunched.waiting == 1 && relaunched.message.isEmpty && !relaunched.includeDiagnostics)
         env.connectivityMonitor.update(true)
         await relaunched.flush()
         #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
@@ -1806,9 +1817,9 @@ struct ReportProblemTests {
         let context = ReportContext(resource: "Today", status: "503", requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
         model.prepare(context)
         #expect(model.category == .bug && model.context == context)
-        #expect(model.message == ReportProblemModel.prefill(context) && model.includeDiagnostics)
+        #expect(model.message == ReportProblemModel.prefill(context) && !model.includeDiagnostics)
         await model.send()
-        #expect(api.feedbackPosts.first?.requestIds.first == "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
+        #expect(api.feedbackPosts.first?.requestIds.isEmpty == true)
         #expect(api.feedbackPosts.first?.category == .bug)
 
         // From Profile afterwards: a fresh report about nothing in particular.
@@ -1888,7 +1899,7 @@ struct ReportProblemTests {
         profile.accountChanged(from: "account-a")
 
         #expect(status.requests.isEmpty && status.failures.isEmpty && status.epoch == 1)
-        #expect(report.message.isEmpty && report.category == .other && report.includeDiagnostics)
+        #expect(report.message.isEmpty && report.category == .other && !report.includeDiagnostics)
         #expect(report.context == nil && report.result == nil && report.resultDetails == nil)
         #expect(report.payload().requestIds.isEmpty)
     }
@@ -2188,6 +2199,7 @@ struct ReportProblemTests {
         agreed.confirmed = "ok"
         env.persistence.saveDocument(agreed, key: AgreeTiming.documentKey, at: env.clock.now())
         profile.report.prepare(.preview)
+        profile.report.includeDiagnostics = true
         let post = profile.report.payload()
         let d = try #require(post.diagnostics)
 
@@ -3011,11 +3023,13 @@ struct DevicesAndDiagnosticsTests {
         on.devices.save(["garmin"])
         #expect(on.report.includesTrackers)
         on.report.message = "Steps look low."
+        on.report.includeDiagnostics = true
         #expect(on.report.payload().diagnostics?["trackers"] == "garmin")
         on.report.includeDiagnostics = false
         #expect(on.report.payload().diagnostics == nil)
 
         let off = profile(flag: false)
+        off.report.includeDiagnostics = true
         #expect(!off.report.includesTrackers && off.report.payload().diagnostics?["trackers"] == nil)
     }
 }

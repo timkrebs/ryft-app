@@ -11,19 +11,22 @@ from the environment, as the CI secrets of the same names:
 
 Commands:
     distribute --build N --group NAME [--notes FILE] [--external]
-        Wait until build N has processed, set its "What to Test" (en-US: the app is English only),
+        Wait until build N has processed, set its en-US "What to Test" notes,
         add it to the beta group, and for an external group submit it for beta review.
         An internal group with "access to all builds" gets every build by itself (App Store
         Connect refuses a manual assignment), so the assignment is skipped; the notes are set.
     --self-test
-        Check the internal-group logic against canned API answers (no network).
+        Check group assignment and exact build selection against canned API answers (no network).
+    validate-external-build N
+        Print a valid RYFT build number for the external promotion workflow.
     latest-build
-        Print the newest processed build number (the weekly job promotes it).
+        Print the newest processed build number for diagnostics.
 """
 import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -98,11 +101,25 @@ def app_id() -> str:
     return apps[0]["id"]
 
 
+def matches_build_number(expected: str, actual: str) -> bool:
+    if expected == actual:
+        return True
+    # Apple ignores leading zeroes in numeric build components; RYFT pads HHmmss.
+    dotted_number = r"[0-9]+(?:\.[0-9]+){0,2}"
+    if not re.fullmatch(dotted_number, expected) or not re.fullmatch(dotted_number, actual):
+        return False
+    return [p.lstrip("0") for p in expected.split(".")] == [p.lstrip("0") for p in actual.split(".")]
+
+
 def find_build(app: str, number: str, timeout_min: int = 60) -> str:
     deadline = time.time() + timeout_min * 60
     while True:
         builds = call("GET", query("/builds", **{"filter[app]": app, "filter[version]": number,
-                                                 "limit": 1}))["data"]
+                                                 "limit": 2}))["data"]
+        if len(builds) > 1:
+            raise SystemExit(f"Ambiguous App Store Connect build number {number}")
+        if builds and not matches_build_number(number, builds[0]["attributes"]["version"]):
+            raise SystemExit(f"App Store Connect returned a different build for {number}")
         state = builds[0]["attributes"]["processingState"] if builds else "NOT_UPLOADED_YET"
         if state == "VALID":
             return builds[0]["id"]
@@ -117,7 +134,7 @@ def find_build(app: str, number: str, timeout_min: int = 60) -> str:
 def set_notes(build: str, notes: str):
     existing = {loc["attributes"]["locale"]: loc["id"]
                 for loc in call("GET", f"/builds/{build}/betaBuildLocalizations")["data"]}
-    for locale in ("en-US",):  # English only: a de-DE "What to Test" is not set any more
+    for locale in ("en-US",):  # The automated notes source is currently English.
         if locale in existing:
             call("PATCH", f"/betaBuildLocalizations/{existing[locale]}",
                  {"data": {"type": "betaBuildLocalizations", "id": existing[locale],
@@ -184,6 +201,12 @@ def latest_build(_args):
     print(builds[0]["attributes"]["version"])
 
 
+def external_build_number(number: str) -> str:
+    if not re.fullmatch(r"[0-9]{8}\.[0-9]{6}", number):
+        raise argparse.ArgumentTypeError("expected the physically tested build number (yyyyMMdd.HHmmss)")
+    return number
+
+
 def self_test(_args):
     global call
     real, calls = call, []
@@ -211,6 +234,28 @@ def self_test(_args):
             raise AssertionError("an external group's refusal must fail")
         except SystemExit:
             pass
+        number = "20261020.094512"
+        match = {"id": "approved", "attributes": {"version": number, "processingState": "VALID"}}
+        normalized = {"id": "approved", "attributes": {"version": "20261020.94512", "processingState": "VALID"}}
+        other = {"id": "other", "attributes": {"version": "20261020.094513", "processingState": "VALID"}}
+        assert external_build_number(number) == number
+        for invalid in ("", "latest", "20261020.09451\n", "20261020.094512\ncommit=other"):
+            try:
+                external_build_number(invalid)
+                raise AssertionError("missing or invalid build number must fail")
+            except argparse.ArgumentTypeError:
+                pass
+        call = lambda *_: {"data": [match]}
+        assert find_build("app", number) == "approved"
+        call = lambda *_: {"data": [normalized]}
+        assert find_build("app", number) == "approved"
+        for candidates in ([other], [match, other], [match, normalized]):
+            call = lambda *_: {"data": candidates}
+            try:
+                find_build("app", number)
+                raise AssertionError("different or ambiguous build selection must fail")
+            except SystemExit:
+                pass
     finally:
         call = real
     print("testflight.py self-test: ok")
@@ -228,7 +273,15 @@ def main():
     d.add_argument("--external", action="store_true")
     d.set_defaults(func=distribute)
     sub.add_parser("latest-build").set_defaults(func=latest_build)
+    v = sub.add_parser("validate-external-build")
+    v.add_argument("build", type=external_build_number)
+    v.set_defaults(func=lambda args: print(args.build))
     args = parser.parse_args()
+    if getattr(args, "external", False):
+        try:
+            external_build_number(args.build)
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
     args.func(args)
 
 

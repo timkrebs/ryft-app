@@ -171,8 +171,7 @@ enum AnalyticsErrorCode: String, AnalyticsToken {
     case appAttestInvalid = "app_attest_invalid"
     case appAttestKeyUnknown = "app_attest_key_unknown"
 
-    /// nil → none; a code this build knows → its own (a new `APIErrorCode` doesn't compile until it's mapped);
-    /// anything else → unknown.
+    /// Maps API errors to the established set of analytics tokens.
     init(_ raw: String?) {
         guard let raw else {
             self = .none
@@ -191,6 +190,7 @@ enum AnalyticsErrorCode: String, AnalyticsToken {
         case .appAttestChallengeInvalid: self = .appAttestChallengeInvalid
         case .appAttestInvalid: self = .appAttestInvalid
         case .appAttestKeyUnknown: self = .appAttestKeyUnknown
+        case .unknownProvider, .connectionLimit, .connectTicketInvalid, .connectExpired: self = .unknown
         }
     }
 }

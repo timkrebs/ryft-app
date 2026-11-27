@@ -27,6 +27,9 @@ struct SupabaseConfig: Equatable {
     /// Where Supabase sends confirmation and password-reset links. Must be in
     /// the project's redirect URLs (Authentication → URL Configuration).
     static let redirectURL = URL(string: "ryft://auth/callback")!
+    /// Used only by the active system browser session. Keep email recovery on its existing path.
+    static let oauthRedirectURL = URL(string: "ryft://auth/oauth/callback")!
+    static let entry = AuthEntry(Bundle.configValue("RyftAuthEntry"))
 
     /// The universal-link form (Associated Domains `applinks:ryftlab.de`). Accepted
     /// already; becomes `redirectURL` once ryftlab.de serves the
@@ -35,7 +38,7 @@ struct SupabaseConfig: Equatable {
 
     /// A confirmation or reset link, in either form.
     static func isAuthCallback(_ url: URL) -> Bool {
-        if url.scheme == redirectURL.scheme, url.host == redirectURL.host { return true }
+        if url.scheme == redirectURL.scheme, url.host == redirectURL.host, url.path == redirectURL.path { return true }
         return url.scheme == "https" && url.host == universalRedirectURL.host
             && url.path == universalRedirectURL.path
     }
@@ -45,6 +48,42 @@ struct SupabaseConfig: Equatable {
         let missing = PlatformConfig.missing
         guard !missing.isEmpty else { return nil }
         return String(localized: "This build is missing \(missing.formatted(.list(type: .and))). Fill them in Config/Production.xcconfig and rebuild.")
+    }
+}
+
+enum AuthEntry: String {
+    case legacy, transition, social
+
+    init(_ configured: String?) {
+        self = configured.flatMap(Self.init(rawValue:)) ?? .legacy
+    }
+
+    var googleEnabled: Bool { self != .legacy }
+    var emailEnabled: Bool { self != .social }
+}
+
+enum GoogleOAuth {
+    static func isReturnPath(_ url: URL) -> Bool {
+        url.scheme == SupabaseConfig.oauthRedirectURL.scheme && url.host == SupabaseConfig.oauthRedirectURL.host
+            && url.path == SupabaseConfig.oauthRedirectURL.path
+    }
+
+    static func accepts(_ url: URL) -> Bool {
+        guard isReturnPath(url), let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.percentEncodedPath == SupabaseConfig.oauthRedirectURL.path,
+              components.user == nil, components.password == nil, components.port == nil, components.fragment == nil,
+              let items = components.queryItems else { return false }
+        let codes = items.filter { $0.name == "code" }
+        return codes.count == 1 && codes[0].value?.isEmpty == false
+            && !items.contains { ["access_token", "refresh_token", "error", "error_code", "error_description"].contains($0.name) }
+    }
+
+    static func acceptsAuthorization(_ url: URL, authURL: URL) -> Bool {
+        guard url.scheme == "https", url.user == nil, url.password == nil, url.fragment == nil else { return false }
+        if url.host == authURL.host, url.port == authURL.port {
+            return url.path == authURL.appendingPathComponent("authorize").path
+        }
+        return url.host == "accounts.google.com" && (url.port == nil || url.port == 443)
     }
 }
 

@@ -121,7 +121,8 @@ struct FailedDeletionTests {
         })
         let id = try #require(g.saveRun())
         let detail = ActivityDetailViewModel(route: ActivityRoute(id: id, day: g.clock.now()), state: g.state)
-        let deleting = Task { await g.profile.deleteAccount() }
+        let confirmation = AccountBinding(g.env)
+        let deleting = Task { await g.profile.deleteAccount(confirmedFor: confirmation) }
         #expect(await eventually { g.auth.isDeletingAccount })
         #expect(detail.uploadNote == .accountDeleting && g.api.count("putActivity") == 0)
         // The note is observed: it changes when the deletion ends.
@@ -135,5 +136,23 @@ struct FailedDeletionTests {
         #expect(changed.value && !g.auth.isDeletingAccount && g.auth.isSignedIn)
         #expect(detail.uploadNote != .accountDeleting)
         #expect(g.api.count("putActivity") == 1, "the queue the deletion held went up")
+    }
+
+    @Test func confirmationForTheLeavingAccountCannotDeleteTheIncomingAccount() async {
+        var deletions = 0
+        let g = SendFirstGraph {
+            deletions += 1
+            return AccountDeleted(status: "deleted", authUserDeleted: true)
+        }
+        let confirmation = AccountBinding(g.env)
+        g.client.signInSession = .preview(id: SendFirstGraph.b)
+        _ = await g.auth.logIn(email: "b@example.com", password: "0123456789")
+        #expect(g.auth.accountID == SendFirstGraph.b.uuidString)
+
+        await g.profile.deleteAccount(confirmedFor: confirmation)
+
+        #expect(deletions == 0)
+        #expect(g.auth.accountID == SendFirstGraph.b.uuidString)
+        #expect(g.client.signOutCount == 0)
     }
 }

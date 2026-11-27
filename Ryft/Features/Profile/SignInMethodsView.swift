@@ -34,6 +34,7 @@ struct SignInMethodsView: View {
                     }
                 }
                 if !auth.hasAppleSignIn { addApple }
+                if auth.authEntry.googleEnabled, !auth.hasGoogleSignIn { addGoogle }
                 if let error = auth.linkError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle")
                 }
@@ -63,15 +64,31 @@ struct SignInMethodsView: View {
         }
     }
 
+    private var addGoogle: some View {
+        VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+            Text("Add Google sign-in to this RYFT account to keep your existing data.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            GoogleSignInButton(title: "Add Google sign-in") {
+                await auth.continueWithGoogle(linking: true) { try await DirectConnectionWebSession().authorize($0) }
+            }
+            .disabled(auth.isWorking)
+            .accessibilityIdentifier("signInMethods.addGoogle")
+        }
+    }
+
     /// Loaded identities; before they arrive, the session's provider.
     private var methods: [SignInMethod] {
-        if !auth.signInMethods.isEmpty { return auth.signInMethods }
-        return auth.provider.map { [SignInMethod(provider: $0, email: auth.user?.email, addedAt: nil)] } ?? []
+        let loaded = auth.signInMethods
+        let fallback = auth.provider.map { [SignInMethod(provider: $0, email: auth.user?.email, addedAt: nil)] } ?? []
+        return (loaded.isEmpty ? fallback : loaded).filter { auth.authEntry.emailEnabled || $0.provider != "email" }
     }
 
     static func title(_ provider: String) -> String {
         switch provider {
         case "apple": return String(localized: "Apple ID")
+        case "google": return String(localized: "Google")
         case "email": return String(localized: "Email and password")
         default: return provider.capitalized
         }

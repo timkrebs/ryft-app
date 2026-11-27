@@ -56,12 +56,13 @@ final class HealthKitManager {
         .init(hkType: HKQuantityType(.vo2Max), type: .vo2max, unit: HKUnit(from: "ml/kg*min"), scale: 1, unitLabel: "ml/kg/min"),
         .init(hkType: HKQuantityType(.activeEnergyBurned), type: .activeEnergy, unit: .kilocalorie(), scale: 1, unitLabel: "kcal"),
         .init(hkType: HKQuantityType(.stepCount), type: .steps, unit: .count(), scale: 1, unitLabel: "count"),
+        .init(hkType: HKQuantityType(.bodyMass), type: .bodyMass, unit: .gramUnit(with: .kilo), scale: 1, unitLabel: "kg"),
     ]
     let sleepType = HKCategoryType(.sleepAnalysis)
     let workoutType = HKObjectType.workoutType()
 
     var readTypes: Set<HKObjectType> {
-        Set(quantities.map { $0.hkType as HKObjectType } + [sleepType, workoutType])
+        Set(quantities.filter { $0.type != .bodyMass || sharesBodyMass }.map { $0.hkType as HKObjectType } + [sleepType, workoutType])
     }
 
     static var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
@@ -71,6 +72,24 @@ final class HealthKitManager {
     func requestAuthorization() async throws {
         try await store.requestAuthorization(toShare: [], read: readTypes)
     }
+
+    var sharesBodyMass: Bool {
+        guard let account = AccountScope.current(defaults) else { return false }
+        return defaults.bool(forKey: bodyMassKey(account))
+    }
+
+    func requestBodyMass(for account: String) async throws {
+        try await store.requestAuthorization(toShare: [], read: [HKQuantityType(.bodyMass)])
+        guard AccountScope.current(defaults)?.caseInsensitiveCompare(account) == .orderedSame,
+              let current = AccountScope.current(defaults) else { throw CancellationError() }
+        defaults.set(true, forKey: bodyMassKey(current))
+    }
+
+    func stopBodyMass() {
+        if let account = AccountScope.current(defaults) { defaults.removeObject(forKey: bodyMassKey(account)) }
+    }
+
+    private func bodyMassKey(_ account: String) -> String { "nutrition.healthkit.bodyMass.\(account)" }
 
     // MARK: anchors
 
@@ -252,11 +271,14 @@ final class HealthKitManager {
         let bpm = HKUnit.count().unitDivided(by: .minute())
         let distance = sum(.distanceWalkingRunning, .meter()) ?? sum(.distanceCycling, .meter())
             ?? sum(.distanceSwimming, .meter()) ?? sum(.distanceWheelchair, .meter())
+        let zone = (w.metadata?[HKMetadataKeyTimeZone] as? String).flatMap(TimeZone.init(identifier:))
+        let userEntered = (w.metadata?[HKMetadataKeyWasUserEntered] as? NSNumber)?.boolValue
         return Workout(id: w.uuid, activity: activityName(w.workoutActivityType),
                        start: w.startDate, end: w.endDate,
                        avgHr: avg(.heartRate, bpm), maxHr: max(.heartRate, bpm),
                        energyKcal: sum(.activeEnergyBurned, .kilocalorie()), distanceM: distance,
-                       source: sourceName(w), strain: nil, sourceBundleId: sourceBundleID(w))
+                       source: sourceName(w), strain: nil, sourceBundleId: sourceBundleID(w),
+                       wasUserEntered: userEntered, tzOffsetSec: zone?.secondsFromGMT(for: w.startDate))
     }
 
     static func activityName(_ t: HKWorkoutActivityType) -> String {

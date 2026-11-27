@@ -10,6 +10,8 @@ protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI, TrainImpor
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse
     /// `POST /v1/me/apple-authorization`, once after Sign in with Apple.
     func postAppleAuthorization(code: String) async throws
+    /// `GET /v1/me/nutrition-export`. Each page contains only the account's saved meal snapshots.
+    func nutritionMealExport(after cursor: UUID?) async throws -> NutritionMealExportPage
     /// `GET /v1/config`: feature flags evaluated for the caller.
     func config() async throws -> RemoteConfig
     /// `POST /v1/devices/{id}/push`.
@@ -142,6 +144,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var failure: Error?
     /// Thrown once by the next call.
     var failNext: Error?
+    /// Scripts saved-meal export pages for the account's data export tests.
+    var mealExportPage: (@Sendable (UUID?) async throws -> NutritionMealExportPage)?
     var syncResponse = SyncResponse(samples: 0, sleep: 0, workouts: 0, daysTouched: [])
     /// Demo data shows the features that ship dark for accounts: the tracker setup (`devices.setup`), My Day and
     /// activities.
@@ -252,6 +256,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     }
 
     func count(_ name: String) -> Int { lock.withLock { calls.filter { $0 == name }.count } }
+
+    func nutritionMealExport(after cursor: UUID?) async throws -> NutritionMealExportPage {
+        try enter("nutritionMealExport")
+        let page = lock.withLock { mealExportPage }
+        return try await page?(cursor) ?? NutritionMealExportPage(meals: [], nextAfter: nil)
+    }
 
     // MARK: services
 

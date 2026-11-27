@@ -10,6 +10,12 @@
             "state" : "translated",
             "value" : "RYFT"
           }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT"
+          }
         }
       }
     },
@@ -18,6 +24,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT"
+          }
+        },
+        "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT"
@@ -34,6 +46,29 @@
             "state" : "translated",
             "value" : "RYFT sets the wake-up alarm you choose in Bedtime & wake, so it rings even in Silent mode and Focus."
           }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT stellt den Wecker, den du unter Schlafen und Aufwachen auswählst. Er klingelt auch im Stummmodus und bei aktivem Fokus."
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT uses the camera to read a food barcode when you choose to scan it."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT verwendet die Kamera, um einen Lebensmittelbarcode zu lesen, wenn du ihn scannen möchtest."
+          }
         }
       }
     },
@@ -44,7 +79,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising."
+            "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. If you choose to share them, RYFT reads weigh-ins for coaching and blood glucose for meal response scores. The data is sent to your RYFT account and never used for advertising."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT liest Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, Aktivitätsenergie, Schlaf und Trainings, um deine Werte für Erholung, Belastung und Schlaf zu berechnen. Wenn du sie freigibst, liest RYFT auch Gewichtsmessungen fürs Coaching und Glukosewerte zur Bewertung deiner Mahlzeiten. Die Daten werden an dein RYFT-Konto gesendet und nie für Werbung verwendet."
           }
         }
       }
@@ -57,6 +98,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT saves your strength workouts to Apple Health, only if you turn it on. It writes nothing else."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn du die Funktion aktivierst, speichert RYFT deine Krafttrainings in Apple Health. RYFT schreibt keine weiteren Daten."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT connects to the Garmin test API on your Mac when you start a local test."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei einem lokalen Test verbindet sich RYFT mit der Garmin-Test-API auf deinem Mac."
           }
         }
       }

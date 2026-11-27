@@ -13,11 +13,32 @@ struct DevicesAndSyncView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var scenePhase
     @State private var editing = false
     @State private var route: DevicesRoute?
     /// The pushed Check sync's model: made on the tap, once, not on every redraw.
     @State private var check: TrackerCheckModel?
     @State private var askingForHealth = false
+    @State private var direct = DirectConnectionsModel()
+
+    #if DEBUG && targetEnvironment(simulator)
+    @State private var directFixture = DirectConnectionsSimulatorFixture.requested()
+    #endif
+
+    private var directAPI: (any DirectConnectionsAPI)? {
+        #if DEBUG && targetEnvironment(simulator)
+        if let directFixture { return directFixture }
+        #endif
+        return env.api as? any DirectConnectionsAPI
+    }
+
+    private var directAccount: String? {
+        #if DEBUG && targetEnvironment(simulator)
+        if directFixture != nil { return "simulator-fixture" }
+        #endif
+        return env.isDemo ? nil : env.auth.accountID
+    }
+    private var showDirectConnections: Bool { directAccount != nil && directAPI != nil }
 
     var body: some View {
         SubpageScaffold(Text("Devices & sync"), navigation: placement.navigation, isSheet: placement.isSheet) {
@@ -30,11 +51,36 @@ struct DevicesAndSyncView: View {
                 }
                 seen.padding(.top, DevicesSpec.seenGap)
                 health.padding(.top, GroupedListSpec.groupSpacing)
+                if showDirectConnections {
+                    directConnections.padding(.top, GroupedListSpec.groupSpacing)
+                }
+                #if DEBUG
+                GroupedCard {
+                    GroupedRow.push(Text("Garmin local test"), icon: "desktopcomputer", identifier: "devices.garminLocal") {
+                        route = .garminLocal
+                    }
+                }
+                .padding(.top, GroupedListSpec.groupSpacing)
+                #endif
                 syncDetails.padding(.top, GroupedListSpec.groupSpacing)
             }
         }
         .devicesPagePlacement(placement)
         .task { await model.appeared() }
+        .task(id: directAccount) {
+            direct.setAccount(directAccount)
+            await refreshDirectConnections()
+        }
+        .onChange(of: directAccount) { _, account in
+            direct.setAccount(account)
+            if case .provider = route { route = nil }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshDirectConnections() } }
+        }
+        .onChange(of: env.connectivity.isOnline) { _, online in
+            if online { Task { await refreshDirectConnections() } }
+        }
         // Back from Check sync: "Last checked" and the rows' results.
         .onAppear { model.reloadCheck() }
         .navigationDestination(item: $route) { destination($0) }
@@ -50,8 +96,28 @@ struct DevicesAndSyncView: View {
             }
         case .check:
             if let check { TrackerCheckView(model: check, placement: placement.pushed) }
+        case .provider(let id):
+            if let api = directAPI, direct.account == directAccount, let row = direct.providers.first(where: { $0.id == id }) {
+                DirectProviderDetailView(row: row, placement: placement.pushed, online: env.connectivity.isOnline,
+                                         loading: direct.loading, working: direct.activeProvider == id,
+                                         busy: direct.activeProvider != nil, failure: direct.actionFailure ?? direct.loadFailure,
+                                         revocationPending: direct.revocationPending,
+                                         refresh: { await refreshDirectConnections() },
+                                         connect: {
+                                             guard direct.account == directAccount else { return }
+                                             await direct.link(id, api: api, browser: DirectConnectionWebSession(), now: { env.clock.now() })
+                                         },
+                                         disconnect: {
+                                             guard direct.account == directAccount else { return }
+                                             await direct.unlink(id, api: api)
+                                         })
+            }
         case .syncDetails:
             SyncDetailsView(model: screens.profile.syncDetails, placement: placement.pushed)
+        #if DEBUG
+        case .garminLocal:
+            LocalGarminTestView()
+        #endif
         }
     }
 
@@ -222,6 +288,43 @@ struct DevicesAndSyncView: View {
         }
     }
 
+    // MARK: direct wearable connections
+
+    private var directConnections: some View {
+        GroupedCard(Text("Direct connections")) {
+            if direct.account != directAccount || (direct.loading && direct.current == nil) {
+                sentenceRow(Text("Loading connections…"))
+            } else if direct.providers.isEmpty && !env.connectivity.isOnline {
+                sentenceRow(Text("Connect to the internet to see your connections."))
+            } else {
+                ForEach(direct.providers) { row in
+                    GroupedRow.push(Text(verbatim: row.name), detail: Text(verbatim: row.status.title),
+                                    icon: "link", identifier: "devices.direct.\(row.id)") {
+                        direct.clearActionFeedback()
+                        route = .provider(row.id)
+                    }
+                }
+                if !env.connectivity.isOnline {
+                    sentenceRow(Text("Offline. Showing your last loaded connections."))
+                } else if let failure = direct.loadFailure {
+                    sentenceRow(Text(verbatim: failure.message))
+                    GroupedRow.action(Text("Try again"), systemImage: "arrow.clockwise") {
+                        Task { await refreshDirectConnections() }
+                    }
+                } else if direct.providers.isEmpty {
+                    sentenceRow(Text("No direct providers available."))
+                }
+            }
+        }
+        .accessibilityIdentifier("devices.direct")
+    }
+
+    private func refreshDirectConnections() async {
+        guard showDirectConnections, direct.account == directAccount,
+              env.connectivity.isOnline, let api = directAPI else { return }
+        await direct.refresh(api)
+    }
+
     // MARK: sync details
 
     private var syncDetails: some View {
@@ -258,7 +361,11 @@ enum DevicesSpec {
 
 /// What Devices & sync pushes.
 private enum DevicesRoute: Hashable {
+    #if DEBUG
+    case garminLocal
+    #endif
     case tracker(String)
+    case provider(String)
     case check
     case syncDetails
 }

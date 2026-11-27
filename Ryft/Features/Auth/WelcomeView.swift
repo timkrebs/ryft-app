@@ -95,11 +95,19 @@ struct WelcomeView: View {
             }
             VStack(spacing: WelcomeSpec.actionSpacing) {
                 AppleSignInButton()
-                PillButton(Text("Create account"), style: .secondary) { path.append(.createAccount) }
+                if auth.authEntry.googleEnabled {
+                    GoogleSignInButton(title: "Continue with Google") {
+                        await auth.continueWithGoogle { try await DirectConnectionWebSession().authorize($0) }
+                    }
                     .disabled(auth.isWorking)
-                    .accessibilityIdentifier("welcome.createAccount")
-                logIn
-                    .disabled(auth.isWorking)
+                    .accessibilityIdentifier("welcome.google")
+                }
+                if auth.authEntry.emailEnabled {
+                    PillButton(Text("Create account"), style: .secondary) { path.append(.createAccount) }
+                        .disabled(auth.isWorking)
+                        .accessibilityIdentifier("welcome.createAccount")
+                    logIn.disabled(auth.isWorking)
+                }
             }
             .disabled(!isConfigured)
             AuthErrorMessage()
@@ -108,6 +116,14 @@ struct WelcomeView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            Link(destination: URL(string: "mailto:support@ryftlab.de")!) {
+                Text("Contact support")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(InlineLink.ink)
+                    .underline()
+                    .frame(minHeight: Theme.Metrics.minHitTarget)
+            }
+            .accessibilityIdentifier("welcome.support")
             #if DEBUG
             Button {
                 settings.apiKeyMode = true

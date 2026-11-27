@@ -121,7 +121,10 @@ protocol IngestRecord {
 }
 
 extension Sample: IngestRecord {
-    var passesValidation: Bool { !SyncScreen.lacksStart(start) && SyncScreen.endNotBeforeStart(start, end) }
+    var passesValidation: Bool {
+        if type == .bodyMass, unit != "kg" || !(25...350).contains(value) { return false }
+        return !SyncScreen.lacksStart(start) && SyncScreen.endNotBeforeStart(start, end)
+    }
 }
 
 extension SleepSegment: IngestRecord {

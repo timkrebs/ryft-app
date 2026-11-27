@@ -227,6 +227,7 @@ struct LaunchSequence: Equatable, Sendable {
 
     let decision: LaunchDecision
     let createdAt: Date
+    private let tapTestWindow: TimeInterval?
     /// The first `.active`: `playing` starts here.
     private(set) var activatedAt: Date?
     /// The overlay's first frame, if it came within `firstFrameWindow` of `activatedAt`.
@@ -244,9 +245,10 @@ struct LaunchSequence: Equatable, Sendable {
     /// so from the hand-off on it is fixed and `movesMark` is decided once.
     private(set) var hasMarkTarget = false
 
-    init(decision: LaunchDecision, createdAt: Date) {
+    init(decision: LaunchDecision, createdAt: Date, holdForTapTest: Bool = false) {
         self.decision = decision
         self.createdAt = createdAt
+        tapTestWindow = holdForTapTest ? 60 : nil
     }
 
     var variant: Variant? {
@@ -254,7 +256,11 @@ struct LaunchSequence: Equatable, Sendable {
         return nil
     }
 
-    var timing: Timing { variant == .reduced ? .reduced : .full }
+    var timing: Timing {
+        var timing: Timing = variant == .reduced ? .reduced : .full
+        if let tapTestWindow { timing.duration = tapTestWindow }
+        return timing
+    }
 
     /// The timeline's t = 0: the overlay's first frame, or the end of `firstFrameWindow` if none came by then; nil before
     /// the first `.active`. Until then every frame is t = 0, so the first one drawn fades in from nothing.
@@ -267,7 +273,7 @@ struct LaunchSequence: Equatable, Sendable {
     mutating func send(_ event: Event, at date: Date) {
         switch (phase(at: date), event) {
         case (.armed, .scene(.active)):
-            if date.timeIntervalSince(createdAt) > Timing.coldStartWindow {
+            if date.timeIntervalSince(createdAt) > (tapTestWindow ?? Timing.coldStartWindow) {
                 skippedBy = .lateActivation
             } else {
                 activatedAt = date

@@ -348,12 +348,13 @@ final class APIClient: RyftDataSource {
     /// are outside the beta gate (an invite-gated client needs a token to send its code under `on`).
     static let openBehindInviteGate: Set<String> = [
         "GET /v1/me", "GET /v1/me/sync", "GET /v1/config", "GET /v1/model", "POST /v1/me/invite",
+        "GET /v1/me/nutrition-export",
         "POST /v1/me/consent", "DELETE /v1/me/consent", "POST /v1/feedback", "DELETE /v1/me",
         "POST /v1/app-attest/challenge", "POST /v1/app-attest/keys", "POST /v1/app-attest/token",
     ]
 
     static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
-        openBehindInviteGate.contains("\(method) \(route(path))")
+        openBehindInviteGate.contains("\(method) \(route(path))") || isDirectConnectionDelete(method, path)
     }
 
     /// The host a request goes to: `POST /v1/sync` to `ingest` (`nil` when there's none: never the API
@@ -693,8 +694,14 @@ final class APIClient: RyftDataSource {
         return await APIStatus.shared
     }
 
-    /// The app is English only, so names and summaries come in English whatever the device's languages are.
-    static let acceptLanguage = "en"
+    /// Match translated Platform names to the app language. Unsupported languages fall back to English.
+    static var acceptLanguage: String {
+        languageCode(Bundle.main.preferredLocalizations.first ?? Locale.current.identifier)
+    }
+
+    static func languageCode(_ identifier: String) -> String {
+        Locale(identifier: identifier).language.languageCode?.identifier == "de" ? "de" : "en"
+    }
 
     static func dayString(_ d: Date) -> String {
         DayFormat.string(from: d)

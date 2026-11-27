@@ -37,6 +37,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     private(set) var resentEmails: [String] = []
     private(set) var updatedPasswords: [String] = []
     private(set) var openedLinks: [URL] = []
+    private(set) var googleLinkRequests: [Bool] = []
 
     init(session: Session? = nil, signInSession: Session = .preview()) {
         stored = session
@@ -90,6 +91,14 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
         let s = locked { stored = signInSession; return signInSession }
         emit(.signedIn, s)
         return s
+    }
+
+    func googleAuthorizationURL(linking: Bool) async throws -> URL {
+        try locked {
+            googleLinkRequests.append(linking)
+            if let linkError { throw linkError }
+            return URL(string: "https://auth.example.invalid/authorize")!
+        }
     }
 
     func setFullName(_ name: String) async throws {

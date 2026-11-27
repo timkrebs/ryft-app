@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""String-catalog lint (make lint). RYFT is English only.
+"""Check the App, Info.plist and widget string catalogs (make lint).
 
-Over Localizable, InfoPlist and the widget catalogs: no localization other than `en` (a key without
-an `en` block is its own English text), no stale key (unused in code), plural
-variations complete in English (one and other), and every manual key (push loc-keys and Info.plist
-texts, whose key is not the English text) has its `en`. Exits 1 with the offending keys."""
-import json, sys
+English is the source language and German translations are required for translatable keys.
+Manual keys need their English text and plurals in both languages need one and other.
+"""
+import json
+import sys
+
+
+def string_units(node):
+    for key, value in node.items():
+        if key == "stringUnit":
+            yield value
+        elif isinstance(value, dict):
+            yield from string_units(value)
+
+
+def plurals(localization):
+    """Find both a primary plural and any plurals attached to substituted arguments."""
+    nodes = {"": localization, **localization.get("substitutions", {})}
+    return {name: node["variations"]["plural"] for name, node in nodes.items()
+            if "plural" in node.get("variations", {})}
 
 CATALOGS = ["Ryft/Resources/Localizable.xcstrings", "Ryft/Resources/InfoPlist.xcstrings",
             "RyftWidgets/Localizable.xcstrings"]
@@ -16,9 +31,8 @@ for path in CATALOGS:
         problems.append(f"{path}: sourceLanguage is not en")
     for key, entry in catalog["strings"].items():
         loc = entry.get("localizations", {})
-        for lang in loc:
-            if lang != "en":
-                problems.append(f"{path}: {lang} localization for {key!r} (the app is English only)")
+        for lang in sorted(set(loc) - {"en", "de"}):
+            problems.append(f"{path}: unsupported {lang} localization for {key!r}")
         if not key.strip() or entry.get("shouldTranslate") is False:
             continue
         if entry.get("extractionState") == "stale":
@@ -26,19 +40,21 @@ for path in CATALOGS:
             continue
         if entry.get("extractionState") == "manual" and "en" not in loc:
             problems.append(f"{path}: no English for manual key {key!r} (its key is not the English text)")
-        en = loc.get("en")
-        if en is None:
-            continue
-        plural = en.get("variations", {}).get("plural")
-        if plural is not None and not {"one", "other"} <= plural.keys():
-            problems.append(f"{path}: English plural incomplete for {key!r}")
-        # A plural on one argument of several (Xcode's substitutions), e.g. "n of 7 nights".
-        for name, sub in en.get("substitutions", {}).items():
-            sub_plural = sub.get("variations", {}).get("plural")
-            if sub_plural is not None and not {"one", "other"} <= sub_plural.keys():
-                problems.append(f"{path}: English plural incomplete for {key!r} ({name})")
+        de = loc.get("de", {})
+        german_units = list(string_units(de))
+        if not german_units or any(unit.get("state") != "translated" or not unit.get("value", "").strip()
+                                   for unit in german_units):
+            problems.append(f"{path}: incomplete German translation for {key!r}")
+        english_plurals = plurals(loc.get("en", {}))
+        german_plurals = plurals(de)
+        for label, entries in (("English", english_plurals), ("German", german_plurals)):
+            expected = set(entries) if label == "English" else set(entries) | set(english_plurals)
+            for name in sorted(expected):
+                if not {"one", "other"} <= entries.get(name, {}).keys():
+                    argument = f" ({name})" if name else ""
+                    problems.append(f"{path}: {label} plural incomplete for {key!r}{argument}")
 if problems:
     print("\n".join(problems))
     print(f"\n{len(problems)} string problem(s).")
     sys.exit(1)
-print("Strings: English complete, no other language.")
+print("Strings: English and German complete.")

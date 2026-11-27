@@ -3,9 +3,8 @@ import OSLog
 import SwiftUI
 import UIKit
 
-/// Profile → Data → Export my data: everything the platform holds for the
-/// account as one JSON file (`/v1/me`, `/v1/days`, `/v1/workouts`,
-/// `/v1/sessions`, `/v1/activities`), plus what the app keeps for it: the
+/// Profile → Data → Export my data: the account's profile, scores, workouts,
+/// activities and saved meal diary as one JSON file, plus what the app keeps: the
 /// training import's remembered matches and its job not uploaded yet, and the
 /// activities and nights on this iPhone the platform hasn't confirmed. Shared
 /// through the system share sheet.
@@ -30,6 +29,14 @@ enum DataExport {
         var manualSleep: [ManualNight] = []
         /// The training import's job, while some of it isn't on the platform yet (its done items are in `sessions`).
         var pendingImport: PendingImportExport?
+        /// Scope and availability of the account's persisted meal snapshots.
+        var nutritionDiary: NutritionDiary?
+    }
+
+    struct NutritionDiary: Encodable {
+        enum Status: String, Encodable { case included, unavailable, partial }
+        let status: Status
+        let meals: [NutritionMeal]?
     }
 
     /// One activity the platform hasn't confirmed, as this iPhone would send it.
@@ -54,6 +61,10 @@ enum DataExport {
     /// empty twice in a row (or five years).
     static let chunkDays = 180
     static let maxYears = 5
+    private static let maxMealPages = 250
+    private static let maxMealItems = 20_000
+
+    private enum MealExportError: Error { case invalidPage }
 
     /// `activities`: the platform's activities (asked only once it publishes them,
     /// `ActivitiesAPI.publishesActivities`); `onPhone`: the activities and nights on this iPhone of the account it
@@ -61,7 +72,8 @@ enum DataExport {
     @MainActor
     static func archive(source: RyftDataSource, train: TrainDataSource, rememberedMatches: [ImportMappingRecord] = [],
                         activities: ActivitiesAPI? = nil, onPhone: ActivityStore? = nil,
-                        pendingImport: PendingImportExport? = nil, now: Date = .now) async throws -> Archive {
+                        pendingImport: PendingImportExport? = nil, now: Date = .now,
+                        meals: (@MainActor (UUID?) async throws -> NutritionMealExportPage)? = nil) async throws -> Archive {
         // The rows on this iPhone are the account's the export started for, whoever is signed in when it ends.
         let phoneAccount = onPhone?.account
         let user = try await source.me()
@@ -101,7 +113,40 @@ enum DataExport {
             archive.manualSleep = onPhone.manualSleeps(ofAccount: phoneAccount).map(ManualNight.init)
         }
         archive.pendingImport = pendingImport
+        if let meals { archive.nutritionDiary = try await mealDiary(meals) }
         return archive
+    }
+
+    /// The server owns the cursor and the export advertises when its safety bounds limit coverage.
+    @MainActor
+    private static func mealDiary(
+        _ fetch: @MainActor (UUID?) async throws -> NutritionMealExportPage
+    ) async throws -> NutritionDiary {
+        var cursor: UUID?
+        var cursors = Set<UUID>()
+        var meals: [NutritionMeal] = []
+        var itemCount = 0
+        for _ in 0..<maxMealPages {
+            let page: NutritionMealExportPage
+            do {
+                page = try await fetch(cursor)
+            } catch let error as APIError where error.status == 404 {
+                return cursor == nil
+                    ? NutritionDiary(status: .unavailable, meals: nil)
+                    : NutritionDiary(status: .partial, meals: meals)
+            }
+            guard page.meals.count <= NutritionMealExportPage.pageSize else { throw MealExportError.invalidPage }
+            let pageItems = page.meals.reduce(0) { $0 + $1.items.count }
+            guard pageItems <= maxMealItems - itemCount else {
+                return NutritionDiary(status: .partial, meals: meals)
+            }
+            itemCount += pageItems
+            meals += page.meals
+            guard let next = page.nextAfter else { return NutritionDiary(status: .included, meals: meals) }
+            guard !page.meals.isEmpty, cursors.insert(next).inserted else { throw MealExportError.invalidPage }
+            cursor = next
+        }
+        return NutritionDiary(status: .partial, meals: meals)
     }
 
     private static func unique(_ ws: [Workout]) -> [Workout] {
@@ -187,7 +232,37 @@ struct ShareSheet: UIViewControllerRepresentable {
 /// An exported file waiting for the share sheet.
 struct ExportedFile: Identifiable {
     let url: URL
+    var nutritionDiaryStatus: DataExport.NutritionDiary.Status?
     var id: URL { url }
+}
+
+/// An incomplete meal diary is explained before the user shares the rest of the file.
+struct DataExportShareSheet: View {
+    let file: ExportedFile
+    let completion: () -> Void
+    @State private var share = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        if !share, let status = file.nutritionDiaryStatus, status != .included {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if status == .unavailable {
+                        Text("Meal diary unavailable").font(.ryft(.headline))
+                        Text("The server could not include your saved meals. You can share the rest of the export or contact support for your meal diary.")
+                    } else {
+                        Text("Meal diary partially included").font(.ryft(.headline))
+                        Text("The export includes only some saved meals. You can share this file or contact support for the complete meal diary.")
+                    }
+                    PillButton(Text("Share export")) { share = true }
+                    PillButton(Text("Cancel"), style: .secondary) { dismiss() }
+                }
+                .padding(Theme.Metrics.screenPadding)
+            }
+        } else {
+            ShareSheet(items: [file.url], completion: completion)
+        }
+    }
 }
 
 extension DataExport.UnconfirmedActivity {

@@ -130,7 +130,7 @@ final class ProfileViewModel {
 
     /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
     var provider: String? { accountUser?.provider ?? auth.provider }
-    var canChangePassword: Bool { provider == "email" }
+    var canChangePassword: Bool { auth.authEntry.emailEnabled && provider == "email" }
 
     struct Badge: Equatable {
         let title: String
@@ -140,6 +140,7 @@ final class ProfileViewModel {
     var providerBadge: Badge? {
         switch provider {
         case "apple": return Badge(title: String(localized: "Apple"), systemImage: "apple.logo")
+        case "google": return Badge(title: String(localized: "Google"), systemImage: "person.crop.circle")
         case "email": return Badge(title: String(localized: "Email"), systemImage: "envelope.fill")
         default: return nil
         }
@@ -222,8 +223,10 @@ final class ProfileViewModel {
         await logOut()
         return .loggedOut
     }
-    func deleteAccount() async {
-        let account = auth.accountID, changes = auth.accountChanges
+    /// The confirmation belongs to the account that opened it, even if its action starts after an account switch.
+    func deleteAccount(confirmedFor confirmation: AccountBinding) async {
+        guard confirmation.isCurrent(in: env) else { return }
+        let account = confirmation.account, changes = confirmation.changes
         let deleted = await auth.deleteAccount()
         // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
         if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
@@ -475,6 +478,8 @@ final class ProfileViewModel {
     var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
     /// Profile → Training → Session layout. With the flag off a session is always List, so there is nothing to choose (L5).
     var showsSessionLayout: Bool { env.flags.isOn(.focusedSession) }
+    /// Profile → Privacy → Nutrition privacy, only while Nutrition (diary or full) is available for the account.
+    var nutritionAvailable: Bool { env.flags.nutritionAccess != .unavailable }
 
     // MARK: demo data
 
@@ -584,22 +589,42 @@ final class ProfileViewModel {
     var exportFolder = FileManager.default.temporaryDirectory
 
     func export() async {
+        guard !exporting else { return }
         exporting = true
         exportError = nil
         defer { exporting = false }
         // The archive takes a while: an account change meanwhile (even A, B, then A again) or the Demo data switch
         // makes it someone else's.
         let owner = AccountBinding(env)
+        let api = env.api
+        @MainActor func fetchMealPage(_ cursor: UUID?) async throws -> NutritionMealExportPage {
+            try Task.checkCancellation()
+            guard owner.isCurrent(in: self.env) else { throw CancellationError() }
+            let page = try await self.auth.withBoundAccount(owner) {
+                try await api.nutritionMealExport(after: cursor)
+            }
+            guard owner.isCurrent(in: self.env) else { throw CancellationError() }
+            return page
+        }
+        let mealExport: (@MainActor (UUID?) async throws -> NutritionMealExportPage)?
+        if owner.demo {
+            mealExport = nil
+        } else {
+            mealExport = fetchMealPage
+        }
         do {
             // The import job of the binding the export started for (read now; decoded off the main actor).
             let pendingImport = await PendingImportExport.make(persistence: env.persistence,
                                                                account: ImportMappingStore(env: env).account)
-            let archive = try await DataExport.archive(source: state.source, train: env.api,
-                                                       rememberedMatches: ImportMappingStore(env: env).records(),
-                                                       activities: env.api, onPhone: env.activities,
-                                                       pendingImport: pendingImport)
             guard owner.isCurrent(in: env) else { return }
-            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
+            let archive = try await DataExport.archive(source: state.source, train: api,
+                                                       rememberedMatches: ImportMappingStore(env: env).records(),
+                                                       activities: api, onPhone: env.activities,
+                                                       pendingImport: pendingImport, meals: mealExport)
+            try Task.checkCancellation()
+            guard owner.isCurrent(in: env) else { return }
+            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder),
+                                    nutritionDiaryStatus: archive.nutritionDiary?.status)
             env.analytics.track(.featureUsed(.dataExported))
         } catch where error.isCancellation {
             return
@@ -2481,7 +2506,7 @@ final class ReportProblemModel {
 
     var message = ""
     var category: FeedbackCategory = .other
-    var includeDiagnostics = true
+    var includeDiagnostics = false
     private(set) var context: ReportContext?
     private(set) var result: Result?
     /// The refusal's status and request ID, for Details.
@@ -2562,7 +2587,7 @@ final class ReportProblemModel {
         staged = false
         message = ""
         category = .other
-        includeDiagnostics = true
+        includeDiagnostics = false
         context = nil
         result = nil
         resultDetails = nil
@@ -2712,7 +2737,7 @@ final class ReportProblemModel {
         result = outcome
         message = ""
         category = .other
-        includeDiagnostics = true
+        includeDiagnostics = false
     }
 
     private func dequeue(_ item: QueuedFeedback) {
@@ -3063,7 +3088,7 @@ final class DevicesViewModel {
     /// `User.sources`: what sent data in the last 30 days, newest first, by RYFT's names.
     var sources: [SourceRow] {
         let catalog = catalog
-        return (state.user?.sources ?? []).map { s in
+        return (state.user?.sources ?? []).filter { $0.origin == .healthkit }.map { s in
             let ref = SourceRef(name: s.name, bundleID: s.bundleId, deviceModel: nil)
             let apple = s.bundleId?.lowercased().hasPrefix("com.apple.") ?? false
             return SourceRow(id: s.bundleId ?? s.name, name: catalog.displayName(ref), kinds: Self.kinds(s.kinds),

@@ -926,6 +926,21 @@ struct ConsentAgreeTests {
             == [.consent, .reviewConsent])
     }
 
+    @Test("Privacy gets Nutrition privacy only while Nutrition is available for the account (diary or full)",
+          .timeLimit(.minutes(1)), arguments: [FeatureFlag.nutritionDiaryEnabled, .nutritionEnabled])
+    func nutritionPrivacyFollowsNutrition(_ flag: FeatureFlag) async throws {
+        let h = H()
+        try await h.agreedUnsettled()
+        let profile = h.profile()
+        await profile.checkConsent()
+        let facts = { ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true) }
+        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent], "not available: as on main")
+        (h.env.flags as? StaticFlags)?.overrides[flag] = true
+        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent, .nutritionPrivacy])
+        (h.env.flags as? StaticFlags)?.overrides[flag] = false
+        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent])
+    }
+
     @Test("S2: Withdraw from a consent not confirmed yet: held while on its way, then Not given", .timeLimit(.minutes(1)))
     func withdrawingAnUnconfirmedConsent() async throws {
         let h = H()

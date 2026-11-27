@@ -188,8 +188,10 @@ struct AnalyticsEventTests {
     }
 
     @Test func errorCodeCoversEveryAPIErrorCode() {
+        let connectionCodes: Set<APIErrorCode> = [.unknownProvider, .connectionLimit, .connectTicketInvalid, .connectExpired]
         for code in APIErrorCode.allCases {
-            #expect(AnalyticsErrorCode(code.rawValue).rawValue == code.rawValue, "\(code)")
+            let expected = connectionCodes.contains(code) ? "unknown" : code.rawValue
+            #expect(AnalyticsErrorCode(code.rawValue).rawValue == expected, "\(code)")
         }
         // And the other way: nothing but the two bucket words is outside the platform's codes.
         let extra = raw(AnalyticsErrorCode.self).subtracting(APIErrorCode.allCases.map(\.rawValue))
