@@ -78,14 +78,19 @@ final class Analytics {
     /// Closed while nobody is signed in: an owed wipe at launch (which forgets the last account's answer) runs while
     /// signed out, so a stale answer never opens the gate before it.
     private let isSignedIn: @MainActor () -> Bool
+    /// An event `AnalyticsCatalog` refused (a call-site bug, never the user's): Debug stops at it, Release drops the
+    /// event and goes on. Tests count the calls.
+    private let onRefused: @MainActor (AnalyticsCatalog.Refusal) -> Void
 
     init(sink: AnalyticsSink, flags: FeatureFlagProvider, defaults: UserDefaults,
-         isDemo: @escaping @MainActor () -> Bool, isSignedIn: @escaping @MainActor () -> Bool = { true }) {
+         isDemo: @escaping @MainActor () -> Bool, isSignedIn: @escaping @MainActor () -> Bool = { true },
+         onRefused: @escaping @MainActor (AnalyticsCatalog.Refusal) -> Void = { assertionFailure("analytics: \($0)") }) {
         self.sink = sink
         self.flags = flags
         self.defaults = defaults
         self.isDemo = isDemo
         self.isSignedIn = isSignedIn
+        self.onRefused = onRefused
         optIn = defaults.string(forKey: Self.optInKey).flatMap(OptIn.init(rawValue:))
         resetOwed = defaults.bool(forKey: Self.resetOwedKey)
     }
@@ -107,11 +112,23 @@ final class Analytics {
 
     // MARK: what call sites see
 
-    /// One event, if the gate is open now (it is asked again first, so an event never rides on a stale answer).
+    /// One event, if the catalogue lists it and the gate is open now (it is asked again first, so an event never rides
+    /// on a stale answer).
     func track(_ event: AnalyticsEvent) {
+        deliver(event.name, properties: event.properties)
+    }
+
+    /// The one path to the sink: `AnalyticsCatalog.check` first, before the gate, so a refused event never reaches the
+    /// sink and is refused whether or not the user opted in (Debug finds the bug without a destination). A refusal
+    /// calls `onRefused` once and drops the event. Internal, not private: the tests send what a typed event can't.
+    func deliver(_ name: String, properties: [String: String]) {
+        if let refusal = AnalyticsCatalog.check(name: name, properties: properties) {
+            onRefused(refusal)
+            return
+        }
         reevaluate()
         guard running != nil else { return }
-        sink.capture(event.name, properties: event.properties)
+        sink.capture(name, properties: properties)
     }
 
     /// The gate again: closed → stop (the queue goes); another destination → stop, then start with it; the same →

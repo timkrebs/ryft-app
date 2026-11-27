@@ -60,6 +60,12 @@ struct AnalyticsNameRow: Sendable, CustomTestStringConvertible {
         AnalyticsNameRow(event: .screenViewed(.today), name: "screen_viewed"),
         AnalyticsNameRow(event: .featureUsed(.dataExported), name: "feature_used"),
         AnalyticsNameRow(event: .errorShown(.s500, .none), name: "error_shown"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.searchCompleted, name: "nutrition_search_completed"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.foodOpened, name: "nutrition_food_opened"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.foodLogged, name: "nutrition_food_logged"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.diaryReopened, name: "nutrition_diary_reopened"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.syncTriggered, name: "sync_triggered"),
+        AnalyticsNameRow(event: AnalyticsEventFixture.syncCompleted, name: "sync_completed"),
     ]
 }
 
@@ -80,6 +86,8 @@ struct AnalyticsEventTests {
     @Test func noOtherEventNameExists() {
         #expect(Set(AnalyticsEvent.everyCase.map(\.name)) == [
             "onboarding_step", "health_access_requested", "first_sync_completed", "screen_viewed", "feature_used", "error_shown",
+            "nutrition_search_completed", "nutrition_food_opened", "nutrition_food_logged", "nutrition_diary_reopened",
+            "sync_triggered", "sync_completed",
         ])
     }
 
@@ -102,6 +110,18 @@ struct AnalyticsEventTests {
             "none", "unknown", "invite_required", "consent_required", "import_in_progress", "import_not_enabled",
             "app_attest_required", "app_attest_challenge_invalid", "app_attest_invalid", "app_attest_key_unknown",
         ])
+        #expect(raw(AnalyticsSearchLookup.self) == ["name", "barcode"])
+        #expect(raw(AnalyticsQueryLength.self) == ["1_2", "3_5", "6_10", "11_20", "21+"])
+        #expect(raw(AnalyticsResultCount.self) == ["0", "1", "2_5", "6_10", "11_20", "21+"])
+        #expect(raw(AnalyticsLatency.self) == ["lt_250", "250_499", "500_999", "1000_1999", "2000_4999", "5000+"])
+        #expect(raw(AnalyticsRank.self) == ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10+"])
+        #expect(raw(AnalyticsNutritionEntryPoint.self) == [
+            "quick_add_button", "detail_sheet", "barcode", "suggestion", "private_food",
+        ])
+        #expect(raw(AnalyticsUnitMode.self) == ["curated_portion", "last_used_portion", "grams", "ml"])
+        #expect(raw(AnalyticsSyncTrigger.self) == ["profile_button"])
+        #expect(raw(AnalyticsSyncStatus.self) == ["success", "failed", "skipped"])
+        #expect(raw(AnalyticsSyncDuration.self) == ["lt_1000", "1000_4999", "5000_14999", "15000_59999", "60000+"])
     }
 
     @Test func aFinishedSessionIsNotAnEventBecauseStartPlusFinishIsADuration() {
@@ -111,20 +131,36 @@ struct AnalyticsEventTests {
     @Test func everyTokenIsALowercaseWordNotAFreeTextOrAnId() {
         let all = raw(OnboardingStepName.self).union(raw(AnalyticsScreen.self)).union(raw(AnalyticsFeature.self))
             .union(raw(AnalyticsErrorStatus.self)).union(raw(AnalyticsErrorCode.self))
+            .union(raw(AnalyticsSearchLookup.self)).union(raw(AnalyticsQueryLength.self))
+            .union(raw(AnalyticsResultCount.self)).union(raw(AnalyticsLatency.self)).union(raw(AnalyticsRank.self))
+            .union(raw(AnalyticsNutritionEntryPoint.self)).union(raw(AnalyticsUnitMode.self))
+            .union(raw(AnalyticsSyncTrigger.self)).union(raw(AnalyticsSyncStatus.self))
+            .union(raw(AnalyticsSyncDuration.self))
         for value in all {
-            #expect(value.range(of: "^[a-z0-9_]{1,40}$", options: .regularExpression) != nil, "\(value)")
+            #expect(value.range(of: "^[a-z0-9_+]{1,40}$", options: .regularExpression) != nil, "\(value)")
+            #expect(!AnalyticsCatalog.isUnsafeValue(value), "\(value)")
         }
     }
 
     @Test func everyCaseIsEveryCombinationOnceWithNoDuplicates() {
         let cases = AnalyticsEvent.everyCase
+        let bools = 2
+        let searches = AnalyticsSearchLookup.allCases.count * AnalyticsQueryLength.allCases.count
+            * AnalyticsResultCount.allCases.count * AnalyticsLatency.allCases.count
+        let opens = AnalyticsRank.allCases.count * bools * bools * bools
+        let logs = AnalyticsNutritionEntryPoint.allCases.count * AnalyticsUnitMode.allCases.count * bools
+        let syncs = AnalyticsSyncTrigger.allCases.count
+            + AnalyticsSyncTrigger.allCases.count * AnalyticsSyncStatus.allCases.count * AnalyticsSyncDuration.allCases.count
         let expected = OnboardingStepName.allCases.count + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
             + AnalyticsErrorStatus.allCases.count * AnalyticsErrorCode.allCases.count
+            + searches + opens + logs + bools + syncs
         #expect(cases.count == expected)
         #expect(Set(cases).count == cases.count)
     }
 
     // MARK: the allow-list
+
+    private static let bools: Set<String> = ["true", "false"]
 
     /// The values each property may take, per event. Exhaustive, so a new event doesn't compile until it is listed.
     private func allowed(_ event: AnalyticsEvent) -> [String: Set<String>] {
@@ -134,6 +170,29 @@ struct AnalyticsEventTests {
         case .screenViewed: return ["screen": raw(AnalyticsScreen.self)]
         case .featureUsed: return ["feature": raw(AnalyticsFeature.self)]
         case .errorShown: return ["status": raw(AnalyticsErrorStatus.self), "code": raw(AnalyticsErrorCode.self)]
+        case .nutritionSearchCompleted:
+            return [
+                "lookup": raw(AnalyticsSearchLookup.self), "query_length": raw(AnalyticsQueryLength.self),
+                "results_count": raw(AnalyticsResultCount.self), "has_results": Self.bools,
+                "latency_ms": raw(AnalyticsLatency.self),
+            ]
+        case .nutritionFoodOpened:
+            return [
+                "rank_position": raw(AnalyticsRank.self), "is_canonical_staple": Self.bools,
+                "has_default_portion": Self.bools, "has_last_used_portion": Self.bools,
+            ]
+        case .nutritionFoodLogged:
+            return [
+                "entry_point": raw(AnalyticsNutritionEntryPoint.self), "unit_mode": raw(AnalyticsUnitMode.self),
+                "is_fractional": Self.bools,
+            ]
+        case .nutritionDiaryReopened: return ["has_preserved_portion_label": Self.bools]
+        case .syncTriggered: return ["trigger_source": raw(AnalyticsSyncTrigger.self)]
+        case .syncCompleted:
+            return [
+                "trigger_source": raw(AnalyticsSyncTrigger.self), "status": raw(AnalyticsSyncStatus.self),
+                "duration_ms": raw(AnalyticsSyncDuration.self),
+            ]
         }
     }
 
@@ -163,12 +222,14 @@ struct AnalyticsEventTests {
         return mirror.children.flatMap { leaves($0.value) }
     }
 
+    /// A payload is a token or a `Bool` (sent as "true"/"false"), never a `String`, a number or a `Date`: no call site
+    /// can send free text, a count or a timestamp.
     @Test func payloadsAreTokensOnly() {
         for event in AnalyticsEvent.everyCase {
             for child in Mirror(reflecting: event).children {
                 for leaf in leaves(child.value) {
-                    #expect(leaf is any AnalyticsToken, "\(event): \(type(of: leaf))")
-                    #expect(!(leaf is String) && !(leaf is Int) && !(leaf is Double) && !(leaf is Bool) && !(leaf is Date),
+                    #expect(leaf is any AnalyticsToken || leaf is Bool, "\(event): \(type(of: leaf))")
+                    #expect(!(leaf is String) && !(leaf is Int) && !(leaf is Double) && !(leaf is Date),
                             "\(event): \(type(of: leaf))")
                 }
             }

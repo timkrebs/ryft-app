@@ -225,14 +225,22 @@ final class AppState {
     /// and 3 belong to this object, so a cancelled `.refreshable` cancels neither. Offline, or
     /// without a data source, nothing is sent.
     func pullToRefresh(coordinator: SyncCoordinator) async {
+        await pullToRefreshRun(coordinator: coordinator)
+    }
+
+    /// `pullToRefresh`, returning the coordinator's run (phase 1) it started or joined: its `Outcome` is how the
+    /// sync ended (Profile's Sync now reports it as `sync_completed`). nil when nothing started (offline, no data
+    /// source). Returns at the same moment as `pullToRefresh`; the run goes on.
+    @discardableResult
+    func pullToRefreshRun(coordinator: SyncCoordinator) async -> Task<SyncCoordinator.Outcome, Never>? {
         pullUploaded = nil
-        guard hasDataSource, isDemo || env.connectivity.isOnline else { return }
+        guard hasDataSource, isDemo || env.connectivity.isOnline else { return nil }
         let signposts = Signposts.reads
         let spinner = signposts.beginInterval("pull", id: signposts.makeSignpostID())
         let clock = env.clock, account = env.auth.accountID
         let (uploaded, upload) = AsyncStream<Void>.makeStream()
         let (uploadEnded, endUpload) = AsyncStream<Void>.makeStream()
-        Task {
+        let run = Task { () -> SyncCoordinator.Outcome in
             await coordinator.run(.userInitiated, afterUpload: {
                 upload.yield()
                 upload.finish()
@@ -281,6 +289,7 @@ final class AppState {
         pullPhases = phases
         await Self.firstOf({ for await _ in settled {} }, { try? await clock.sleep(for: Self.spinnerCap) })
         signposts.endInterval("pull", spinner)
+        return run
     }
 
     private func refreshToday(_ now: Date) async {
