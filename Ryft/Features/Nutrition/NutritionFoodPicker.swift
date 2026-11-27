@@ -8,6 +8,20 @@ struct NutritionFoodPicker: View {
         case name(String), barcode(String)
 
         var inputMethod: String { if case .barcode = self { "barcode" } else { "manual_search" } }
+
+        /// `nutrition_food_logged` → `entry_point`: anything added from a barcode's result is `barcode`.
+        func entryPoint(quickAdd: Bool) -> AnalyticsNutritionEntryPoint {
+            if case .barcode = self { return .barcode }
+            return quickAdd ? .quickAddButton : .detailSheet
+        }
+
+        /// `nutrition_search_completed`'s lookup and length bucket: the length only, never the text.
+        var searchTokens: (AnalyticsSearchLookup, AnalyticsQueryLength) {
+            switch self {
+            case .name(let name): return (.name, AnalyticsQueryLength(characters: name.count))
+            case .barcode(let code): return (.barcode, AnalyticsQueryLength(characters: code.count))
+            }
+        }
     }
 
     private struct SearchTask: Hashable {
@@ -20,6 +34,8 @@ struct NutritionFoodPicker: View {
     private struct FoodRoute: Hashable {
         let food: NutritionFoodMatch
         let inputMethod: String
+        /// Where an Add to meal from this detail counts as added (an Edit amount keeps the quick add's).
+        let entryPoint: AnalyticsNutritionEntryPoint
         var editingID: UUID?
     }
 
@@ -57,8 +73,12 @@ struct NutritionFoodPicker: View {
     @State private var failure: String?
     @State private var cameraFailure: String?
     @State private var retry = 0
+    /// The search last reported as `nutrition_search_completed`: the page's `.task(id:)` restarts the same search when it
+    /// reappears (Back, Add to meal, Edit amount, Create private food), and that isn't a new one. A Retry is (`retry`).
+    @State private var reportedSearch: SearchTask?
     @FocusState private var editing: Bool
     @Environment(\.locale) private var locale
+    @Environment(\.appEnvironment) private var env
 
     private var catalogLocale: NutritionCatalogLocale { NutritionCatalogLocale(locale: locale) }
 
@@ -77,7 +97,8 @@ struct NutritionFoodPicker: View {
 
     var body: some View {
         if let food = initialFood {
-            NutritionFoodDetailView(model: model, food: food, inputMethod: "manual_search", onBack: onBack) { item in
+            NutritionFoodDetailView(model: model, food: food, inputMethod: "manual_search", entryPoint: .suggestion,
+                                    onBack: onBack) { item in
                 append(item)
                 initialFood = nil
             }
@@ -126,7 +147,7 @@ struct NutritionFoodPicker: View {
             }
         }
         .defaultFocus($editing, true)
-        .task(id: task) { await search(task.lookup) }
+        .task(id: task) { await search(task) }
         .task(id: quickAddition?.itemID) {
             guard let id = quickAddition?.itemID,
                   (try? await Task.sleep(for: Self.quickAdditionNoticeDuration)) != nil else { return }
@@ -136,7 +157,8 @@ struct NutritionFoodPicker: View {
         .navigationDestination(item: $detail) { entry in
             let starting = items.first { $0.id == entry.editingID }?.selection
             NutritionFoodDetailView(model: model, food: entry.food, inputMethod: entry.inputMethod,
-                                    startingSelection: starting, onBack: { detail = nil }) { item in
+                                    entryPoint: entry.entryPoint, startingSelection: starting,
+                                    onBack: { detail = nil }) { item in
                 if let id = entry.editingID {
                     guard model.hasCurrentAccount, let index = items.firstIndex(where: { $0.id == id }) else { return }
                     var replacement = item
@@ -199,7 +221,7 @@ struct NutritionFoodPicker: View {
             } else {
                 if !matches.isEmpty {
                     GroupedCard(footer: barcodeFooter) {
-                        ForEach(matches) { food in resultRow(food, inputMethod: lookup.inputMethod) }
+                        ForEach(matches) { food in resultRow(food, lookup: lookup) }
                         if nextOffset != nil && failure == nil {
                             GroupedRow.action(Text("Load more foods"), systemImage: "chevron.down", busy: loadingMore) {
                                 Task { await loadMore(lookup) }
@@ -223,14 +245,15 @@ struct NutritionFoodPicker: View {
         }
     }
 
-    private func resultRow(_ food: NutritionFoodMatch, inputMethod: String) -> some View {
+    private func resultRow(_ food: NutritionFoodMatch, lookup: Lookup) -> some View {
+        let inputMethod = lookup.inputMethod
         let choice = food.quickSelection
         let amount = food.describedSelection?.summary(locale: locale) ?? ""
         let descriptions = [food.subtitle ?? food.brand, amount].filter { !$0.isEmpty }
         return HStack(spacing: 0) {
             Button {
                 editing = false
-                detail = FoodRoute(food: food, inputMethod: inputMethod)
+                open(food, lookup: lookup)
             } label: {
                 GroupedRowLabel(Text(verbatim: food.name),
                                 detail: descriptions.isEmpty ? nil : Text(verbatim: descriptions.joined(separator: " · ")))
@@ -242,13 +265,16 @@ struct NutritionFoodPicker: View {
                 guard canAdd, model.hasCurrentAccount else { return }
                 guard let choice else {
                     editing = false
-                    detail = FoodRoute(food: food, inputMethod: inputMethod)
+                    open(food, lookup: lookup)
                     return
                 }
-                let item = choice.draft(food: food, inputMethod: inputMethod, language: catalogLocale.language)
+                let entryPoint = lookup.entryPoint(quickAdd: true)
+                var item = choice.draft(food: food, inputMethod: inputMethod, language: catalogLocale.language)
+                item.logContext = NutritionLogContext(entryPoint, lastUsed: food.lastUsedPortion)
                 append(item)
                 quickAddition = QuickAddition(itemID: item.id,
-                                              route: FoodRoute(food: food, inputMethod: inputMethod, editingID: item.id))
+                                              route: FoodRoute(food: food, inputMethod: inputMethod, entryPoint: entryPoint,
+                                                               editingID: item.id))
                 quickAddFeedback += 1
             } label: {
                 Image(systemName: "plus")
@@ -286,6 +312,16 @@ struct NutritionFoodPicker: View {
             .accessibilityIdentifier("nutrition.editQuickAdd")
         }
         .id(addition.itemID)
+    }
+
+    /// A search result opens its detail (the row, or "+" without a quick selection): `nutrition_food_opened` with its
+    /// 1-based place in the list (plan, decision 9; not for Edit amount, nor the suggestion).
+    /// A food that isn't in `matches` (any more) opens without the event: its rank is unknown, not 1.
+    private func open(_ food: NutritionFoodMatch, lookup: Lookup) {
+        if let index = matches.firstIndex(where: { $0.id == food.id }) {
+            env.analytics.track(food.openedEvent(rank: index + 1))
+        }
+        detail = FoodRoute(food: food, inputMethod: lookup.inputMethod, entryPoint: lookup.entryPoint(quickAdd: false))
     }
 
     private func append(_ item: NutritionDraftItem) {
@@ -334,7 +370,8 @@ struct NutritionFoodPicker: View {
         }
     }
 
-    private func search(_ requested: Lookup?) async {
+    private func search(_ task: SearchTask) async {
+        let requested = task.lookup
         guard requested == lookup, !Task.isCancelled else { return }
         let id = UUID()
         requestID = id
@@ -348,6 +385,10 @@ struct NutritionFoodPicker: View {
         do {
             try await Task.sleep(for: Self.debounce)
             try model.needsCurrentAccount()
+            // `latency_ms`: from after the debounce to the result, what the person waits for.
+            let clock = env.clock
+            let started = clock.uptime()
+            let count: Int
             switch requested {
             case .name(let name):
                 let page = try await foodPage(name)
@@ -355,14 +396,24 @@ struct NutritionFoodPicker: View {
                 guard id == requestID, lookup == requested else { return }
                 matches = page.foods
                 nextOffset = page.nextOffset
+                count = page.foods.count
             case .barcode(let code):
                 let result = try await api.lookupNutritionBarcode(.init(barcode: code, market: catalogLocale.market))
                 try model.needsCurrentAccount()
                 guard id == requestID, lookup == requested else { return }
                 barcodeResult = result
                 matches = result.matches
+                count = result.matches.count
             }
             resultFor = requested
+            // The first page or the barcode's result only: a failure isn't completed, Load more isn't a new search,
+            // and the same search restarted by the page reappearing was reported already.
+            guard task != reportedSearch else { return }
+            reportedSearch = task
+            let (kind, length) = requested.searchTokens
+            env.analytics.track(.nutritionSearchCompleted(lookup: kind, queryLength: length,
+                                                          results: AnalyticsResultCount(count),
+                                                          latency: AnalyticsLatency(clock.uptime() - started)))
         } catch {
             guard id == requestID, lookup == requested, !Task.isCancelled, !error.isCancellation else { return }
             failure = error.localizedDescription
@@ -437,6 +488,8 @@ struct NutritionFoodDetailView: View {
     let model: NutritionDiaryModel
     let food: NutritionFoodMatch
     let inputMethod: String
+    /// Where Add to meal counts as added, for `nutrition_food_logged` (the item's local `logContext`).
+    var entryPoint: AnalyticsNutritionEntryPoint?
     var startingSelection: NutritionMealSelection?
     let onBack: () -> Void
     let selected: (NutritionDraftItem) -> Void
@@ -693,12 +746,14 @@ struct NutritionFoodDetailView: View {
             guard let count = try NutritionServingPreview.parseQuantity(quantity, locale: locale) else {
                 throw NutritionInputError.invalidNumber
             }
-            selected(NutritionDraftItem(name: displayName, inputMethod: inputMethod,
-                                       selection: NutritionMealSelection(foodId: food.id, quantity: count,
-                                                                         unit: portion?.unit ?? measure, portionId: portion?.id,
-                                                                         language: food.mealInputLanguage(language)),
-                                       portionLabel: portion?.displayLabel(language: language), weightG: preview?.weightG,
-                                       volumeMl: portion?.volumeMl == nil ? nil : preview?.volumeMl))
+            var item = NutritionDraftItem(name: displayName, inputMethod: inputMethod,
+                                          selection: NutritionMealSelection(foodId: food.id, quantity: count,
+                                                                            unit: portion?.unit ?? measure, portionId: portion?.id,
+                                                                            language: food.mealInputLanguage(language)),
+                                          portionLabel: portion?.displayLabel(language: language), weightG: preview?.weightG,
+                                          volumeMl: portion?.volumeMl == nil ? nil : preview?.volumeMl)
+            item.logContext = entryPoint.map { NutritionLogContext($0, lastUsed: food.lastUsedSelection) }
+            selected(item)
         } catch {
             failure = error.localizedDescription
         }
@@ -865,8 +920,10 @@ struct NutritionCustomFoodView: View {
             guard let value = try NutritionServingPreview.parseQuantity(quantity, locale: .current) else {
                 throw NutritionInputError.invalidNumber
             }
-            selected(NutritionDraftItem(name: created.name, inputMethod: "manual_entry",
-                                       selection: .init(foodId: created.id, quantity: value, unit: "g")))
+            var item = NutritionDraftItem(name: created.name, inputMethod: "manual_entry",
+                                          selection: .init(foodId: created.id, quantity: value, unit: "g"))
+            item.logContext = NutritionLogContext(.privateFood)
+            selected(item)
         } catch {
             failure = error.localizedDescription
         }

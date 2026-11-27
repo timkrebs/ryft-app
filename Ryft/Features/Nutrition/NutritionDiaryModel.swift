@@ -125,6 +125,9 @@ struct NutritionDraftItem: Identifiable {
     let gramsPerUnit: Double?
     let millilitersPerUnit: Double?
     var selection: NutritionMealSelection
+    /// Local, never sent (not part of `request`): how this item was added in this editor session, for
+    /// `nutrition_food_logged`. nil for a row loaded from a saved meal.
+    var logContext: NutritionLogContext?
 
     init(name: String, inputMethod: String, selection: NutritionMealSelection,
          portionLabel: String? = nil, weightG: Double? = nil, volumeMl: Double? = nil) {

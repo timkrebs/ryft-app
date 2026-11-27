@@ -1,5 +1,28 @@
 # Status — 2026-11-24
 
+## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
+
+- `AnalyticsCatalog` is the one list of every event, key and value. `Analytics.deliver` checks each event against it
+  before the gate. A deny-listed key, an unknown or missing key, a value off its list, or an email-like or free-text
+  value never reaches the sink, and Debug builds assert.
+- `AnalyticsSDKSettings.required` pins the SDK settings: replay, autocapture, screen views, rage clicks, surveys,
+  flags, push capture, crash autocapture and swizzling are off; person profiles are `.never` and nothing is ever
+  identified; GeoIP is off; lifecycle events are on.
+- `nutrition_food_logged` sends one event per distinct combination per saved meal, never one per food. Per-food events
+  with timestamps would add up to a meal log (privacy review).
+- New events, all as tokens: `nutrition_search_completed`, `nutrition_food_opened`, `nutrition_food_logged`,
+  `nutrition_diary_reopened`, and `sync_triggered` / `sync_completed` for Profile → Sync now. The existing events
+  were checked against the "interactions only" rule, and none changed. See `docs/ANALYTICS.md`.
+- Verified in the simulator only: the build has zero warnings, and 231 tests in 12 suites pass. Nothing has been sent,
+  because the SDK isn't on `main` (#137).
+- **Open (integration with #137, whichever lands second):**
+  - `beforeSend` runs `AnalyticsCatalog.check` for our events and keeps only `sdkPropertyKeys` on `sdkEventNames`;
+  - `personProfiles = .never`, and `configuration(for:)` asserts `AnalyticsSDKSettings(config) == .required`;
+  - the opt-in copy (the onboarding step and the Profile toggle) names food search and logging and Sync now;
+  - the manifest declares Performance Data (not linked, Analytics) for `latency_ms` and `duration_ms`.
+- **Open (user, PostHog and legal #252):** the retention period, the signed DPA, and "Discard client IP data" in the
+  PostHog project.
+
 ## 2026-11-26 · Nutrition meal navigation
 
 - Back clears the destination that opened the meal editor. From food search opened inside a review, Back returns to that review and keeps its items. From Today quick log, cancelling the new meal returns to Today.

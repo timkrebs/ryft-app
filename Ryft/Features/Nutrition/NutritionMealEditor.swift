@@ -24,7 +24,10 @@ struct NutritionMealEditor: View {
     let finished: () -> Void
 
     @Environment(\.locale) private var locale
+    @Environment(\.appEnvironment) private var env
     @State private var suggestion: NutritionFoodMatch?
+    /// `nutrition_diary_reopened` went out for this editor (once, however often its page reappears).
+    @State private var reportedReopen = false
     @State private var saved: NutritionMeal?
     @State private var consumedAt: Date
     @State private var type: NutritionMealType
@@ -71,6 +74,14 @@ struct NutritionMealEditor: View {
         // Add food from a reviewed meal is a step inside this page, not a page of its own: the back swipe would pop
         // the whole editor and drop the draft, so it's off there (BackSwipeRule), and the header's Back returns to the review.
         .navigationBarBackButtonHidden(Self.blocksBackSwipe(isAdding: isAdding, hasReviewed: hasReviewed))
+        .onAppear(perform: reportReopen)
+    }
+
+    /// An existing meal opened for editing: once per editor, with whether any of its rows keeps a portion label.
+    private func reportReopen() {
+        guard saved != nil, !reportedReopen else { return }
+        reportedReopen = true
+        env.analytics.track(.nutritionDiaryReopened(hasPreservedPortionLabel: items.contains { $0.portionLabel != nil }))
     }
 
     nonisolated static func blocksBackSwipe(isAdding: Bool, hasReviewed: Bool) -> Bool { isAdding && hasReviewed }
@@ -211,6 +222,8 @@ struct NutritionMealEditor: View {
                 }
             }
             try model.needsCurrentAccount()
+            // `nutrition_food_logged`, deduplicated per save (rows of the saved meal have no context).
+            for event in NutritionLogContext.loggedEvents(items) { env.analytics.track(event) }
             finished()
         } catch {
             if (error as? APIError)?.status == 409, saved != nil {
