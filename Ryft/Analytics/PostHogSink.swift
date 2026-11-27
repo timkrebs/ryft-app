@@ -111,7 +111,7 @@ final class PostHogSink: AnalyticsSink {
         config.debug = false
 
         config.captureApplicationLifecycleEvents = true
-        config.personProfiles = .identifiedOnly
+        config.personProfiles = .never
         config.disableGeoIp = true
         config.flushAt = 10
         config.maxQueueSize = 200
@@ -122,41 +122,76 @@ final class PostHogSink: AnalyticsSink {
         config.urlSessionConfiguration = session
 
         config.setBeforeSend(PostHogSink.sanitize)
+        assert(AnalyticsSDKSettings(config) == .required, "PostHogConfig drifted from AnalyticsSDKSettings.required")
         return config
     }
 
     // MARK: sanitising
 
-    /// `AnalyticsEvent`'s names, and the lifecycle events that say the app was installed, opened or backgrounded.
-    /// Everything else is dropped: `$screen`, `$rageclick`, `$exception`, `$identify`, `$set`, `$feature_flag_called`,
-    /// `$snapshot`, `Application Updated` and whatever a later SDK adds.
-    nonisolated static let allowedEvents: Set<String> = [
-        "onboarding_step", "health_access_requested", "first_sync_completed", "screen_viewed", "feature_used",
-        "error_shown",
-        "Application Installed", "Application Opened", "Application Backgrounded",
-    ]
-
-    /// Our own keys; the SDK's app, OS, library and session keys; and the lifecycle events' own. Gone are the device's
-    /// id, name and model, locale, time zone, network, screen size, person properties (`$set`), and the opened URL.
-    nonisolated static let allowedProperties: Set<String> = [
-        "step", "screen", "feature", "status", "code",
-        "$app_version", "$app_build", "$os_name", "$os_version", "$device_type", "$lib", "$lib_version",
-        "$session_id", "$process_person_profile", "$geoip_disable",
-        "version", "build", "previous_version", "previous_build", "from_background",
-    ]
-
-    /// The `beforeSend` hook: an unlisted event is dropped, a listed one keeps only listed keys. The SDK runs it before
-    /// an event is queued, on the capture caller's thread.
+    /// The `beforeSend` hook, the last check before the SDK queues an event (on the capture caller's thread). The
+    /// allow-list is `AnalyticsCatalog`'s, nothing of its own: see `sanitized(event:properties:)`.
     nonisolated static func sanitize(_ event: PostHogEvent) -> PostHogEvent? {
         guard let properties = sanitized(event: event.event, properties: event.properties) else { return nil }
         event.properties = properties
         return event
     }
 
-    /// `sanitize` on plain values: `PostHogEvent` has no public initialiser.
+    /// `sanitize` on plain values (`PostHogEvent` has no public initialiser). nil drops the event.
+    /// - A key `AnalyticsCatalog.isDeniedKey` names (a food, a query, a health or body value, a person) drops the whole
+    ///   event, on any event: something smuggled it past `Analytics.deliver`, so nothing of that event is trusted.
+    /// - The lifecycle events (`AnalyticsCatalog.sdkEventNames`) keep only `sdkPropertyKeys`.
+    /// - Our events keep `sdkPropertyKeys` and their own keys, and their own part has to pass `AnalyticsCatalog.check`
+    ///   again (a non-string value fails it). Any other key, which the SDK added (the device's id, name and model,
+    ///   locale, time zone, network, screen size, `$set`, the opened URL), is dropped.
+    /// - Every other event is dropped: `$screen`, `$rageclick`, `$exception`, `$identify`, `$set`,
+    ///   `$feature_flag_called`, `$snapshot`, `Application Updated` and whatever a later SDK adds.
     nonisolated static func sanitized(event: String, properties: [String: Any]) -> [String: Any]? {
-        guard allowedEvents.contains(event) else { return nil }
-        return properties.filter { allowedProperties.contains($0.key) }
+        if properties.keys.contains(where: AnalyticsCatalog.isDeniedKey) { return nil }
+        let sdk = properties.filter { AnalyticsCatalog.sdkPropertyKeys.contains($0.key) }
+        if AnalyticsCatalog.sdkEventNames.contains(event) { return sdk }
+        guard let listed = AnalyticsCatalog.events[event] else { return nil }
+        var ours: [String: String] = [:]
+        for (key, value) in properties where listed[key] != nil {
+            guard let value = value as? String else { return nil }
+            ours[key] = value
+        }
+        guard AnalyticsCatalog.check(name: event, properties: ours) == nil else { return nil }
+        return sdk.merging(ours) { _, own in own }
+    }
+}
+
+extension AnalyticsSDKSettings {
+    /// What a `PostHogConfig` would do, as the SDK-free value `configuration(for:)` asserts against `.required`.
+    /// `identifies` isn't a config setting: RYFT never calls `identify` or `alias` (no call site; the sink has no API
+    /// for it), so it is `false` by construction.
+    init(_ config: PostHogConfig) {
+        let profiles: PersonProfiles
+        switch config.personProfiles {
+        case .never: profiles = .never
+        case .always: profiles = .always
+        case .identifiedOnly: profiles = .identifiedOnly
+        @unknown default: profiles = .always
+        }
+        self.init(
+            sessionReplay: config.sessionReplay,
+            captureScreenViews: config.captureScreenViews,
+            captureElementInteractions: config.captureElementInteractions,
+            captureSwiftUIElementInteractions: config.captureSwiftUIElementInteractions,
+            rageClicks: config.rageClickConfig.enabled,
+            surveys: config.surveys,
+            preloadFeatureFlags: config.preloadFeatureFlags,
+            sendFeatureFlagEvent: config.sendFeatureFlagEvent,
+            setDefaultPersonProperties: config.setDefaultPersonProperties,
+            capturePushNotificationSubscriptions: config.capturePushNotificationSubscriptions,
+            capturePushNotificationOpened: config.capturePushNotificationOpened,
+            crashAutocapture: config.errorTrackingConfig.autoCapture,
+            swizzling: config.enableSwizzling,
+            debug: config.debug,
+            captureApplicationLifecycleEvents: config.captureApplicationLifecycleEvents,
+            personProfiles: profiles,
+            identifies: false,
+            disableGeoIp: config.disableGeoIp
+        )
     }
 }
 #endif

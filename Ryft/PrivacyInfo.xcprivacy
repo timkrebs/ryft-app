@@ -159,6 +159,20 @@
 				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
+		<!-- The same opt-in analytics: how long a food search took (latency_ms) and a Sync now ran (duration_ms),
+		     each as a range token, never a raw timing. Not linked, no tracking. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePerformanceData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
 	</array>
 	<!-- App code uses UserDefaults for its own settings only (CA92.1). File metadata only
 	     of files in its own app and App Group containers (C617.1): OrphanedStoreCleanup reads

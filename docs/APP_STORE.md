@@ -34,7 +34,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Requirement (guideline) | Status | Evidence |
 | --- | --- | --- |
 | Privacy manifest in the app target. `NSPrivacyTracking = false`, no tracking domains (5.1.2) | ok (fixed) | `Ryft/PrivacyInfo.xcprivacy` |
-| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes, journal answers, feedback text), **Other Diagnostic Data** (Report a problem → "Include diagnostics"; with tracker setup on, also the tracker ids chosen, never device names). Only after the analytics opt-in: **Product Interaction** and **Other Usage Data**, *not* linked, not used for tracking, purpose Analytics; and the Analytics purpose added to **Device ID** (the analytics SDK's own random install id) and **Other Diagnostic Data** (`error_shown`), which stay linked because of their App Functionality use (ADR 0026). No crash or diagnostics SDK is active: posthog-ios vendors PLCrashReporter, and crash autocapture stays off | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes`; `PostHogSink.configuration` |
+| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes, journal answers, feedback text), **Other Diagnostic Data** (Report a problem → "Include diagnostics"; with tracker setup on, also the tracker ids chosen, never device names). Only after the analytics opt-in: **Product Interaction**, **Other Usage Data** and **Performance Data** (food search and Sync now timings, as ranges), *not* linked, not used for tracking, purpose Analytics; and the Analytics purpose added to **Device ID** (the analytics SDK's own random install id) and **Other Diagnostic Data** (`error_shown`), which stay linked because of their App Functionality use (ADR 0026). No crash or diagnostics SDK is active: posthog-ios vendors PLCrashReporter, and crash autocapture stays off | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes`; `PostHogSink.configuration` |
 | Required-reason APIs. App code uses only `UserDefaults` (`CA92.1`). No file timestamps, boot time, disk space or keyboards in app code (the manifest's `C617.1` and `35F9.1` cover the cleanup and the PostHog SDK; next row) | ok (fixed) | grep of `Ryft/`, `RyftWidgets/` |
 | Packages. swift-crypto ships its own manifests, and so do posthog-ios (Product Interaction, Other Usage Data; `CA92.1`, `35F9.1`, `C617.1`, merged into the app's) and its vendored PLCrashReporter. supabase-swift, swift-http-types, swift-clocks, swift-concurrency-extras, xctest-dynamic-overlay and swift-asn1 call no required-reason API, so they need none. The session is in the Keychain, not `UserDefaults`. Apple frameworks (SwiftData, HealthKit) are exempt | ok | grep of `SourcePackages/checkouts/*/Sources` |
 | Xcode **Generate Privacy Report** on an archive lists exactly the declared types | user | Organizer → Archives → Generate Privacy Report (needs the signed archive) |
@@ -57,7 +57,8 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 
 ### App Store Connect steps for the user (analytics, ADR 0026)
 
-1. App Privacy → Data Types: add **Product Interaction** and **Other Usage Data**. For each: collected, *not*
+1. App Privacy → Data Types: add **Product Interaction**, **Other Usage Data** and **Performance Data** (food search
+   `latency_ms` and Sync now `duration_ms`, as ranges). For each: collected, *not*
    linked to the user, *not* used for tracking, purpose **Analytics** only. On the existing **Device ID** and
    **Other Diagnostic Data**: add the purpose **Analytics** next to App Functionality (they stay linked, not used for
    tracking).
@@ -162,7 +163,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    - Health, Fitness, Email Address, Name, User ID, Device ID, Other User Content, Other Diagnostic Data:
      all *linked to the user*, *not used for tracking*, purpose *App Functionality*; Device ID and Other Diagnostic
      Data also *Analytics*
-   - Product Interaction, Other Usage Data (opt-in analytics): *not linked*, *not used for tracking*, purpose
+   - Product Interaction, Other Usage Data, Performance Data (opt-in analytics): *not linked*, *not used for tracking*, purpose
      *Analytics* (§1 → App Store Connect steps)
    - no third-party advertising, no tracking
 5. **URLs.**
