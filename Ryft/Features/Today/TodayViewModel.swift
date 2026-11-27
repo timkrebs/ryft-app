@@ -11,6 +11,7 @@ final class TodayViewModel {
     private let state: AppState
     private let sync: SyncService
     private let coordinator: SyncCoordinator
+    private let homeSync: HomeSyncModel?
     private let apiStatus: APIStatus
     private let push: PushRegistrar?
     private let onboarding: OnboardingCoordinator?
@@ -36,11 +37,13 @@ final class TodayViewModel {
     private(set) var freshness: [SourceFreshness] = []
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
-         onboarding: OnboardingCoordinator? = nil, devices: TrackerSelectionStore? = nil, apiStatus: APIStatus? = nil) {
+         onboarding: OnboardingCoordinator? = nil, devices: TrackerSelectionStore? = nil, apiStatus: APIStatus? = nil,
+         homeSync: HomeSyncModel? = nil) {
         coachMarks = CoachMarks(defaults: state.env.defaults)
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
+        self.homeSync = homeSync
         self.push = push
         self.onboarding = onboarding
         self.devices = devices
@@ -256,14 +259,15 @@ final class TodayViewModel {
     /// Today runs it per start (`.task(id:)`), so a new start, its end or another account cancels it.
     func confirmSlowScoring() async {
         let f = facts
-        guard let since = f.scoringSince, f.phase != .awaitingScores else { return }
+        guard let since = f.scoringSince, f.phase != .awaitingScores, homeSync?.hasUnconfirmedUpload != true else { return }
         let due = since.addingTimeInterval(TodayStates.slowThreshold(f.status?.expectedWithinSec ?? f.expectedScoringSec))
         if let read = f.statusReadAt, read >= due { return }
         let wait = due.timeIntervalSince(env.clock.now())
         if wait > 0 {
             do { try await env.clock.sleep(for: .milliseconds(Int((wait * 1000).rounded(.up)))) } catch { return }
         }
-        guard !Task.isCancelled, sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) == since else { return }
+        guard !Task.isCancelled, homeSync?.hasUnconfirmedUpload != true,
+              sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) == since else { return }
         await coordinator.refreshStatus()
     }
 
@@ -302,7 +306,11 @@ final class TodayViewModel {
     /// Try again (the line and the card), like pull to refresh: the upload starts, today and the sync
     /// status load at once, the rest after the upload (`AppState.pullToRefresh`).
     func refresh() async {
-        await state.pullToRefresh(coordinator: coordinator)
+        if let homeSync {
+            await homeSync.sync(trigger: .homescreenPullToRefresh)
+        } else {
+            await state.pullToRefresh(coordinator: coordinator)
+        }
     }
 
     func open(_ tab: AppTab) { state.selectedTab = tab }

@@ -191,15 +191,21 @@ struct TodayNocturneTests {
         }
     }
 
-    @Test func theHeaderIs40HighWithTheCalendarOnTheInset() async throws {
+    @Test func theHeaderIs40HighWithSyncOnTheInsetAndTheCalendarBesideIt() async throws {
         try await HostedWindow.run(width: 390, height: 300, header(myDay: true)) { w in
             try await w.settle()
             let nodes = w.nodes()
             let calendar = try #require(nodes.first { $0.identifier == "today.header.calendar" })
+            let sync = try #require(nodes.first { $0.identifier == "today.header.sync" })
             #expect(calendar.label == "Calendar")
+            #expect(sync.label == "Sync")
             #expect(calendar.frame.size == CGSize(width: 44, height: 44), "the 44 pt box: \(calendar.frame)")
-            // The 40 pt circle's edge on the 20 pt inset: its box reaches 2 pt past it.
-            #expect(calendar.frame.maxX == 390 - 20 + ScreenHeaderSpec.buttonOverhang)
+            #expect(sync.frame.size == CGSize(width: 44, height: 44), "the 44 pt box: \(sync.frame)")
+            // The sync button's 40 pt circle on the 20 pt inset: its box reaches 2 pt past it; the calendar 8 pt before it.
+            #expect(sync.frame.maxX == 390 - 20 + ScreenHeaderSpec.buttonOverhang)
+            #expect(abs(sync.frame.minX - calendar.frame.maxX - ScreenHeaderSpec.minGap) < 0.34,
+                    "calendar \(calendar.frame), sync \(sync.frame)")
+            #expect(abs(sync.frame.midY - calendar.frame.midY) < 0.34)
             let below = try #require(w.node("below", exactly: true))
             // To one device pixel (1/3 pt): the row's edge is rounded to the screen's grid.
             #expect(abs(below.frame.minY - calendar.frame.midY - 20) < 0.34, "the row is 40, the button centred in it")

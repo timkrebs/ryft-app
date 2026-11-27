@@ -6,7 +6,7 @@ import UIKit
 /// Records every stage with the clock's time; each stage can be slowed down on
 /// the clock or made to fail.
 @MainActor
-private final class FakeSteps: SyncSteps {
+final class FakeSteps: SyncSteps {
     let clock: TestClock
     var touched: [String] = ["2026-10-19"]
     /// Upload failures, one per attempt, before it succeeds.
@@ -25,6 +25,7 @@ private final class FakeSteps: SyncSteps {
     /// `APIClient.runsInBackground` during each upload.
     private(set) var backgroundUploads: [Bool] = []
     private(set) var events: [String] = []
+    private(set) var statusRequestTimes: [Duration] = []
     private var stopRequested = false
     /// Runs inside each upload, before it answers (a test cancels the run there).
     var onUpload: (() async -> Void)?
@@ -70,6 +71,7 @@ private final class FakeSteps: SyncSteps {
     /// `scored` per ask: the touched (or listed) days are pending until one says `true`.
     func syncStatus() async throws -> SyncStatus {
         events.append("poll")
+        statusRequestTimes.append(clock.uptime())
         // As `SyncService.receive`: an ask the cache time after the words answers them.
         if let wordsAt, clock.now().timeIntervalSince(wordsAt) >= ScoringWord.statusCacheTime { awaitedDays = [] }
         if statusFails { throw APIError.transport(URLError(.notConnectedToInternet)) }
@@ -91,6 +93,10 @@ private final class FakeSteps: SyncSteps {
     func refreshTrends() async throws { events.append("trends") }
     func refreshInsights() async throws { events.append("insights") }
     func refreshStale() async { events.append("stale") }
+    /// Today's confirming reload (every foreground refresh tries it; the live steps read only after a `current` status).
+    /// Counted apart from `events`, so the stage-order tests keep their order: `count("home-reload")`.
+    private(set) var homeReloads = 0
+    func reloadTodayAfterCurrent() async { homeReloads += 1 }
     private(set) var phases: [SyncPhase] = []
     func report(_ phase: SyncPhase) {
         phases.append(phase)
@@ -126,7 +132,7 @@ private final class FakeSteps: SyncSteps {
         status.gate == .consentRequired && !consentGateCounts ? nil : status.gate
     }
 
-    func count(_ name: String) -> Int { events.filter { $0 == name }.count }
+    func count(_ name: String) -> Int { name == "home-reload" ? homeReloads : events.filter { $0 == name }.count }
 }
 
 @Suite("Sync coordinator")

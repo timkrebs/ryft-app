@@ -27,8 +27,9 @@ enum AnalyticsEvent: Hashable, Sendable {
     case nutritionFoodLogged(entryPoint: AnalyticsNutritionEntryPoint, unitMode: AnalyticsUnitMode, isFractional: Bool)
     /// A saved meal was opened again for editing.
     case nutritionDiaryReopened(hasPreservedPortionLabel: Bool)
-    case syncTriggered(AnalyticsSyncTrigger)
-    case syncCompleted(AnalyticsSyncTrigger, status: AnalyticsSyncStatus, duration: AnalyticsSyncDuration)
+    case syncTriggered(AnalyticsSyncTrigger, previousState: AnalyticsSyncPreviousState)
+    case syncCompleted(AnalyticsSyncTrigger, status: AnalyticsSyncStatus, duration: AnalyticsSyncDuration,
+                       connectedProviders: AnalyticsConnectedProviders)
 
     var name: String {
         switch self {
@@ -67,9 +68,11 @@ enum AnalyticsEvent: Hashable, Sendable {
                     "is_fractional": Self.word(isFractional)]
         case .nutritionDiaryReopened(let hasPreservedPortionLabel):
             return ["has_preserved_portion_label": Self.word(hasPreservedPortionLabel)]
-        case .syncTriggered(let source): return ["trigger_source": source.rawValue]
-        case .syncCompleted(let source, let status, let duration):
-            return ["trigger_source": source.rawValue, "status": status.rawValue, "duration_ms": duration.rawValue]
+        case .syncTriggered(let source, let previousState):
+            return ["trigger_source": source.rawValue, "previous_state": previousState.rawValue]
+        case .syncCompleted(let source, let status, let duration, let connectedProviders):
+            return ["trigger_source": source.rawValue, "status": status.rawValue, "duration_ms": duration.rawValue,
+                    "connected_providers_count": connectedProviders.rawValue]
         }
     }
 
@@ -118,12 +121,16 @@ enum AnalyticsEvent: Hashable, Sendable {
             }
         }
         let reopened = bools.map(AnalyticsEvent.nutritionDiaryReopened)
-        let triggered = AnalyticsSyncTrigger.allCases.map(AnalyticsEvent.syncTriggered)
+        let triggered = AnalyticsSyncTrigger.allCases.flatMap { source in
+            AnalyticsSyncPreviousState.allCases.map { AnalyticsEvent.syncTriggered(source, previousState: $0) }
+        }
         var completed: [AnalyticsEvent] = []
         for source in AnalyticsSyncTrigger.allCases {
             for status in AnalyticsSyncStatus.allCases {
                 for duration in AnalyticsSyncDuration.allCases {
-                    completed.append(.syncCompleted(source, status: status, duration: duration))
+                    for count in AnalyticsConnectedProviders.allCases {
+                        completed.append(.syncCompleted(source, status: status, duration: duration, connectedProviders: count))
+                    }
                 }
             }
         }
@@ -398,16 +405,38 @@ enum AnalyticsUnitMode: String, AnalyticsToken {
     case ml
 }
 
-/// `sync_triggered` / `sync_completed` → `trigger_source`: only Profile's Sync now row tracks (plan, decision 10).
+/// `sync_triggered` / `sync_completed` → `trigger_source`: manual and automatic foreground sync.
 enum AnalyticsSyncTrigger: String, AnalyticsToken {
     case profileButton = "profile_button"
+    case homescreenTopRight = "homescreen_top_right"
+    case homescreenPullToRefresh = "homescreen_pull_to_refresh"
+    case autoForeground = "auto_foreground"
+}
+
+/// `sync_triggered` → `previous_state`: the sync button's state at the trigger (`SyncIndicatorState`). A trigger while
+/// syncing joins the running sync and sends nothing; a server-side scoring wait with no run of ours reads as `stale`.
+enum AnalyticsSyncPreviousState: String, AnalyticsToken {
+    case upToDate = "up_to_date"
+    case stale, error
+}
+
+/// `sync_completed` → `connected_providers_count`: the direct connections in `GET /v1/me/sync` → `sources` (every entry
+/// but `healthkit`), as a bucket; never which ones.
+enum AnalyticsConnectedProviders: String, AnalyticsToken {
+    case none = "0"
+    case one = "1"
+    case multiple = "2+"
+
+    init(count: Int) {
+        self = count == 0 ? .none : count == 1 ? .one : .multiple
+    }
 }
 
 /// `sync_completed` → `status`, from the run's `SyncCoordinator.Outcome`. `failed`: an error or a cancellation;
 /// `skipped`: nothing started (offline, or no data source); `deferred`: HealthKit was locked
-/// (`Outcome.waitingForUnlock`), the rest follows the unlock.
+/// (`Outcome.waitingForUnlock`), the rest follows the unlock. `partial`: scores were still pending at the cutoff.
 enum AnalyticsSyncStatus: String, AnalyticsToken {
-    case success, failed, skipped, deferred
+    case success, failed, skipped, deferred, partial
 }
 
 /// `sync_completed` → `duration_ms`: from the tap to the end of the spinner phase (`pullToRefreshRun` returning),

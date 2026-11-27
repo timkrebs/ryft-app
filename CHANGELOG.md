@@ -14,6 +14,7 @@ Store "What's New".
 - An account deletion stops if the signed-in account changes while the request is being prepared.
 
 ### Added
+- Today shows your sync status in the header. Tap to sync Apple Health or long press to see when each source last synced.
 - Nutrition search shows reusable portions and calories when the catalog supplies them. Tap plus to add a portion, or open the amount picker to choose a size, fraction or metric amount.
 - German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
 - Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.

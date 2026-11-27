@@ -40,7 +40,7 @@ struct CircleButton: View {
     }
 }
 
-private struct CircleButtonStyle: ButtonStyle {
+struct CircleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.modifier(CircleButtonLook(isPressed: configuration.isPressed))
     }

@@ -1,0 +1,244 @@
+import Foundation
+import Observation
+
+typealias SyncTriggerSource = AnalyticsSyncTrigger
+
+@MainActor
+@Observable
+final class HomeSyncModel {
+    private let app: AppState
+    private let upload: SyncService
+    private let coordinator: SyncCoordinator
+    private var clock: AppClock { app.env.clock }
+
+    private var healthAccess: HealthAccess = .unknown
+    private var clockRevision = 0
+    @ObservationIgnored private var foregroundBinding: AccountBinding?
+    @ObservationIgnored private var foregroundCheck: Task<Void, Never>?
+
+    private struct Run {
+        let spinner: Task<(Task<SyncCoordinator.Outcome, Never>?, Bool), Never>
+        let completion: Task<AnalyticsSyncStatus, Never>
+    }
+
+    @ObservationIgnored private var active: Run?
+    @ObservationIgnored private var generation = 0
+    /// A sync of this model is running, from the trigger to the end of its run (its scoring wait included). Observed: the
+    /// button spins for the whole run, not only while a page is being POSTed (device test of #151: a pass with nothing
+    /// new never POSTs, so the button went from the tap straight to green).
+    private(set) var runInFlight = false
+    /// A person's trigger shows syncing at least until then (`minimumSyncingTime`), however fast the run is.
+    private var syncingShownUntil: Date?
+    /// Long enough that a tap always reads as "it did something".
+    nonisolated static let minimumSyncingTime: TimeInterval = 0.8
+
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator) {
+        app = state
+        upload = sync
+        self.coordinator = coordinator
+        state.forgetsAccountState { [weak self] in self?.reset() }
+    }
+
+    var state: SyncIndicatorState {
+        let now = now
+        let localUpload = app.isDemo ? app.demoSyncAt : app.env.settings.lastSync
+        let shown = syncingShownUntil.map { now < $0 } ?? false
+        let posting = app.isDemo ? app.demoSyncInFlight : upload.isPostingPage
+        return .resolve(.init(uploading: runInFlight || shown || posting,
+                              lastUpload: localUpload,
+                              uploadFailure: app.isDemo ? nil : upload.uploadFailure,
+                              healthAccessMissing: healthAccessMissing, status: app.syncStatus,
+                              scoringWaitStartedAt: scoringWaitStartedAt,
+                              todayReloaded: app.todayReloaded(sinceUpload: upload.lastUploadReceipt?.at),
+                              online: app.isDemo || app.env.connectivity.isOnline, now: now))
+    }
+
+    var lastSync: Date? { app.appleHealthLastSync }
+    var canSync: Bool { app.hasDataSource }
+
+    var now: Date {
+        _ = clockRevision
+        return clock.now()
+    }
+
+    private var healthAccessMissing: Bool {
+        !app.isDemo && (healthAccess == .notAsked || healthAccess == .unavailable || upload.healthAccessDenied)
+    }
+
+    /// A status asked for inside the platform's cache window cannot answer a page that queued scores.
+    var hasUnconfirmedUpload: Bool { scoringWaitStartedAt != nil }
+
+    private var scoringWaitStartedAt: Date? {
+        app.isDemo ? nil : upload.pendingUploadReceipt?.at
+    }
+
+    var nextStateChange: Date? {
+        let now = now
+        let hasSyncTime = lastSync != nil || app.syncStatus?.sources?.contains(where: { $0.lastSyncAt != nil }) == true
+        let nextMinute = hasSyncTime ? now.addingTimeInterval(60 - now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)) : nil
+        let dates = [scoringWaitStartedAt?.addingTimeInterval(SyncIndicatorState.scoringLimit),
+                     app.syncStatus?.scoresPendingSince?.addingTimeInterval(SyncIndicatorState.scoringLimit),
+                     lastSync?.addingTimeInterval(SyncIndicatorState.freshnessLimit), nextMinute, syncingShownUntil]
+        return dates.compactMap { $0 }.filter { $0 > now }.min()
+    }
+
+    func updateState(at deadline: Date?) async {
+        guard let deadline else { return }
+        do {
+            try await clock.sleep(for: .seconds(deadline.timeIntervalSince(now)))
+            try Task.checkCancellation()
+            clockRevision += 1
+        } catch {}
+    }
+
+    var sources: [SyncSource] {
+        let sources = app.syncStatus?.sources ?? []
+        let apple = sources.first { $0.source == "healthkit" }
+        let failed = healthAccessMissing || (!app.isDemo && upload.uploadFailure == .server)
+        let health = SyncSource(source: "healthkit", lastSyncAt: lastSync,
+                                status: failed ? .error : apple?.status ?? .ok,
+                                reason: apple?.reason)
+        return [health] + sources.filter { $0.source == "garmin" || $0.source == "suunto" }
+    }
+
+    var scoresTakingLonger: Bool {
+        let start = app.syncStatus?.scoresPendingSince ?? scoringWaitStartedAt ?? upload.scoringWaitStart
+        return start.map { now.timeIntervalSince($0) >= SyncIndicatorState.scoringLimit } ?? false
+    }
+
+    /// The scene became active (or bootstrap made the account eligible after it did, `checkedSince`: when its onboarding
+    /// check began, whose status read this one may reuse). More than 5 minutes since the last sync, or none: the quiet
+    /// `auto_foreground` sync. Otherwise one status read, the "once at the next foreground" after a scoring wait.
+    func enterForeground(eligible: Bool = true, checkedSince: Date? = nil) async {
+        await coordinator.enterForeground()
+        guard eligible, app.hasDataSource, !app.isDemo else { return }
+        if let foregroundCheck { return await foregroundCheck.value }
+        guard active == nil else { return }
+        let binding = AccountBinding(app.env)
+        if checkedSince != nil, foregroundBinding == binding { return }
+        foregroundBinding = binding
+        let generation = generation
+        let check = Task {
+            let started = checkedSince ?? now
+            let access = await app.env.health.accessStatus()
+            guard !Task.isCancelled, binding.isCurrent(in: app.env) else { return }
+            healthAccess = access
+            guard app.env.connectivity.isOnline else { return }
+            let alreadyRead = app.syncStatusAskedAt.map { $0 >= started } ?? false
+            if let pending = scoringWaitStartedAt, now.timeIntervalSince(pending) >= SyncIndicatorState.scoringLimit {
+                // A previous wait expired. Give it the foreground read even if a new upload is due.
+                await coordinator.refreshHomeStatus(alreadyRead: alreadyRead)
+            } else if let lastSync, now.timeIntervalSince(lastSync) <= SyncIndicatorState.foregroundInterval {
+                await coordinator.refreshHomeStatus(alreadyRead: alreadyRead)
+                return
+            }
+            if lastSync.map({ now.timeIntervalSince($0) > SyncIndicatorState.foregroundInterval }) ?? true {
+                await sync(trigger: .autoForeground)
+            }
+        }
+        foregroundCheck = check
+        await check.value
+        if generation == self.generation { foregroundCheck = nil }
+    }
+
+    func resumeHeldSync() async {
+        guard active == nil, !(await coordinator.hasWork) else { return }
+        await sync(trigger: .autoForeground)
+    }
+
+    /// Pulls stop at the spinner cap. Button and foreground callers can wait for the full shared outcome.
+    @discardableResult
+    func sync(trigger: SyncTriggerSource) async -> AnalyticsSyncStatus? {
+        let run = active ?? start(trigger)
+        // After `start` read the state for `previous_state`. The quiet foreground sync spins for its run only.
+        if trigger != .autoForeground { showSyncing() }
+        if trigger == .homescreenPullToRefresh {
+            _ = await run.spinner.value
+            return nil
+        }
+        return await run.completion.value
+    }
+
+    /// The same sync, untracked and back when the spinner ends: Profile's status-row retry and its connection test
+    /// (plan 2026-11-27, decision 10: only the Sync now row of Profile tracks).
+    func syncUntracked() async {
+        let run = active ?? start(nil)
+        showSyncing()
+        _ = await run.spinner.value
+    }
+
+    /// A person's trigger: syncing for at least `minimumSyncingTime` from now, also when it joins a running sync.
+    private func showSyncing() {
+        let until = clock.now().addingTimeInterval(Self.minimumSyncingTime)
+        syncingShownUntil = max(syncingShownUntil ?? until, until)
+    }
+
+    /// `trigger` nil: not tracked (`syncUntracked`).
+    private func start(_ trigger: SyncTriggerSource?) -> Run {
+        let previous = state
+        let started = clock.uptime()
+        let binding = AccountBinding(app.env)
+        let generation = generation
+        let spinner = Task<(Task<SyncCoordinator.Outcome, Never>?, Bool), Never> {
+            let joining = await coordinator.hasWork
+            guard binding.isCurrent(in: app.env), !Task.isCancelled else {
+                return (nil as Task<SyncCoordinator.Outcome, Never>?, false)
+            }
+            let tracks = !joining && trigger != nil
+            if tracks, let trigger {
+                let token: AnalyticsSyncPreviousState
+                switch previous {
+                case .upToDate: token = .upToDate
+                case .error: token = .error
+                case .stale, .syncing: token = .stale
+                }
+                app.env.analytics.track(.syncTriggered(trigger, previousState: token))
+            }
+            let run = await app.pullToRefreshRun(coordinator: coordinator,
+                                                homeTrigger: trigger == .autoForeground ? .appActive : .userInitiated)
+            return (run, tracks)
+        }
+        let completion = Task {
+            let (run, track) = await spinner.value
+            let duration = AnalyticsSyncDuration(clock.uptime() - started)
+            let outcome = await run?.value
+            // The run is over for this model whatever follows; a reset (another account) already cleared it.
+            if generation == self.generation {
+                active = nil
+                runInFlight = false
+            }
+            guard generation == self.generation, binding.isCurrent(in: app.env) else { return AnalyticsSyncStatus.failed }
+            let status: AnalyticsSyncStatus
+            if let outcome {
+                if outcome.cancelled || outcome.error != nil { status = .failed }
+                else if outcome.waitingForUnlock { status = .deferred }
+                else if outcome.scoringTimedOut { status = .partial }
+                else { status = .success }
+            } else {
+                status = .skipped
+            }
+            if track, let trigger {
+                let count = app.syncStatus?.sources?.filter { $0.source != "healthkit" }.count ?? 0
+                app.env.analytics.track(.syncCompleted(trigger, status: status, duration: duration,
+                                                       connectedProviders: .init(count: count)))
+            }
+            return status
+        }
+        let run = Run(spinner: spinner, completion: completion)
+        active = run
+        runInFlight = true
+        return run
+    }
+
+    private func reset() {
+        generation += 1
+        active?.spinner.cancel()
+        active = nil
+        runInFlight = false
+        syncingShownUntil = nil
+        foregroundCheck?.cancel()
+        foregroundCheck = nil
+        foregroundBinding = nil
+        healthAccess = .unknown
+    }
+}

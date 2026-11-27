@@ -119,8 +119,12 @@ struct AnalyticsEventTests {
             "quick_add_button", "detail_sheet", "barcode", "suggestion", "private_food",
         ])
         #expect(raw(AnalyticsUnitMode.self) == ["curated_portion", "last_used_portion", "grams", "ml"])
-        #expect(raw(AnalyticsSyncTrigger.self) == ["profile_button"])
-        #expect(raw(AnalyticsSyncStatus.self) == ["success", "failed", "skipped", "deferred"])
+        #expect(raw(AnalyticsSyncTrigger.self) == [
+            "profile_button", "homescreen_top_right", "homescreen_pull_to_refresh", "auto_foreground",
+        ])
+        #expect(raw(AnalyticsSyncPreviousState.self) == ["up_to_date", "stale", "error"])
+        #expect(raw(AnalyticsSyncStatus.self) == ["success", "failed", "skipped", "deferred", "partial"])
+        #expect(raw(AnalyticsConnectedProviders.self) == ["0", "1", "2+"])
         #expect(raw(AnalyticsSyncDuration.self) == ["lt_1000", "1000_4999", "5000_14999", "15000_59999", "60000+"])
     }
 
@@ -149,8 +153,8 @@ struct AnalyticsEventTests {
             * AnalyticsResultCount.allCases.count * AnalyticsLatency.allCases.count
         let opens = AnalyticsRank.allCases.count * bools * bools * bools
         let logs = AnalyticsNutritionEntryPoint.allCases.count * AnalyticsUnitMode.allCases.count * bools
-        let syncs = AnalyticsSyncTrigger.allCases.count
-            + AnalyticsSyncTrigger.allCases.count * AnalyticsSyncStatus.allCases.count * AnalyticsSyncDuration.allCases.count
+        let syncs = AnalyticsSyncTrigger.allCases.count * (AnalyticsSyncPreviousState.allCases.count
+            + AnalyticsSyncStatus.allCases.count * AnalyticsSyncDuration.allCases.count * AnalyticsConnectedProviders.allCases.count)
         let expected = OnboardingStepName.allCases.count + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
             + AnalyticsErrorStatus.allCases.count * AnalyticsErrorCode.allCases.count
             + searches + opens + logs + bools + syncs
@@ -187,11 +191,12 @@ struct AnalyticsEventTests {
                 "is_fractional": Self.bools,
             ]
         case .nutritionDiaryReopened: return ["has_preserved_portion_label": Self.bools]
-        case .syncTriggered: return ["trigger_source": raw(AnalyticsSyncTrigger.self)]
+        case .syncTriggered:
+            return ["trigger_source": raw(AnalyticsSyncTrigger.self), "previous_state": raw(AnalyticsSyncPreviousState.self)]
         case .syncCompleted:
             return [
                 "trigger_source": raw(AnalyticsSyncTrigger.self), "status": raw(AnalyticsSyncStatus.self),
-                "duration_ms": raw(AnalyticsSyncDuration.self),
+                "duration_ms": raw(AnalyticsSyncDuration.self), "connected_providers_count": raw(AnalyticsConnectedProviders.self),
             ]
         }
     }

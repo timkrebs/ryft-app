@@ -18,6 +18,7 @@ final class ScreenModels {
     var bodySettings: BodySettingsEditor { profile.bodySettings }
     let trainToday: TrainTodayViewModel
     let coordinator: SyncCoordinator
+    let homeSync: HomeSyncModel
     let push: PushRegistrar
     /// The journal (M5), shared by Today, Profile and Insights.
     let journal: JournalStore
@@ -50,6 +51,8 @@ final class ScreenModels {
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
          apiStatus: APIStatus? = nil, trainSync: TrainSyncService? = nil, train: TrainCoordinator? = nil) {
         self.coordinator = coordinator
+        let homeSync = HomeSyncModel(state: state, sync: sync, coordinator: coordinator)
+        self.homeSync = homeSync
         self.state = state
         self.sync = sync
         self.trainSync = trainSync
@@ -100,7 +103,7 @@ final class ScreenModels {
         // Its habits and answers decide the journal reminder; a day answered takes it away at once.
         state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
-                               onboarding: onboarding, devices: devices)
+                               onboarding: onboarding, devices: devices, homeSync: homeSync)
         sleep = SleepViewModel(state: state)
         // Sleep → Bedtime's plan is the account's, or demo data's: the other side's goes with the account-state forgetters.
         // So do Sleep's failed night or range and its request ID.
@@ -144,7 +147,7 @@ final class ScreenModels {
         // Analytics' gate reads the newest config, pending or shown: a kill switch acts now, not on the next screen.
         env.flags.onNewest = { [weak env] in env?.analytics.reevaluate() }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
-                                   devices: devices, train: train)
+                                   devices: devices, train: train, homeSync: homeSync)
         state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Start workout's last session and plan are the account's, or demo data's: they go with the others.
@@ -164,8 +167,7 @@ final class ScreenModels {
             // Only a held sync, and only when none is running or queued (`agree()` starts its own): that one reads
             // the gate itself, and a rerun after it would be an extra pass.
             guard sync.pausedFor != nil else { return }
-            let coordinator = coordinator
-            Task { await coordinator.runIfIdle(.appActive) }
+            Task { await homeSync.resumeHeldSync() }
         case .activities:
             let uploader = state.env.uploader
             Task { await uploader.flush() }
@@ -178,11 +180,9 @@ final class ScreenModels {
         }
     }
 
-    /// Pull to refresh on any tab: the upload starts, today and the sync status load at once, the
-    /// rest after the upload (`AppState.pullToRefresh`). Returns within 3 s; the status line
-    /// carries what's still running.
+    /// Pull to refresh on any tab returns at the spinner cap. Scoring continues in the shared run.
     func pullToRefresh() async {
-        await state.pullToRefresh(coordinator: coordinator)
+        await homeSync.sync(trigger: .homescreenPullToRefresh)
     }
 
     /// Profile's Demo data switch, Train's part (RyftApp's `onChange(of: settings.demoMode)` calls it; here, a test sees
