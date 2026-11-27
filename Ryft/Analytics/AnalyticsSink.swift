@@ -1,6 +1,6 @@
 import Foundation
 
-/// What sends: the SDK behind a seam (phase 2's `PostHogSink`), a no-op everywhere else. `Analytics` is its only
+/// What sends: the SDK behind a seam (`PostHogSink`), a no-op everywhere else. `Analytics` is its only
 /// caller and has already checked the gate; a sink never decides on its own whether to send.
 @MainActor
 protocol AnalyticsSink: AnyObject {
@@ -17,7 +17,7 @@ protocol AnalyticsSink: AnyObject {
 }
 
 /// Sends nothing, keeps nothing: previews, tests, the simulator, Debug device builds without `-RyftAnalytics`, and
-/// every build until the SDK is added (phase 2).
+/// any build without the SDK.
 final class NoopAnalyticsSink: AnalyticsSink {
     /// Nonisolated: it holds nothing, and it's a default argument of `AppEnvironment`'s initialisers.
     nonisolated init() {}
@@ -31,7 +31,7 @@ final class NoopAnalyticsSink: AnalyticsSink {
 
 enum AnalyticsSinks {
     /// The one switch for the live graph. The simulator never sends; a Debug device build only with
-    /// `-RyftAnalytics` (phase 2's check), so developers don't fill the dashboards; without the SDK, nothing.
+    /// `-RyftAnalytics`, so developers don't fill the dashboards; without the SDK, nothing.
     @MainActor
     static func live(arguments: [String] = ProcessInfo.processInfo.arguments) -> AnalyticsSink {
         #if targetEnvironment(simulator)

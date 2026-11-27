@@ -19,8 +19,10 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
-- One dependency: [supabase-swift](https://github.com/supabase/supabase-swift) 2.x, product
-  `Auth` only (Swift Package Manager, already in `Ryft.xcodeproj`)
+- Two dependencies (Swift Package Manager, already in `Ryft.xcodeproj`):
+  [supabase-swift](https://github.com/supabase/supabase-swift) 2.x, product `Auth` only; and
+  [posthog-ios](https://github.com/PostHog/posthog-ios) at exactly 3.98.2, product `PostHog`, `Ryft`
+  app target only, for opt-in usage analytics behind `AnalyticsSink` (ADR 0026; never auto-bumped)
 
 ## Setup
 

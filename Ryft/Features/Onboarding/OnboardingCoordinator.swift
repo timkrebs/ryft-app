@@ -267,6 +267,18 @@ final class OnboardingCoordinator {
         return missing.first { !deferred.contains($0) }
     }
 
+    /// The usage analytics question, full screen, on the first run only (decision B, analytics-sdk plan.md): after the
+    /// steps above (`flowStep` nil), while `Analytics.showsPrompt` (not answered, a sink that can send, the flag on, a
+    /// valid destination). RootView puts it before Apple Health. Not tied to `Settings.healthIntroDone`: that is per
+    /// install and turns true by itself when iOS already asked (another account's first run on this phone), which would
+    /// skip the question for an account that never saw it. Its own step, never part of the consent; an answer either way
+    /// ends it, and an account past its first run is never asked here (Profile → Privacy). Observable through what it
+    /// reads.
+    var showsAnalyticsStep: Bool {
+        phase == .ready && isFirstRun && flowStep == nil && !env.isDemo && env.auth.isSignedIn
+            && env.analytics.showsPrompt
+    }
+
     /// Over the tabs: a gate that appeared after the first run.
     var sheetStep: Step? {
         get {

@@ -29343,24 +29343,13 @@
         }
       }
     },
-    "Don't share" : {
-      "comment" : "Analytics prompt: the button that declines usage analytics.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nicht teilen"
-          }
-        }
-      }
-    },
-    "No health data, scores, sleep or workout details, names or free text." : {
+    "No health data, scores, sleep or workout details, foods or what you search for, names or free text." : {
       "comment" : "Analytics prompt: the second point (what is never sent).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Keine Gesundheitsdaten, Bewertungen, Schlaf- oder Trainingsdetails, Namen oder Freitexte."
+            "value" : "Keine Gesundheitsdaten, Bewertungen, Schlaf- oder Trainingsdetails, Lebensmittel oder was du suchst, Namen oder Freitexte."
           }
         }
       }
@@ -29376,13 +29365,13 @@
         }
       }
     },
-    "Screens used and errors shown. No health data. Turning it off stops sending now and resets your random ID." : {
+    "Screens used, food search, food logging, Sync now and errors shown. No health data. Turning it off stops sending now and resets your random ID." : {
       "comment" : "Profile → Privacy: the caption under the usage analytics switch.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Geteilt werden verwendete Ansichten und angezeigte Fehler. Beim Ausschalten wird die Übertragung sofort beendet und die Zufalls-ID zurückgesetzt."
+            "value" : "Geteilt werden verwendete Ansichten, Lebensmittelsuche, Mahlzeitenprotokoll, Jetzt synchronisieren und angezeigte Fehler. Keine Gesundheitsdaten. Beim Ausschalten wird die Übertragung sofort beendet und die Zufalls-ID zurückgesetzt."
           }
         }
       }
@@ -29420,13 +29409,13 @@
         }
       }
     },
-    "Which screens and features are used, onboarding progress, and errors shown, with their status codes." : {
-      "comment" : "Analytics prompt: the first point (what is sent).",
+    "Which screens and features are used, including food search, food logging and Sync now, with counts and timings as ranges; onboarding progress; errors shown with their status codes; and when the app is installed, opened or closed, with the app and iOS version and the device type." : {
+      "comment" : "Analytics prompt: the first point (what is sent). Names food search, food logging and Sync now; never the foods, queries or amounts.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Informationen zu verwendeten Ansichten und Funktionen, zum Einrichtungsfortschritt und zu angezeigten Fehlern mit Statuscodes."
+            "value" : "Welche Ansichten und Funktionen genutzt werden, einschließlich Lebensmittelsuche, Mahlzeitenprotokoll und Jetzt synchronisieren, mit Anzahlen und Dauern als Bereiche; Fortschritt im Onboarding; angezeigte Fehler mit ihren Statuscodes; und wann die App installiert, geöffnet oder geschlossen wird, mit App- und iOS-Version sowie Gerätetyp."
           }
         }
       }

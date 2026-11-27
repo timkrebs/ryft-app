@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- RYFT tracks no one: no ATT, no tracking domains. -->
+	<!-- RYFT tracks no one: no ATT, no tracking domains. The PostHog SDK's own manifests (posthog-ios 3.98.2 and its
+	     vendored PLCrashReporter) declare no tracking and no tracking domains either. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
-	<!-- Everything is sent to the user's own RYFT account (App Functionality only).
+	<!-- Everything but opt-in usage analytics is sent to the user's own RYFT account (App Functionality).
+	     Usage analytics (ADR 0026) go to PostHog EU only after the user says yes: not linked, Analytics.
 	     Keep in sync with the App Privacy answers in App Store Connect (docs/APP_STORE.md). -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
@@ -76,7 +78,9 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
-		<!-- A random per-install id sent with each sync and session (tells devices apart). -->
+		<!-- A random per-install id sent with each sync and session (tells devices apart). Analytics: after the
+		     opt-in, the analytics SDK's own random install id (ADR 0026), never the account's and never this
+		     one; one entry per type, and the type stays linked because of the sync's id. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
@@ -87,6 +91,7 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<!-- Free-text workout notes, custom exercise names, journal answers and feedback text
@@ -110,7 +115,8 @@
 		     flags, with tracker setup on the tracker ids chosen (RYFT's catalog ids, never a device's
 		     name), and the last Check sync: its day and, per tracker, a result code per data type (no
 		     values, times or source names). No health values. Request durations are network diagnostics for support (this type),
-		     not Performance Data. -->
+		     not Performance Data. Analytics: after the opt-in, `error_shown` (the HTTP status bucket and the
+		     error code of an error the app showed; ADR 0026). -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
@@ -121,13 +127,58 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- Opt-in usage analytics (PostHog EU, ADR 0026): which screens and features are used, onboarding
+		     progress, the app's lifecycle (installed, opened, backgrounded). A random per-install id, never
+		     the account; no identify. Off unless the user says yes in the onboarding or Profile → Privacy. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- The same opt-in analytics, as the PostHog SDK's own manifest declares it: app version and build,
+		     OS version, device type, the session id, and when the app is opened and backgrounded. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- The same opt-in analytics: how long a food search took (latency_ms) and a Sync now ran (duration_ms),
+		     each as a range token, never a raw timing. Not linked, no tracking. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePerformanceData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 	</array>
 	<!-- App code uses UserDefaults for its own settings only (CA92.1). File metadata only
 	     of files in its own app and App Group containers (C617.1): OrphanedStoreCleanup reads
 	     the size of the store files left behind by the App Group move before removing them.
-	     No system boot time, disk space or active keyboards. -->
+	     No disk space or active keyboards. System boot time only inside the PostHog SDK (35F9.1:
+	     elapsed time between events), merged here from its manifest, which also declares CA92.1 and C617.1. -->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
@@ -144,6 +195,14 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
 			</array>
 		</dict>
 	</array>

@@ -27,8 +27,8 @@ ADR 0026. The allow-list is in `docs/work/2026-11-27-analytics-allowlist/plan.md
 | `AnalyticsCatalog` | The allow-list: every event name, its keys and each key's allowed values, in one table. It also lists the SDK's lifecycle events and `$` keys that the sink's `beforeSend` keeps. | `AnalyticsAllowListTests`: catalogue == `everyCase`, in both directions |
 | `Analytics.deliver` | Before the gate, `AnalyticsCatalog.check` refuses an unknown event, an unknown, missing or deny-listed key, a value not on its key's list, and any unsafe value (email-like, longer than 40, not `^[a-z0-9_+]{1,40}$`). A refusal never reaches the sink. In Debug it asserts; the message names the event and key, never the value. | `AnalyticsAllowListTests` (the deny-list) |
 | the gate | Sends only while `analytics.enabled` is on, the config has a valid destination, the user opted in, someone is signed in and demo mode is off. | `AnalyticsGateTests` |
-| `AnalyticsSDKSettings.required` | The SDK settings the design allows (below). The adapter's `configuration(for:)` must produce exactly this. | `AnalyticsSDKSettingsTests` (and #137's `PostHogSinkTests` once both are in) |
-| `PostHogSink` `beforeSend` (#137) | Drops any event or key the catalogue doesn't list, including whatever a later SDK adds. At integration it must run `AnalyticsCatalog.check` for our events (key, value and event together, not a flat key list), and keep only `sdkPropertyKeys` on `sdkEventNames`. | #137's `PostHogSinkTests` |
+| `AnalyticsSDKSettings.required` | The SDK settings the design allows (below). The adapter's `configuration(for:)` asserts it produces exactly this, and `start` starts nothing if it doesn't (Release fails closed). | `AnalyticsSDKSettingsTests`, `PostHogConfigurationTests` |
+| `PostHogSink` `beforeSend` (#137) | Drops any event or key the catalogue doesn't list, including whatever a later SDK adds. It runs `AnalyticsCatalog.check` again on our events' own keys (key, value and event together), keeps `sdkPropertyKeys` besides them, keeps only `sdkPropertyKeys` on `sdkEventNames`, and drops the whole event on any `isDeniedKey` key. | `PostHogConfigurationTests` |
 | `PostHogFence` (#137) | The SDK's network gets only `POST https://eu.i.posthog.com/batch`, and only while started. | #137's `PostHogSinkTests` |
 
 ### SDK settings (posthog-ios 3.98.2, #137)
@@ -44,7 +44,7 @@ ADR 0026. The allow-list is in `docs/work/2026-11-27-analytics-allowlist/plan.md
 | `capturePushNotificationSubscriptions`, `capturePushNotificationOpened` | off | would send the APNs token |
 | `errorTrackingConfig.autoCapture` | off | crash reports aren't in the policy |
 | `enableSwizzling`, `debug` | off | |
-| `personProfiles` | `.never` (and we never identify) | no person profile is ever created, even after a stray `identify`. #137 still has `.identifiedOnly` and must follow |
+| `personProfiles` | `.never` (and we never identify) | no person profile is ever created, even after a stray `identify`. `PostHogSink.configuration(for:)` sets it and asserts `AnalyticsSDKSettings(config) == .required` |
 | `disableGeoIp` | on | no location from the IP |
 | `captureApplicationLifecycleEvents` | on | `Application Installed / Opened / Backgrounded`: the only SDK events kept |
 
