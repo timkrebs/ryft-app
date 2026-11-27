@@ -44,15 +44,18 @@
    and SwiftUI interactions, rage clicks, session replay, surveys, feature-flag preload and the flag-called event,
    default person properties, push-token registration and push-open capture, error-tracking autocapture (so the
    vendored PLCrashReporter is never started), swizzling and debug are all false. `captureApplicationLifecycleEvents`
-   is true, `personProfiles = .identifiedOnly`, `disableGeoIp = true`, `flushAt = 10`, `maxQueueSize = 200`, and the
-   URL session configuration is `.ephemeral`.
+   is true, `personProfiles = .never`, `disableGeoIp = true`, `flushAt = 10`, `maxQueueSize = 200`, and the
+   URL session configuration is `.ephemeral`. *Amended 2026-11-27 (#150):* `configuration(for:)` asserts
+   `AnalyticsSDKSettings(config) == .required`, the SDK-free pin in `AnalyticsCatalog.swift`.
 7. **An allow-list, not a deny-list** (`PostHogSink.sanitize`, the SDK's `beforeSend`, pure and unit-tested). Events:
    `AnalyticsEvent`'s names plus `Application Installed`, `Application Opened` and `Application Backgrounded`; anything
    else is dropped. Properties: ours (`step`, `screen`, `feature`, `status`, `code`), a reviewed set of the SDK's
    (`$app_version`, `$app_build`, `$os_name`, `$os_version`, `$device_type`, `$lib`, `$lib_version`, `$session_id`,
    `$process_person_profile`, `$geoip_disable`) and the lifecycle ones (`version`, `build`, `previous_version`,
    `previous_build`, `from_background`). Every other key is removed, `$device_id`, `$device_name`, `$locale` and
-   `$timezone` included. A key a later SDK version adds is dropped until someone reviews it.
+   `$timezone` included. A key a later SDK version adds is dropped until someone reviews it. *Amended 2026-11-27
+   (#150):* the lists are `AnalyticsCatalog`'s (`events`, `sdkEventNames`, `sdkPropertyKeys`), not the sink's own; our
+   events must pass `AnalyticsCatalog.check` again, and a denied key (`isDeniedKey`) drops the whole event.
 8. **The URLProtocol fence.** `PostHogFence` sits first in the SDK's `protocolClasses`, and every SDK request goes
    through that one session. It refuses every request unless the fence is open **and** the request is exactly
    `https://eu.i.posthog.com/batch` (no port, user or query): `/flags` (it carries `$device_id`), push subscriptions,
@@ -62,8 +65,8 @@
    `reset()` keeps `$device_id`. So `stop()` closes the fence, deletes the queue, replay, logs and opt-out files under
    `Application Support/<bundle id>/<project key>/` (also when the SDK wasn't set up in this process), and only then
    calls `close()`. `forgetID()` and `start(newID: true)` delete the whole folder, id included.
-10. **No identify, ever.** No `identify`, `alias`, `group` or `register`. With `identifiedOnly` every event is
-    anonymous: a random per-install id that the next opt-out or sign-out deletes.
+10. **No identify, ever.** No `identify`, `alias`, `group` or `register`. With `personProfiles = .never` every event is
+    anonymous and no person profile is made: a random per-install id that the next opt-out or sign-out deletes.
 
 ## Consequences
 

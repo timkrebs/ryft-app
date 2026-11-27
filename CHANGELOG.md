@@ -81,7 +81,9 @@ Store "What's New".
   changes until the servers start checking; a workout or sync they refuse for it stays queued and goes again.
 - Optional usage analytics, off unless you opt in, never with health data. The onboarding asks once, right before
   Apple Health ("Share usage analytics" or "Not now"); Profile → Privacy changes it. Sent to PostHog in the EU, with a
-  random ID for the install, never your account (not switched on yet).
+  random ID for the install, never your account (not switched on yet). What it covers: screens and features, food
+  search and logging, Sync now, onboarding progress and errors, as fixed categories and ranges, never what you searched
+  or ate.
 
 ### Changed
 - Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once this iPhone hears back

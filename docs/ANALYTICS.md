@@ -44,7 +44,7 @@ ADR 0026. The allow-list is in `docs/work/2026-11-27-analytics-allowlist/plan.md
 | `capturePushNotificationSubscriptions`, `capturePushNotificationOpened` | off | would send the APNs token |
 | `errorTrackingConfig.autoCapture` | off | crash reports aren't in the policy |
 | `enableSwizzling`, `debug` | off | |
-| `personProfiles` | `.never` (and we never identify) | no person profile is ever created, even after a stray `identify`. #137 still has `.identifiedOnly` and must follow |
+| `personProfiles` | `.never` (and we never identify) | no person profile is ever created, even after a stray `identify`. `PostHogSink.configuration(for:)` sets it and asserts `AnalyticsSDKSettings(config) == .required` |
 | `disableGeoIp` | on | no location from the IP |
 | `captureApplicationLifecycleEvents` | on | `Application Installed / Opened / Backgrounded`: the only SDK events kept |
 
