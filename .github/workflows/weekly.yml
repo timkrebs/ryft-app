@@ -60,6 +60,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # No token in .git for the notes and distribute steps; only the tag step gets one.
+          persist-credentials: false
       - name: Notes since the last external build
         env:
           NOTES_INPUT: ${{ inputs.notes }}
@@ -87,6 +89,13 @@ jobs:
           python3 scripts/testflight.py distribute --build "$BUILD" --group External \
             --notes "$RUNNER_TEMP/notes.txt" --external
       - name: Move the testflight-external tag
+        # The token reaches git through its environment config (not argv) in this step only.
+        env:
+          PUSH_TOKEN: ${{ github.token }}
         run: |
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" \
+                 GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git tag -f testflight-external "$TO"
           git push -f origin testflight-external

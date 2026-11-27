@@ -54,6 +54,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+          # No token in .git for `make lint` and the archive; only the tag step gets one.
+          persist-credentials: false
       - uses: ./.github/actions/setup
       - name: Version
         id: version
@@ -99,7 +101,14 @@ jobs:
             --group "$GROUP" --notes "$RUNNER_TEMP/notes.txt" "${flags[@]}"
       - name: Tag the build
         # The weekly job writes external notes from the commits between two of these tags.
+        # The token reaches git through its environment config (not argv) in this step only.
+        env:
+          PUSH_TOKEN: ${{ github.token }}
         run: |
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" \
+                 GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git tag "build/${{ steps.version.outputs.build }}"
           git push origin "build/${{ steps.version.outputs.build }}"
       - name: Archive logs

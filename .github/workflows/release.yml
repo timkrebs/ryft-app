@@ -29,9 +29,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # The token goes to the one `git push` below, not into .git.
+          persist-credentials: false
       - id: tag
         env:
           BEFORE: ${{ github.event.before }}
+          PUSH_TOKEN: ${{ github.token }}
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           tag="v$version"
@@ -52,7 +55,14 @@ jobs:
             echo "$tag is already on $GITHUB_SHA (a re-run)"
           else
             git tag "$tag" "$GITHUB_SHA"
-            git push origin "refs/tags/$tag"
+            # The token reaches git through its environment config (not argv), for this push only.
+            (
+              auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')"
+              echo "::add-mask::$auth"
+              export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" \
+                     GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+              git push origin "refs/tags/$tag"
+            )
           fi
           # What to Test: the commits since the previous version, without the release commit itself.
           last="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA~1" 2>/dev/null || true)"
