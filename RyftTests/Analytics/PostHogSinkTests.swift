@@ -476,5 +476,83 @@ struct PostHogFenceTests {
         #expect(try FileManager.default.subpathsOfDirectory(atPath: fake.root.path).sorted() == before)
         #expect(sink.canSend)
     }
+
+    // MARK: the installed hook, through the real SDK
+
+    private struct Queued {
+        let name: String
+        let properties: [String: Any]
+    }
+
+    /// What the SDK has written to `<project>/posthog.queueFolder.uuid/` (3.98.2): one plain-JSON file per event, with
+    /// `event` and `properties`.
+    private func queued(in project: URL) -> [Queued] {
+        let folder = project.appending(path: "posthog.queueFolder.uuid", directoryHint: .isDirectory)
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.compactMap { url in
+            guard let data = try? Data(contentsOf: url),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = json["event"] as? String else { return nil }
+            return Queued(name: name, properties: json["properties"] as? [String: Any] ?? [:])
+        }
+    }
+
+    /// `configuration(for:)` must install `PostHogSink.sanitize`: without it the SDK's own context (`$device_name`,
+    /// `$locale`, `$screen_width` ...) would be queued with every event. Runs the real SDK, as `Analytics` would.
+    ///
+    /// Facts from posthog-ios 3.98.2: `capture` builds the event, runs `beforeSend` and writes the queue file all on
+    /// the caller's thread, so the file exists when `capture` returns; the poll below (at most 2 s) is only a guard.
+    /// The SDK ignores the sink's `root` and writes to `PostHogSink.defaultRoot/<project key>/`, so that is where this
+    /// looks, and only that one folder is created and removed (the test project key's). One event is far below
+    /// `flushAt` (10) and the flush timer, and the fence is closed right after `start`, so nothing can leave.
+    @Test func theInstalledHookKeepsTheSDKsContextOutOfTheQueue() async throws {
+        let destination = try #require(AnalyticsDestination(AnalyticsFixture.config))
+        let project = PostHogSink.defaultRoot.appending(path: AnalyticsFixture.key, directoryHint: .isDirectory)
+        let files = FileManager.default
+        try? files.removeItem(at: project)
+        let sink = PostHogSink()
+        defer {
+            sink.stop()
+            PostHogFence.open(false)
+            try? files.removeItem(at: project)
+        }
+
+        sink.start(destination, newID: false)
+        PostHogFence.open(false)
+
+        let screen = try #require(AnalyticsScreen.allCases.first).rawValue
+        // Not ours: dropped by the hook, even with a key that would be allowed elsewhere.
+        sink.capture("food_logged_raw", properties: ["screen": screen])
+        sink.capture("$screen", properties: ["screen": screen])
+        sink.capture("screen_viewed", properties: ["screen": screen])
+
+        var events = queued(in: project)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !events.contains(where: { $0.name == "screen_viewed" }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+            events = queued(in: project)
+        }
+
+        let ours = try #require(events.first { $0.name == "screen_viewed" }, "the valid event was never queued")
+        let allowed = Set(try #require(AnalyticsCatalog.events["screen_viewed"]).keys).union(AnalyticsCatalog.sdkPropertyKeys)
+        let extra = Set(ours.properties.keys).subtracting(allowed)
+        #expect(extra.isEmpty, "keys the hook should have removed: \(extra.sorted())")
+        #expect(ours.properties["screen"] as? String == screen)
+        for key in ["$device_name", "$device_model", "$locale", "$timezone", "$screen_width", "$screen_height",
+                    "$network_wifi", "$network_cellular", "$is_testflight", "$device_id", "$set", "$set_once"] {
+            #expect(ours.properties[key] == nil, "\(key)")
+        }
+
+        #expect(!events.contains { $0.name == "food_logged_raw" || $0.name == "$screen" }, "an event outside the catalogue was queued")
+        let permitted = AnalyticsCatalog.eventNames.union(AnalyticsCatalog.sdkEventNames)
+        #expect(events.allSatisfy { permitted.contains($0.name) }, "\(events.map(\.name))")
+        for event in events {
+            #expect(Set(event.properties.keys).isSubset(of: allowed.union(AnalyticsCatalog.propertyKeys)), "\(event.name)")
+        }
+
+        sink.stop()
+        #expect(queued(in: project).isEmpty, "stop() deletes what was queued")
+        #expect(!PostHogFence.isOpen)
+    }
 }
 #endif
