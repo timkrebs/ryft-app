@@ -465,7 +465,13 @@ final class ProfileViewModel {
 
     var canSync: Bool { homeSync?.canSync ?? (settings.isConfigured && auth.isSignedIn && !env.isDemo) }
 
+    /// The status row's retry and the connection test: the shared sync, untracked, back when the spinner ends.
     func syncNow() async {
+        await homeSync?.syncUntracked()
+    }
+
+    /// Profile's Sync now row: the shared sync as `profile_button` (`sync_triggered`, `sync_completed`).
+    func syncNowFromProfile() async {
         await homeSync?.sync(trigger: .profileButton)
     }
 

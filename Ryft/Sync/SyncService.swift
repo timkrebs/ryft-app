@@ -1042,6 +1042,9 @@ actor SyncEngine {
             let failure: SyncIndicatorState.UploadFailure?
             switch error {
             case APIError.transport, is URLError: failure = .offline
+            // A gate's 403, a signed-out 401 and a 429 have their own surfaces (the gate card, sign-in, the retry);
+            // the button's amber is for an upload the platform failed or refused outright.
+            case APIError.http(let code, _, _, _, _) where code == 401 || code == 403 || code == 429: failure = nil
             case APIError.http: failure = .server
             default: failure = nil
             }

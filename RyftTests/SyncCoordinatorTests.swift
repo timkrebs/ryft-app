@@ -93,7 +93,10 @@ final class FakeSteps: SyncSteps {
     func refreshTrends() async throws { events.append("trends") }
     func refreshInsights() async throws { events.append("insights") }
     func refreshStale() async { events.append("stale") }
-    func reloadTodayAfterCurrent() async { events.append("home-reload") }
+    /// Today's confirming reload (every foreground refresh tries it; the live steps read only after a `current` status).
+    /// Counted apart from `events`, so the stage-order tests keep their order: `count("home-reload")`.
+    private(set) var homeReloads = 0
+    func reloadTodayAfterCurrent() async { homeReloads += 1 }
     private(set) var phases: [SyncPhase] = []
     func report(_ phase: SyncPhase) {
         phases.append(phase)
@@ -129,7 +132,7 @@ final class FakeSteps: SyncSteps {
         status.gate == .consentRequired && !consentGateCounts ? nil : status.gate
     }
 
-    func count(_ name: String) -> Int { events.filter { $0 == name }.count }
+    func count(_ name: String) -> Int { name == "home-reload" ? homeReloads : events.filter { $0 == name }.count }
 }
 
 @Suite("Sync coordinator")

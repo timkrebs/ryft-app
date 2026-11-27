@@ -39,7 +39,7 @@ final class HomeSyncModel {
                               uploadFailure: app.isDemo ? nil : upload.uploadFailure,
                               healthAccessMissing: healthAccessMissing, status: app.syncStatus,
                               scoringWaitStartedAt: scoringWaitStartedAt,
-                              todayReloaded: app.todayReloadedSinceLastUpload,
+                              todayReloaded: app.todayReloaded(sinceUpload: upload.lastUploadReceipt?.at),
                               online: app.isDemo || app.env.connectivity.isOnline, now: now))
     }
 
@@ -147,7 +147,15 @@ final class HomeSyncModel {
         return await run.completion.value
     }
 
-    private func start(_ trigger: SyncTriggerSource) -> Run {
+    /// The same sync, untracked and back when the spinner ends: Profile's status-row retry and its connection test
+    /// (plan 2026-11-27, decision 10: only the Sync now row of Profile tracks).
+    func syncUntracked() async {
+        let run = active ?? start(nil)
+        _ = await run.spinner.value
+    }
+
+    /// `trigger` nil: not tracked (`syncUntracked`).
+    private func start(_ trigger: SyncTriggerSource?) -> Run {
         let previous = state
         let started = clock.uptime()
         let binding = AccountBinding(app.env)
@@ -157,7 +165,8 @@ final class HomeSyncModel {
             guard binding.isCurrent(in: app.env), !Task.isCancelled else {
                 return (nil as Task<SyncCoordinator.Outcome, Never>?, false)
             }
-            if !joining {
+            let tracks = !joining && trigger != nil
+            if tracks, let trigger {
                 let token: AnalyticsSyncPreviousState
                 switch previous {
                 case .upToDate: token = .upToDate
@@ -168,7 +177,7 @@ final class HomeSyncModel {
             }
             let run = await app.pullToRefreshRun(coordinator: coordinator,
                                                 homeTrigger: trigger == .autoForeground ? .appActive : .userInitiated)
-            return (run, !joining)
+            return (run, tracks)
         }
         let completion = Task {
             let (run, track) = await spinner.value
@@ -186,7 +195,7 @@ final class HomeSyncModel {
             } else {
                 status = .skipped
             }
-            if track {
+            if track, let trigger {
                 let count = app.syncStatus?.sources?.filter { $0.source != "healthkit" }.count ?? 0
                 app.env.analytics.track(.syncCompleted(trigger, status: status, duration: duration,
                                                        connectedProviders: .init(count: count)))

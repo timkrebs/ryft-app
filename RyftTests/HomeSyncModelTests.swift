@@ -15,6 +15,25 @@ struct HomeSyncModelTests {
         return (HomeSyncModel(state: app, sync: SyncService.ungated(env: env), coordinator: coordinator), app, analytics)
     }
 
+    /// Steps the test clock 5 s at a time (each wait sleeps anew after the last one fired) until `done`, for at most
+    /// 10 minutes of clock time.
+    private func drain(_ clock: TestClock, until done: () async -> Bool) async {
+        for _ in 0..<120 {
+            if await done() { return }
+            clock.advance(by: .seconds(5))
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// `eventually` for a condition that awaits (an actor's state), on the real clock: at most 30 s.
+    private func eventuallyAsync(_ condition: () async -> Bool) async -> Bool {
+        for _ in 0..<3000 {
+            if await condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
     @Test func quietForegroundUsesStatusOnlyUntilFiveMinutesHavePassed() async {
         let clock = TestClock()
         let steps = FakeSteps(clock: clock)
@@ -97,6 +116,44 @@ struct HomeSyncModelTests {
         await coordinator.refreshHomeStatus()
         #expect(steps.statusRequestTimes.last == .seconds(180))
         #expect(steps.count("home-reload") == 1)
+    }
+
+    /// Code review (PR 151, blocking 1): the push used to wait for the button's run and cancel it at its 25 s budget.
+    @Test func aPushDuringTheButtonsWaitReturnsAtOnceAndMakesItAskNow() async throws {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = []
+        steps.expectedScoringSeconds = 30
+        let coordinator = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await coordinator.runHomeSync(.userInitiated, afterUpload: {}) }
+        try #require(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(12))
+
+        let push = await coordinator.run(.silentPush(days: ["2026-10-19"]))
+        #expect(push.error == nil && !push.cancelled, "the push is done without waiting for the button's run")
+        try #require(await eventually { steps.statusRequestTimes == [.seconds(12)] })
+        #expect(await coordinator.isRunning, "the button's run goes on")
+
+        await drain(clock) { await !coordinator.isRunning }
+        let outcome = await run.value
+        #expect(!outcome.cancelled && outcome.error == nil)
+        #expect(outcome.scoringTimedOut)
+    }
+
+    /// Code review (PR 151, should-fix 3): a tap during a run that sends nothing reads Apple Health after it.
+    @Test func aTapDuringAnActivitysRunQueuesAnUploadInsteadOfJoiningIt() async throws {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        let coordinator = SyncCoordinator(steps: steps, clock: clock)
+        let days = Task { await coordinator.run(.daysChanged(days: ["2026-10-19"])) }
+        try #require(await eventuallyAsync { await coordinator.isRunning })
+        let tap = Task { await coordinator.runHomeSync(.userInitiated, afterUpload: {}) }
+        try #require(await eventuallyAsync { await coordinator.hasQueuedRun })
+        await drain(clock) { await !coordinator.hasWork }
+        _ = await days.value
+        _ = await tap.value
+        #expect(steps.count("upload") == 1)
     }
 
     @Test func aTimedOutRunReportsPartial() async throws {

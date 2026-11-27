@@ -135,6 +135,14 @@ extension SyncSteps {
 ///   go through `ReadScheduler` (its own retries, per resource) and never fail the run.
 actor SyncCoordinator {
     enum Trigger: Equatable, Sendable {
+        /// Reads Apple Health and uploads (every trigger but a push's and an activity's days).
+        var uploads: Bool {
+            switch self {
+            case .silentPush, .daysChanged: return false
+            default: return true
+            }
+        }
+
         case userInitiated, appActive, reconnect, healthKit, background
         /// The rest of an upload that stopped early (the first score came first).
         case backlog
@@ -187,6 +195,8 @@ actor SyncCoordinator {
     private let scoring = ScoringSignal()
     private var running: Task<Outcome, Never>?
     private var runningID: UUID?
+    /// What `running` runs: a sync button joins only a run that uploads (`runHomeSync`).
+    private var runningTrigger: Trigger?
     private var queued: Task<Outcome, Never>?
     private var queuedTrigger: Trigger?
     /// `.daysChanged` days that joined the queued rerun: awaited and refreshed even when an upload trigger won the
@@ -224,11 +234,14 @@ actor SyncCoordinator {
 
     /// Manual and foreground requests share the current run and never queue a second upload.
     func runHomeSync(_ trigger: Trigger, afterUpload: @escaping @Sendable () -> Void) async -> Outcome {
-        if let run = running ?? queued {
+        if let running, let runningTrigger, runningTrigger.uploads {
             // The pull's other reads should go on when the upload ends or its head start expires.
             defer { afterUpload() }
-            return await run.value
+            return await running.value
         }
+        // A run that sends nothing (a push, an activity's days) or one already queued: Apple Health still has to be
+        // read, so this is the one rerun after it, as on every other trigger.
+        if running != nil || queued != nil { return await run(trigger, afterUpload: afterUpload) }
         return await start(trigger, afterUpload: [afterUpload], home: true).value
     }
 
@@ -263,7 +276,13 @@ actor SyncCoordinator {
             // The platform's word that these days are scored, before any refresh: the waiting run's, or its own.
             await steps.scored(days)
             // The push a waiting pipeline was waiting for: it refreshes those days now; nothing to queue.
-            if let current = running, await scoring.signal(Set(days)) { return await current.value }
+            if let current = running, await scoring.signal(Set(days)) {
+                // A sync button's wait only ends on a `current` status (API.md → The sync button): the push makes it
+                // ask now, and refreshes with it. The push doesn't wait for the person's run, so its budget's
+                // `cancel()` can't stop it.
+                if await scoring.waitsForStatus { return Outcome() }
+                return await current.value
+            }
         }
         guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
@@ -368,6 +387,7 @@ actor SyncCoordinator {
         }
         running = task
         runningID = id
+        runningTrigger = trigger
         return task
     }
 
@@ -375,6 +395,7 @@ actor SyncCoordinator {
         guard runningID == id else { return }
         running = nil
         runningID = nil
+        runningTrigger = nil
         guard backlog else { return }
         // In the background the backfill task takes the rest (it loops by itself when it's
         // the one running).
@@ -545,8 +566,12 @@ actor SyncCoordinator {
             let refresh = Signposts.sync.beginInterval("refresh", id: Signposts.sync.makeSignpostID())
             defer { Signposts.sync.endInterval("refresh", refresh) }
             let scoringTimedOut = outcome.scoringTimedOut
+            // In the foreground every run's refresh reads today as the sync button needs it (after a `current`
+            // status, so the button can turn green after a HealthKit delivery's run too); the other days as before.
+            let backgrounded = await inBackground()
+            let confirmsToday = home || !backgrounded
             let refreshing: @Sendable () async throws -> Void = {
-                if home {
+                if confirmsToday {
                     if !scoringTimedOut { await steps.reloadTodayAfterCurrent() }
                     try await steps.refreshHomeDays(touched)
                 } else {
@@ -792,10 +817,19 @@ actor ScoringSignal {
         }
     }
 
-    /// A push arrived for `days`: `true` when a pipeline waits for one of them.
+    /// A sync button's wait is open: only a `current` status ends it (`confirmCurrentStatus`).
+    var waitsForStatus: Bool { awaited != nil && requiresStatus }
+
+    /// A push arrived for `days`: `true` when a pipeline waits for one of them. It ends an ordinary wait; a sync
+    /// button's wait stops sleeping and asks for the status at once.
     func signal(_ days: Set<String>) -> Bool {
         guard let awaited, !awaited.isDisjoint(with: days) else { return false }
-        if !requiresStatus { finish() }
+        if requiresStatus {
+            waiting?.resume(returning: false)
+            waiting = nil
+        } else {
+            finish()
+        }
         return true
     }
 
@@ -905,6 +939,9 @@ final class LiveSyncSteps: SyncSteps {
 
     private func readStatus(mode: ReadMode = .latest, userInitiated: Bool, deadline: Duration? = nil) async throws -> SyncStatus {
         let env = state.env, state = state, apiStatus = apiStatus, sync = sync
+        // The button's poll past its 3 minutes asks nothing. Checked here, not inside the flight: a flight is shared,
+        // and its other callers want the answer (the wait itself drops a late one, `awaitScoring`).
+        if let deadline, env.clock.uptime() >= deadline { throw CancellationError() }
         let status = try await env.reads.run(ReadKey(.syncStatus), mode: mode, userInitiated: userInitiated,
                                              storeAsked: { [weak self] (status: SyncStatus, asked: Date) in
             self?.asked = (status, asked)
@@ -915,12 +952,7 @@ final class LiveSyncSteps: SyncSteps {
             }
             // When the flight was asked for, not when this caller joined it: the ledger's "requested after".
             sync.receive(status, requestedAt: asked)
-        }) {
-            if let deadline, env.clock.uptime() >= deadline { throw CancellationError() }
-            let status = try await env.api.syncStatus()
-            if let deadline, env.clock.uptime() >= deadline { throw CancellationError() }
-            return status
-        }
+        }) { try await env.api.syncStatus() }
         guard let status else { throw ReadScheduler.NotSent() }
         return status
     }
@@ -932,12 +964,12 @@ final class LiveSyncSteps: SyncSteps {
     func reloadTodayAfterCurrent() async {
         guard let status = state.syncStatus, scoringGate(of: status) == nil else { return }
         let uploadedAt = state.isDemo ? nil : sync.pendingUploadReceipt?.at
-        await state.reloadTodayAfterCurrent(uploadedAt: uploadedAt)
+        await state.reloadTodayAfterCurrent(uploadedAt: uploadedAt, lastUpload: sync.lastUploadReceipt?.at)
     }
 
     /// Today too, unless the button's reload just read it (a wait that ran out, or a status not current, leaves it).
     func refreshHomeDays(_ days: [String]) async throws {
-        try await state.refreshDays(days, includeToday: !state.todayReloadedSinceLastUpload)
+        try await state.refreshDays(days, includeToday: !state.todayReloaded(sinceUpload: sync.lastUploadReceipt?.at))
     }
 
     /// After scores landed: newer than now, or nothing. A failed read is recorded per resource, never thrown.

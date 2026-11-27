@@ -75,23 +75,24 @@ final class AppState {
         demoSyncAt = now
     }
 
-    /// Today was reloaded after a `current` status, today, and not before the last upload: the sync button may be green,
-    /// and a sync's refresh needn't read today again.
-    var todayReloadedSinceLastUpload: Bool {
+    /// Today was reloaded after a `current` status, today, and not before `upload` (the last page the platform accepted,
+    /// `SyncService.lastUploadReceipt`; demo data's simulated sync): the sync button may be green, and a sync's refresh
+    /// needn't read today again. A pass that sent nothing moves "Last sync" but changes nothing to reload.
+    func todayReloaded(sinceUpload upload: Date?) -> Bool {
         guard let reloaded = syncTodayReloadedAt, Calendar.current.isDate(reloaded, inSameDayAs: now) else { return false }
-        let lastUpload = isDemo ? demoSyncAt : settings.lastSync
+        let lastUpload = isDemo ? demoSyncAt : upload
         return lastUpload.map { reloaded >= $0 } ?? true
     }
 
     /// Called when a status read confirms scoring is current. A cached day cannot satisfy this reload.
-    func reloadTodayAfterCurrent(uploadedAt: Date?) async {
+    func reloadTodayAfterCurrent(uploadedAt: Date?, lastUpload: Date? = nil) async {
         let date = now
         guard syncStatus?.effectiveFreshness(now: date) == .current else { return }
         if let uploadedAt {
             guard let asked = syncStatusAskedAt,
                   asked.timeIntervalSince(uploadedAt) >= SyncIndicatorState.minimumPollInterval else { return }
         }
-        if todayReloadedSinceLastUpload { return }
+        if todayReloaded(sinceUpload: lastUpload) { return }
         let revision = syncStatusRevision
         let binding = AccountBinding(env)
         guard (try? await repository.refreshDay(date, mode: .changed(since: date), requireNetworkResult: true)) != nil,

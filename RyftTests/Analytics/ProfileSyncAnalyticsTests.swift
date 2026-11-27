@@ -30,21 +30,21 @@ struct ProfileSyncAnalyticsTests {
 
     @Test func offlineStartsNothingAndSaysSkipped() async {
         let (model, rig) = profile(online: false)
-        await model.syncNow()
+        await model.syncNowFromProfile()
         #expect(rig.sink.captures == [triggered, skipped])
         #expect(rig.refusals.isEmpty)
     }
 
     @Test func noDataSourceStartsNothingAndSaysSkipped() async {
         let (model, rig) = profile(online: true, signedIn: false)
-        await model.syncNow()
+        await model.syncNowFromProfile()
         #expect(rig.sink.captures == [triggered, skipped])
         #expect(rig.refusals.isEmpty)
     }
 
     @Test func theTriggerComesBeforeTheEnd() async {
         let (model, rig) = profile(online: false)
-        await model.syncNow()
+        await model.syncNowFromProfile()
         #expect(rig.sink.captures.map(\.name) == ["sync_triggered", "sync_completed"])
     }
 
@@ -57,8 +57,15 @@ struct ProfileSyncAnalyticsTests {
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
         let homeSync = HomeSyncModel(state: state, sync: sync, coordinator: coordinator)
         let model = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, homeSync: homeSync)
-        await model.syncNow()
+        await model.syncNowFromProfile()
         #expect(rig.sink.calls.isEmpty)
+        #expect(rig.refusals.isEmpty)
+    }
+
+    @Test func theStatusRetryAndTheConnectionTestDontTrack() async {
+        let (model, rig) = profile(online: false)
+        await model.syncNow()
+        #expect(rig.sink.captures.isEmpty)
         #expect(rig.refusals.isEmpty)
     }
 }
