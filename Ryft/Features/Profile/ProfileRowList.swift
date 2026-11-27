@@ -223,7 +223,9 @@ struct ProfileRowList: View {
                 .task { model.report.reloadWaiting() }
         case .rateApp:
             GroupedRow.action(Text("Rate RYFT", comment: "Profile action to request an App Store rating."),
-                              hint: Text("Opens the App Store rating prompt", comment: "VoiceOver hint for Rate RYFT in Profile."),
+                              // `requestReview` is iOS's to show or not (a few times a year): the hint promises no more.
+                              hint: Text("Asks iOS to show the App Store rating prompt",
+                                         comment: "VoiceOver hint for Rate RYFT in Profile; iOS may not show the prompt."),
                               identifier: id) {
                 requestReview()
             }

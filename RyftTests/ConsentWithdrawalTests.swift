@@ -45,14 +45,16 @@ struct ConsentWithdrawalTests {
         #expect(!model.isWithdrawing && !model.isWorking && model.errorMessage == nil)
     }
 
-    @Test("A failed withdrawal says so under Privacy, with the request ID behind Details", .timeLimit(.minutes(1)))
+    @Test("A failed withdrawal says so under Privacy and data's consent card, with the request ID behind Details",
+          .timeLimit(.minutes(1)))
     func aFailedWithdrawalShowsItsMessage() async throws {
         let graph = try await ProfileShotGraph.make("signed-in")
         defer { graph.tearDown() }
         let api = try #require(graph.state.env.api as? MockPlatformAPI)
         api.faults["revokeConsent"] = .init(.status(500, retryAfter: nil))
         let message = String(localized: "Something went wrong on RYFT's side. Try again later.")
-        try await HostedWindow.run(width: 390, height: 4400, graph.view) { w in
+        // Since P1 the consent card is on Privacy and data, where Withdraw consent is.
+        try await HostedWindow.run(width: 390, height: 4400, graph.page(.privacyAndData)) { w in
             try await w.settle()
             #expect(w.node(message, exactly: true) == nil)
             await graph.screens.profile.withdrawConsent()

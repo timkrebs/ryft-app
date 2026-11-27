@@ -2,9 +2,23 @@
 
 ## 2026-11-27 · Profile groups (P1)
 
-- Drafted the five Profile groups and their subpages, shared confirmation state, Devices & sync with or without tracker setup,
-  and the Nutrition settings groups. See `CODEX_NOTES.md` for row homes, localization and verification.
-- Xcode build, simulator checks and the strings sync are open for review.
+- **Done:**
+  - Profile has five groups (You · General · Data · Resources · Legal), one level of sub-pages and Log out at the bottom.
+  - Account deletion takes two taps, in two places (Account; Privacy and data → Your data).
+  - Devices and sync is one page whether or not `devices.setup` is on: status tile, trackers, Apple Health, the
+    strength-to-Health toggle, Sync now on #151's coordinator, and Advanced (rescore, Demo data; catalogue and flags in
+    Debug builds).
+  - Licences credits BLS 4.0. Nutrition settings has three groups: Targets · Scoring · Data.
+  - Codex drafted and ios-lead reviewed: `docs/work/2026-11-27-profile-groups/`.
+- **Verified in the simulator** (iPhone 17 Pro, iOS 27.2):
+  - Build with zero warnings, `make lint` (English and German).
+  - The Profile, consent and body-settings unit suites pass.
+  - UI smoke: see the PR.
+  - `FocusedPolishHostedTests` (Train, not touched here) fails on this Mac's simulator under load.
+- **Open:**
+  - Device check of the new paths (PR checklist). Rate RYFT's prompt only shows on a device, and iOS limits how often.
+  - "How RYFT scores": the app has no "how it works" links yet.
+  - Sex, weight and goal under You wait for C1. The RYFT Plus slot waits for StoreKit.
 
 ## 2026-11-27 · Today’s sync indicator
 

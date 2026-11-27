@@ -482,6 +482,8 @@ final class ProfileViewModel {
     var showsNotifications: Bool { auth.isSignedIn && !env.isDemo }
     /// Profile → Training (Advance to the next exercise) only where Train is on, like the other Train surfaces.
     var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
+    /// Profile → Training's import rows (`ImportCoordinator.isEnabled`'s flag), with or without Train.
+    var showsImport: Bool { env.flags.isOn(.trainImport) }
     /// Profile → Training → Session layout. With the flag off a session is always List, so there is nothing to choose (L5).
     var showsSessionLayout: Bool { env.flags.isOn(.focusedSession) }
     /// Profile → Privacy → Nutrition privacy, only while Nutrition (diary or full) is available for the account.

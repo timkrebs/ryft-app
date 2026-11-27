@@ -299,7 +299,7 @@ struct ProfileDataTests {
 
     @Test("Every pre-P1 row has its home when visible across account, demo and devices states", arguments: [false, true])
     func homes(devicesEnabled: Bool) {
-        var live = ProfileRowFacts(devicesEnabled: devicesEnabled, canAskForHealth: true, showsSessionLayout: true,
+        var live = ProfileRowFacts(devicesEnabled: devicesEnabled, canAskForHealth: true, showsImport: true, showsSessionLayout: true,
                                    journalLive: true, showsAnalytics: true, canChangePassword: true, showsEmail: true,
                                    nutritionAvailable: true)
         var demo = live
@@ -359,8 +359,15 @@ struct ProfileDataTests {
         #expect(ProfileRows.home(of: .allowHealth, gated) == .hidden)
         #expect(ProfileRows.home(of: .changePassword, gated) == .hidden)
         #expect(ProfileRows.home(of: .export, gated) == .hidden)
+        #expect(ProfileRows.home(of: .analytics, gated) == .hidden, "no Analytics card while the toggle can't show")
 
-        let signedIn = ProfileRowFacts(showsSessionLayout: true, consentAwaitsConfirmation: true, showsAnalytics: true,
+        // Train switched off with imports on: Training stays, with the import rows alone (as Devices and sync had them).
+        var importOnly = gated
+        importOnly.showsImport = true
+        #expect(ProfileRows.rows(.general, importOnly) == [.account, .display, .training])
+        #expect(ProfilePage.sections(.training, importOnly).flatMap(\.rows) == [.importTraining])
+
+        let signedIn = ProfileRowFacts(showsImport: true, showsSessionLayout: true, consentAwaitsConfirmation: true, showsAnalytics: true,
                                       canChangePassword: true, showsEmail: true, nutritionAvailable: true)
         #expect(ProfilePage.sections(.account, signedIn).flatMap(\.rows) ==
                 [.email, .timezone, .signInMethods, .changePassword, .logOutRow, .deleteAccount])

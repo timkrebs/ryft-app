@@ -4339,6 +4339,16 @@
         }
       }
     },
+    "Asks iOS to show the App Store rating prompt" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bittet iOS, die Bewertung im App Store anzuzeigen"
+          }
+        }
+      }
+    },
     "asleep" : {
       "localizations" : {
         "de" : {
@@ -10949,16 +10959,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet das Formular für eine Aktivität"
-          }
-        }
-      }
-    },
-    "Opens the App Store rating prompt" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnet die Bewertung im App Store"
           }
         }
       }

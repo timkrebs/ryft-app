@@ -78,6 +78,8 @@ struct ProfilePageCard: View {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
                         .accessibilityIdentifier("profile.bodySettingsError")
                 }
+                // A rescore started from an editor page reports here too, as About you's footer did before P1.
+                RescoreStatus(editor: editor)
                 GroupFooter(Text("Changing a setting doesn't rescore past days on its own."))
             }
         case .account:

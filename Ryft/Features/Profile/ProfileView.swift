@@ -234,10 +234,9 @@ extension ProfileRowFacts {
     /// The model's account, flags and switches, and the two shared stores' availability.
     @MainActor
     init(_ model: ProfileViewModel, journalLive: Bool, bedtimeEnabled: Bool, showsAnalytics: Bool = false) {
-        let devicesEnabled = model.devices.isEnabled
-        self.init(isSignedIn: model.isSignedIn, devicesEnabled: devicesEnabled,
-                  canAskForHealth: devicesEnabled ? model.devices.canAskForHealth : model.canAskForHealth,
-                  showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
+        // Profile's own Health rows show only without tracker setup, so `canAskForHealth` is the model's.
+        self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
+                  showsTraining: model.showsTraining, showsImport: model.showsImport, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
                   consentIsCurrent: model.consentIsCurrent, consentAwaitsConfirmation: model.consentAwaitsConfirmation,
                   showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,

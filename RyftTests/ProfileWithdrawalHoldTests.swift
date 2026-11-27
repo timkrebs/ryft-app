@@ -258,6 +258,12 @@ struct ProfileWithdrawalHoldTests {
             #expect(!profile.withdrawingConsent)
             #expect(profile.consentError == message)
             #expect(spoken.lines.isEmpty, "a failure announces itself through its message: \(spoken.lines)")
+            #expect(try node(w, Self.withdraw).isEnabled, "Withdraw consent takes taps again")
+        }
+        // And the main page is live again: Log out at full ink, no reason under it.
+        try await HostedWindow.run(width: 390, height: Self.height, graph.view) { w in
+            try await w.settle()
+            try await expectLive(w)
         }
     }
 
@@ -342,6 +348,8 @@ struct ProfileWithdrawalHoldTests {
             #expect(demo.label.contains(reason) || demo.value?.contains(reason) == true, "the switch reads the hold reason")
             #expect(!demo.label.contains(String(localized: "Show a realistic sample history instead of your server.")))
             demo.activate()
+            // The switch's binding works in a Task: let it run before reading the setting.
+            try await w.settle()
             #expect(!graph.settings.demoMode, "Demo data stays off")
             let ink = try await onScreen(w, Self.demo) { Self.demoInk($0, $1) }
             #expect(ink.title > 0.8, "Demo data's title at full ink (textPrimary, 0.95): \(ink.title)")

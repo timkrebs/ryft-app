@@ -365,15 +365,20 @@ struct ProfileIdentityRow: View {
     }
 }
 
-/// The same status line without the identity, on Devices & sync. The card opens Sync details.
+/// The same status line without the identity, on Devices & sync. Its tap is the identity row's (`tapStatus`): Sync
+/// details, or sign in, try again, the gate's step; nothing when the line has no tap.
 struct ProfileSyncStatusTile: View {
     @Environment(ScreenModels.self) private var screens
+    @State private var showsSyncDetails = false
 
     var body: some View {
-        let status = screens.profile.status(line: screens.today.syncLine)
+        let model = screens.profile
+        let status = model.status(line: screens.today.syncLine)
         GroupedCard {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                NavigationLink(value: ProfileRoute.syncDetails) {
+                Button {
+                    if model.tapStatus(status.tap) { showsSyncDetails = true }
+                } label: {
                     HStack(alignment: .firstTextBaseline, spacing: ProfileLayout.statusDotGap) {
                         ProfileStatusDot(dot: status.dot)
                         Text(verbatim: status.text(now: context.date))
@@ -388,10 +393,14 @@ struct ProfileSyncStatusTile: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // A line with no tap reads as text, not as a button that does nothing.
+                .disabled(status.tap == .none)
                 .accessibilityLabel(Text(verbatim: status.spoken(now: context.date)))
-                .accessibilityHint(Text("Opens sync details", comment: "VoiceOver hint for the status tile on Devices and sync."))
+                .accessibilityHint(status.hint ?? Text(verbatim: ""))
+                .accessibilityIdentifier("devices.syncStatus")
             }
         }
+        .navigationDestination(isPresented: $showsSyncDetails) { SyncDetailsView(model: model.syncDetails) }
     }
 }
 

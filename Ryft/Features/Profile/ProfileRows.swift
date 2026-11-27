@@ -57,6 +57,9 @@ struct ProfileRowFacts: Equatable, Sendable {
     /// RYFT may still ask for Health access: "Allow access" before "Open Health".
     var canAskForHealth = false
     var showsTraining = true
+    /// `train.import`: the import and Clear remembered matches rows (`ImportProfileRows`). Independent of `train.enabled`, as
+    /// before P1, so imported data can still be managed with Train switched off.
+    var showsImport = false
     var showsSessionLayout = false
     var showsNotifications = true
     var journalLive = false
@@ -144,8 +147,9 @@ enum ProfilePage: CaseIterable, Hashable, Sendable {
         case .display:
             return [.init(.display, [.heroNumerals])]
         case .training:
-            guard f.showsTraining else { return [] }
-            return [.init(.training, [.jumpToNext] + (f.showsSessionLayout ? [.sessionLayout] : []) + [.saveWorkouts, .importTraining])]
+            let train: [ProfileRow] = f.showsTraining
+                ? [.jumpToNext] + (f.showsSessionLayout ? [.sessionLayout] : []) + [.saveWorkouts] : []
+            return [.init(.training, train + (f.showsImport ? [.importTraining] : []))].filter { !$0.rows.isEmpty }
         case .devicesAndSync:
             // With tracker setup on, DevicesAndSyncView draws RYFT's read access and Sync details itself (its own
             // `devices.*` controls), so these two cards are only Profile's without it.
@@ -202,7 +206,7 @@ enum ProfileRows {
             return [.bodyAndBaselines]
         case .general:
             return [.account] + (f.showsNotifications ? [.notifications] : []) + [.display]
-                + (f.showsTraining ? [.training] : []) + (f.journalLive ? [.journal] : []) + (f.bedtimeEnabled ? [.bedtime] : [])
+                + (f.showsTraining || f.showsImport ? [.training] : []) + (f.journalLive ? [.journal] : []) + (f.bedtimeEnabled ? [.bedtime] : [])
         case .data:
             return [.devices, .privacyAndData]
         case .resources:
