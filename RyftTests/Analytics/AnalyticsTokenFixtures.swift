@@ -25,9 +25,10 @@ enum AnalyticsEventFixture {
     static let foodLogged = AnalyticsEvent.nutritionFoodLogged(
         entryPoint: .fixture("quick_add_button"), unitMode: .fixture("curated_portion"), isFractional: false)
     static let diaryReopened = AnalyticsEvent.nutritionDiaryReopened(hasPreservedPortionLabel: true)
-    static let syncTriggered = AnalyticsEvent.syncTriggered(.fixture("profile_button"))
+    static let syncTriggered = AnalyticsEvent.syncTriggered(.fixture("profile_button"), previousState: .fixture("stale"))
     static let syncCompleted = AnalyticsEvent.syncCompleted(
-        .fixture("profile_button"), status: .fixture("success"), duration: AnalyticsSyncDuration(.seconds(2)))
+        .fixture("profile_button"), status: .fixture("success"), duration: AnalyticsSyncDuration(.seconds(2)),
+        connectedProviders: .fixture("1"))
 }
 
 /// Records what `Analytics` refuses (`onRefused`), in order.

@@ -240,7 +240,7 @@ struct ProfileView: View {
         case .syncNow:
             GroupedRow.action(Text("Sync now"), detail: model.isSyncing ? Text(verbatim: model.syncProgress) : nil,
                               systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing, identifier: id) {
-                Task { await model.syncNowFromProfile() }
+                Task { await model.syncNow() }
             }
             .disabled(!model.canSync && !model.isSyncing)
         case .syncDetails:

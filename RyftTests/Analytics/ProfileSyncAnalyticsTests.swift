@@ -16,31 +16,35 @@ struct ProfileSyncAnalyticsTests {
         let state = AppState(env: env)
         let sync = SyncService.ungated(env: env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
-        return (ProfileViewModel(state: state, sync: sync, coordinator: coordinator), rig)
+        let homeSync = HomeSyncModel(state: state, sync: sync, coordinator: coordinator)
+        return (ProfileViewModel(state: state, sync: sync, coordinator: coordinator, homeSync: homeSync), rig)
     }
 
-    private let triggered = FakeAnalyticsSink.Capture(name: "sync_triggered", properties: ["trigger_source": "profile_button"])
+    private let triggered = FakeAnalyticsSink.Capture(name: "sync_triggered", properties: [
+        "trigger_source": "profile_button", "previous_state": "stale",
+    ])
     private let skipped = FakeAnalyticsSink.Capture(name: "sync_completed", properties: [
         "trigger_source": "profile_button", "status": "skipped", "duration_ms": "lt_1000",
+        "connected_providers_count": "0",
     ])
 
     @Test func offlineStartsNothingAndSaysSkipped() async {
         let (model, rig) = profile(online: false)
-        await model.syncNowFromProfile()
+        await model.syncNow()
         #expect(rig.sink.captures == [triggered, skipped])
         #expect(rig.refusals.isEmpty)
     }
 
     @Test func noDataSourceStartsNothingAndSaysSkipped() async {
         let (model, rig) = profile(online: true, signedIn: false)
-        await model.syncNowFromProfile()
+        await model.syncNow()
         #expect(rig.sink.captures == [triggered, skipped])
         #expect(rig.refusals.isEmpty)
     }
 
     @Test func theTriggerComesBeforeTheEnd() async {
         let (model, rig) = profile(online: false)
-        await model.syncNowFromProfile()
+        await model.syncNow()
         #expect(rig.sink.captures.map(\.name) == ["sync_triggered", "sync_completed"])
     }
 
@@ -50,9 +54,10 @@ struct ProfileSyncAnalyticsTests {
         env.analytics = rig.analytics
         let state = AppState(env: env)
         let sync = SyncService.ungated(env: env)
-        let model = ProfileViewModel(state: state, sync: sync,
-                                     coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock))
-        await model.syncNowFromProfile()
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
+        let homeSync = HomeSyncModel(state: state, sync: sync, coordinator: coordinator)
+        let model = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, homeSync: homeSync)
+        await model.syncNow()
         #expect(rig.sink.calls.isEmpty)
         #expect(rig.refusals.isEmpty)
     }

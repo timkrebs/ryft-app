@@ -1,0 +1,35 @@
+{
+  "gate": null,
+  "last_sync_at": "2026-11-27T06:58:12Z",
+  "last_sync_device": "iPhone",
+  "latest": {
+    "hr": "2026-11-27T06:55:00Z",
+    "hrv": "2026-11-24T05:02:00Z",
+    "sleep": "2026-11-27T06:41:00Z"
+  },
+  "today": {
+    "day": "2026-11-27",
+    "state": "scored",
+    "scored_at": "2026-11-27T06:58:31Z",
+    "model_version": "2026.10.3"
+  },
+  "pending_days": [],
+  "expected_within_sec": 20,
+  "resync_requested_at": null,
+  "freshness": "current",
+  "scores_pending_since": null,
+  "sources": [
+    {
+      "source": "healthkit",
+      "last_sync_at": "2026-11-27T06:58:12Z",
+      "status": "ok",
+      "reason": null
+    },
+    {
+      "source": "garmin",
+      "last_sync_at": "2026-11-24T05:02:11Z",
+      "status": "error",
+      "reason": "needs_reauth"
+    }
+  ]
+}

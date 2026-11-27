@@ -1,13 +1,25 @@
 import Foundation
 import os
 
+struct SyncUploadReceipt: Sendable {
+    let at: Date
+    let uptime: Duration
+}
+
 /// The stages of one sync, each a seam so the coordinator can be tested on the
 /// `TestClock` with fakes. `LiveSyncSteps` runs them against HealthKit, the
 /// platform and the Repository.
 @MainActor
-protocol SyncSteps: AnyObject {
+protocol SyncSteps: AnyObject, Sendable {
     /// Reads new HealthKit records page by page and uploads them; returns `days_touched`.
     func upload() async throws -> [String]
+    func uploadForHome() async throws -> [String]
+    var lastUploadReceipt: SyncUploadReceipt? { get }
+    var queuedUploadDays: [String] { get }
+    var readsHomeSyncStatus: Bool { get }
+    func homeSyncStatus(since: Date?, deadline: Duration?) async throws -> SyncStatus
+    func reloadTodayAfterCurrent() async
+    func refreshHomeDays(_ days: [String]) async throws
     /// The last upload stopped early on purpose (the first score's window went first,
     /// or the app went to the background); another run follows.
     var hasBacklog: Bool { get }
@@ -64,6 +76,13 @@ protocol SyncSteps: AnyObject {
 }
 
 extension SyncSteps {
+    func uploadForHome() async throws -> [String] { try await upload() }
+    var lastUploadReceipt: SyncUploadReceipt? { nil }
+    var queuedUploadDays: [String] { [] }
+    var readsHomeSyncStatus: Bool { readsScoringStatus }
+    func homeSyncStatus(since: Date?, deadline: Duration?) async throws -> SyncStatus { try await syncStatus() }
+    func reloadTodayAfterCurrent() async {}
+    func refreshHomeDays(_ days: [String]) async throws { try await refreshDays(days) }
     /// Steps without a user-initiated path (test fakes) ask the ordinary way.
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus { try await syncStatus() }
     /// Fakes that don't record the scoring words.
@@ -147,6 +166,7 @@ actor SyncCoordinator {
         var backlog = false
         /// HealthKit was locked; nothing is lost, the rest follows the unlock.
         var waitingForUnlock = false
+        var scoringTimedOut = false
     }
 
     /// API.md: `expected_within_sec` is 30 until the platform has measured scoring.
@@ -196,10 +216,42 @@ actor SyncCoordinator {
     }
 
     var isRunning: Bool { running != nil }
+    var hasWork: Bool { running != nil || queued != nil }
     /// A rerun waits behind the running sync.
     var hasQueuedRun: Bool { queued != nil }
     /// What that rerun will run, the triggers merged so far.
     var queuedRunTrigger: Trigger? { queuedTrigger }
+
+    /// Manual and foreground requests share the current run and never queue a second upload.
+    func runHomeSync(_ trigger: Trigger, afterUpload: @escaping @Sendable () -> Void) async -> Outcome {
+        if let run = running ?? queued {
+            // The pull's other reads should go on when the upload ends or its head start expires.
+            defer { afterUpload() }
+            return await run.value
+        }
+        return await start(trigger, afterUpload: [afterUpload], home: true).value
+    }
+
+    /// One foreground check when no upload is due. The successful status read may unblock the indicator.
+    func refreshHomeStatus(alreadyRead: Bool = false) async {
+        guard !hasWork else { return }
+        if alreadyRead {
+            await steps.reloadTodayAfterCurrent()
+        } else {
+            await Self.refreshHomeStatus(steps)
+        }
+    }
+
+    private static func refreshHomeStatus(_ steps: SyncSteps, recentOn clock: AppClock? = nil) async {
+        guard await steps.readsHomeSyncStatus else { return }
+        if let clock, let last = await steps.lastStatus,
+           clock.now().timeIntervalSince(last.readAt) < ScoringWord.statusCacheTime {
+            await steps.reloadTodayAfterCurrent()
+            return
+        }
+        guard (try? await steps.homeSyncStatus(since: nil, deadline: nil)) != nil else { return }
+        await steps.reloadTodayAfterCurrent()
+    }
 
     /// Runs (or joins) a sync for `trigger` and returns how it ended. `afterUpload` (a
     /// HealthKit delivery's completion) is called as soon as the upload step is over,
@@ -294,7 +346,7 @@ actor SyncCoordinator {
 
     /// `alsoAwaiting`: `.daysChanged` days merged into an upload trigger's run.
     private func start(_ trigger: Trigger, afterUpload: [@Sendable () -> Void],
-                       alsoAwaiting extraDays: [String] = []) -> Task<Outcome, Never> {
+                       alsoAwaiting extraDays: [String] = [], home: Bool = false) -> Task<Outcome, Never> {
         let id = UUID()
         // A BG task only ever runs in the background; everything else follows the app.
         let background = inBackground || trigger == .processing
@@ -308,10 +360,10 @@ actor SyncCoordinator {
                                         if background { return true }
                                         return await self?.inBackground ?? true
                                     },
-                                    afterUpload: afterUpload, alsoAwaiting: extraDays)
+                                    afterUpload: afterUpload, alsoAwaiting: extraDays, home: home)
             }
             await self?.finished(id, backlog: outcome.backlog && !outcome.cancelled && outcome.error == nil,
-                                 trigger: trigger, background: background)
+                                 trigger: trigger, background: background, home: home)
             return outcome
         }
         running = task
@@ -319,7 +371,7 @@ actor SyncCoordinator {
         return task
     }
 
-    private func finished(_ id: UUID, backlog: Bool, trigger: Trigger, background: Bool) {
+    private func finished(_ id: UUID, backlog: Bool, trigger: Trigger, background: Bool, home: Bool) {
         guard runningID == id else { return }
         running = nil
         runningID = nil
@@ -336,7 +388,7 @@ actor SyncCoordinator {
             queuedTrigger = merge(queuedTrigger, .backlog)
         } else {
             // Started (and registered) now, so a cancel() right after finds it.
-            _ = start(.backlog, afterUpload: [])
+            _ = start(.backlog, afterUpload: [], home: home)
         }
     }
 
@@ -379,7 +431,8 @@ actor SyncCoordinator {
     // swiftlint:disable:next function_parameter_count
     private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock, scoring: ScoringSignal,
                                  inBackground: @Sendable () async -> Bool,
-                                 afterUpload: [@Sendable () -> Void], alsoAwaiting extraDays: [String]) async -> Outcome {
+                                 afterUpload: [@Sendable () -> Void], alsoAwaiting extraDays: [String],
+                                 home: Bool) async -> Outcome {
         var outcome = Outcome()
         // A HealthKit delivery's completion follows the upload step, however it ended.
         var uploadReported = false
@@ -424,17 +477,20 @@ actor SyncCoordinator {
                     return outcome
                 }
                 await steps.report(.awaitingScores)
-                outcome.polls = try await awaitScoring(days, steps, clock, scoring)
+                outcome.polls = try await awaitScoring(days, steps, clock, scoring).polls
             default:
                 let uploaded: [String]
-                (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock, accepted: &acceptedBefore,
-                                                                           entered: &wordOwed)
+                (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock, home: home,
+                                                                           accepted: &acceptedBefore, entered: &wordOwed)
                 // The upload answered with its days: those are the word, cancelled or not (an upload that sent
                 // nothing owes none, whatever an earlier one touched).
                 wordOwed = false
                 uploadDone()
                 // Days a `.daysChanged` brought into this run are awaited and refreshed with the uploaded ones.
-                let written = uploaded + Set(extraDays).subtracting(uploaded).sorted()
+                var written = uploaded + Set(extraDays).subtracting(uploaded).sorted()
+                if home {
+                    written += await Set(steps.queuedUploadDays).subtracting(written).sorted()
+                }
                 outcome.touched = written
                 // Only an upload that sent something leaves a backlog to continue (offline,
                 // gated or demo uploads send nothing).
@@ -451,12 +507,23 @@ actor SyncCoordinator {
                     await steps.report(.done)
                     return outcome
                 }
-                if written.isEmpty {
+                if home, !written.isEmpty {
+                    // The sync button's wait (API.md → The sync button): a fixed interval from the upload's 200, for
+                    // three minutes, ended only by a `current` status (a push alone does not turn it green).
+                    touched = written
+                    let receipt = await steps.lastUploadReceipt ?? SyncUploadReceipt(at: clock.now(), uptime: clock.uptime())
+                    await steps.report(.awaitingScores)
+                    let wait = try await awaitScoring(touched, steps, clock, scoring, homeUpload: receipt)
+                    outcome.polls = wait.polls
+                    outcome.scoringTimedOut = wait.cutOff
+                } else if written.isEmpty {
                     // Nothing sent: the days the platform still scores (uploaded in the background, by another device,
-                    // before a relaunch) are waited for like our own; what's stale doesn't wait behind them.
+                    // before a relaunch) are waited for like our own; what's stale doesn't wait behind them. A home
+                    // run waits the same way; with nothing pending, its status read (reused when recent) reloads today.
                     let listed = try await stillScoring(steps, clock, scoring)
                     guard !listed.days.isEmpty else {
                         await steps.report(.refreshing)
+                        if home { await refreshHomeStatus(steps, recentOn: clock) }
                         await steps.refreshStale()
                         await steps.report(.done)
                         return outcome
@@ -464,12 +531,12 @@ actor SyncCoordinator {
                     touched = listed.days
                     async let stale: Void = steps.refreshStale()
                     await steps.report(.awaitingScores)
-                    outcome.polls = try await awaitScoring(touched, steps, clock, scoring, expected: listed.expected)
+                    outcome.polls = try await awaitScoring(touched, steps, clock, scoring, expected: listed.expected).polls
                     await stale
                 } else {
                     touched = written
                     await steps.report(.awaitingScores)
-                    outcome.polls = try await awaitScoring(touched, steps, clock, scoring)
+                    outcome.polls = try await awaitScoring(touched, steps, clock, scoring).polls
                 }
             }
             outcome.touched = touched
@@ -477,8 +544,14 @@ actor SyncCoordinator {
             await steps.report(.refreshing)
             let refresh = Signposts.sync.beginInterval("refresh", id: Signposts.sync.makeSignpostID())
             defer { Signposts.sync.endInterval("refresh", refresh) }
+            let scoringTimedOut = outcome.scoringTimedOut
             let refreshing: @Sendable () async throws -> Void = {
-                try await steps.refreshDays(touched)
+                if home {
+                    if !scoringTimedOut { await steps.reloadTodayAfterCurrent() }
+                    try await steps.refreshHomeDays(touched)
+                } else {
+                    try await steps.refreshDays(touched)
+                }
                 // Trends and insights depend on the days, not on each other.
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask { try await steps.refreshTrends() }
@@ -507,14 +580,14 @@ actor SyncCoordinator {
     /// The upload, retried on transient failures with exponential backoff. The days an attempt touched before it
     /// failed (`accepted`) are the run's too: the retry starts after the pages the platform accepted. `entered`: an
     /// attempt was started (from then on `touchedSoFar` is this run's).
-    private static func uploadWithBackoff(_ steps: SyncSteps, _ clock: AppClock, accepted: inout Set<String>,
+    private static func uploadWithBackoff(_ steps: SyncSteps, _ clock: AppClock, home: Bool, accepted: inout Set<String>,
                                           entered: inout Bool) async throws -> ([String], Int) {
         var delay = firstBackoff
         for attempt in 1...maxUploadAttempts {
             try Task.checkCancellation()
             entered = true
             do {
-                let touched = try await steps.upload()
+                let touched = home ? try await steps.uploadForHome() : try await steps.upload()
                 return (touched + accepted.subtracting(touched).sorted(), attempt)
             } catch let error where isTransient(error) && attempt < maxUploadAttempts {
                 accepted.formUnion(await steps.touchedSoFar)
@@ -560,10 +633,12 @@ actor SyncCoordinator {
     /// wait runs (doubling up to a minute), and an answer that says "scored" (or names a
     /// gate, behind which nothing is scored) ends that wait at once. Five minutes on the
     /// clock in all; an ask still running then is cancelled. Gives up quietly: the days
-    /// are refreshed either way. Returns how often it asked.
+    /// are refreshed either way. Home waits for a current status at a fixed interval, for three minutes
+    /// from the last accepted page. A push still updates the ledger during that wait.
     private static func awaitScoring(_ days: [String], _ steps: SyncSteps, _ clock: AppClock,
-                                     _ scoring: ScoringSignal, expected override: Int? = nil) async throws -> Int {
-        await scoring.begin(Set(days))
+                                     _ scoring: ScoringSignal, expected override: Int? = nil,
+                                     homeUpload: SyncUploadReceipt? = nil) async throws -> (polls: Int, cutOff: Bool) {
+        await scoring.begin(Set(days), requiresStatus: homeUpload != nil)
         // The days it may give up on belong to this phone's word as it is now (an account change or the demo switch
         // forgets them).
         let generation = await steps.ledgerGeneration
@@ -574,22 +649,26 @@ actor SyncCoordinator {
         var expected = override
         if expected == nil { expected = await steps.expectedScoringSeconds }
         // Never sooner than the platform's status cache allows: an earlier answer may be from before the write.
-        let begun = clock.now()
-        var delay = max(minimumPollDelay, .seconds(expected ?? defaultExpectedScoring),
+        let begun = homeUpload?.uptime ?? clock.uptime()
+        let minDelay = homeUpload == nil ? minimumPollDelay : .seconds(SyncIndicatorState.minimumPollInterval)
+        var delay = max(minDelay, .seconds(expected ?? defaultExpectedScoring),
                         .seconds(Int(ScoringWord.statusCacheTime)))
-        let deadline = begun.addingTimeInterval(maximumScoringWait.timeInterval)
+        let limit = homeUpload == nil ? maximumScoringWait : .seconds(SyncIndicatorState.scoringLimit)
+        let deadline = begun + limit
+        var nextPoll = begun + delay
         var cutOff = false
         var asking: Task<Void, Never>?
         defer { asking?.cancel() }
         do {
             while true {
-                let left = deadline.timeIntervalSince(clock.now())
-                guard left > 0 else {
+                let left = deadline - clock.uptime()
+                guard left > .zero else {
                     cutOff = true
                     break
                 }
-                if try await scoring.wait(timeout: min(delay, .seconds(left)), clock: clock) { break }
-                guard deadline > clock.now() else {
+                let untilPoll = nextPoll - clock.uptime()
+                if untilPoll > .zero, try await scoring.wait(timeout: min(untilPoll, left), clock: clock) { break }
+                guard deadline > clock.uptime() else {
                     cutOff = true
                     break
                 }
@@ -597,6 +676,16 @@ actor SyncCoordinator {
                 asking?.cancel()
                 asking = Task {
                     // A failed ask is one more wait, not the end.
+                    if let homeUpload {
+                        let earliest = homeUpload.at.addingTimeInterval(SyncIndicatorState.minimumPollInterval)
+                        guard let status = try? await steps.homeSyncStatus(since: earliest, deadline: deadline),
+                              !Task.isCancelled, clock.uptime() < deadline else { return }
+                        let gated = await steps.scoringGate(of: status) != nil
+                        if gated || status.effectiveFreshness(now: clock.now()) == .current {
+                            await scoring.confirmCurrentStatus()
+                        }
+                        return
+                    }
                     guard let status = try? await steps.syncStatus() else { return }
                     // The ledger decides what this answer may end: an ask that joined a flight asked under the cache
                     // time after the write (a pull's) leaves the word, so its days stay pending (F3's rule).
@@ -604,14 +693,15 @@ actor SyncCoordinator {
                     let gated = await steps.scoringGate(of: status) != nil
                     await scoring.answer(pending: pending, gated: gated)
                 }
-                delay = min(delay * 2, maximumPollDelay)
+                if homeUpload == nil { delay = min(delay * 2, maximumPollDelay) }
+                nextPoll = clock.uptime() + delay
             }
         } catch {
             await scoring.end(cutOff: false, generation: generation)
             throw error
         }
         await scoring.end(cutOff: cutOff, generation: generation)
-        return polls
+        return (polls, cutOff)
     }
 
     /// Worth retrying: no answer, or a server error that `APIClient` gave up on. Not 4xx.
@@ -637,13 +727,15 @@ actor ScoringSignal {
     /// The `SyncSteps.ledgerGeneration` those days were given up on in.
     private var waitedOutGeneration = 0
     private var done = false
+    private var requiresStatus = false
     private var waiting: CheckedContinuation<Bool, Never>?
     /// The wait that's open; a parked half that arrives after it closed returns at once.
     private var open: UUID?
 
-    func begin(_ days: Set<String>) {
+    func begin(_ days: Set<String>, requiresStatus: Bool = false) {
         awaited = days
         done = false
+        self.requiresStatus = requiresStatus
     }
 
     /// `cutOff`: the wait ran out of time; the days still awaited are waited out, in the ledger generation the wait
@@ -703,13 +795,18 @@ actor ScoringSignal {
     /// A push arrived for `days`: `true` when a pipeline waits for one of them.
     func signal(_ days: Set<String>) -> Bool {
         guard let awaited, !awaited.isDisjoint(with: days) else { return false }
-        finish()
+        if !requiresStatus { finish() }
         return true
+    }
+
+    func confirmCurrentStatus() {
+        guard awaited != nil, requiresStatus, !Task.isCancelled else { return }
+        finish()
     }
 
     /// `GET /v1/me/sync` answered: the awaited days still pending, and whether a gate stands.
     func answer(pending: Set<String>, gated: Bool) {
-        guard let current = awaited else { return }
+        guard let current = awaited, !requiresStatus, !Task.isCancelled else { return }
         let left = current.intersection(pending)
         awaited = left
         if gated || left.isEmpty { finish() }
@@ -765,6 +862,19 @@ final class LiveSyncSteps: SyncSteps {
         return try await sync.upload()
     }
 
+    func uploadForHome() async throws -> [String] {
+        if state.isDemo {
+            startedUpload = false
+            try await state.simulateDemoSync()
+            return []
+        }
+        return try await upload()
+    }
+
+    var lastUploadReceipt: SyncUploadReceipt? { startedUpload ? sync.lastUploadReceipt : nil }
+    var queuedUploadDays: [String] { startedUpload ? sync.lastScoring?.queuedDays ?? [] : [] }
+    var readsHomeSyncStatus: Bool { state.isDemo || readsScoringStatus }
+
     var hasBacklog: Bool { sync.hasBacklog }
     var isWaitingForUnlock: Bool { sync.waitingForUnlock }
     var isUploading: Bool { sync.isSyncing }
@@ -783,23 +893,51 @@ final class LiveSyncSteps: SyncSteps {
     /// A `consent_required` asked within the platform's cache time of this phone's consent `204` may be from before it,
     /// and isn't reported (R2, `ConsentState.statusSpeaksForConsent`; onboarding's `check()` applies the same rule).
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
+        try await readStatus(userInitiated: userInitiated)
+    }
+
+    func homeSyncStatus(since: Date?, deadline: Duration?) async throws -> SyncStatus {
+        try await ReadScheduler.$automaticRetries.withValue(false) {
+            try await readStatus(mode: since.map { .changed(since: $0) } ?? .latest,
+                                 userInitiated: false, deadline: deadline)
+        }
+    }
+
+    private func readStatus(mode: ReadMode = .latest, userInitiated: Bool, deadline: Duration? = nil) async throws -> SyncStatus {
         let env = state.env, state = state, apiStatus = apiStatus, sync = sync
-        let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
+        let status = try await env.reads.run(ReadKey(.syncStatus), mode: mode, userInitiated: userInitiated,
                                              storeAsked: { [weak self] (status: SyncStatus, asked: Date) in
             self?.asked = (status, asked)
             state.setSyncStatus(status, askedAt: asked)
+            guard !state.isDemo else { return }
             if let gate = status.gate, gate != .consentRequired || env.consent.statusSpeaksForConsent(askedAt: asked) {
                 apiStatus.observe([gate], enforced: false)
             }
             // When the flight was asked for, not when this caller joined it: the ledger's "requested after".
             sync.receive(status, requestedAt: asked)
-        }) { try await env.api.syncStatus() }
+        }) {
+            if let deadline, env.clock.uptime() >= deadline { throw CancellationError() }
+            let status = try await env.api.syncStatus()
+            if let deadline, env.clock.uptime() >= deadline { throw CancellationError() }
+            return status
+        }
         guard let status else { throw ReadScheduler.NotSent() }
         return status
     }
 
     func refreshDays(_ days: [String]) async throws {
         try await state.refreshDays(days)
+    }
+
+    func reloadTodayAfterCurrent() async {
+        guard let status = state.syncStatus, scoringGate(of: status) == nil else { return }
+        let uploadedAt = state.isDemo ? nil : sync.pendingUploadReceipt?.at
+        await state.reloadTodayAfterCurrent(uploadedAt: uploadedAt)
+    }
+
+    /// Today too, unless the button's reload just read it (a wait that ran out, or a status not current, leaves it).
+    func refreshHomeDays(_ days: [String]) async throws {
+        try await state.refreshDays(days, includeToday: !state.todayReloadedSinceLastUpload)
     }
 
     /// After scores landed: newer than now, or nothing. A failed read is recorded per resource, never thrown.

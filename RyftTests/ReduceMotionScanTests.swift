@@ -55,6 +55,8 @@ struct ReduceMotionScanTests {
                 reason: "DEBUG only: the catalog's launch replay plays the variant its own Reduce Motion switch picks."),
         Guarded(file: "Features/Sleep/SleepView.swift", call: "withAnimation(Theme.ringAnimation",
                 reason: "`if reduceMotion { shown = target } else { withAnimation … }`."),
+        Guarded(file: "Features/Today/SyncStatusButton.swift", call: "withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)",
+                reason: "`SyncOrbitMark`: inside `if animated`, and `animated` is `!reduceMotion`; under Reduce Motion the mark stands still."),
     ]
 
     /// A file naming none of these starts no motion the scan knows; the rest are scanned.

@@ -4,11 +4,19 @@ struct NutritionCoachingView: View {
     let model: NutritionDiaryModel
     let api: APIClient
 
+    @Environment(AppState.self) private var appState
+    @State private var refreshID = UUID()
+    @State private var flight: BriefingFlight?
     @State private var briefing: NutritionBriefing?
     @State private var fallback: NutritionGuidance?
     @State private var selected: NutritionSuggestedMealRoute?
     @State private var failure: String?
     @State private var loading = false
+
+    private struct BriefingFlight {
+        let id = UUID()
+        let task: Task<Bool, Never>
+    }
 
     var body: some View {
         SubpageScaffold(Text("Nutrition coaching")) {
@@ -26,6 +34,13 @@ struct NutritionCoachingView: View {
             }
         }
         .task { await load() }
+        .onAppear {
+            appState.activeNutritionBriefing = (refreshID, reloadAfterSync)
+        }
+        .onDisappear {
+            if appState.activeNutritionBriefing?.id == refreshID { appState.activeNutritionBriefing = nil }
+            flight?.task.cancel()
+        }
         .navigationDestination(item: $selected) { route in
             NutritionMealEditor(model: model, api: api, meal: nil, suggested: route.food,
                                 onBack: { NutritionRoutes.close(&selected, startedBy: route) }) {
@@ -87,8 +102,30 @@ struct NutritionCoachingView: View {
         }
     }
 
-    private func load() async {
-        guard !loading else { return }
+    private func reloadAfterSync() async -> Bool {
+        // The current status may have arrived while a briefing requested before it was in flight.
+        if let flight {
+            _ = await finish(flight)
+        }
+        guard appState.activeNutritionBriefing?.id == refreshID else { return true }
+        return await load()
+    }
+
+    @discardableResult
+    private func load() async -> Bool {
+        if let flight { return await finish(flight) }
+        let next = BriefingFlight(task: Task { await fetchBriefing() })
+        flight = next
+        return await finish(next)
+    }
+
+    private func finish(_ old: BriefingFlight) async -> Bool {
+        let loaded = await old.task.value
+        if flight?.id == old.id { flight = nil }
+        return loaded
+    }
+
+    private func fetchBriefing() async -> Bool {
         loading = true
         failure = nil
         defer { loading = false }
@@ -106,8 +143,10 @@ struct NutritionCoachingView: View {
                 fallback = response
                 briefing = nil
             }
+            return true
         } catch {
             if !error.isCancellation { failure = error.localizedDescription }
+            return false
         }
     }
 }

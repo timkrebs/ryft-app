@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 final class ProfileViewModel {
     private let state: AppState
     private let sync: SyncService
-    private let coordinator: SyncCoordinator
+    private let homeSync: HomeSyncModel?
     private let apiStatus: APIStatus
     private let onboarding: OnboardingCoordinator?
     /// The live workout's coordinator: what ending the demo would discard, and the discard (ADR 0019). Nil in previews
@@ -25,10 +25,11 @@ final class ProfileViewModel {
     let devices: DevicesViewModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil, train: TrainCoordinator? = nil) {
+         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil, train: TrainCoordinator? = nil,
+         homeSync: HomeSyncModel? = nil) {
         self.state = state
         self.sync = sync
-        self.coordinator = coordinator
+        self.homeSync = homeSync
         self.onboarding = onboarding
         self.train = train
         self.apiStatus = apiStatus ?? .shared
@@ -446,9 +447,9 @@ final class ProfileViewModel {
 
     // MARK: sync
 
-    var lastSyncText: String { SyncDetailsModel.lastSyncWords(settings.lastSync, now: env.clock.now()) }
+    var lastSyncText: String { SyncDetailsModel.lastSyncWords(state.appleHealthLastSync, now: homeSync?.now ?? env.clock.now()) }
     var deviceIDText: String { String(settings.deviceId.uuidString.prefix(8)) + "…" }
-    var isSyncing: Bool { sync.isSyncing }
+    var isSyncing: Bool { env.isDemo ? state.demoSyncInFlight : sync.isSyncing }
     var syncProgress: String { sync.progress.isEmpty ? String(localized: "Syncing…") : sync.progress }
 
     enum SyncNotice: Equatable {
@@ -462,37 +463,10 @@ final class ProfileViewModel {
         return nil
     }
 
-    var canSync: Bool { !sync.isSyncing && settings.isConfigured && auth.isSignedIn && !env.isDemo }
+    var canSync: Bool { homeSync?.canSync ?? (settings.isConfigured && auth.isSignedIn && !env.isDemo) }
 
-    /// Like pull to refresh: the upload starts, today and the sync status load at once, the rest after.
     func syncNow() async {
-        await state.pullToRefresh(coordinator: coordinator)
-    }
-
-    /// Profile's Sync now row: `syncNow()` with `sync_triggered` on the tap and `sync_completed` when the run it started
-    /// or joined ends (plan 2026-11-27, decision 10; the status retry and the connection test don't track). The status
-    /// is the coordinator's `Outcome`: failed with an error or a cancellation, deferred when HealthKit was locked
-    /// (`waitingForUnlock`), success otherwise; skipped is a pull that started nothing (offline, no data source). The
-    /// duration runs from the tap to `pullToRefreshRun` returning (the spinner the person waits for, not the
-    /// coordinator's wait for scores), on the environment's clock.
-    func syncNowFromProfile() async {
-        let source = AnalyticsSyncTrigger.profileButton
-        let started = env.clock.uptime()
-        env.analytics.track(.syncTriggered(source))
-        let run = await state.pullToRefreshRun(coordinator: coordinator)
-        let duration = AnalyticsSyncDuration(env.clock.uptime() - started)
-        let status: AnalyticsSyncStatus
-        if let run {
-            let outcome = await run.value
-            if outcome.error != nil || outcome.cancelled {
-                status = .failed
-            } else {
-                status = outcome.waitingForUnlock ? .deferred : .success
-            }
-        } else {
-            status = .skipped
-        }
-        env.analytics.track(.syncCompleted(source, status: status, duration: duration))
+        await homeSync?.sync(trigger: .profileButton)
     }
 
     // MARK: notifications
@@ -808,11 +782,13 @@ final class SyncDetailsModel {
 
     /// The last good upload's age in words, for Sync details and Profile's "Last sync" row alike.
     static func lastSyncWords(_ date: Date?, now: Date) -> String {
-        guard let date else { return String(localized: "Never") }
+        guard let date else { return String(localized: "Never", comment: "Last sync time for a source that has never synced.") }
         let formatter = RelativeDateTimeFormatter()
         formatter.dateTimeStyle = .named
         formatter.unitsStyle = .full
-        return formatter.localizedString(for: min(date, now), relativeTo: now)
+        // Both screens show the first minute as “now”, including when switching tabs after a sync.
+        let displayed = now.timeIntervalSince(date) < 60 ? now : date
+        return formatter.localizedString(for: displayed, relativeTo: now)
     }
 
     // MARK: waiting to send

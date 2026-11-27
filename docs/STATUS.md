@@ -1,5 +1,11 @@
 # Status — 2026-11-24
 
+## 2026-11-27 · Today’s sync indicator
+
+- Today's header has a sync button (syncing, up to date, stale, error; a long press lists each source's last sync). Today's button, pull to refresh, Profile → Sync now and the quiet foreground sync (> 5 min since the last) go through one `HomeSyncModel`. Green only after `freshness` is `current` and today was reloaded (API.md → The sync button, D297).
+- Drafted by Codex, reviewed and fixed by ios-lead (the PR lists what changed and why). Unit tests and the new UI test (`HomeSyncIndicatorUITests`, UISmoke) pass on an iOS 27.2 simulator; 16 AX3/320-pt layout tests in other screens fail there and are left to CI's simulator.
+- **Simulator only:** haptics, the long-press menu with a real Garmin source, HealthKit permission errors, and the server's `sources`/`freshness` (not served yet; absent fields read as an older server). Device check open.
+
 ## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
 
 - `AnalyticsCatalog` is the one list of every event, key and value. `Analytics.deliver` checks each event against it

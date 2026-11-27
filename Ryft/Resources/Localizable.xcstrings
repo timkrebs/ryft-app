@@ -267,12 +267,45 @@
         }
       }
     },
+    "%@ · %@ · %@" : {
+      "comment" : "Sync menu source name, time it last synced, and its pending or error status.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ · %3$@"
+          }
+        }
+      }
+    },
     "%@ · Partial" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · Teilwert"
+          }
+        }
+      }
+    },
+    "%@, never synced" : {
+      "comment" : "VoiceOver sync value: state followed by the absence of an Apple Health sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, noch kein Sync"
+          }
+        }
+      }
+    },
+    "%@, synced %@" : {
+      "comment" : "VoiceOver sync value: state followed by when Apple Health last synced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, letzter Sync %2$@"
           }
         }
       }
@@ -4149,6 +4182,17 @@
         }
       }
     },
+    "Apple Health access needed" : {
+      "comment" : "VoiceOver sync status when RYFT needs permission to read Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugriff auf Apple Health nötig"
+          }
+        }
+      }
+    },
     "Apple Health weigh-ins" : {
       "localizations" : {
         "de" : {
@@ -5710,6 +5754,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Alle Verbindungsplätze sind belegt"
+          }
+        }
+      }
+    },
+    "Consent required" : {
+      "comment" : "Sync menu status when consent is required before this source can sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einwilligung erforderlich"
           }
         }
       }
@@ -7857,6 +7912,17 @@
         }
       }
     },
+    "Garmin" : {
+      "comment" : "Garmin direct data source in Today's sync menu.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garmin"
+          }
+        }
+      }
+    },
     "Garmin Connect" : {
       "localizations" : {
         "de" : {
@@ -9171,6 +9237,17 @@
         }
       }
     },
+    "Invite required" : {
+      "comment" : "Sync menu status when an invite is required before this source can sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einladung erforderlich"
+          }
+        }
+      }
+    },
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {
       "localizations" : {
         "de" : {
@@ -10061,6 +10138,17 @@
         }
       }
     },
+    "Needs reconnecting" : {
+      "comment" : "Sync menu status for a provider that needs authorization again.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu verbinden"
+          }
+        }
+      }
+    },
     "Newest %@" : {
       "comment" : "Sync details → Streams: the newest reading this stream sent. The argument is its time: \"10:40\".",
       "localizations" : {
@@ -10880,6 +10968,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bewertung des maximalen Anstiegs"
+          }
+        }
+      }
+    },
+    "Pending" : {
+      "comment" : "Sync menu status for a source whose data is still being processed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausstehend"
           }
         }
       }
@@ -12032,6 +12131,17 @@
         }
       }
     },
+    "Scores are still being calculated" : {
+      "comment" : "Sync status after scoring takes longer than three minutes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Werte werden noch berechnet"
+          }
+        }
+      }
+    },
     "SDNN" : {
       "comment" : "The HRV trend card's note: the kind of HRV the number is. Keep the abbreviation SDNN (a measure of heart-rate variability).",
       "localizations" : {
@@ -12880,6 +12990,39 @@
         }
       }
     },
+    "Sync" : {
+      "comment" : "VoiceOver label for the Apple Health sync button in Today's header.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync"
+          }
+        }
+      }
+    },
+    "Sync needed" : {
+      "comment" : "VoiceOver sync status when Apple Health data is stale or unconfirmed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync nötig"
+          }
+        }
+      }
+    },
+    "Sync problem" : {
+      "comment" : "Generic sync status when a data source or upload reports an error.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Problem"
+          }
+        }
+      }
+    },
     "syncdetails.workouts.paused" : {
       "comment" : "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).",
       "localizations" : {
@@ -12961,6 +13104,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Daten sind weiterhin veraltet"
+          }
+        }
+      }
+    },
+    "Syncing" : {
+      "comment" : "VoiceOver sync status while Apple Health sends or scoring runs.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abgleich läuft"
+          }
+        }
+      }
+    },
+    "Syncs Apple Health now" : {
+      "comment" : "VoiceOver hint for tapping the sync button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gleicht Apple Health jetzt ab"
           }
         }
       }
