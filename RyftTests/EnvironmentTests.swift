@@ -2137,7 +2137,8 @@ struct ReportProblemTests {
     /// from Apple Health, no query string. Every number therefore is a count, a status, a byte size, a day or a
     /// request's time, so a cached score can't hide in one (which is why there's no numeric loophole to test).
     @Test func noHealthValuesInTheDiagnostics() async throws {
-        let env = AppEnvironment.test(flags: [.devicesSetup: true]) // every key, the trackers' ids included
+        // Every key, the trackers' ids included; the no-watch check-in on (#153).
+        let env = AppEnvironment.test(flags: [.devicesSetup: true, .recoveryCheckin: true])
         let state = AppState(env: env)
         await state.refresh() // MockData's scores in the read models
         await state.repository.store(scores: try Fixture.decode([DailyScore].self, "days")).committed()
@@ -2182,6 +2183,7 @@ struct ReportProblemTests {
             .history: ResourceState(lastError: ResourceError(kind: .transient, status: nil, code: nil, requestID: nil,
                                                              transport: "timedOut", attempts: 3, at: loaded),
                                     consecutiveFailures: 1),
+            .recovery: ResourceState(fetchedAt: loaded),
         ])
         let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
@@ -2198,6 +2200,26 @@ struct ReportProblemTests {
         agreed.attempts = [AgreeTiming.Attempt(status: 204, durationMs: 3_080)]
         agreed.confirmed = "ok"
         env.persistence.saveDocument(agreed, key: AgreeTiming.documentKey, at: env.clock.now())
+        // The no-watch check-in (#153): an answer waiting in the offline queue, the cached status with its score and
+        // suggested times, a session effort, and their requests. Only routes, the resource's record and the flag go.
+        let lateEvening = try #require(Calendar.current.date(bySettingHour: 23, minute: 17, second: 41, of: env.clock.now()))
+        let bedtime = try #require(Calendar.current.date(byAdding: .day, value: -1, to: lateEvening))
+        let wokeUp = try #require(Calendar.current.date(bySettingHour: 6, minute: 52, second: 9, of: env.clock.now()))
+        let checkinDay = DayFormat.string(from: env.clock.now())
+        let answer = RecoveryCheckinPut(bedtime: bedtime, wakeTime: wokeUp, tzOffsetSec: 3_600, perceivedSleepQuality: 4,
+                                        perceivedFreshness: 2, soreness: true)
+        env.persistence.saveDocument([RecoveryCheckinStore.Pending(date: checkinDay, body: answer)],
+                                     key: RecoveryCheckinStore.pendingKey, at: env.clock.now())
+        env.persistence.saveDocument(try Fixture.decode(RecoveryStatus.self, "recovery_status_checkin"),
+                                     key: RecoveryCheckinStore.statusKey, at: env.clock.now())
+        state.repository.storeWorkoutRating(id: try #require(UUID(uuidString: workout)), value: 7.5, load: 338)
+        let recoveryIDs = (0..<3).map { _ in UUID().uuidString.lowercased() }
+        for (i, (method, path, code)) in [("PUT", "/v1/recovery/checkins/\(checkinDay)", 503),
+                                          ("GET", "/v1/recovery/checkins?from=2026-10-15&to=\(checkinDay)", 200),
+                                          ("PUT", "/v1/workouts/\(workout)/rpe", 200)].enumerated() {
+            status.record(.init(date: env.clock.now(), method: method, path: path, status: code, requestID: recoveryIDs[i],
+                                durationMs: nil))
+        }
         profile.report.prepare(.preview)
         profile.report.includeDiagnostics = true
         let post = profile.report.payload()
@@ -2249,7 +2271,7 @@ struct ReportProblemTests {
         #expect(!copied.contains("Connect") && !copied.contains("com.garmin"))
         // The install ID and other IDs in paths stay home: the only UUIDs are request IDs, in their place.
         #expect(!sent.lowercased().contains(install) && !sent.lowercased().contains(workout))
-        let allowed = Set(requestIDs + [resourceID] + [ReportContext.preview.requestID].compactMap { $0 })
+        let allowed = Set(requestIDs + recoveryIDs + [resourceID] + [ReportContext.preview.requestID].compactMap { $0 })
         // Every resource once, in order, with the seeded record and nothing more (no counts, no retry times).
         let resourceLines = try #require(d["resources"]).components(separatedBy: "\n")
         #expect(resourceLines.map { $0.components(separatedBy: " ")[0] } == ReadResource.allCases.map(\.rawValue))
@@ -2267,9 +2289,28 @@ struct ReportProblemTests {
         }
         #expect(d["requests"]?.contains("POST /v1/devices/{id}/push 204") == true)
         #expect(d["requests"]?.contains("GET /v1/workouts/{id} 200") == true)
+        // The check-in goes as its route, its day, its status and its resource's record; the flag as its key.
+        #expect(d["requests"]?.contains("PUT /v1/recovery/checkins/\(checkinDay) 503 - \(recoveryIDs[0]) ") == true)
+        #expect(d["requests"]?.contains("GET /v1/recovery/checkins 200 ") == true) // the range's query stays home
+        #expect(d["requests"]?.contains("PUT /v1/workouts/{id}/rpe 200 ") == true)
+        #expect(resourceLines.contains("recovery \(loaded.ISO8601Format()) - - -"))
+        #expect(d["flags"]?.contains("recovery.checkin=1") == true)
+        // Never its answers, times, effort, score or suggestions: no field of the queue, the cached status or a rating.
+        for value in ["bedtime", "wake_time", "tz_offset", "perceived", "freshness", "soreness", "sleep_duration",
+                      "recovery_score", "components", "wellness", "confounders", "confidence", "suggest", "checkins_7d",
+                      "session_rpe", "from=", "23:17:41", "06:52:09", bedtime.ISO8601Format(), wokeUp.ISO8601Format(),
+                      "23:00", "07:00"] {
+            #expect(!sent.contains(value), "\(value)")
+        }
+        // `recovery` is a score's field. As an identifier it may appear only as the flag's key, the read resource's
+        // name and the routes' prefix; with those taken out, nothing else in the report may name it.
+        var unnamed = sent.replacingOccurrences(of: "\\/", with: "/")
+        for identifier in ["recovery.checkin=", "\\nrecovery ", "/v1/recovery/"] {
+            unnamed = unnamed.replacingOccurrences(of: identifier, with: "")
+        }
         for field in ["readiness", "recovery", "sleep_performance", "hrv_ms", "\"rhr\"", "sleep_actual_min",
                       "resp_rate", "calibrating\":"] {
-            #expect(!sent.contains(field), "\(field)")
+            #expect(!unnamed.contains(field), "\(field)")
         }
     }
 }
