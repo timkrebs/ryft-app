@@ -36,9 +36,9 @@ struct AnalyticsOptInStepView: View {
                          showsLockup: true, dismissible: false) {
             GroupedCard {
                 OnboardingPoint(symbol: "square.grid.2x2", title: "What is counted",
-                                text: "Which screens and features are used, onboarding progress, errors shown with their status codes, and when the app is opened or closed, with the app and iOS version and the device type.")
+                                text: "Which screens and features are used, including food search, logging and Sync now, with counts and timings as ranges; onboarding progress; errors shown with their status codes; and when the app is opened or closed, with the app and iOS version and the device type.")
                 OnboardingPoint(symbol: "heart.slash", title: "What is not",
-                                text: "No health data, scores, sleep or workout details, names or free text.")
+                                text: "No health data, scores, sleep or workout details, foods or what you search for, names or free text.")
                 OnboardingPoint(symbol: "number", title: "Your ID",
                                 text: "A random ID for this install. Never your account or email.")
                 OnboardingPoint(symbol: "hand.raised", title: "Where it goes",
