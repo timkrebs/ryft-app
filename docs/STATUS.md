@@ -1,5 +1,10 @@
 # Status — 2026-11-24
 
+## 2026-11-27 · Recovery without a watch
+
+- Done in code: the Today check-in, sleep dial, account-bound retries, workout effort in Strain and Train, consent copy and interaction analytics.
+- Verification open: Xcode build, unit and UI test execution, and preview review. The implementation run excluded these steps.
+
 ## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
 
 - `AnalyticsCatalog` is the one list of every event, key and value. `Analytics.deliver` checks each event against it

@@ -351,6 +351,8 @@ struct AnalyticsAllowListTests {
             "unit_mode": ["curated_portion", "last_used_portion", "grams", "ml"],
             "is_fractional": bools,
         ])
+        #expect(AnalyticsCatalog.events["recovery_checkin"] == ["action": ["opened", "saved", "skipped"]])
+        #expect(AnalyticsCatalog.events["feature_used"]?["feature"]?.contains("session_rpe_saved") == true)
         #expect(AnalyticsCatalog.events["nutrition_diary_reopened"] == ["has_preserved_portion_label": bools])
         #expect(AnalyticsCatalog.events["sync_triggered"] == ["trigger_source": ["profile_button"]])
         #expect(AnalyticsCatalog.events["sync_completed"] == [

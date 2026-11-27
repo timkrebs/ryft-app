@@ -14,6 +14,7 @@ Store "What's New".
 - An account deletion stops if the signed-in account changes while the request is being prepared.
 
 ### Added
+- Morning check-in on Today and a workout effort rating for accounts with no-watch recovery enabled.
 - Nutrition search shows reusable portions and calories when the catalog supplies them. Tap plus to add a portion, or open the amount picker to choose a size, fraction or metric amount.
 - German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
 - Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.

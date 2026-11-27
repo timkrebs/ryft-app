@@ -68,6 +68,10 @@ struct Workout: Codable, Identifiable, Hashable {
     var wasUserEntered: Bool? = nil
     var tzOffsetSec: Int? = nil
 
+    /// The rating and its load are calculated or stored by the recovery endpoints.
+    var sessionRpe: Double? = nil
+    var sessionRpeLoad: Int? = nil
+
     var duration: TimeInterval { end.timeIntervalSince(start) }
 }
 
@@ -709,6 +713,71 @@ struct DayDetail: Codable, Hashable {
         strain = try c.decodeIfPresent(DayStrain.self, forKey: .strain)
         workouts = try c.decodeIfPresent([Workout].self, forKey: .workouts) ?? []
     }
+}
+
+// MARK: - Recovery without a watch
+
+enum RecoverySource: String, Codable, Hashable, Sendable { case wearable, checkin, none }
+enum RecoveryConfidence: String, Codable, Hashable, Sendable { case high, medium, low }
+
+enum SuggestionBasis: String, Codable, Hashable, Sendable {
+    case checkins7d = "checkins_7d"
+    case expectedBedtime = "expected_bedtime"
+}
+
+struct RecoveryCheckinPut: Codable, Hashable, Sendable {
+    let bedtime: Date
+    let wakeTime: Date
+    let tzOffsetSec: Int
+    let perceivedSleepQuality: Int
+    let perceivedFreshness: Int
+    let soreness: Bool
+}
+
+struct RecoveryComponents: Codable, Hashable, Sendable {
+    let wellness: Int
+    let wellnessAbsolute: Int
+    let wellnessPersonal: Int?
+    let duration: Int
+    let regularity: Int?
+    let n2r: Int?
+}
+
+struct RecoveryCheckin: Codable, Hashable, Sendable {
+    let date: String
+    let bedtime: Date
+    let wakeTime: Date
+    let tzOffsetSec: Int
+    let perceivedSleepQuality: Int
+    let perceivedFreshness: Int
+    let soreness: Bool
+    let sleepDurationMin: Int
+    let recoveryScore: Int
+    let components: RecoveryComponents
+    let acuteDrop: Bool
+    let confounders: [String]
+    let confidence: RecoveryConfidence
+    let superseded: Bool
+    let n2rBedtimeApplied: Bool
+    let modelVersion: String
+    let createdAt: Date
+    let updatedAt: Date
+}
+
+struct RecoveryStatus: Codable, Hashable, Sendable {
+    let date: String
+    let source: RecoverySource
+    let confidence: RecoveryConfidence?
+    let recoveryScore: Int?
+    let needsCheckin: Bool
+    let checkin: RecoveryCheckin?
+    let suggestedBedtime: String?
+    let suggestedWakeTime: String?
+    let suggestionBasis: SuggestionBasis?
+}
+
+struct WorkoutRPEPut: Codable, Hashable, Sendable {
+    let sessionRpe: Double
 }
 
 // MARK: - Workouts

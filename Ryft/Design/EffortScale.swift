@@ -42,7 +42,22 @@ enum EffortScaleSpec {
 /// (or "Not set"), with a Clear action; the circles are for touch. Identifiers: `effortScale` and `effortScale.<n>`.
 struct EffortScale: View {
     @Binding var value: Int?
+    private let label: Text
+    private let word: @MainActor (Int) -> String
+    private let identifier: String
+    private let fractionalValue: Double?
 
+    init(value: Binding<Int?>, label: Text = Text("Perceived effort", comment: "VoiceOver: the effort scale's name."),
+         word: @escaping @MainActor (Int) -> String = { EffortScale.word($0) },
+         identifier: String = "effortScale", fractionalValue: Double? = nil) {
+        _value = value
+        self.label = label
+        self.word = word
+        self.identifier = identifier
+        self.fractionalValue = fractionalValue
+    }
+
+    @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var scaledDiameter: CGFloat = EffortScaleSpec.diameter
@@ -72,6 +87,27 @@ struct EffortScale: View {
     /// The line under the grid: "7 · Hard".
     static func caption(_ value: Int) -> String { "\(value) · \(word(value))" }
 
+    private var fraction: Double? { fractionalValue.flatMap { (1...10).contains($0) ? $0 : nil } }
+
+    private var rating: (number: String, word: String)? {
+        if let value { return ("\(value)", word(value)) }
+        guard let fraction else { return nil }
+        let number = fraction.formatted(.number.precision(.fractionLength(1)).locale(locale))
+        return (number, word(Int(fraction)))
+    }
+
+    private var accessibilityValue: String {
+        if let value {
+            return String(localized: "\(value) of 10, \(word(value))",
+                          comment: "VoiceOver: the selected effort, e.g. '6 of 10, Moderate'.")
+        }
+        if let rating {
+            return String(localized: "\(rating.number) of 10, \(rating.word)",
+                          comment: "VoiceOver: a fractional effort rating, e.g. '7.5 of 10, Hard'.")
+        }
+        return Self.spokenValue(nil)
+    }
+
     private var diameter: CGFloat {
         EffortScaleSpec.diameter(scaled: scaledDiameter, typeSize: typeSize, width: width)
     }
@@ -91,8 +127,8 @@ struct EffortScale: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // Only once a value is picked: no empty line under the grid before.
-            if let value {
-                Text(verbatim: Self.caption(value))
+            if let rating {
+                Text(verbatim: "\(rating.number) · \(rating.word)")
                     .font(.ryft(.callout))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textPrimary)
@@ -103,21 +139,25 @@ struct EffortScale: View {
         }
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: value)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Perceived effort", comment: "VoiceOver: the effort scale's name."))
-        .accessibilityValue(Text(verbatim: Self.spokenValue(value)))
+        .accessibilityLabel(label)
+        .accessibilityValue(Text(verbatim: accessibilityValue))
         .accessibilityAdjustableAction { direction in
             switch direction {
-            case .increment: value = min(Self.range.upperBound, (value ?? 0) + 1)
-            case .decrement: value = max(Self.range.lowerBound, (value ?? 2) - 1)
+            case .increment:
+                let previous = value ?? fraction.map { Int($0) } ?? 0
+                value = min(Self.range.upperBound, previous + 1)
+            case .decrement:
+                let previous = value ?? fraction.map { Int($0.rounded(.up)) } ?? 2
+                value = max(Self.range.lowerBound, previous - 1)
             @unknown default: break
             }
         }
         .accessibilityActions {
-            if value != nil {
+            if rating != nil {
                 Button(String(localized: "Clear", comment: "VoiceOver action: remove the effort rating.")) { value = nil }
             }
         }
-        .accessibilityIdentifier("effortScale")
+        .accessibilityIdentifier(identifier)
     }
 
     private func circle(_ n: Int) -> some View {
@@ -141,7 +181,7 @@ struct EffortScale: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("effortScale.\(n)")
+        .accessibilityIdentifier("\(identifier).\(n)")
     }
 }
 

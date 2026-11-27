@@ -36,6 +36,15 @@ protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI, TrainImpor
     /// `GET /v1/sleep/plan?wake=HH:MM` (local wake time).
     func sleepPlan(wake: String) async throws -> SleepPlan
 
+    // Recovery without a watch.
+    func recoveryStatus() async throws -> RecoveryStatus
+    func recoveryCheckin(date: String) async throws -> RecoveryCheckin
+    func recoveryCheckins(from: String, to: String) async throws -> [RecoveryCheckin]
+    func putRecoveryCheckin(date: String, _ body: RecoveryCheckinPut) async throws -> RecoveryCheckin
+    func deleteRecoveryCheckin(date: String) async throws
+    func putWorkoutRPE(id: UUID, _ body: WorkoutRPEPut) async throws -> Workout
+    func deleteWorkoutRPE(id: UUID) async throws
+
     // Journal (M5). `404` until the platform deploys it: callers hide the feature.
     /// `GET /v1/behaviors`.
     func behaviors() async throws -> [Behavior]
@@ -184,6 +193,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var journalLive = true
     private var behaviorList = MockJournal.behaviors
     private var journals: [String: JournalDay] = [:]
+    private var checkins: [String: RecoveryCheckin] = [:]
+    private var ratedWorkouts: [UUID: Workout] = [:]
+    private var sessionWorkouts: [UUID: Workout] = [:]
+    /// Tests can supply wearable or unavailable status; demo data uses its own answers.
+    var recoveryStatusOverride: RecoveryStatus?
     private(set) var journalPuts: [String: JournalPut] = [:]
     /// The wake times `sleepPlan` was asked for, in order (read under the lock: a request may be on its way).
     var planWakes: [String] { lock.withLock { askedWakes } }
@@ -654,14 +668,25 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         try enter("sleep"); return try await screens.sleep(range: range)
     }
     func workouts(from: Date, to: Date) async throws -> [Workout] {
-        try enter("workouts"); return try await screens.workouts(from: from, to: to)
+        try enter("workouts")
+        let workouts = try await screens.workouts(from: from, to: to)
+        return lock.withLock { workouts.map { ratedWorkouts[$0.id] ?? $0 } }
     }
     /// Runs before each `GET /v1/workouts/{id}` answers (tests switch demo data meanwhile).
     var beforeWorkout: (@Sendable () async -> Void)?
 
     func workout(id: UUID) async throws -> WorkoutDetail {
         try enter("workout")
-        let detail = try await screens.workout(id: id)
+        var detail: WorkoutDetail
+        do {
+            detail = try await screens.workout(id: id)
+        } catch {
+            // A session finished in Demo data: the workout scoring would attach (the RPE row needs one), only where the
+            // demo screens have none of their own.
+            guard let workout = lock.withLock({ sessionWorkouts[id] }) else { throw error }
+            return WorkoutDetail(workout: lock.withLock { ratedWorkouts[id] ?? workout })
+        }
+        detail.workout = lock.withLock { ratedWorkouts[id] ?? detail.workout }
         await beforeWorkout?()
         return detail
     }
@@ -716,9 +741,116 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         try enter("putSession"); return try await train.putSession(s)
     }
     func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
-        try enter("completeSession"); return try await train.completeSession(id: id, body)
+        try enter("completeSession")
+        let session = try await train.completeSession(id: id, body)
+        if let workoutId = session.workoutId, let end = session.endedAt {
+            let workout = Workout(id: workoutId, activity: "strength", start: session.startedAt, end: end,
+                                  avgHr: nil, maxHr: nil, energyKcal: nil, distanceM: nil, source: "ryft-session",
+                                  strain: session.strain, muscularLoad: session.muscularTrimp, sessionId: session.id)
+            lock.withLock { sessionWorkouts[workoutId] = workout }
+        }
+        return session
     }
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
+
+    // MARK: Recovery without a watch
+
+    func resetRecovery() {
+        lock.withLock {
+            checkins = [:]
+            ratedWorkouts = [:]
+            sessionWorkouts = [:]
+        }
+    }
+
+    func recoveryStatus() async throws -> RecoveryStatus {
+        try enter("recoveryStatus")
+        if let recoveryStatusOverride { return recoveryStatusOverride }
+        let now = now()
+        let date = SleepDialMath.pathDate(now, tzOffsetSec: TimeZone.current.secondsFromGMT(for: now))
+        let checkin = lock.withLock { checkins[date] }
+        return RecoveryStatus(date: date, source: checkin == nil ? .none : .checkin, confidence: checkin?.confidence,
+                              recoveryScore: checkin?.recoveryScore, needsCheckin: checkin == nil, checkin: checkin,
+                              suggestedBedtime: "23:00", suggestedWakeTime: "07:00", suggestionBasis: .expectedBedtime)
+    }
+
+    func recoveryCheckin(date: String) async throws -> RecoveryCheckin {
+        try enter("recoveryCheckin")
+        guard let checkin = lock.withLock({ checkins[date] }) else { throw APIError.http(404, "not found") }
+        return checkin
+    }
+
+    func recoveryCheckins(from: String, to: String) async throws -> [RecoveryCheckin] {
+        try enter("recoveryCheckins")
+        return lock.withLock { checkins.values.filter { from <= $0.date && $0.date <= to }.sorted { $0.date < $1.date } }
+    }
+
+    func putRecoveryCheckin(date: String, _ body: RecoveryCheckinPut) async throws -> RecoveryCheckin {
+        try enter("putRecoveryCheckin")
+        let now = now()
+        let firstDay = DayFormat.string(from: DayFormat.shift(now, days: -14))
+        guard (firstDay...DayFormat.string(from: now)).contains(date),
+              (-50_400...50_400).contains(body.tzOffsetSec), body.tzOffsetSec.isMultiple(of: 60),
+              SleepDialMath.pathDate(body.wakeTime, tzOffsetSec: body.tzOffsetSec) == date,
+              (1...10).contains(body.perceivedSleepQuality), (1...10).contains(body.perceivedFreshness),
+              SleepDialMath.validate(bedtime: body.bedtime, wakeTime: body.wakeTime, now: now) == nil else {
+            throw APIError.http(422, "")
+        }
+        let minutes = Int((body.wakeTime.timeIntervalSince(body.bedtime) / 60).rounded())
+        let answer = 0.65 * Double(body.perceivedSleepQuality) + 0.35 * Double(body.perceivedFreshness)
+        let wellness = Int(((answer - 1) / 9 * 100).rounded())
+        let duration: Double
+        switch minutes {
+        case ..<300: duration = 40
+        case 300..<450: duration = 40 + Double(minutes - 300) * 60 / 150
+        case 450...570: duration = 100
+        default: duration = max(75, 100 - Double(minutes - 570) * 10 / 60)
+        }
+        let score = Int(((0.5 * Double(wellness) + 0.3 * duration) / 0.8).rounded())
+        let components = RecoveryComponents(wellness: wellness, wellnessAbsolute: wellness, wellnessPersonal: nil,
+                                            duration: Int(duration.rounded()), regularity: nil, n2r: nil)
+        return lock.withLock {
+            let result = RecoveryCheckin(date: date, bedtime: body.bedtime, wakeTime: body.wakeTime, tzOffsetSec: body.tzOffsetSec,
+                                         perceivedSleepQuality: body.perceivedSleepQuality, perceivedFreshness: body.perceivedFreshness,
+                                         soreness: body.soreness, sleepDurationMin: minutes, recoveryScore: min(100, max(0, score)),
+                                         components: components, acuteDrop: false, confounders: [], confidence: .low, superseded: false,
+                                         n2rBedtimeApplied: false, modelVersion: "2026.11.1",
+                                         createdAt: checkins[date]?.createdAt ?? now, updatedAt: now)
+            checkins[date] = result
+            return result
+        }
+    }
+
+    func deleteRecoveryCheckin(date: String) async throws {
+        try enter("deleteRecoveryCheckin")
+        lock.withLock { checkins[date] = nil }
+    }
+
+    func putWorkoutRPE(id: UUID, _ body: WorkoutRPEPut) async throws -> Workout {
+        try enter("putWorkoutRPE")
+        let rating = body.sessionRpe
+        guard (1...10).contains(rating), (rating * 2).rounded() == rating * 2 else { throw APIError.http(422, "") }
+        var workout = try await workoutForRating(id)
+        workout.sessionRpe = rating
+        workout.sessionRpeLoad = Int(((workout.duration / 60).rounded() * rating).rounded())
+        let saved = workout
+        lock.withLock { ratedWorkouts[id] = saved }
+        return saved
+    }
+
+    func deleteWorkoutRPE(id: UUID) async throws {
+        try enter("deleteWorkoutRPE")
+        var workout = try await workoutForRating(id)
+        workout.sessionRpe = nil
+        workout.sessionRpeLoad = nil
+        let cleared = workout
+        lock.withLock { ratedWorkouts[id] = cleared }
+    }
+
+    private func workoutForRating(_ id: UUID) async throws -> Workout {
+        if let workout = lock.withLock({ ratedWorkouts[id] ?? sessionWorkouts[id] }) { return workout }
+        return try await screens.workout(id: id).workout
+    }
 
     // MARK: training import (draft)
 

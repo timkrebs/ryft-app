@@ -25,6 +25,7 @@ enum ReadModelWrite: Sendable {
     case user(User)
     case sleepRange(SleepRange)
     case workout(WorkoutDetail)
+    case workoutRating(id: UUID, value: Double?, load: Int?)
     /// `day`'s activities as listed, replacing the cached ones, without `route` and `hr_samples` (ADR 0006).
     case activities([SportActivity], day: String)
     /// One answered activity into the list of the day it starts on, out of any other day's. Read, modified and
@@ -132,6 +133,16 @@ enum ReadModelWrites {
             } else {
                 context.insert(CachedWorkout(id: id, data: data, fetchedAt: now))
             }
+            receipt.kinds.insert(.workouts)
+        case .workoutRating(let id, let value, let load):
+            var d = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.id == id })
+            d.fetchLimit = 1
+            guard let row = (try? context.fetch(d))?.first,
+                  var detail = WireCoding.decode(WorkoutDetail.self, row.data) else { return }
+            detail.workout.sessionRpe = value
+            detail.workout.sessionRpeLoad = load
+            guard let data = WireCoding.encode(detail) else { return }
+            row.data = data
             receipt.kinds.insert(.workouts)
         case .activities(let activities, let day):
             let list = activities.map(\.withoutRouteOrHeartRate).sorted { $0.start < $1.start }

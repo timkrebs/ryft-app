@@ -416,6 +416,7 @@ final class AppState {
         // exit discarded doesn't come back with Demo data on again.
         (env.demoAPI as? MockPlatformAPI)?.trainImportSource.reset()
         (env.demoAPI as? MockPlatformAPI)?.trainSource?.reset()
+        (env.demoAPI as? MockPlatformAPI)?.resetRecovery()
         readsChanged(.record)
     }
 

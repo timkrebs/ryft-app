@@ -59,6 +59,7 @@ struct AnalyticsNameRow: Sendable, CustomTestStringConvertible {
         AnalyticsNameRow(event: .firstSyncCompleted, name: "first_sync_completed"),
         AnalyticsNameRow(event: .screenViewed(.today), name: "screen_viewed"),
         AnalyticsNameRow(event: .featureUsed(.dataExported), name: "feature_used"),
+        AnalyticsNameRow(event: .recoveryCheckin(.opened), name: "recovery_checkin"),
         AnalyticsNameRow(event: .errorShown(.s500, .none), name: "error_shown"),
         AnalyticsNameRow(event: AnalyticsEventFixture.searchCompleted, name: "nutrition_search_completed"),
         AnalyticsNameRow(event: AnalyticsEventFixture.foodOpened, name: "nutrition_food_opened"),
@@ -87,7 +88,7 @@ struct AnalyticsEventTests {
         #expect(Set(AnalyticsEvent.everyCase.map(\.name)) == [
             "onboarding_step", "health_access_requested", "first_sync_completed", "screen_viewed", "feature_used", "error_shown",
             "nutrition_search_completed", "nutrition_food_opened", "nutrition_food_logged", "nutrition_diary_reopened",
-            "sync_triggered", "sync_completed",
+            "sync_triggered", "sync_completed", "recovery_checkin",
         ])
     }
 
@@ -100,8 +101,9 @@ struct AnalyticsEventTests {
         ])
         #expect(raw(AnalyticsFeature.self) == [
             "train_session_started", "activity_added", "sleep_added", "journal_saved", "sleep_schedule_saved",
-            "train_import_finished", "data_exported", "problem_reported", "notifications_allowed", "full_resync",
+            "train_import_finished", "data_exported", "problem_reported", "notifications_allowed", "full_resync", "session_rpe_saved",
         ])
+        #expect(raw(AnalyticsRecoveryCheckinAction.self) == ["opened", "saved", "skipped"])
         #expect(raw(AnalyticsErrorStatus.self) == [
             "offline", "timeout", "transport", "400", "401", "403", "404", "409", "413", "422", "429", "4xx", "500", "502", "503",
             "504", "5xx", "other",
@@ -130,7 +132,7 @@ struct AnalyticsEventTests {
 
     @Test func everyTokenIsALowercaseWordNotAFreeTextOrAnId() {
         let all = raw(OnboardingStepName.self).union(raw(AnalyticsScreen.self)).union(raw(AnalyticsFeature.self))
-            .union(raw(AnalyticsErrorStatus.self)).union(raw(AnalyticsErrorCode.self))
+            .union(raw(AnalyticsErrorStatus.self)).union(raw(AnalyticsErrorCode.self)).union(raw(AnalyticsRecoveryCheckinAction.self))
             .union(raw(AnalyticsSearchLookup.self)).union(raw(AnalyticsQueryLength.self))
             .union(raw(AnalyticsResultCount.self)).union(raw(AnalyticsLatency.self)).union(raw(AnalyticsRank.self))
             .union(raw(AnalyticsNutritionEntryPoint.self)).union(raw(AnalyticsUnitMode.self))
@@ -153,7 +155,7 @@ struct AnalyticsEventTests {
             + AnalyticsSyncTrigger.allCases.count * AnalyticsSyncStatus.allCases.count * AnalyticsSyncDuration.allCases.count
         let expected = OnboardingStepName.allCases.count + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
             + AnalyticsErrorStatus.allCases.count * AnalyticsErrorCode.allCases.count
-            + searches + opens + logs + bools + syncs
+            + searches + opens + logs + bools + syncs + AnalyticsRecoveryCheckinAction.allCases.count
         #expect(cases.count == expected)
         #expect(Set(cases).count == cases.count)
     }
@@ -169,6 +171,7 @@ struct AnalyticsEventTests {
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed: return ["screen": raw(AnalyticsScreen.self)]
         case .featureUsed: return ["feature": raw(AnalyticsFeature.self)]
+        case .recoveryCheckin: return ["action": raw(AnalyticsRecoveryCheckinAction.self)]
         case .errorShown: return ["status": raw(AnalyticsErrorStatus.self), "code": raw(AnalyticsErrorCode.self)]
         case .nutritionSearchCompleted:
             return [
@@ -210,6 +213,8 @@ struct AnalyticsEventTests {
         #expect(AnalyticsEvent.onboardingStep(.aboutYou).properties == ["step": "about_you"])
         #expect(AnalyticsEvent.screenViewed(.myDay).properties == ["screen": "my_day"])
         #expect(AnalyticsEvent.featureUsed(.fullResync).properties == ["feature": "full_resync"])
+        #expect(AnalyticsEvent.featureUsed(.sessionRpeSaved).properties == ["feature": "session_rpe_saved"])
+        #expect(AnalyticsEvent.recoveryCheckin(.saved).properties == ["action": "saved"])
         #expect(AnalyticsEvent.errorShown(.s4xx, .appAttestKeyUnknown).properties
             == ["status": "4xx", "code": "app_attest_key_unknown"])
         #expect(AnalyticsEvent.healthAccessRequested.properties.isEmpty && AnalyticsEvent.firstSyncCompleted.properties.isEmpty)

@@ -21,6 +21,7 @@ final class ScreenModels {
     let push: PushRegistrar
     /// The journal (M5), shared by Today, Profile and Insights.
     let journal: JournalStore
+    let recoveryCheckin: RecoveryCheckinStore
     let router: DeepLinkRouter
     /// Remote flags (`GET /v1/config`); nil when the environment's flags are static (tests, previews).
     let featureFlags: FeatureFlags?
@@ -97,6 +98,7 @@ final class ScreenModels {
         state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
+        recoveryCheckin = RecoveryCheckinStore(state: state, apiStatus: apiStatus)
         // Its habits and answers decide the journal reminder; a day answered takes it away at once.
         state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
@@ -161,6 +163,8 @@ final class ScreenModels {
         guard gate == nil else { return }
         switch path {
         case .healthKit:
+            let recoveryCheckin = recoveryCheckin
+            Task { await recoveryCheckin.load() }
             // Only a held sync, and only when none is running or queued (`agree()` starts its own): that one reads
             // the gate itself, and a rerun after it would be an extra pass.
             guard sync.pausedFor != nil else { return }

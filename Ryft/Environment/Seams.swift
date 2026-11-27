@@ -239,6 +239,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// what's scheduled; not known yet (no config for the account, a background launch) keeps it (`known`).
     case notificationsReminders = "notifications.reminders"
 
+    /// Morning check-in and session effort for recovery without a watch. Off until opened for the account.
+    case recoveryCheckin = "recovery.checkin"
+
     var id: String { rawValue }
 
     /// Compiled in, used until (and whenever) the platform's answer is missing.
@@ -247,7 +250,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
-        case .analyticsEnabled, .notificationsReminders, .nutritionEnabled, .nutritionDiaryEnabled: return false
+        case .analyticsEnabled, .notificationsReminders, .nutritionEnabled, .nutritionDiaryEnabled, .recoveryCheckin: return false
         }
     }
 }

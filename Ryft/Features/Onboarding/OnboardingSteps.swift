@@ -143,10 +143,20 @@ struct LaterButton: View {
 /// element ("What RYFT reads. Heart rate, …"), the glyph hidden.
 struct OnboardingPoint: View {
     let symbol: String
-    let title: LocalizedStringKey
-    let text: LocalizedStringKey
+    let title: Text
+    let text: Text
 
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    init(symbol: String, title: LocalizedStringKey, text: LocalizedStringKey) {
+        self.init(symbol: symbol, title: Text(title), text: Text(text))
+    }
+
+    init(symbol: String, title: Text, text: Text) {
+        self.symbol = symbol
+        self.title = title
+        self.text = text
+    }
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
@@ -159,11 +169,11 @@ struct OnboardingPoint: View {
                 .frame(width: OnboardingPointSpec.glyphColumn, alignment: typeSize.isAccessibilitySize ? .leading : .center)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: OnboardingPointSpec.textGap) {
-                Text(title)
+                title
                     .font(.ryft(.button)) // 16 Medium
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(text)
+                text
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -291,7 +301,8 @@ struct ConsentView: View {
 
     var body: some View {
         OnboardingScreen(title: Text("Your health data, your consent"),
-                         lead: Text("To calculate your scores, RYFT processes health data from Apple Health. Here is what that means."),
+                         lead: Text("To calculate your scores, RYFT processes health data from Apple Health and what you enter in the app. Here is what that means.",
+                                    comment: "Lead of the health data consent screen."),
                          showsLockup: model.isFirstRun) {
             if let earlier = model.earlierConsent {
                 InlineMessage(message: String(localized: "The privacy policy changed since you agreed on \(Fmt.date(earlier.grantedAt)). Read what changed, then agree again."),
@@ -301,12 +312,17 @@ struct ConsentView: View {
             GroupedCard {
                 OnboardingPoint(symbol: "waveform.path.ecg", title: "What RYFT reads",
                                 text: "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts.")
+                OnboardingPoint(symbol: "square.and.pencil",
+                                title: Text("What you enter", comment: "Health data consent point about manual entries."),
+                                text: Text("Where it's available to you: your morning check-in (bed and wake times, how you slept, how fresh you feel, soreness) and how hard a workout felt.",
+                                           comment: "Health data consent: what you can enter in the app."))
                 OnboardingPoint(symbol: "lock.shield", title: "Where it is stored",
                                 text: "In your RYFT account, on servers in the EU. Never sold, never used for advertising.")
                 OnboardingPoint(symbol: "person.crop.circle.badge.checkmark", title: "Who can see it",
                                 text: "Only you, and the operator of RYFT when something needs fixing.")
-                OnboardingPoint(symbol: "arrow.down.doc", title: "Always yours",
-                                text: "Export or delete everything at any time in Profile. You can withdraw this consent in Profile → Privacy.")
+                OnboardingPoint(symbol: "arrow.down.doc", title: Text("Always yours"),
+                                text: Text("Export your data or delete your account at any time in Profile. You can withdraw this consent in Profile → Privacy.",
+                                           comment: "Health data consent: the controls in Profile."))
             }
             Text("You must be at least 16 to use RYFT.")
                 .font(.ryft(.callout))
@@ -322,7 +338,8 @@ struct ConsentView: View {
             .ryftLink()
             .accessibilityIdentifier("consent.policy")
             Toggle(isOn: $agreed) {
-                Text("I agree that RYFT processes my health data to calculate my scores.")
+                Text("I agree that RYFT processes my health data, from Apple Health and what I enter, to calculate my scores.",
+                     comment: "Health data consent checkbox.")
             }
             .toggleStyle(CheckboxToggleStyle())
             .disabled(model.isWorking)

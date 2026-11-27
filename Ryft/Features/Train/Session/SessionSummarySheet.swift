@@ -135,6 +135,8 @@ struct SessionSummarySheet: View {
     @State private var appeared = false
     /// Where the strain's heart rate came from (the platform's workout for the session).
     @State private var heartRate: SummaryHeartRate?
+    @State private var sessionRPE: SessionRPEModel?
+    @State private var summaryWorkout: Workout?
     @State private var savingToHealth = false
     @AccessibilityFocusState private var headerFocused: Bool
     private var export: WorkoutHealthExport { .shared }
@@ -150,6 +152,11 @@ struct SessionSummarySheet: View {
     /// The server's answer: at finish, or later from the queue.
     private var completed: TrainSession? {
         summary.completed ?? sync.lastCompletion.flatMap { $0.id == summary.sessionID ? $0 : nil }
+    }
+
+    private var ratingWorkoutID: UUID? {
+        guard state.env.recoveryCheckinEnabled else { return nil }
+        return completed?.workoutId ?? session?.workoutId
     }
 
     var body: some View {
@@ -179,6 +186,9 @@ struct SessionSummarySheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("summary.heartRate")
                     }
+                    if let sessionRPE, sessionRPE.workoutID == ratingWorkoutID {
+                        SessionRPERow(model: sessionRPE)
+                    }
                     if export.shouldAsk { saveToHealth }
                     notesCard
                 }
@@ -205,6 +215,11 @@ struct SessionSummarySheet: View {
             headerFocused = true
         }
         .task(id: completed?.workoutId) { await loadHeartRate() }
+        .onChange(of: ratingWorkoutID, initial: true) { _, id in
+            sessionRPE = id.map { SessionRPEModel(env: state.env, workoutID: $0,
+                                                  workout: summaryWorkout?.id == $0 ? summaryWorkout : nil,
+                                                  repository: state.repository) }
+        }
         .interactiveDismissDisabled()
     }
 
@@ -298,8 +313,11 @@ struct SessionSummarySheet: View {
     /// next time.
     private func loadHeartRate() async {
         guard let id = completed?.workoutId else { return }
-        guard let detail = try? await state.source.workout(id: id) else { return }
+        let owner = AccountBinding(state.env)
+        guard let detail = try? await state.source.workout(id: id), owner.isCurrent(in: state.env), !Task.isCancelled else { return }
         heartRate = SummaryHeartRate(detail.workout)
+        summaryWorkout = detail.workout
+        sessionRPE?.seed(from: detail.workout)
     }
 
     static func heartRateLine(_ workout: Workout) -> String {
@@ -403,4 +421,10 @@ private enum SummaryPreview {
                         heartRate: SummaryPreview.garmin)
         .previewEnvironment()
         .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Summary · workout effort") {
+    let state = AppState.preview(flags: [.recoveryCheckin: true])
+    SessionSummarySheet(summary: FinishSummary(sessionID: MockTrain.completed.id, completed: MockTrain.completed))
+        .previewEnvironment(state)
 }

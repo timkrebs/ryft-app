@@ -175,6 +175,17 @@
         }
       }
     },
+    "%@ of 10, %@" : {
+      "comment" : "VoiceOver: a fractional effort rating, e.g. '7.5 of 10, Hard'.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ von 10, %2$@"
+          }
+        }
+      }
+    },
     "%@ of an unknown type" : {
       "localizations" : {
         "de" : {
@@ -1077,6 +1088,39 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld h" : {
+      "comment" : "Sleep dial duration in whole hours.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld h"
+          }
+        }
+      }
+    },
+    "%lld h %lld min" : {
+      "comment" : "Sleep dial duration, e.g. 7 h 30 min.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld h %2$lld min"
+          }
+        }
+      }
+    },
+    "%lld min" : {
+      "comment" : "Sleep dial duration in minutes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld min"
           }
         }
       }
@@ -4695,6 +4739,28 @@
         }
       }
     },
+    "Based on your check-in" : {
+      "comment" : "Low confidence in estimated recovery.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basierend auf deinem Check-in"
+          }
+        }
+      }
+    },
+    "Based on your check-in and daytime heart rate" : {
+      "comment" : "Medium confidence in estimated recovery.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Basierend auf deinem Check-in und deiner Herzfrequenz tagsüber"
+          }
+        }
+      }
+    },
     "Baseline sleep need" : {
       "localizations" : {
         "de" : {
@@ -4743,6 +4809,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlafen und Aufwachen"
+          }
+        }
+      }
+    },
+    "Bedtime and wake time need to be at least 1 hour apart." : {
+      "comment" : "Morning check-in validation for a short sleep interval.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwischen Schlafenszeit und Aufwachzeit muss mindestens eine Stunde liegen."
           }
         }
       }
@@ -5177,6 +5254,17 @@
         }
       }
     },
+    "Check in" : {
+      "comment" : "Action to open the morning check-in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check-in starten"
+          }
+        }
+      }
+    },
     "Check the target: % 1RM 30–110, RPE 1–10, kg 0–500." : {
       "comment" : "Plan builder: why a target is out of range. The allowed ranges for % 1RM, RPE and kg.",
       "localizations" : {
@@ -5184,6 +5272,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prüfe den Zielwert. Erlaubt sind 30–110 % 1RM, RPE 1–10 oder 0–500 kg."
+          }
+        }
+      }
+    },
+    "Check the times and try again." : {
+      "comment" : "Morning check-in: the server rejected the values without field details.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfe die Uhrzeiten und versuche es erneut."
           }
         }
       }
@@ -5228,6 +5327,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geprüft am %@. Die Anleitung kann sich geändert haben."
+          }
+        }
+      }
+    },
+    "Checked in" : {
+      "comment" : "Today's completed morning check-in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check-in erledigt"
           }
         }
       }
@@ -5320,6 +5430,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird geprüft …"
+          }
+        }
+      }
+    },
+    "Choose a rating from 1 to 10 and try again." : {
+      "comment" : "Workout effort: the server rejected a rating.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle einen Wert von 1 bis 10 und versuche es erneut."
           }
         }
       }
@@ -7255,6 +7376,17 @@
         }
       }
     },
+    "Estimated recovery %lld" : {
+      "comment" : "Today's estimated recovery score from the check-in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geschätzte Erholung %lld"
+          }
+        }
+      }
+    },
     "estimated ten-rep max %@ kilograms" : {
       "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated ten-rep max 75 kilograms.",
       "localizations" : {
@@ -7314,6 +7446,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Übungen"
+          }
+        }
+      }
+    },
+    "Exhausted" : {
+      "comment" : "Morning check-in freshness 1–2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erschöpft"
           }
         }
       }
@@ -7392,12 +7535,13 @@
         }
       }
     },
-    "Export or delete everything at any time in Profile. You can withdraw this consent in Profile → Privacy." : {
+    "Export your data or delete your account at any time in Profile. You can withdraw this consent in Profile → Privacy." : {
+      "comment" : "Health data consent: the controls in Profile.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Du kannst deine Daten jederzeit im Profil exportieren oder löschen. Unter Profil → Datenschutz kannst du diese Zustimmung widerrufen."
+            "value" : "Du kannst deine Daten jederzeit im Profil exportieren oder dein Konto löschen. Unter Profil → Datenschutz kannst du diese Zustimmung widerrufen."
           }
         }
       }
@@ -7711,6 +7855,17 @@
         }
       }
     },
+    "Fresh" : {
+      "comment" : "Morning check-in freshness 7–8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholt"
+          }
+        }
+      }
+    },
     "From %@" : {
       "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
       "localizations" : {
@@ -7853,6 +8008,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vollständig neu abgleichen"
+          }
+        }
+      }
+    },
+    "Fully fresh" : {
+      "comment" : "Morning check-in freshness 9–10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voll erholt"
           }
         }
       }
@@ -8423,6 +8589,28 @@
         }
       }
     },
+    "How did you sleep?" : {
+      "comment" : "Today's morning check-in prompt.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie hast du geschlafen?"
+          }
+        }
+      }
+    },
+    "How hard was it?" : {
+      "comment" : "Question for the perceived effort of a whole workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie anstrengend war es?"
+          }
+        }
+      }
+    },
     "How it adds up" : {
       "comment" : "Sleep need sheet: the head of the tile that lists the need's terms.",
       "localizations" : {
@@ -8434,6 +8622,17 @@
         }
       }
     },
+    "How recovered do you feel?" : {
+      "comment" : "Morning check-in freshness question.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie erholt fühlst du dich?"
+          }
+        }
+      }
+    },
     "How to set up %@" : {
       "comment" : "Link under Today's gauge: opens the tracker's setup card. The argument is its app, e.g. Garmin Connect.",
       "localizations" : {
@@ -8441,6 +8640,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ einrichten"
+          }
+        }
+      }
+    },
+    "How well did you sleep?" : {
+      "comment" : "Morning check-in sleep quality question.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie gut hast du geschlafen?"
           }
         }
       }
@@ -8527,12 +8737,13 @@
         }
       }
     },
-    "I agree that RYFT processes my health data to calculate my scores." : {
+    "I agree that RYFT processes my health data, from Apple Health and what I enter, to calculate my scores." : {
+      "comment" : "Health data consent checkbox.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ich stimme zu, dass RYFT meine Gesundheitsdaten verarbeitet, um meine Werte zu berechnen."
+            "value" : "Ich stimme zu, dass RYFT meine Gesundheitsdaten aus Apple Health und meine Eingaben verarbeitet, um meine Werte zu berechnen."
           }
         }
       }
@@ -9990,6 +10201,17 @@
         }
       }
     },
+    "Morning check-in" : {
+      "comment" : "Title of the morning check-in sheet.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Morgen-Check-in"
+          }
+        }
+      }
+    },
     "Morning recovery" : {
       "localizations" : {
         "de" : {
@@ -10712,6 +10934,17 @@
         }
       }
     },
+    "Okay" : {
+      "comment" : "Morning check-in sleep quality or freshness 5–6.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Okay"
+          }
+        }
+      }
+    },
     "Omega-3 EPA and DHA" : {
       "localizations" : {
         "de" : {
@@ -11021,6 +11254,17 @@
         }
       }
     },
+    "Poorly" : {
+      "comment" : "Morning check-in sleep quality 3–4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlecht"
+          }
+        }
+      }
+    },
     "Post-workout fluids" : {
       "localizations" : {
         "de" : {
@@ -11170,6 +11414,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wettkampftag"
+          }
+        }
+      }
+    },
+    "Rate it so RYFT can count this workout's load." : {
+      "comment" : "Workout effort prompt on a workout without heart rate.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib an, wie anstrengend es war, damit RYFT die Belastung dieses Trainings berücksichtigen kann."
           }
         }
       }
@@ -11749,6 +12004,17 @@
         }
       }
     },
+    "RYFT didn't answer in time. Try again." : {
+      "comment" : "The workout effort write did not receive an answer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat nicht rechtzeitig geantwortet. Versuche es erneut."
+          }
+        }
+      }
+    },
     "RYFT didn't answer in time. Your consent may still have arrived; try again to be sure." : {
       "comment" : "Onboarding → Consent, under Agree and continue: sent, no answer in time, and RYFT, asked again, didn't show the consent.",
       "localizations" : {
@@ -11859,6 +12125,17 @@
         }
       }
     },
+    "RYFT needs your consent first." : {
+      "comment" : "Morning check-in saved locally while consent is required.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT braucht zuerst deine Zustimmung."
+          }
+        }
+      }
+    },
     "RYFT will remove the glucose readings stored for this account." : {
       "localizations" : {
         "de" : {
@@ -11956,6 +12233,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gespeichert am %@"
+          }
+        }
+      }
+    },
+    "Saved on this iPhone. It will be sent when you're online." : {
+      "comment" : "Today's morning check-in is waiting to send.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Dein Check-in wird gesendet, sobald du online bist."
           }
         }
       }
@@ -12566,6 +12854,17 @@
         }
       }
     },
+    "Sore muscles?" : {
+      "comment" : "Morning check-in soreness question.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muskelkater?"
+          }
+        }
+      }
+    },
     "Start date" : {
       "comment" : "VoiceOver: Add activity's chip for the start's day.",
       "localizations" : {
@@ -13027,6 +13326,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Gewohnheit konnte nicht gespeichert werden. Versuche es erneut."
+          }
+        }
+      }
+    },
+    "That's more than 16 hours." : {
+      "comment" : "Morning check-in validation for a long sleep interval.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das sind mehr als 16 Stunden."
           }
         }
       }
@@ -18747,12 +19057,24 @@
         }
       }
     },
-    "To calculate your scores, RYFT processes health data from Apple Health. Here is what that means." : {
+    "Tired" : {
+      "comment" : "Morning check-in freshness 3–4.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT verarbeitet Gesundheitsdaten aus Apple Health, um deine Werte zu berechnen. Hier erfährst du, was das bedeutet."
+            "value" : "Müde"
+          }
+        }
+      }
+    },
+    "To calculate your scores, RYFT processes health data from Apple Health and what you enter in the app. Here is what that means." : {
+      "comment" : "Lead of the health data consent screen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um deine Werte zu berechnen, verarbeitet RYFT Gesundheitsdaten aus Apple Health und deine Eingaben in der App. Hier erfährst du, was das bedeutet."
           }
         }
       }
@@ -19600,6 +19922,28 @@
         }
       }
     },
+    "Very poorly" : {
+      "comment" : "Morning check-in sleep quality 1–2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sehr schlecht"
+          }
+        }
+      }
+    },
+    "Very well" : {
+      "comment" : "Morning check-in sleep quality 9–10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sehr gut"
+          }
+        }
+      }
+    },
     "View progress" : {
       "comment" : "Training import: open step 6 of the running import (E9).",
       "localizations" : {
@@ -19759,6 +20103,17 @@
         }
       }
     },
+    "Wake time can't be in the future." : {
+      "comment" : "Morning check-in validation for a future wake time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Aufwachzeit darf nicht in der Zukunft liegen."
+          }
+        }
+      }
+    },
     "Wake-up alarm" : {
       "localizations" : {
         "de" : {
@@ -19827,6 +20182,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hier erfährst du, sobald Mitteilungen für dein Konto verfügbar sind."
+          }
+        }
+      }
+    },
+    "Well" : {
+      "comment" : "Morning check-in sleep quality 7–8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gut"
           }
         }
       }
@@ -19938,6 +20304,17 @@
         }
       }
     },
+    "What you enter" : {
+      "comment" : "Heading of the health data consent point about manual entries.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was du eingibst"
+          }
+        }
+      }
+    },
     "What you wear, as RYFT's tracker ids (no device names)" : {
       "comment" : "Report a problem → What's included.",
       "localizations" : {
@@ -19975,6 +20352,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wo die Daten gespeichert werden"
+          }
+        }
+      }
+    },
+    "Where it's available to you: your morning check-in (bed and wake times, how you slept, how fresh you feel, soreness) and how hard a workout felt." : {
+      "comment" : "Health data consent: what you can enter in the app.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn die Funktion für dich verfügbar ist: dein Morgen-Check-in (Schlafens- und Aufwachzeit, wie du geschlafen hast, wie erholt du dich fühlst und ob du Muskelkater hast) und wie anstrengend ein Training war."
           }
         }
       }
@@ -20656,6 +21044,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anhand deines Geburtsjahrs schätzt RYFT deine maximale Herzfrequenz. Sie dient als Bezugswert für Belastung und Herzfrequenzzonen. RYFT speichert nur das Jahr."
+          }
+        }
+      }
+    },
+    "Your check-in for %@ couldn't be saved." : {
+      "comment" : "A queued morning check-in was rejected. The date identifies the check-in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Check-in für %@ konnte nicht gespeichert werden."
           }
         }
       }

@@ -19,7 +19,7 @@ private struct WorkoutDetailScreen: View {
 
     var body: some View {
         WorkoutDetailPage(board: model.board, numeralStyle: model.numeralStyle, isOffline: model.isOffline,
-                          retry: { await model.load() }, signIn: { await model.signIn() })
+                          retry: { await model.load() }, signIn: { await model.signIn() }, sessionRPE: model.sessionRPE)
             .task { await model.load() }
     }
 }
@@ -36,6 +36,7 @@ struct WorkoutDetailPage: View {
     var signIn: () async -> Void = {}
     /// Previews and tests; nil follows the system.
     var reduceTransparency: Bool?
+    var sessionRPE: SessionRPEModel?
 
     @Environment(\.locale) private var locale
     /// The logged session, pushed by item (`navigationDestination(item:)` below).
@@ -50,6 +51,10 @@ struct WorkoutDetailPage: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, StrainLayout.statusGap)
                 }
+                if let sessionRPE, sessionRPE.showsPrompt {
+                    SessionRPERow(model: sessionRPE, promptsForLoad: true)
+                        .padding(.top, StrainLayout.tilesGap)
+                }
                 StrainHeroView(hero: board.hero, key: board.workout.id.uuidString, numeralStyle: numeralStyle,
                                pendingLabel: StrainRows.spokenStrain(nil), identifierPrefix: "workout")
                     .padding(.top, StrainLayout.numeralGap)
@@ -63,6 +68,10 @@ struct WorkoutDetailPage: View {
                         .buttonStyle(PressableButtonStyle())
                         .accessibilityHint(Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session."))
                         .accessibilityIdentifier("workout.session")
+                        .padding(.top, StrainLayout.tilesGap)
+                }
+                if let sessionRPE, sessionRPE.isVisible, !sessionRPE.showsPrompt {
+                    SessionRPERow(model: sessionRPE)
                         .padding(.top, StrainLayout.tilesGap)
                 }
                 WorkoutHeartRateCard(board: board)
