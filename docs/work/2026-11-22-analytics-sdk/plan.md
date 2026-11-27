@@ -1,5 +1,8 @@
 # A1 phase 2: the PostHog SDK and the opt-in in the onboarding (2026-11-22)
 
+> Superseded in part (2026-11-27, merge with #150): `personProfiles = .never`, and `beforeSend` uses
+> `AnalyticsCatalog` instead of its own lists. See ADR 0026 (amended) and `docs/ANALYTICS.md`.
+
 Brief: head-architect, 2026-11-20 (the user's decisions of that day). Phase 1: #130 (`4bc1800`), its docs in
 `docs/work/2026-11-20-analytics/`. Branch `feat/analytics-sdk` (deps commit `8dcf63d` on main `7341d55`). One PR.
 

@@ -1,5 +1,7 @@
 # Product analytics, phase 1: the seam, the gate, the opt-in (A1)
 
+> Superseded in part (2026-11-27): person profiles are `.never`, not `identifiedOnly` (ADR 0026, amended).
+
 Contract: platform `API.md` → `GET /v1/config` → `analytics` and the flag `analytics.enabled` (D231, platform PR #191).
 The user's decisions of 2026-11-16 (opt-in, pseudonymous, a fixed event list, a no-op seam, posthog-ios in phase 2) are
 binding. Phase 1 compiles and ships **without** the SDK; phase 2 adds one file and the package.

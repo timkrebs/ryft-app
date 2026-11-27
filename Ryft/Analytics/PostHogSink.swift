@@ -31,8 +31,11 @@ final class PostHogSink: AnalyticsSink {
     func start(_ destination: AnalyticsDestination, newID: Bool) {
         if sdk != nil { stop() }
         if newID { forgetFiles() }
+        let config = Self.configuration(for: destination)
+        // Release builds don't assert: a config that drifted from `.required` starts nothing (fails closed).
+        guard AnalyticsSDKSettings(config) == .required else { return }
         PostHogFence.open(true)
-        sdk = PostHogSDK.with(Self.configuration(for: destination))
+        sdk = PostHogSDK.with(config)
     }
 
     func capture(_ name: String, properties: [String: String]) {

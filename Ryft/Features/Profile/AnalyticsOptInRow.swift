@@ -20,7 +20,7 @@ struct AnalyticsOptInToggle: View {
 
     var body: some View {
         GroupedRow.toggle(Text("Share usage analytics"),
-                          detail: Text("Screens used, food search, logging, Sync now and errors shown. No health data. Turning it off stops sending now and resets your random ID."),
+                          detail: Text("Screens used, food search, food logging, Sync now and errors shown. No health data. Turning it off stops sending now and resets your random ID."),
                           identifier: ProfileRow.analytics.identifier, isOn: $isOn)
             .accessibilityHint(Text("Uses a random ID, never your account. Turning it off resets it."))
     }
