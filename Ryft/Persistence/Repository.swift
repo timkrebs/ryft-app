@@ -95,6 +95,13 @@ final class Repository {
 
     /// Decoded values per kind (decoding JSON on every read would add up), until that kind changes.
     @ObservationIgnored private var memo: [String: Any] = [:]
+    private struct WorkoutRatingWrite: Equatable {
+        let id = UUID()
+        let value: Double?
+        let load: Int?
+    }
+    private(set) var accountGeneration = 0
+    @ObservationIgnored private var workoutRatingWrites: [UUID: WorkoutRatingWrite] = [:]
     /// JSON decodes behind the memo (tests and the perf notes count them).
     @ObservationIgnored private(set) var decodes = 0
 
@@ -493,8 +500,13 @@ final class Repository {
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.workout) { return }
         }
-        guard let w = try await fetching({ try await env.api.workout(id: id) }) else { return }
-        // `fetching` checked the account and the Demo data switch; no await since.
+        let ratingBeforeRead = workoutRatingWrites[id]
+        guard var w = try await fetching({ try await env.api.workout(id: id) }) else { return }
+        // A rating acknowledged during this read is newer than the response can be assumed to be.
+        if let rating = workoutRatingWrites[id], rating != ratingBeforeRead {
+            w.workout.sessionRpe = rating.value
+            w.workout.sessionRpeLoad = rating.load
+        }
         await store(workout: w).committed()
     }
 
@@ -833,6 +845,11 @@ final class Repository {
     @discardableResult
     func store(workout: WorkoutDetail) -> WriteTicket { submit(.workout(workout)) }
 
+    func storeWorkoutRating(id: UUID, value: Double?, load: Int?) {
+        workoutRatingWrites[id] = WorkoutRatingWrite(value: value, load: load)
+        _ = submit(.workoutRating(id: id, value: value, load: load))
+    }
+
     /// `day`'s activities as the platform listed them, replacing the cached ones. `route` and `hr_samples`
     /// are dropped first: list reads are expected without them (R16), and none is kept at rest if one
     /// arrives anyway (ADR 0006).
@@ -896,10 +913,12 @@ final class Repository {
     /// The store changed underneath (sign-out wiped it): forget decoded values, the read contexts and the user
     /// written through.
     func invalidate() {
+        accountGeneration += 1
         readContexts = [:]
         writtenThroughUser = nil
         lastUserChange = nil
         resubmittedUser = false
+        workoutRatingWrites = [:]
         forget(Kind.allCases)
         // A wipe's writer goes now, not at the next write: its context registered the account's rows.
         drain.retireWiped()
@@ -1036,6 +1055,7 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
     case syncStatus   // GET /v1/me/sync
     case trends       // GET /v1/trends (Today's readiness week, Insights' series)
     case insights     // GET /v1/insights
+    case recovery     // GET /v1/recovery/status
     case journal      // GET /v1/behaviors, /v1/journal/{day}, /v1/behaviors/impact
     case config       // GET /v1/config
     case train        // TrainLibrary: exercises, plans, plans/today, a plan, the session list, a session, an exercise's
@@ -1058,7 +1078,7 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
         case .config: return String(localized: "Remote settings")
         case .train: return String(localized: "Train")
         case .activities: return String(localized: "Activities")
-        case .day, .sleepRange: return nil
+        case .day, .sleepRange, .recovery: return nil
         }
     }
 }

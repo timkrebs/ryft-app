@@ -7,6 +7,7 @@ import Observation
 @Observable
 final class WorkoutDetailViewModel {
     let workout: Workout
+    let sessionRPE: SessionRPEModel
     private let state: AppState
     private(set) var loaded = false
     /// Why the last load brought no detail; nil after an answer.
@@ -15,6 +16,8 @@ final class WorkoutDetailViewModel {
     init(workout: Workout, state: AppState) {
         self.workout = workout
         self.state = state
+        sessionRPE = SessionRPEModel(env: state.env, workoutID: workout.id,
+                                     workout: state.cachedWorkoutDetail(workout)?.workout ?? workout, repository: state.repository)
     }
 
     /// Cached curve and zones (SwiftData), once fetched.
@@ -46,6 +49,7 @@ final class WorkoutDetailViewModel {
             loadFailure = SleepLoadFailure(error, isOnline: state.isDemo || state.env.connectivity.isOnline,
                                            isDemo: state.isDemo, at: state.env.clock.now())
         }
+        if let detail { sessionRPE.seed(from: detail.workout) }
         loaded = true
     }
 

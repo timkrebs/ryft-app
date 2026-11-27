@@ -16,6 +16,7 @@ enum AnalyticsCatalog {
         "first_sync_completed": [:],
         "screen_viewed": ["screen": values(AnalyticsScreen.self)],
         "feature_used": ["feature": values(AnalyticsFeature.self)],
+        "recovery_checkin": ["action": values(AnalyticsRecoveryCheckinAction.self)],
         "error_shown": ["status": values(AnalyticsErrorStatus.self), "code": values(AnalyticsErrorCode.self)],
         "nutrition_search_completed": [
             "lookup": values(AnalyticsSearchLookup.self),

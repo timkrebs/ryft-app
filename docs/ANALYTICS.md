@@ -58,7 +58,8 @@ Every value is one of the listed tokens. Bools are sent as `true` / `false`.
 | `health_access_requested` | none | the Apple Health permission sheet is asked for (not what was granted) |
 | `first_sync_completed` | none | the first sync of the install finishes (no counts) |
 | `screen_viewed` | `screen`: the tabs and 14 pushed screens (`AnalyticsScreen`) | a screen appears |
-| `feature_used` | `feature`: train_session_started, activity_added, sleep_added, journal_saved, sleep_schedule_saved, train_import_finished, data_exported, problem_reported, notifications_allowed, full_resync | the action succeeded (only a session's start: start plus finish would give a workout's duration) |
+| `feature_used` | `feature`: train_session_started, activity_added, sleep_added, journal_saved, session_rpe_saved, sleep_schedule_saved, train_import_finished, data_exported, problem_reported, notifications_allowed, full_resync | the action succeeded (only a session's start: start plus finish would give a workout's duration) |
+| `recovery_checkin` | `action`: opened, saved, skipped | the morning check-in opens, a save succeeds or is queued, or you tap Skip |
 | `error_shown` | `status`: a status bucket · `code`: the platform's error code token | an error card or inline failure shows (never its message or request id) |
 | `nutrition_search_completed` | `lookup`: name, barcode · `query_length`: 1_2, 3_5, 6_10, 11_20, 21+ · `results_count`: 0, 1, 2_5, 6_10, 11_20, 21+ · `has_results` · `latency_ms`: lt_250, 250_499, 500_999, 1000_1999, 2000_4999, 5000+ | a food search or barcode lookup returns its first page: once per search, not again when the page reappears, not for a failure or "Load more". Pages and barcode results hold at most 20, so `11_20` includes a full page |
 | `nutrition_food_opened` | `rank_position`: 1 … 10, 10+ · `is_canonical_staple` (the catalogue's generic food, not branded or private) · `has_default_portion` · `has_last_used_portion` | a search result opens the food's detail |
@@ -69,7 +70,7 @@ Every value is one of the listed tokens. Bools are sent as `true` / `false`.
 | `Application Installed`, `Application Opened`, `Application Backgrounded` | the SDK's app version and build, OS name and version, device type, library version, session id | the SDK, only while started |
 
 Checked against rule 3 on 2026-11-27: no existing event carries a health value, a name or free text. `sleep_added` and
-`health_access_requested` record that something was done, not what. No existing event was changed.
+`health_access_requested` record that something was done, not what. Recovery events record interactions without answers, sleep times, scores or ratings.
 
 ## Adding an event
 
@@ -108,7 +109,8 @@ the policy.
 >   allowed);
 > - that the first sync finished;
 > - which features you used, for example that you saved a journal entry or started a training session;
-> - that an error was shown, by its type (for example "offline" or "500");
+> - for the morning check-in: that you opened, saved or skipped it, never your answers; and that you rated how hard a workout was, never the rating;
+> - that an error was shown, by its type and error code (for example "offline", "500" or "consent_required");
 > - for food logging: whether a search found anything, a range for how many characters it had, how many results it had
 >   and how long the results took; how high up the list the food you opened was, whether it's a generic or a branded
 >   food, and whether it had a default or last-used portion; when you save a meal, how you added its foods (quick add,
@@ -132,9 +134,7 @@ the policy.
 > period, from the PostHog project settings**] and then deletes them.
 >
 > **Your rights.** You have the rights to access, erasure, restriction and objection, as set out in [section "Your
-> rights"]. Because the ID is random and not linked to your account, we can only find your events if you give us the
-> ID while it still exists. Once it's deleted (on opt-out or sign-out), we can no longer tell which events were yours
-> (Art. 11 GDPR).
+> rights"]. Because the ID is random, isn't linked to your account and isn't shown in the app, we cannot tell which events are yours (Art. 11 GDPR).
 
 Facts the policy states that the code doesn't settle (for the user, with #252):
 - The retention period set in the PostHog project.
@@ -144,5 +144,3 @@ Facts the policy states that the code doesn't settle (for the user, with #252):
   stores the IP address.
 - Whether legal wants the consent to cite Art. 9(2)(a) GDPR as well: the food events say how and when a meal was
   logged, never what was in it.
-- The ID can't be shown in the app today, so "if you give us the ID" is only theoretical. Either add a "Copy analytics
-  ID" row later, or simplify that sentence to the Art. 11 statement.

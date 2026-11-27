@@ -64,6 +64,10 @@ final class AppEnvironment {
     /// `.live` itself, not a graph built like it (tests of the demo switch): previews' and tests' shortcuts check it.
     private(set) var isLive = false
     var api: PlatformAPI { isDemo ? demoAPI : liveAPI }
+    /// Recovery follows the shown flags and honors a newer remote off value immediately.
+    var recoveryCheckinEnabled: Bool {
+        flags.isOn(.recoveryCheckin) && flags.newest(.recoveryCheckin) && (isDemo || auth.isSignedIn)
+    }
     /// Where a feature keeps its small cached documents (`CachedDocument`: the journal, tonight's plan): the account's
     /// store, or `nil` with Demo data on, whose documents live in that feature's memory only. Demo data never reads the
     /// account's documents and never writes any (`docs/APP_STORE.md`: never mixed with an account's data); `Repository`

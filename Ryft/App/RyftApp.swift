@@ -264,8 +264,11 @@ struct RyftApp: App {
                     if now == .signedOut { WorkoutLauncher.discardPending() }
                 }
                 // A gate the platform reported (a 403 with a code, or X-RYFT-Gate): what's missing now.
-                .onChange(of: APIStatus.shared.gates) { _, _ in
+                .onChange(of: APIStatus.shared.gates) { previous, current in
                     Task { await screens.onboarding.check(force: true) }
+                    if previous.contains(.consentRequired), !current.contains(.consentRequired) {
+                        Task { await screens.recoveryCheckin.load() }
+                    }
                 }
                 // A path's data gate opened (consent, invite, the policy in force known): its queue goes, and a held
                 // sync runs again (`ScreenModels.gateChanged`); never when one appears.
@@ -320,6 +323,7 @@ struct RyftApp: App {
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
                     Task { await coordinator.run(.reconnect) }
+                    Task { await screens.recoveryCheckin.load() }
                     // An agreement RYFT hasn't confirmed yet (its re-read failed offline): asked about again.
                     Task { await screens.onboarding.reconnected() }
                     Task { await refreshTrain() }
@@ -531,13 +535,13 @@ struct RootView: View {
     /// The other root presentations: the analytics prompt waits for them (`analyticsOptInPrompt(blocked:)`).
     private var presentsBesidesAnalytics: Bool {
         onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
-            || screens.importer.flow != nil || screens.importer.showsUnavailable
+            || screens.importer.flow != nil || screens.importer.showsUnavailable || screens.recoveryCheckin.isPresentingSheet
     }
 
     /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode.
     private var analyticsStep: OnboardingStepName? {
         guard !settings.demoMode, auth.state == .signedIn, !onboarding.holdsFirstRun else { return nil }
-        if let step = onboarding.flowStep ?? onboarding.sheetStep { return OnboardingStepName(step) }
+        if let step = onboarding.flowStep ?? onboardingSheetStep { return OnboardingStepName(step) }
         if needsHealthIntro { return .health }
         return onboarding.showsTrackerSetup ? .trackerSetup : nil
     }
@@ -587,7 +591,7 @@ struct RootView: View {
         .animation(rootFade, value: onboarding.showsTrackerSetup)
         .onChange(of: analyticsStep, initial: true) { _, step in if let step { env.analytics.track(.onboardingStep(step)) } }
         // The step on screen, full screen or as the sheet: after Agree and continue, the agree line's `shown`.
-        .onChange(of: onboarding.flowStep ?? onboarding.sheetStep) { _, step in onboarding.stepShown(step) }
+        .onChange(of: onboarding.flowStep ?? onboardingSheetStep) { _, step in onboarding.stepShown(step) }
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
@@ -616,6 +620,13 @@ struct RootView: View {
     }
 
     private var onboarding: OnboardingCoordinator { screens.onboarding }
+
+    /// Give a check-in or a finishing workout room to close before presenting the existing consent sheet.
+    private var onboardingSheetStep: OnboardingCoordinator.Step? {
+        guard !screens.recoveryCheckin.isPresentingSheet,
+              !env.recoveryCheckinEnabled || train.summary == nil else { return nil }
+        return onboarding.sheetStep
+    }
 
     /// The tabs: a workout asked for from the home screen, Siri or the control starts here.
     private var tabs: some View {
@@ -649,7 +660,7 @@ struct RootView: View {
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
             // current screen, never a reset to Welcome.
-            .sheet(item: Bindable(onboarding).sheetStep) { step in
+            .sheet(item: Binding(get: { onboardingSheetStep }, set: { onboarding.sheetStep = $0 })) { step in
                 OnboardingStepView(step: step, model: onboarding)
                     .interactiveDismissDisabled(!onboarding.canDefer(step))
                     .presentedRoot()

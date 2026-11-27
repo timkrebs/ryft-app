@@ -320,6 +320,9 @@ final class APIClient: RyftDataSource {
     /// once (the user tries again). The `401` refresh-once stays: that's auth.
     @TaskLocal static var singleAttempt = false
 
+    /// Recovery can be turned off while a request waits for a bearer or App Attest token, or before a retry.
+    @TaskLocal static var recoveryRequestAllowed: (@MainActor @Sendable () -> Bool)? = nil
+
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
     /// `session` (tests: a stubbed one) serves background runs too unless `backgroundSession` is given.
@@ -562,6 +565,9 @@ final class APIClient: RyftDataSource {
             }
         }
         while true {
+            if let allowed = Self.recoveryRequestAllowed, Self.isRecoveryRoute(path), !(await allowed()) {
+                throw CancellationError()
+            }
             let started = Date()
             let data: Data, response: HTTPURLResponse?
             do {

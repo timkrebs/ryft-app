@@ -1,5 +1,7 @@
+import Combine
 import OSLog
 import SwiftUI
+import UIKit
 
 /// Today in Nocturne (docs/work/2026-11-16-nocturne/design.md §P4-1): the header lock-up and the calendar, the greeting
 /// and the sub-line, the sync's status row, the hero gauge with its label row and ruler (or what's true while data is on
@@ -17,6 +19,7 @@ struct TodayView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
+    @Environment(\.scenePhase) private var scenePhase
     /// The launch sequence covers Today (taps, VoiceOver): its gauge is built without the entrance.
     @Environment(\.launchCoversRoot) private var launchCovers
     /// The launch still reveals Today: covered, or its mark still flying into the header (design.md §P4-7). The gauge's
@@ -27,12 +30,28 @@ struct TodayView: View {
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
     static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
+    @State private var checkinSheet: CheckinSheetModel?
+    @State private var recoveryClockChanges = 0
     @State private var nutritionOpening: NutritionOpening?
     @State private var showsQuickLog = false
     @State private var quickLogSelection: TodayQuickLogAction?
     @State private var addingActivity: AddActivityModel?
 
     private enum NutritionOpening: Hashable { case diary, meal }
+
+    private struct RecoveryLoadKey: Equatable {
+        let owner: RecoveryCheckinStore.Owner
+        let enabled: Bool
+        let clockChanges: Int
+        let lastUpdated: Date?
+    }
+
+    private var recovery: RecoveryCheckinStore { screens.recoveryCheckin }
+
+    private var recoveryLoadKey: RecoveryLoadKey {
+        RecoveryLoadKey(owner: recovery.owner, enabled: recovery.enabled, clockChanges: recoveryClockChanges,
+                        lastUpdated: model.lastUpdated)
+    }
 
     private var showsNutritionEntry: Bool {
         !env.isDemo && env.auth.accountID != nil && env.flags.nutritionAccess != .unavailable
@@ -61,6 +80,7 @@ struct TodayView: View {
     }
 
     private func resetLogging() {
+        checkinSheet = nil
         quickLogSelection = nil
         showsQuickLog = false
         addingActivity = nil
@@ -151,6 +171,19 @@ struct TodayView: View {
                 .sensoryFeedback(.success, trigger: landed)
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal, day: journalDay)).presentedRoot()
+                }
+                .sheet(item: $checkinSheet, onDismiss: { recovery.isPresentingSheet = false }) {
+                    CheckinSheet(model: $0).presentedRoot()
+                }
+                .onChange(of: recovery.owner) { _, _ in checkinSheet = nil }
+                .onChange(of: recovery.offersSheet) { _, offered in if !offered { checkinSheet = nil } }
+                .task(id: recoveryLoadKey) { await recovery.load() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await recovery.load() } }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+                    checkinSheet = nil
+                    recoveryClockChanges += 1
                 }
                 // The journal reminder's tap (`/journal/<day>`), also one that launched the app.
                 .onChange(of: screens.router.requestedJournalDay, initial: true) { _, day in openRequestedJournal(day) }
@@ -496,6 +529,19 @@ struct TodayView: View {
                     journalDay = nil
                     showsJournal = true
                 }
+            }
+            if let state = recovery.card {
+                CheckinCard(state: state) {
+                    guard recovery.offersSheet, let status = recovery.status else { return }
+                    recovery.isPresentingSheet = true
+                    checkinSheet = CheckinSheetModel(store: recovery, status: status, canSkip: state == .due)
+                }
+            }
+            if recovery.offersSheet, let date = recovery.rejectedDate {
+                InlineMessage(message: String(localized: "Your check-in for \(DayFormat.date(from: date).map { Fmt.date($0) } ?? date) couldn't be saved.",
+                                              comment: "A queued morning check-in was rejected. The date identifies the check-in."),
+                              systemImage: "exclamationmark.circle", identifier: "checkin.rejected",
+                              action: (String(localized: "Dismiss"), { recovery.dismissRejection() }))
             }
             // From 17:00: when to be in bed tonight (Bedtime & wake).
             if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {

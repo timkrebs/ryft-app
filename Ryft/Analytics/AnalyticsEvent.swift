@@ -15,6 +15,7 @@ enum AnalyticsEvent: Hashable, Sendable {
     case firstSyncCompleted
     case screenViewed(AnalyticsScreen)
     case featureUsed(AnalyticsFeature)
+    case recoveryCheckin(AnalyticsRecoveryCheckinAction)
     case errorShown(AnalyticsErrorStatus, AnalyticsErrorCode)
     /// A food search's first page, or a barcode's result, arrived (a failure and Load more aren't one). Only the
     /// query's length bucket, never the query.
@@ -37,6 +38,7 @@ enum AnalyticsEvent: Hashable, Sendable {
         case .firstSyncCompleted: return "first_sync_completed"
         case .screenViewed: return "screen_viewed"
         case .featureUsed: return "feature_used"
+        case .recoveryCheckin: return "recovery_checkin"
         case .errorShown: return "error_shown"
         case .nutritionSearchCompleted: return "nutrition_search_completed"
         case .nutritionFoodOpened: return "nutrition_food_opened"
@@ -53,6 +55,7 @@ enum AnalyticsEvent: Hashable, Sendable {
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed(let screen): return ["screen": screen.rawValue]
         case .featureUsed(let feature): return ["feature": feature.rawValue]
+        case .recoveryCheckin(let action): return ["action": action.rawValue]
         case .errorShown(let status, let code): return ["status": status.rawValue, "code": code.rawValue]
         case .nutritionSearchCompleted(let lookup, let queryLength, let results, let latency):
             // `has_results` comes from the bucket, so the two can't disagree (plan, decision 5).
@@ -118,6 +121,7 @@ enum AnalyticsEvent: Hashable, Sendable {
             }
         }
         let reopened = bools.map(AnalyticsEvent.nutritionDiaryReopened)
+        let checkins = AnalyticsRecoveryCheckinAction.allCases.map(AnalyticsEvent.recoveryCheckin)
         let triggered = AnalyticsSyncTrigger.allCases.map(AnalyticsEvent.syncTriggered)
         var completed: [AnalyticsEvent] = []
         for source in AnalyticsSyncTrigger.allCases {
@@ -127,7 +131,7 @@ enum AnalyticsEvent: Hashable, Sendable {
                 }
             }
         }
-        return existing + searches + opened + logged + reopened + triggered + completed
+        return existing + searches + opened + logged + reopened + checkins + triggered + completed
     }
 
     /// An error card's failure (`RefreshIssueCard`): its status bucket and code, nothing else of it.
@@ -201,12 +205,18 @@ enum AnalyticsFeature: String, AnalyticsToken {
     case activityAdded = "activity_added"
     case sleepAdded = "sleep_added"
     case journalSaved = "journal_saved"
+    case sessionRpeSaved = "session_rpe_saved"
     case sleepScheduleSaved = "sleep_schedule_saved"
     case trainImportFinished = "train_import_finished"
     case dataExported = "data_exported"
     case problemReported = "problem_reported"
     case notificationsAllowed = "notifications_allowed"
     case fullResync = "full_resync"
+}
+
+/// `recovery_checkin` → `action`: interactions with the morning check-in.
+enum AnalyticsRecoveryCheckinAction: String, AnalyticsToken {
+    case opened, saved, skipped
 }
 
 /// `error_shown` → `status`: a bucket, never a message.
