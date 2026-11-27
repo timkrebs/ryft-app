@@ -2,6 +2,7 @@
 
 - Status: proposed (2026-10-26, P2, `docs/work/2026-10-26-consent-gates/design.md`); amended the same day after the
   privacy review and the lead's decisions on demo, invite and deletes
+- Amended by: ADR 0025 (2026-11-22): a consent `204` moves onboarding, never an upload (decisions 5 and 7).
 - Deciders: ios-lead, on ios-architect's proposal; security-privacy-reviewer
 - Applies to: `Ryft/Environment/ConsentState.swift`, `OnboardingCoordinator.uploadGate(for:write:)` /
   `gate(_:path:write:)`, `SyncService`, `SyncEngine`, `ActivityUploader`, `TrainSyncService` (and `PendingTrainOp`),

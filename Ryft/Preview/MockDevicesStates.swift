@@ -64,11 +64,14 @@ enum MockDevicesStates {
     ///   - checkedAgo: the last Check sync, on the Garmin-like store; nil: never checked.
     ///   - lastSync: Apple Health's last good upload (`Settings.lastSync`), this long ago; nil: never.
     ///   - reportsWaiting: problem reports kept for later (Sync details' "Waiting to send").
+    ///   - workoutsAwaitConfirmation: agreed on this iPhone, RYFT's word on it still out: Train's outbox waits at the
+    ///     consent gate, and Sync details (with onboarding) names RYFT's confirmation. Queue a workout to show it
+    ///     (`Graph.train`).
     ///   - clock: tests pass a `TestClock`; every time here is relative to its now.
     static func graph(demo: Bool = true, online: Bool = true, trackers: [String] = ["apple_watch", "oura"],
                       later: [String] = [], checkedAgo: TimeInterval? = 14 * 60, sources: SourcesLoad = .loaded(ago: 300),
                       lastSync: TimeInterval? = 300, seedsEngine: Bool = true, reportsWaiting: Int = 0,
-                      clock: AppClock = SystemClock()) -> Graph {
+                      workoutsAwaitConfirmation: Bool = false, clock: AppClock = SystemClock()) -> Graph {
         let now = clock.now()
         let suite = "ryft.preview.devices.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
@@ -83,6 +86,8 @@ enum MockDevicesStates {
                                  flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: online),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
+        // The 204 on this iPhone, RYFT's own word on it still out.
+        if workoutsAwaitConfirmation { env.consent.consented(to: MockData.policyVersion, at: now) }
         if seedsEngine, let account = env.auth.accountID {
             engine(now: now).save(account: account, defaults: defaults)
         }
@@ -131,12 +136,16 @@ enum MockDevicesStates {
         for request in Self.requests(now: now) { apiStatus.served(request) }
         let devices = DevicesViewModel(state: state, selection: selection)
         devices.reloadCheck()
-        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        // Asked about a gate's hold first, as the app's Sync details is.
+        let onboarding = workoutsAwaitConfirmation
+            ? OnboardingCoordinator(state: state, apiStatus: apiStatus, startSync: {}) : nil
+        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus,
+                                       onboarding: onboarding)
         // Train's outbox for the account (or demo data), held at no gate unless a test closes it.
         let owner = demo ? TrainSyncService.demoOwner : env.auth.accountID
         let train = TrainSyncService(store: store, remote: { api }, owner: { owner }, debounce: .seconds(3_600),
                                      monitorsNetwork: false, connectivity: .preview(online: online), defaults: defaults)
-        train.gate = { (_: UploadWrite) -> UploadGate? in nil }
+        train.gate = { (_: UploadWrite) -> UploadGate? in workoutsAwaitConfirmation ? .gate(.consentRequired) : nil }
         details.trainOutbox = train
         details.reportsWaiting = { reportsWaiting }
         return Graph(suite: suite, state: state, sync: sync, store: store, train: train, devices: devices, details: details,

@@ -10,7 +10,16 @@ Store "What's New".
 
 ## [Unreleased]
 
+### Security
+- An account deletion stops if the signed-in account changes while the request is being prepared.
+
 ### Added
+- Nutrition search shows reusable portions and calories when the catalog supplies them. Tap plus to add a portion, or open the amount picker to choose a size, fraction or metric amount.
+- German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
+- Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.
+- Nutrition coaching with fueling targets, recovery guidance, training goals, and optional Apple Health imports.
+- Devices & sync shows Garmin and Suunto direct connection availability from RYFT and gives
+  connected accounts a way to refresh status, reconnect and disconnect.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and
@@ -21,6 +30,14 @@ Store "What's New".
 - A focused workout screen: one exercise at a time with the next set ready to check, a strip of exercises, an estimated
   1RM or 10RM column, and the rest timer as a pill at the bottom. Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
+- A journal reminder, on by default at 09:00 once you've chosen habits: one notification each morning asking about
+  yesterday, none once it's answered (also on another device), held until quiet hours end. A tap opens the journal on
+  that day. Not switched on yet.
+- When RYFT hasn't synced for about 20 hours (and again after about three days), your iPhone says so, between 09:00 and
+  21:00 and outside quiet hours, unless RYFT's server can already reach this iPhone with that notification. Not switched
+  on yet.
+- Signing out, or a session that ends, removes RYFT's notifications from Notification Center and unregisters this
+  iPhone from push notifications. With previews hidden, each notification says only what kind it is.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
 - Account with Sign in with Apple or email, data export and account deletion.
@@ -67,6 +84,10 @@ Store "What's New".
   random ID for the install, never your account (not switched on yet).
 
 ### Changed
+- Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once this iPhone hears back
+  from RYFT; until then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is
+  given, with Check with RYFT and Withdraw consent. While a withdrawal is on its way, nothing syncs, and if RYFT
+  doesn't answer it, nothing syncs until RYFT says where your consent stands, also after a relaunch.
 - RYFT's website, privacy policy, terms and support moved to ryftlab.de.
 - RYFT now needs iOS 18.6 or later.
 - A new look begins: RYFT is dark only (Profile → Appearance is gone), with new colours for recovery, sleep and strain,
@@ -160,6 +181,11 @@ Store "What's New".
   when it first opens; if you're signed in then, they stay.
 
 ### Fixed
+- Back exits a new or reopened Nutrition meal, including while food search has the keyboard open.
+- A workout without a duration in Apple Health (from another app, or entered by hand) no longer stops syncing. RYFT
+  now leaves such a record out, like a sleep stage or reading that ends before it starts, and syncs everything else.
+- Below iOS 26, the wake-up notification from Bedtime & wake now shows and sounds while RYFT is open, with Demo data on
+  or off (it stayed silent), and with previews hidden it says "Wake-up time".
 - At the largest text sizes, Sleep's stage card keeps each stage's name, time and share whole (they broke as "Awak" / "e"
   and "20" / "%"), and the first-run tips on Today stay on screen, their text scrolling when the tip is taller than the
   room (the first tip's title sat under the status bar).

@@ -11,6 +11,7 @@ struct TodayView: View {
     var reduceTransparency: Bool?
 
     @Environment(ScreenModels.self) private var screens
+    @Environment(TrainCoordinator.self) private var train
     @Environment(Settings.self) private var settings
     @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -26,6 +27,47 @@ struct TodayView: View {
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
     static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
+    @State private var nutritionOpening: NutritionOpening?
+    @State private var showsQuickLog = false
+    @State private var quickLogSelection: TodayQuickLogAction?
+    @State private var addingActivity: AddActivityModel?
+
+    private enum NutritionOpening: Hashable { case diary, meal }
+
+    private var showsNutritionEntry: Bool {
+        !env.isDemo && env.auth.accountID != nil && env.flags.nutritionAccess != .unavailable
+    }
+
+    private var quickLogActions: [TodayQuickLogAction] {
+        var actions: [TodayQuickLogAction] = []
+        if showsNutritionEntry { actions.append(.meal) }
+        if screens.myDay.isEnabled && screens.myDay.canAdd(on: screens.myDay.today) { actions.append(.activity) }
+        if model.showsTrain { actions.append(.workout) }
+        return actions
+    }
+
+    private func openQuickLogSelection() {
+        guard let action = quickLogSelection else { return }
+        quickLogSelection = nil
+        guard quickLogActions.contains(action) else { return }
+        switch action {
+        case .meal:
+            nutritionOpening = .meal
+        case .activity:
+            addingActivity = screens.myDay.addActivityModel(on: screens.myDay.today)
+        case .workout:
+            if train.active != nil { train.resume() } else { train.showsStart = true }
+        }
+    }
+
+    private func resetLogging() {
+        quickLogSelection = nil
+        showsQuickLog = false
+        addingActivity = nil
+        nutritionOpening = nil
+    }
+    /// The day the journal sheet opens on: nil for yesterday (the card), a reminder's day from its tap.
+    @State private var journalDay: String?
     /// Bedtime & wake from Tonight, pushed from here: Today stays when the card leaves (the evening ends, an import starts).
     @State private var bedtimeOpening: SleepScheduleView.Opening?
     /// Counts scores that landed while the night was pending: one success haptic each.
@@ -40,9 +82,20 @@ struct TodayView: View {
 
     private var numeral: DotNumeral.Style { (heroNumerals ?? settings.heroNumerals).style }
 
+    /// The sheet on a reminder's day, when the journal is live and the day is one the sheet offers (yesterday and the 13
+    /// before); otherwise Today alone.
+    private func openRequestedJournal(_ day: String?) {
+        guard let day else { return }
+        screens.router.journalOpened()
+        guard screens.journal.isLive, JournalSheetModel.offers(day, yesterday: screens.journal.yesterday) else { return }
+        journalDay = day
+        showsJournal = true
+    }
+
     var body: some View {
         // The day's facts and decision, read once for the whole body.
         let day = model.content
+        let actions = quickLogActions
         NavigationStack {
             ScrollViewReader { proxy in
                 ScreenScaffold(showsHeader: false) {
@@ -73,7 +126,16 @@ struct TodayView: View {
                         } else {
                             SetupCard { model.open(.profile) }
                                 .padding(.top, TodayLayout.statusToGauge)
+                            if showsNutritionEntry { nutritionCard.padding(.top, TodayLayout.cardGap) }
                         }
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !actions.isEmpty {
+                        TodayQuickLogButton { showsQuickLog = true }
+                            .padding(.horizontal, Theme.Metrics.screenPadding)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
                 .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
@@ -88,8 +150,24 @@ struct TodayView: View {
                 }
                 .sensoryFeedback(.success, trigger: landed)
                 .sheet(isPresented: $showsJournal) {
-                    JournalSheet(model: JournalSheetModel(store: screens.journal)).presentedRoot()
+                    JournalSheet(model: JournalSheetModel(store: screens.journal, day: journalDay)).presentedRoot()
                 }
+                // The journal reminder's tap (`/journal/<day>`), also one that launched the app.
+                .onChange(of: screens.router.requestedJournalDay, initial: true) { _, day in openRequestedJournal(day) }
+                .navigationDestination(item: $nutritionOpening) { opening in
+                    NutritionEntryView(closeMealEditor: opening == .meal ? { nutritionOpening = nil } : nil)
+                }
+                .onChange(of: showsNutritionEntry) { _, available in if !available { nutritionOpening = nil } }
+                .onChange(of: env.auth.accountID) { _, _ in resetLogging() }
+                .onChange(of: env.isDemo) { _, _ in resetLogging() }
+                .sheet(isPresented: $showsQuickLog, onDismiss: openQuickLogSelection) {
+                    TodayQuickLogSheet(actions: actions, workoutInProgress: train.active != nil) { action in
+                        quickLogSelection = action
+                        showsQuickLog = false
+                    }
+                    .presentedRoot()
+                }
+                .sheet(item: $addingActivity) { AddActivitySheet(model: $0).presentedRoot() }
                 .navigationDestination(item: $bedtimeOpening) { SleepScheduleView(planner: screens.bedtime, opening: $0) }
                 // The status line's tap: Sync details over Today, a sheet's page with Close.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
@@ -382,6 +460,14 @@ struct TodayView: View {
         }
     }
 
+    private var nutritionCard: some View {
+        GroupedCard {
+            GroupedRow.push(Text("Nutrition"), detail: env.flags.nutritionAccess == .full
+                            ? Text("Meal log, scores and coaching") : Text("Meal log and nutrient totals"), icon: "fork.knife",
+                            identifier: "today.nutrition") { nutritionOpening = .diary }
+        }
+    }
+
     // MARK: row 13: the cards below
 
     /// In today's order, 12 apart; the error cards last (the status line's "Details" scrolls to them).
@@ -399,8 +485,17 @@ struct TodayView: View {
                 .transition(.opacity)
             }
             if screens.myDay.isEnabled { MyDayCard(model: screens.myDay) }
+            if showsNutritionEntry { nutritionCard }
+            if day.showsTiles {
+                GroupedCard {
+                    NutritionRouteRow(Text("What shapes your scores?"), icon: "info.circle") { RecoveryScoreGuide() }
+                }
+            }
             if screens.journal.isLive {
-                JournalCard(store: screens.journal) { showsJournal = true }
+                JournalCard(store: screens.journal) {
+                    journalDay = nil
+                    showsJournal = true
+                }
             }
             // From 17:00: when to be in bed tonight (Bedtime & wake).
             if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {

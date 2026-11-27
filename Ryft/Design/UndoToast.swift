@@ -11,6 +11,7 @@ struct UndoToast: View {
     var onUndo: (() -> Void)?
     /// Swiped down.
     var onDismiss: () -> Void = {}
+    var undoIdentifier = "session.undo"
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -35,7 +36,7 @@ struct UndoToast: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 .ryftLink()
-                .accessibilityIdentifier("session.undo")
+                .accessibilityIdentifier(undoIdentifier)
             }
         }
         .padding(.horizontal, 14)

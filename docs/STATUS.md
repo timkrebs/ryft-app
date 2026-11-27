@@ -1,22 +1,199 @@
-# Status — 2026-11-22
+# Status — 2026-11-24
 
-## 2026-11-22: analytics phase 2 (#137, the PostHog SDK and decision B)
+## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
 
-- **#137, "analytics: the PostHog SDK and the opt-in in the onboarding (A1 phase 2)"** (`docs/work/2026-11-22-analytics-sdk/`, ADR 0026):
-  - What's in it:
-    - posthog-ios **exact 3.98.2** in the `Ryft` target only. `PostHogSink` turns everything off but lifecycle and lets through only an allow-list of events and properties.
-    - `PostHogFence` lets requests through only to `https://eu.i.posthog.com/batch`, and only while started.
-    - `stop()` and `forgetID()` delete the SDK's queue and id files themselves.
-  - **Decision B:** the opt-in is its own first-run step right before Apple Health ("Share usage analytics" / "Not now", equal weight, a link to the privacy policy). The post-onboarding sheet is gone.
-  - Also: the privacy manifest (Product Interaction and Other Usage Data, not linked, Analytics; the Analytics purpose on Device ID and Other Diagnostic Data; SystemBootTime 35F9.1), the licences, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and dependabot ignores posthog-ios.
-  - Still dark: the `analytics.enabled` flag is off by default.
-  - **Verification: simulator and unit tests only.** The simulator always gets the no-op sink, so nothing has reached PostHog yet. The first real check is a Debug device build launched with `-RyftAnalytics`, with the flag on and `analytics` in the config: watch PostHog's live events. Then turn the toggle off and check that nothing more arrives.
-  - Open for the user:
-    - App Store Connect App Privacy (`docs/APP_STORE.md` → "App Store Connect steps").
-    - The privacy policy names PostHog EU.
-    - The platform's licence snapshot.
-    - The `.claude` conventions skill, rule 4 (not committed).
-    - `Application Installed` fires at an install's first opt-in, not at install (ADR 0026).
+- `AnalyticsCatalog` is the one list of every event, key and value. `Analytics.deliver` checks each event against it
+  before the gate. A deny-listed key, an unknown or missing key, a value off its list, or an email-like or free-text
+  value never reaches the sink, and Debug builds assert.
+- `AnalyticsSDKSettings.required` pins the SDK settings: replay, autocapture, screen views, rage clicks, surveys,
+  flags, push capture, crash autocapture and swizzling are off; person profiles are `.never` and nothing is ever
+  identified; GeoIP is off; lifecycle events are on.
+- `nutrition_food_logged` sends one event per distinct combination per saved meal, never one per food. Per-food events
+  with timestamps would add up to a meal log (privacy review).
+- New events, all as tokens: `nutrition_search_completed`, `nutrition_food_opened`, `nutrition_food_logged`,
+  `nutrition_diary_reopened`, and `sync_triggered` / `sync_completed` for Profile → Sync now. The existing events
+  were checked against the "interactions only" rule, and none changed. See `docs/ANALYTICS.md`.
+- Verified in the simulator only: the build has zero warnings, and 231 tests in 12 suites pass. Nothing has been sent,
+  because the SDK isn't on `main` (#137).
+- **Open (integration with #137, whichever lands second):**
+  - `beforeSend` runs `AnalyticsCatalog.check` for our events and keeps only `sdkPropertyKeys` on `sdkEventNames`;
+  - `personProfiles = .never`, and `configuration(for:)` asserts `AnalyticsSDKSettings(config) == .required`;
+  - the opt-in copy (the onboarding step and the Profile toggle) names food search and logging and Sync now;
+  - the manifest declares Performance Data (not linked, Analytics) for `latency_ms` and `duration_ms`.
+- **Open (user, PostHog and legal #252):** the retention period, the signed DPA, and "Discard client IP data" in the
+  PostHog project.
+
+## 2026-11-26 · Nutrition meal navigation
+
+- Back clears the destination that opened the meal editor. From food search opened inside a review, Back returns to that review and keeps its items. From Today quick log, cancelling the new meal returns to Today.
+- The final simulator snapshot passed 137 unit and six Nutrition UI tests. It includes cancelling food search with the keyboard open from both Today and the diary, and returning from a reopened meal while retaining its original portion.
+- Device results, from a separately signed offline preview build that is not in this repo:
+  - passed: search, the default 182 g, ½ small = 74.5 g, save and reopen, quick-add and undo;
+  - failed: Back in the meal editor, which this change fixes.
+  - The candidate's notes also say that the offline preview passed search Back with the keyboard open, and Back from a reopened saved meal, on iPhone 16 Pro with synthetic meal records.
+- Landing review (#148): a save or delete that finishes after Back closes only its own editor. The back swipe from Add food keeps a reviewed draft. A definitive 4xx unfreezes Retry save. One six-decimal quantity rule applies everywhere. USDA `carbohydrates_total` counts as carbohydrates. Portions without `sort_order` keep the server's order. All simulator-verified (unit tests and `NutritionUITests` 7/7).
+- **Open (device):** retest on a normal signed build against the live account:
+  - the header Back;
+  - the swipe back from Add food with an unsaved item;
+  - a save still in flight while you go Back and open another meal;
+  - Coaching → suggested food → Back;
+  - the quantity sheet's Back and Apply.
+- **Open (production API):** validation. The contract is ryft-platform#248 (D284). The portions show only once the platform's step-2 feature build is live.
+- In this repo since 2026-11-26: PRs #147 (the open-beta snapshot) and #148 (this work).
+
+## 2026-11-25 · Everyday Nutrition portions
+
+- Live search shows the available catalog amount and calories. Quick add uses the last reusable selection or an explicit catalog default. Undo or edit the quantity before saving. Foods without either selection open their amount controls.
+- German Apple fixture sizes are 149, 182 and 223 g. Choose a household size, tap a multiplier, type a fraction, or use the step controls. Grams and supported milliliters remain available. The editable preview shows energy and macronutrients from the available references. Platform calculates the saved values.
+- The meal editor reopens saved portions with their original amount and label. The detail page shows publisher attribution when the catalog supplies it. Meal writes to the previous API omit the added language field when detail metadata is absent.
+- The local iPhone 17 Pro simulator build passed 137 unit and six Nutrition UI tests on iOS 27.2 using synthetic data. The German amount screen was captured and checked against the RYFT brand board. Production API and signed physical iPhone verification are separate release gates.
+
+## 2026-11-25 · German Nutrition diary candidate
+
+- German app language requests a German food catalog. The market keeps Germany, Austria, or Switzerland when applicable and uses Germany as the default for German elsewhere.
+- Food detail prefers the localized catalog name and offers source-backed portions, grams and supported volumes. Quantity changes update a separate estimate. A saved diary entry still uses Platform's nutrient calculation.
+- Food issue reports use the existing authenticated feedback endpoint and contain only the public catalog record ID in the message.
+- The new `nutrition.diary_enabled` flag opens the diary and totals. The existing `nutrition.enabled` flag retains the full pilot with scores, coaching and optional imports. Signed-in accounts can stop sharing weigh-ins and delete previously uploaded glucose via Profile → Privacy → Nutrition privacy even when both flags are off.
+- German catalogue and Simulator acceptance, English fallbacks outside reviewed surfaces, the signed physical App and production API scope still need release verification. No App release or production change was made.
+
+## 2026-11-25 · RYFT-08 account changes during auth
+
+- Account deletion keeps the account generation that opened the confirmation through the action's task, push cleanup and bearer acquisition.
+- Platform requests accept a Supabase bearer only for the published account, including refresh. Regression tests cover an unpublished SDK session and account switches during deletion preparation.
+- Simulator and physical device validation remain open for the isolated fix.
+
+## 2026-11-25 · Nutrition and wearable release candidate
+
+- The candidate includes the current consent-onboarding update from main. The user’s existing health-data consent and upload gates apply during tracker onboarding.
+- Nutrition meal search and save, direct-provider onboarding and launch dismissal have UI smoke coverage. The simulator fixture holds the launch overlay open for the dismissal test.
+- The Garmin Personal API preview is available in Debug builds. A live Garmin activity list was verified on iPhone over USB. Garmin and Suunto partner sign-in depend on provider availability returned by Platform.
+- Nutrition stays on the existing allow-list. Use the allow-listed account for a TestFlight smoke pass covering search, save, camera barcode access and the opt-in HealthKit inputs.
+
+## 2026-11-24 · Nutrition diary and coaching
+
+- Today opens Nutrition when the signed-in account has `nutrition.enabled`. The diary uses the account time zone and shows partial nutrient coverage, score components, meal glucose windows, and seven days of history.
+- Food search, barcode entry and scanning, private foods, meal edits and deletion, and nutrient targets use the released Platform routes. A pending meal retains its exact create request for a safe retry.
+- **Log meal** opens the editor. If an earlier save is pending, the diary offers **Retry save**. New requests use whole seconds so the local draft and the API request agree on the meal timestamp.
+- Coaching shows the training-day plan, readiness, fueling targets, energy-availability guardrails, recovery factors, and suggested foods. Nutrition settings include the opt-in recovery profile, training goals, session feedback, and reviewed glucose import from CSV or Apple Health. Sharing Apple Health weigh-ins is a separate opt-in.
+- Passed 46 selected simulator unit tests, the score/search/meal-save UI test, 20 focused Nutrition and sync regression checks, and `make lint`. A signed local Debug build was installed and launched on the iPhone 16 Pro.
+- Production remains at 0% rollout with one allow-listed account. Use that account with Demo data off, then open **Today → Nutrition**. Production returned HTTP 200 for food search and food detail, and HTTP 201 for a meal save after the timestamp fix. Camera permissions and Nutrition-specific Apple Health reads need an on-device check. The App stays local.
+
+## 2026-11-24 · Direct wearable connections
+
+- Profile → Devices & sync now shows the Platform's Garmin and Suunto catalog, connection state, data capabilities and latest received data. Account linking uses the system authorization browser and an account-bound Platform confirmation. Disconnect asks before deleting direct data.
+- The production Platform release is deployed. Garmin and Suunto direct connections remain disabled pending partner onboarding. The production `devices.setup` flag is unset. Use the existing Debug launch override for local device testing.
+- The iPhone 18 Pro simulator passed 62 selected unit tests and two UI tests, including the existing tracker setup flow. The direct connection UI also passed on iPhone 17e at Accessibility Medium. The local App lint and entitlement checks passed. The iPhone 16 Pro is paired over USB. The signed Debug build contains the wearable screens, and the RYFT app was observed running on the phone. With Demo data off, Tim confirmed that Garmin and Suunto both show Coming soon, the last status stays visible offline and refreshes after reconnecting, and Check sync finds the expected Apple Health data.
+- The App changes are local. [iPhone installation and testing](DIRECT_CONNECTIONS_TESTING.md)
+
+## 2026-11-24: Nutrition catalog client
+
+- The App can call the Platform's authenticated food search, barcode lookup, food detail and portions endpoints. The `nutrition.enabled` flag defaults off.
+- Catalog fixtures cover German names, barcode leading zeros, pagination, provenance, explicit nutrient zeros and unknown measurements. The App and tests built successfully, and all 38 tests in the catalog and APIClient status suites passed on iOS 27.2. `make lint` passed.
+- The catalog later became the search provider for the diary above. [Local App test and catalog smoke commands](../../plattform/docs/architecture/nutrition/07-implementation-roadmap.md#run-the-app-catalog-tests)
+
+## 2026-11-22: hotfix, a record the platform refuses no longer stalls the sync
+
+- **"sync: a workout without a duration no longer stops syncing"** (`fix/sync-invalid-workout`):
+  - The cause: one account's sync answered `422 "workouts[0]: end must be after start"` on every run. A zero-duration workout in Apple Health refused the whole page, its anchor never moved, and the backfill of the streams after it never finished.
+  - The fix: `Sync/SyncScreen.swift` leaves out what ingest's `validate()` would refuse, judged on the wire values (whole seconds). An over-long `source_bundle_id` or version is sent as nil. Workout pages are capped at 5 000. Sync details and Report a problem show `invalid N` per stream (counts only).
+  - Verification: unit tests against a fake platform that applies `validate()`'s rules, written from the Go source, plus mutants. **Simulator only:** not yet seen on a device with a real zero-duration HealthKit workout. The affected account is the real test once it updates.
+  - Platform: SV1 in `docs/API_REQUESTS.md` (P1). Ingest should ignore an invalid record, not refuse the request; only that protects builds already in the field.
+  - Follow-ups:
+    - **Stall-proofing:** an ios-architect note on bisecting a refused page, and on non-finite values that make `JSONEncoder` throw before any request is sent.
+    - **Report a problem:** the "What's included" list could mention the count.
+
+## 2026-11-23: the demo's days stay frozen at launch (`fix/midnight-index-crash`)
+
+- A hosted test run that crossed 00:00 trapped in `MockData.todayDetail.workouts[0]` ("Index out of range"): the mock's nights are built once, at the first read, and `todayDetail` read `.now`, a day the table didn't have. `todayDetail` and the other mock reads now anchor to the day the nights were built for, so they can't trap.
+- Unchanged for users: the demo's days stay frozen at launch, so an app left open past midnight shows the new day empty until relaunch, as before.
+- Follow-up: roll `MockData` and `MockTrain` over together, keyed by absolute day (the workout→session links need both to move at once).
+
+## 2026-11-22: N3, local reminders (`feat/reminder-scheduler`; its plan and design merged as #136)
+
+Plan and design: `docs/work/2026-11-22-notifications/` (design.md §3–§5, §7, §9–§12; ADR 0024).
+
+- **Done:**
+  - `ReminderScheduler` (`Ryft/Push/`) is the one writer of RYFT's local requests: bedtime's wind-down, the journal
+    reminder and the "not syncing" fallback. Each kind is a pure plan, and a pass diffs the plans' wishes against
+    what the scheduler put on iOS. It reads iOS's pending set once per process. A pass that changes nothing makes no
+    system call.
+  - **Journal reminder:** on by default at 09:00 once habits are chosen. It covers the next 3 mornings as
+    `journal.<asked day>`. An answered day has none, and saving or reading it answered (also from another device)
+    removes it, pending and delivered, at once. It is held until quiet hours end. A tap opens the journal sheet on
+    that day (`/journal/<day>`). Delivered ones about a day other than yesterday go on app active.
+  - **"Not syncing" fallback:** `sync.stale.1` and `.2`, 20 h and 72 h after the last successful sync, between
+    09:00 and 21:00 and outside quiet hours. Only when the server's `SYNC_STALE` can't reach this iPhone: when
+    `push.enabled` is off, notifications aren't allowed or this account's registration isn't accepted.
+  - **Accounts:** the sign-out wipe removes every pending and delivered notification and the wake alarms.
+    `notifications.owner` catches what a kill or a store-only retry left. Demo data freezes the account's reminders.
+  - **Presentation:** every category has a placeholder for hidden previews. A local notification for another account
+    (or arriving in Demo data, the wake notification excepted: it carries no data) isn't presented and opens Today
+    only (`PushPresentation`).
+  - **Bedtime:** it now offers its reminders to the scheduler (`offerBedtime`). The wake notifications are removed by
+    their fixed ids.
+  - **Round 2** (`review.md`): the journal reminder and the fallback ship dark behind `notifications.reminders` (off;
+    not known yet keeps what's scheduled) and pause while consent is withdrawn or refused. A session that ends clears
+    Notification Center and unregisters APNs; an expiry keeps the journal setting. The wake notification below iOS 26
+    carries its account and the `WAKE` category, so it shows while RYFT is open. An earlier build's bedtime reminders
+    survive the update's first launch; the calendar follows the time zone; nothing is added while notifications aren't
+    allowed; a pass remembers its store reads. Notifications never open the sign-in callback or an invite, and with
+    nobody signed in none counts as the account's.
+  - **Round 3:** no APNs registration behind the invite gate, and none left after a refused `POST` (NT7 is now P1).
+    A wipe resumed after the first frame runs its notification step at launch. The wake notification shows in Demo
+    data too when its account matches. A shut gate takes the two kinds' delivered ones. Another account signing in
+    drops an expiry's parked journal setting. A pass decides by one read of iOS's answer.
+- **Open (N4/N5):** the Notifications page (the journal row, its time chip, hint H, `BackgroundAvailability`),
+  `ACTIVITY_SCORED`'s route and preference (design.md §6), N5's fixtures. The operator opens `notifications.reminders`
+  once N4 lands (API_REQUESTS NT5). Every key is in the catalog, round 3's `HIDDEN_PREVIEW_BEDTIME` ("Bedtime
+  reminder") included (c45fa70). NT7 (an account's push token after it leaves) is the platform's.
+- **Measured** (Debug, simulator, mock notifier, on the shared CI Mac under load; round 2, review S4): with the journal
+  connected (live, habits on, no day cached) and this account's push registration saved, a pass that changes nothing
+  makes no system call and no SwiftData fetch, 0.11–0.15 ms (median of 500, two runs; p95 0.14–0.16 ms). Before the
+  misses and the record were remembered it made 4 fetches (3 journal days, the record): 0.33 ms (p95 0.55 ms). The
+  process's first pass (1 pending read, 1 status read, 7 bedtime and 3 journal adds) 2.3 ms against 3.7 ms (one sample
+  each, noisy: 10 ms in a run at load 240). Round 1's 0.10 ms had no journal. 50 syncs inside an hour, at most 1 add.
+  Before N3, every bedtime reschedule read iOS's pending set, removed and added all 7.
+- **Verification:** simulator and unit tests only. Not verified on a device: delivery at the floating wall times, the
+  BG refresh's pass, the sign-out's and the expiry's removal from Notification Center, APNs unregistration, the wake
+  notification in the foreground below iOS 26, a time-zone change, the hidden-preview placeholders, and a resumed
+  wipe's notification step in a background launch.
+- **Your steps (device):** see the N3 handback (journal reminder at 09:00 and its tap, the fallback after a kill from
+  the app switcher with `push.enabled` off, sign-out clearing Notification Center, previews hidden on the lock screen).
+  Two more:
+  - **Another account without a relaunch:** sign out, sign in as another account without relaunching the app.
+    Profile → Developer shows a new `didRegister` and an accepted `POST`, and a server alert for the new account
+    arrives.
+  - **A shared iPhone after an expiry (S-1):** with `push.enabled` on, let account A's session expire, then sign in
+    as B on the same iPhone while B is still behind the invite gate: no alert of A's arrives, and B registers
+    nothing. Once B redeems its invite (the gate opens), the app registers with APNs at once, without waiting for the
+    next app active, and B's `POST` goes out. Once it is accepted, A's alerts still don't arrive and B's do. Until the
+    platform answers NT7, an alert of A's between B's registration and the accepted `POST` is the known gap.
+
+## 2026-11-22: Agree moves on at the consent's 204 (`fix/consent-agree-lag`, ADR 0025)
+
+- Done: Agree and continue moves on at the `204`; uploads wait for RYFT's own word (`GET /v1/me` asked after it), for
+  a withdrawal on its way, and for one sent without an answer, also after a relaunch, until a `/v1/me` asked later is
+  in; Profile → Privacy says "Given" with Check with RYFT, whose failure says what came back, with Details; pauses
+  name their cause (`docs/work/2026-11-22-consent-agree-lag/`, review rounds 1–6 in `review.md`).
+- Verified: unit tests and the simulator only; the agree line on a device is on the user's list (design.md §6).
+- Open: **the journal's writes and the upload gate**: a scoping decision in ADR 0008, with the platform
+  (ios-architect). `PUT /v1/journal/{day}` and the behaviour writes never ask the gate (ADR 0008 decision 1 leaves
+  them out; the platform gates only `/v1/sync` and `/v1/train/import`), and habits like alcohol may be Art. 9 data
+  (security review round 2; see also P2 follow-ups below).
+- Open: **"a withdrawal RYFT hasn't heard is sent again"** (option A, ADR 0025 follow-ups; needs an ios-architect note first,
+  because it changes decision 3). Keep the hold while RYFT still shows the consent and resend the idempotent `DELETE` on
+  check, reconnect and launch; it ends on a `204`, a `/v1/me` without the consent, a new Agree or an account change.
+  Acceptance cases include the **residual gap accepted in this PR** (design.md §8, ADR 0025 decision 3): a `/v1/me` stored
+  while the `DELETE` is out must not end the hold, and an app killed before the `DELETE` answers must still hold at the
+  next launch. The privacy page should then say that uploads stop on the phone at once.
+- Open (low): **a stored policy `answeredAt` dated after now** (after a clock change) makes `received` drop every
+  `/v1/config` answer until real time passes it (`ConsentState`). That fails closed, but it doesn't resolve on its own.
+  The fix should void it, as the agreement and the withdrawal marker are voided when dated after now. On `main` already.
+- Open (low): `Push/PushRegistrar.swift:165` and `Features/Train/TrainCoordinator.swift:650` (and `:663`) log
+  `error.localizedDescription` as `.public`, which can carry a server's words or a URL; log the status and request ID
+  instead (code review round 3). Their owners: notifications and Train.
+- Open (low): the shared "Given" key needs a comment for translators (it's also the Privacy row's value); add it with
+  the next strings batch (localization-editor).
 
 ## 2026-11-20: App Attest follow-up (#129) and analytics phase 1 (#130)
 
@@ -28,7 +205,7 @@
   - What's in it: phase 1 without the SDK, i.e. the gate, the seam, the opt-in sheet and the Profile → Privacy toggle (a Nocturne row after #127), the events, and 99 tests.
   - Decision B: in phase 2 the opt-in becomes an onboarding step before `health`; the post-onboarding sheet can go then.
   - Nobody sees it until phase 2: the no-op sink can't send.
-  - Phase 2 is #137 (above).
+  - Phase 2 (a follow-up session) needs the package added in Xcode first. Then it writes `PostHogSink`, `PrivacyInfo.xcprivacy`, the ADR for the second dependency, `CLAUDE.md` → Rules, `docs/APP_STORE.md`, and a `LicensesView` entry.
   - Right after phase 2 merges, the platform refreshes `web/config/app-packages.json` (`npm run licenses -- --sync`) with `posthog-ios` 3.98.2. The privacy text has to name PostHog EU as a processor.
 
 ## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)

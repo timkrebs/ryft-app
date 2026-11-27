@@ -35,7 +35,8 @@ final class ProfileViewModel {
         bodySettings = BodySettingsEditor(state: state)
         let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
         self.devices = devices
-        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus,
+                                       onboarding: onboarding)
         syncDetails = details
         // The read pipeline's record and Sync details' state through the report's allow-list (never its
         // support text); the trackers' ids while `devices.setup` is on.
@@ -49,6 +50,9 @@ final class ProfileViewModel {
         // Sync details' "Waiting to send": Train's outbox and the reports kept for later, read as they are.
         details.trainOutbox = train?.sync
         details.reportsWaiting = { [weak report] in report?.waiting ?? 0 }
+        // A Check with RYFT that brought no word is the side's: Demo data switched either way, a sign-out or another account
+        // forgets it with the other account-state forgetters (security review round 4).
+        state.forgetsAccountState { [weak self] in self?.forgetConsentCheck() }
     }
 
     private var env: AppEnvironment { state.env }
@@ -126,7 +130,7 @@ final class ProfileViewModel {
 
     /// The platform's `User.provider`, else the session's `app_metadata.provider` (always the session's in demo mode).
     var provider: String? { accountUser?.provider ?? auth.provider }
-    var canChangePassword: Bool { provider == "email" }
+    var canChangePassword: Bool { auth.authEntry.emailEnabled && provider == "email" }
 
     struct Badge: Equatable {
         let title: String
@@ -136,6 +140,7 @@ final class ProfileViewModel {
     var providerBadge: Badge? {
         switch provider {
         case "apple": return Badge(title: String(localized: "Apple"), systemImage: "apple.logo")
+        case "google": return Badge(title: String(localized: "Google"), systemImage: "person.crop.circle")
         case "email": return Badge(title: String(localized: "Email"), systemImage: "envelope.fill")
         default: return nil
         }
@@ -218,8 +223,10 @@ final class ProfileViewModel {
         await logOut()
         return .loggedOut
     }
-    func deleteAccount() async {
-        let account = auth.accountID, changes = auth.accountChanges
+    /// The confirmation belongs to the account that opened it, even if its action starts after an account switch.
+    func deleteAccount(confirmedFor confirmation: AccountBinding) async {
+        guard confirmation.isCurrent(in: env) else { return }
+        let account = confirmation.account, changes = confirmation.changes
         let deleted = await auth.deleteAccount()
         // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
         if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
@@ -247,20 +254,33 @@ final class ProfileViewModel {
         showsAccountConsent && (state.user?.hasConsented(to: onboarding?.policyVersion) ?? false)
     }
 
-    /// The consent row's value in `warning`: not given, or to an older policy.
-    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent }
+    /// This phone agreed to the policy in force and RYFT's own word on it is still out (`ConsentState.unsettledAgreement`,
+    /// ADR 0025): the consent is given (RYFT recorded it at the `204`; only this iPhone's uploads wait), whatever the
+    /// account cached says (code review S2; security review round 2, N2). Not "Not given", and nothing to agree to
+    /// again: Privacy asks RYFT again instead, and Withdraw is offered.
+    var consentAwaitsConfirmation: Bool {
+        guard showsAccountConsent, let version = onboarding?.policyVersion else { return false }
+        return env.consent.unsettledAgreement == version
+    }
+
+    /// The consent row's value in `warning`: not given, or to an older policy. Given and not confirmed yet is neutral.
+    var consentNeedsAttention: Bool { showsAccountConsent && !consentIsCurrent && !consentAwaitsConfirmation }
 
     var consentText: String {
         guard showsAccountConsent else {
             return String(localized: "Not shown",
                           comment: "Profile → Privacy → Health-data consent with Demo data on: the account's consent isn't shown.")
         }
+        // Given: RYFT recorded it at the 204; the footer says what this iPhone still waits for.
+        if consentAwaitsConfirmation { return String(localized: "Given") }
         guard state.user?.consent != nil else { return String(localized: "Not given") }
         return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
     }
 
     /// "Agreed on 20 Oct 2026 · policy 2026-10-20"; with Demo data on, why the account's isn't shown and where it is; while a
-    /// withdrawal is on its way, that it is (D6).
+    /// withdrawal is on its way, that it is and that nothing syncs meanwhile (D6; security review round 2, S-1); given here
+    /// and not confirmed yet, that RYFT recorded it and this iPhone starts syncing once it hears back, offline that it
+    /// asks again once back online (security review round 2, N2; code review round 2, 3).
     var consentDetail: String? {
         guard isSignedIn else { return nil }
         guard !env.isDemo else {
@@ -268,8 +288,16 @@ final class ProfileViewModel {
                           comment: "Footer under Profile → Privacy with Demo data on while signed in.")
         }
         guard !withdrawingConsent else {
-            return String(localized: "Withdrawing your consent. Syncing stops once RYFT confirms.",
-                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way.")
+            return String(localized: "Withdrawing your consent. Nothing syncs while it's on its way.",
+                          comment: "Profile → Privacy footer while the consent withdrawal request is on its way: every upload waits meanwhile.")
+        }
+        if consentAwaitsConfirmation {
+            guard env.connectivity.isOnline else {
+                return String(localized: "RYFT has recorded your consent. This iPhone asks RYFT again once it's back online, then starts syncing.",
+                              comment: "Profile → Privacy footer, offline: consent given here, RYFT's answer to this iPhone still out.")
+            }
+            return String(localized: "RYFT has recorded your consent. This iPhone starts syncing once it hears back.",
+                          comment: "Profile → Privacy footer: consent given here and recorded by RYFT; this iPhone waits for its answer.")
         }
         guard let c = state.user?.consent else {
             return String(localized: "RYFT doesn't sync or score your health data until you agree.")
@@ -282,8 +310,11 @@ final class ProfileViewModel {
     /// or no session), so they are dimmed and say why (`withdrawalHoldReason`). It ends with the answer, as soon as it is
     /// recorded (the consent gone from the account: `storeConsentWithdrawn`), not after the re-check that follows (security
     /// review N-3); or with a failure, or an account change that ended it unsent. A withdrawal starts only from a current
-    /// consent (`ProfileRows`), so the consent is there until it is recorded.
-    var withdrawingConsent: Bool { (onboarding?.isWithdrawing ?? false) && state.user?.consent != nil }
+    /// consent, or one given here and not confirmed yet (`ProfileRows`), so either is there until it is recorded (the
+    /// withdrawal removes the agreement as it records it).
+    var withdrawingConsent: Bool {
+        (onboarding?.isWithdrawing ?? false) && (state.user?.consent != nil || consentAwaitsConfirmation)
+    }
     var consentError: String? { onboarding?.errorMessage }
     /// Status and request ID of `consentError`, behind its Details.
     var consentErrorDetails: String? { onboarding?.errorDetails }
@@ -309,13 +340,84 @@ final class ProfileViewModel {
     /// answer recorded, before the re-check: security review N-3); a failure or an account change that ended it unsent
     /// says nothing here.
     func withdrawConsent() async {
-        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. The row is disabled then too.
-        guard !loggingOut else { return }
+        // Not while Log out runs (`loggingOut`): its sign-out would end the withdrawal unsent. Nor while Check with RYFT
+        // asks (code review round 2, 7): its answer, handled after the DELETE, could end the hold early. The row is
+        // disabled then too.
+        guard !loggingOut, !checkingConsent else { return }
         await onboarding?.withdrawConsent(onRecorded: { [self] in announce(Self.consentWithdrawnAnnouncement) })
     }
 
     /// The consent screen, again.
     func reviewConsent() { onboarding?.show(.consent) }
+
+    /// "Check with RYFT" is on its way (its row is busy, Withdraw consent is dimmed).
+    private(set) var checkingConsent = false
+
+    /// A Check with RYFT that brought no word: the failure that came back instead, nil when nothing did.
+    private struct ConsentCheckFailure {
+        var error: (any Error)?
+    }
+
+    /// The last Check with RYFT brought no word (`consentCheckMessage`, `consentCheckDetails`).
+    private var consentCheckFailure: ConsentCheckFailure?
+
+    /// An account change (`accountChanged(from:)`) or the Demo data switch (an account-state forgetter, `init`): the previous side's Check
+    /// with RYFT failure, its words and its request ID, never shows under the next one's agreement (security review round 4).
+    func forgetConsentCheck() {
+        consentCheckFailure = nil
+    }
+
+    /// Check with RYFT can ask: online, and no withdrawal on its way. Offline the row is dimmed and the footer says this
+    /// iPhone asks again once it's back online (code review round 2, 3).
+    var canCheckConsent: Bool { consentAwaitsConfirmation && env.connectivity.isOnline && !withdrawingConsent }
+
+    /// Check with RYFT's VoiceOver hint while it's dimmed offline: why (UI validation round 3).
+    var checkConsentHint: String? {
+        guard consentAwaitsConfirmation, !env.connectivity.isOnline else { return nil }
+        return String(localized: "Available when this iPhone is online.",
+                      comment: "VoiceOver hint on Profile → Privacy → Check with RYFT, dimmed while offline.")
+    }
+
+    /// "Check with RYFT", for a consent given here and not confirmed yet: RYFT is asked again, as the person's own read
+    /// (`OnboardingCoordinator.confirmAgreement`: `/v1/me` asked for after the agreement, not held by a `Retry-After`).
+    /// Its answer decides the row: confirmed, "Given" without the line; without the consent, "Not given" and Review and
+    /// agree. No word (no answer within the check's 10 s, a failure): one line says so (`consentCheckMessage`), with the
+    /// failure's status and request ID behind Details (`consentCheckDetails`).
+    func checkConsent() async {
+        guard canCheckConsent, !checkingConsent else { return }
+        checkingConsent = true
+        consentCheckFailure = nil
+        defer { checkingConsent = false }
+        guard case .unconfirmed(let failure)? = await onboarding?.confirmAgreement() else { return }
+        consentCheckFailure = ConsentCheckFailure(error: failure)
+    }
+
+    /// Under Privacy after a Check with RYFT that brought no word, while the consent still waits for it, online only (code
+    /// review round 3, 4: offline the footer says when RYFT is asked again). An answer RYFT sent back is said in its words
+    /// (`APIError`'s own for a `429` or a `503`, code review round 3, S); "RYFT didn't answer" only when nothing came back
+    /// (no answer within the check's wait, a timeout, the connection lost).
+    var consentCheckMessage: String? {
+        guard let consentCheckFailure, consentAwaitsConfirmation, !checkingConsent, env.connectivity.isOnline else {
+            return nil
+        }
+        guard let failure = consentCheckFailure.error, !Self.noResponse(failure) else {
+            return String(localized: "RYFT didn't answer. Try again in a moment.",
+                          comment: "Profile → Privacy, after Check with RYFT: nothing came back from RYFT (no answer in time, the connection lost).")
+        }
+        return OnboardingCoordinator.fallbackMessage(for: failure)
+    }
+
+    /// No response came back at all: a transport failure.
+    private static func noResponse(_ error: any Error) -> Bool {
+        if case .transport? = error as? APIError { return true }
+        return error is URLError
+    }
+
+    /// Status and request ID of the failure behind `consentCheckMessage`, behind its Details (hard rule 6).
+    var consentCheckDetails: String? {
+        guard consentCheckMessage != nil else { return nil }
+        return consentCheckFailure?.error?.diagnosticDetails
+    }
 
     var policyPage: LegalPage { onboarding?.policyPage ?? .privacy }
 
@@ -367,6 +469,32 @@ final class ProfileViewModel {
         await state.pullToRefresh(coordinator: coordinator)
     }
 
+    /// Profile's Sync now row: `syncNow()` with `sync_triggered` on the tap and `sync_completed` when the run it started
+    /// or joined ends (plan 2026-11-27, decision 10; the status retry and the connection test don't track). The status
+    /// is the coordinator's `Outcome`: failed with an error or a cancellation, deferred when HealthKit was locked
+    /// (`waitingForUnlock`), success otherwise; skipped is a pull that started nothing (offline, no data source). The
+    /// duration runs from the tap to `pullToRefreshRun` returning (the spinner the person waits for, not the
+    /// coordinator's wait for scores), on the environment's clock.
+    func syncNowFromProfile() async {
+        let source = AnalyticsSyncTrigger.profileButton
+        let started = env.clock.uptime()
+        env.analytics.track(.syncTriggered(source))
+        let run = await state.pullToRefreshRun(coordinator: coordinator)
+        let duration = AnalyticsSyncDuration(env.clock.uptime() - started)
+        let status: AnalyticsSyncStatus
+        if let run {
+            let outcome = await run.value
+            if outcome.error != nil || outcome.cancelled {
+                status = .failed
+            } else {
+                status = outcome.waitingForUnlock ? .deferred : .success
+            }
+        } else {
+            status = .skipped
+        }
+        env.analytics.track(.syncCompleted(source, status: status, duration: duration))
+    }
+
     // MARK: notifications
 
     /// The preferences belong to a platform account. With `push.enabled` off the
@@ -376,6 +504,8 @@ final class ProfileViewModel {
     var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
     /// Profile → Training → Session layout. With the flag off a session is always List, so there is nothing to choose (L5).
     var showsSessionLayout: Bool { env.flags.isOn(.focusedSession) }
+    /// Profile → Privacy → Nutrition privacy, only while Nutrition (diary or full) is available for the account.
+    var nutritionAvailable: Bool { env.flags.nutritionAccess != .unavailable }
 
     // MARK: demo data
 
@@ -485,22 +615,42 @@ final class ProfileViewModel {
     var exportFolder = FileManager.default.temporaryDirectory
 
     func export() async {
+        guard !exporting else { return }
         exporting = true
         exportError = nil
         defer { exporting = false }
         // The archive takes a while: an account change meanwhile (even A, B, then A again) or the Demo data switch
         // makes it someone else's.
         let owner = AccountBinding(env)
+        let api = env.api
+        @MainActor func fetchMealPage(_ cursor: UUID?) async throws -> NutritionMealExportPage {
+            try Task.checkCancellation()
+            guard owner.isCurrent(in: self.env) else { throw CancellationError() }
+            let page = try await self.auth.withBoundAccount(owner) {
+                try await api.nutritionMealExport(after: cursor)
+            }
+            guard owner.isCurrent(in: self.env) else { throw CancellationError() }
+            return page
+        }
+        let mealExport: (@MainActor (UUID?) async throws -> NutritionMealExportPage)?
+        if owner.demo {
+            mealExport = nil
+        } else {
+            mealExport = fetchMealPage
+        }
         do {
             // The import job of the binding the export started for (read now; decoded off the main actor).
             let pendingImport = await PendingImportExport.make(persistence: env.persistence,
                                                                account: ImportMappingStore(env: env).account)
-            let archive = try await DataExport.archive(source: state.source, train: env.api,
-                                                       rememberedMatches: ImportMappingStore(env: env).records(),
-                                                       activities: env.api, onPhone: env.activities,
-                                                       pendingImport: pendingImport)
             guard owner.isCurrent(in: env) else { return }
-            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
+            let archive = try await DataExport.archive(source: state.source, train: api,
+                                                       rememberedMatches: ImportMappingStore(env: env).records(),
+                                                       activities: api, onPhone: env.activities,
+                                                       pendingImport: pendingImport, meals: mealExport)
+            try Task.checkCancellation()
+            guard owner.isCurrent(in: env) else { return }
+            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder),
+                                    nutritionDiaryStatus: archive.nutritionDiary?.status)
             env.analytics.track(.featureUsed(.dataExported))
         } catch where error.isCancellation {
             return
@@ -568,16 +718,20 @@ final class SyncDetailsModel {
     private let sync: SyncService
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
+    /// Asked first about a gate's hold (`idleState`), as Today asks it.
+    private let onboarding: OnboardingCoordinator?
 
     private(set) var isRunning = false
     private(set) var hasQueuedRun = false
     private(set) var copied = false
 
-    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil,
+         onboarding: OnboardingCoordinator? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.apiStatus = apiStatus ?? .shared
+        self.onboarding = onboarding
     }
 
     private var env: AppEnvironment { state.env }
@@ -630,9 +784,10 @@ final class SyncDetailsModel {
         }
     }
 
-    /// Between runs: never "Up to date" after a held, failed or stopped run (`SyncIdleState`).
+    /// Between runs: never "Up to date" after a held, failed or stopped run (`SyncIdleState`). A gate's hold asks
+    /// onboarding first, as Today does: just agreed, with RYFT's word still out, it's "Paused", not "Action needed".
     var idleState: SyncIdleState {
-        SyncIdleState.decide(pausedFor: sync.pausedFor, offline: isOffline,
+        SyncIdleState.decide(pausedFor: sync.pausedFor, pendingGate: onboarding.map { $0.pendingGate }, offline: isOffline,
                              failed: engine.lastError != nil || sync.lastError != nil, backfillDone: engine.backfillDone,
                              backlog: sync.hasBacklog, uploaded: env.isDemo || env.settings.lastSync != nil)
     }
@@ -674,16 +829,32 @@ final class SyncDetailsModel {
     var unsentWorkouts: Int { trainOutbox?.pendingCount ?? 0 }
     var unsentReports: Int { reportsWaiting() }
 
-    /// Why the queued workouts wait, when a gate holds them (Today's words for a gate the user can pass).
+    /// Why the queued workouts wait, when a gate holds them: Today's words for a gate the user can pass, asked of
+    /// onboarding first as the State row does (`SyncIdleState.held`). A hold no step answers says what it waits for by
+    /// its cause (code review S2; round 2, 6): RYFT's confirmation only while this phone's agreement is unsettled and no
+    /// withdrawal holds instead (security review round 3, N-a), the policy in force, otherwise only that it's paused.
     var workoutsHeldText: String? {
-        guard unsentWorkouts > 0 else { return nil }
-        switch trainOutbox?.heldAt {
-        case .gate(let code)?: return SyncIdleState.actionNeeded(code == .inviteRequired ? .invite : .consent).text
-        case .policyUnknown?:
+        guard unsentWorkouts > 0, let hold = trainOutbox?.heldAt else { return nil }
+        // Not during a withdrawal, on its way or without an answer: nothing waits for a confirmation then (N-a).
+        let awaits = onboarding?.awaitsConfirmation ?? env.consent.awaitsConfirmation
+        let cause = SyncIdleState.PauseCause.of(hold, agreementUnsettled: awaits)
+        switch SyncIdleState.held(at: hold, pendingGate: onboarding.map { $0.pendingGate }) {
+        case .actionNeeded(let step)?: return SyncIdleState.actionNeeded(step).text
+        case .paused? where cause == .policy:
             return String(localized: "Waiting for the privacy policy",
                           comment: "Sync details → Waiting to send → Workouts: held until RYFT knows the privacy policy in force.")
-        case .demo?, nil: return nil
+        case .paused? where cause == .confirmation:
+            return String(localized: "Waiting for RYFT to confirm your consent",
+                          comment: "Sync details → Waiting to send → Workouts: held, nothing to do, until RYFT confirms the consent given on this iPhone.")
+        case .paused?: return Self.workoutsPausedText
+        default: return nil
         }
+    }
+
+    /// The workouts' pause with no cause named: its own key, not Plans' "Paused" (code review round 3, 5).
+    static var workoutsPausedText: String {
+        String(localized: "syncdetails.workouts.paused", defaultValue: "Paused",
+               comment: "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).")
     }
 
     /// A count, or "None".
@@ -825,13 +996,15 @@ final class SyncDetailsModel {
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }
             let ignored = p.lastIgnored.map { "dup \($0.duplicate) out \($0.outsideWindow) unk \($0.unknownType)" } ?? "-"
-            lines.append("\(row.id): \(p.sent) rec \(p.bytes) B days \(p.days.count) newest \(p.newest.map { $0.ISO8601Format() } ?? "-") backfilled \(p.backfilled) last \(p.lastAccepted) ignored \(ignored)")
+            lines.append("\(row.id): \(p.sent) rec \(p.bytes) B days \(p.days.count) newest \(p.newest.map { $0.ISO8601Format() } ?? "-") backfilled \(p.backfilled) last \(p.lastAccepted) ignored \(ignored) invalid \(p.invalid)")
         }
         lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
         let states = state.resourceStates
         lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
         lines.append(env.catalogStore.diagnosticLine)
         if let check = TrackerCheckRecord.forReport(env) { lines.append("sync check: " + check.lines.joined(separator: " · ")) }
+        // The last Agree and continue: durations, statuses and counts only (`AgreeTiming`).
+        if let agree = AgreeTiming.forReport(env) { lines.append(agree.line) }
         lines.append("requests (cancelled since launch: \(cancelledRequests)):")
         for r in requests {
             let duration = r.durationMs.map(String.init) ?? "-"
@@ -2072,6 +2245,8 @@ struct FeedbackSync: Equatable, Sendable {
         let days: Int
         /// Only its day is sent.
         let newest: Date?
+        /// Records the platform would have refused, left out (`StreamProgress.invalid`); in the line when there are any.
+        var invalid = 0
     }
 
     var phase = SyncEngineState.Phase.idle.rawValue
@@ -2091,7 +2266,7 @@ extension FeedbackSync {
                   running: running, queued: queued, backlogBytes: backlogBytes ?? 0,
                   streams: streams.map { row in
                       Stream(id: row.id, records: row.progress?.sent ?? 0, days: row.progress?.days.count ?? 0,
-                             newest: row.progress?.newest)
+                             newest: row.progress?.newest, invalid: row.progress?.invalid ?? 0)
                   })
     }
 }
@@ -2111,7 +2286,7 @@ enum FeedbackPayload {
     static let maxRequests = 20
     /// Every key `diagnostics` may carry.
     static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context", "trackers",
-                                    "sync_check"]
+                                    "sync_check", "agree"]
 
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
     static func length(_ text: String) -> Int { text.unicodeScalars.count }
@@ -2121,7 +2296,7 @@ enum FeedbackPayload {
                      requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState] = [:],
                      sync: FeedbackSync, gates: Set<APIErrorCode>,
                      flags: [String: Bool], trackers: [String]? = nil, syncCheck: [String]? = nil,
-                     context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
+                     agree: String? = nil, context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
         let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
         // Off: nothing is attached but the message (ui.md §5.2).
         guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
@@ -2133,7 +2308,7 @@ enum FeedbackPayload {
                             requestIds: requestIDs(context: context, requests: requests, resources: resources),
                             diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
                                                      gates: gates, flags: flags, trackers: trackers, syncCheck: syncCheck,
-                                                     context: context, locale: about.locale))
+                                                     agree: agree, context: context, locale: about.locale))
     }
 
     /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
@@ -2180,18 +2355,20 @@ enum FeedbackPayload {
          "queue running \(sync.running) · queued \(sync.queued) · backlog \(sync.backlogBytes) B"]
             + sync.streams.map { s in
                 "stream \(s.id) · \(s.records) rec · \(s.days) days · newest \(s.newest.map(DayFormat.string) ?? "-")"
+                    + (s.invalid > 0 ? " · invalid \(s.invalid)" : "")
             }
     }
 
     // swiftlint:disable function_parameter_count
     /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale`, with
     /// `devices.setup` on `trackers` (catalog ids, "garmin,oura", never a device's name), after a Check sync
-    /// `sync_check` (`TrackerCheckRecord.lines`: tracker ids and result codes) and, from an error's Details,
-    /// `report_context`. Over 32 KiB the oldest requests go first, then resources and sync.
+    /// `sync_check` (`TrackerCheckRecord.lines`: tracker ids and result codes), after an Agree and continue `agree`
+    /// (`AgreeTiming.text`: durations, statuses and counts) and, from an error's Details, `report_context`. Over 32 KiB
+    /// the oldest requests go first, then resources and sync.
     static func diagnostics(requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState],
                             sync: FeedbackSync, gates: Set<APIErrorCode>, flags: [String: Bool],
-                            trackers: [String]? = nil, syncCheck: [String]? = nil, context: ReportContext?,
-                            locale: String) -> [String: String] {
+                            trackers: [String]? = nil, syncCheck: [String]? = nil, agree: String? = nil,
+                            context: ReportContext?, locale: String) -> [String: String] {
         // swiftlint:enable function_parameter_count
         var base = [
             "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
@@ -2204,6 +2381,7 @@ enum FeedbackPayload {
         }
         if let trackers { base["trackers"] = trackers.isEmpty ? "-" : trackers.joined(separator: ",") }
         if let syncCheck, !syncCheck.isEmpty { base["sync_check"] = syncCheck.joined(separator: "\n") }
+        if let agree { base["agree"] = agree }
         let syncText = syncLines(sync).joined(separator: "\n")
         let resourcesText = resourceLines(resources).joined(separator: "\n")
         func assembled(_ lines: [String]) -> [String: String] {
@@ -2354,7 +2532,7 @@ final class ReportProblemModel {
 
     var message = ""
     var category: FeedbackCategory = .other
-    var includeDiagnostics = true
+    var includeDiagnostics = false
     private(set) var context: ReportContext?
     private(set) var result: Result?
     /// The refusal's status and request ID, for Details.
@@ -2435,7 +2613,7 @@ final class ReportProblemModel {
         staged = false
         message = ""
         category = .other
-        includeDiagnostics = true
+        includeDiagnostics = false
         context = nil
         result = nil
         resultDetails = nil
@@ -2448,7 +2626,8 @@ final class ReportProblemModel {
                              requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
                              sync: includeDiagnostics ? sync() : FeedbackSync(),
                              gates: apiStatus.gates, flags: flagValues, trackers: trackers(),
-                             syncCheck: includeDiagnostics ? syncCheck : nil, context: context, about: .current)
+                             syncCheck: includeDiagnostics ? syncCheck : nil, agree: includeDiagnostics ? agreeLine : nil,
+                             context: context, about: .current)
     }
 
     /// "What's included" lists the trackers only when they go out.
@@ -2457,6 +2636,10 @@ final class ReportProblemModel {
     /// The last Check sync as diagnostics carry it (ids and codes), when there is a recent one: "What's included"
     /// lists it only then.
     var syncCheck: [String]? { TrackerCheckRecord.forReport(env)?.lines }
+
+    /// The last Agree and continue's timings as diagnostics carry them (durations, statuses, counts): "What's included"
+    /// lists them only when there are some.
+    var agreeLine: String? { AgreeTiming.forReport(env)?.text }
 
     private var flagValues: [String: Bool] {
         Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })
@@ -2580,7 +2763,7 @@ final class ReportProblemModel {
         result = outcome
         message = ""
         category = .other
-        includeDiagnostics = true
+        includeDiagnostics = false
     }
 
     private func dequeue(_ item: QueuedFeedback) {
@@ -2621,6 +2804,8 @@ extension ProfileViewModel {
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
         forgetExport()
+        // So is a Check with RYFT that brought no word (and its request ID).
+        forgetConsentCheck()
     }
 }
 
@@ -2929,7 +3114,7 @@ final class DevicesViewModel {
     /// `User.sources`: what sent data in the last 30 days, newest first, by RYFT's names.
     var sources: [SourceRow] {
         let catalog = catalog
-        return (state.user?.sources ?? []).map { s in
+        return (state.user?.sources ?? []).filter { $0.origin == .healthkit }.map { s in
             let ref = SourceRef(name: s.name, bundleID: s.bundleId, deviceModel: nil)
             let apple = s.bundleId?.lowercased().hasPrefix("com.apple.") ?? false
             return SourceRow(id: s.bundleId ?? s.name, name: catalog.displayName(ref), kinds: Self.kinds(s.kinds),

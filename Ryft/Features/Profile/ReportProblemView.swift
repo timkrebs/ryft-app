@@ -338,6 +338,11 @@ struct ReportProblemView: View {
         if model.syncCheck != nil {
             rows.append(String(localized: "Your last Check sync: its day, and per tracker and data type a result code"))
         }
+        // Only after an Agree and continue on this phone.
+        if model.agreeLine != nil {
+            rows.append(String(localized: "Your last Agree and continue: how long each part took, with its statuses and counts",
+                               comment: "Report a problem → What's included: the agree line (durations in ms, HTTP statuses, counts; no IDs)."))
+        }
         if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows
     }

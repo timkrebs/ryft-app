@@ -2,69 +2,360 @@
   "sourceLanguage" : "en",
   "strings" : {
     "%@, not scored" : {
-      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain)."
+      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, noch nicht bewertet"
+          }
+        }
+      }
     },
     "%lld of %lld" : {
-      "comment" : "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7. Keep the no-break spaces."
+      "comment" : "Widget, lock screen rectangle: nights counted of the nights the baselines need, e.g. 3 of 7. Keep the no-break spaces.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld"
+          }
+        }
+      }
     },
     "As of %@" : {
-      "comment" : "Widget: the app last updated it on that day: a weekday (Monday), a date (Nov 16) or one with its year."
+      "comment" : "Widget: the app last updated it on that day: a weekday (Monday), a date (Nov 16) or one with its year.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stand: %@"
+          }
+        }
+      }
     },
     "As of yesterday" : {
-      "comment" : "Widget: the app last updated it yesterday; what it shows is from then."
+      "comment" : "Widget: the app last updated it yesterday; what it shows is from then.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stand: gestern"
+          }
+        }
+      }
     },
     "Baselines" : {
-      "comment" : "Widget, lock screen rectangle: under the nights counted (3 of 7)."
+      "comment" : "Widget, lock screen rectangle: under the nights counted (3 of 7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte"
+          }
+        }
+      }
     },
     "Baselines %lld of %lld" : {
-      "comment" : "Widget, the small orbit's caption while the baselines count: nights counted of the nights the baselines need, e.g. Baselines 3 of 7. Keep the no-break spaces."
+      "comment" : "Widget, the small orbit's caption while the baselines count: nights counted of the nights the baselines need, e.g. Baselines 3 of 7. Keep the no-break spaces.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte: %1$lld von %2$lld"
+          }
+        }
+      }
     },
-    "Bed by %@" : {},
-    "High" : {},
-    "Last readiness %lld." : {},
-    "Low" : {},
-    "Moderate" : {},
+    "Bed by %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ins Bett bis %@"
+          }
+        }
+      }
+    },
+    "High" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoch"
+          }
+        }
+      }
+    },
+    "Last readiness %lld." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Tagesform: %lld."
+          }
+        }
+      }
+    },
+    "Low" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niedrig"
+          }
+        }
+      }
+    },
+    "Moderate" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mittel"
+          }
+        }
+      }
+    },
     "Next: %@" : {
-      "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4."
+      "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als Nächstes: %@"
+          }
+        }
+      }
     },
-    "Open" : {},
-    "Open RYFT to see your readiness." : {},
-    "Readiness" : {},
-    "Readiness %lld · %@" : {},
-    "Readiness %lld, %@" : {},
+    "Open" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnen"
+          }
+        }
+      }
+    },
+    "Open RYFT to see your readiness." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne RYFT, um deine Tagesform zu sehen."
+          }
+        }
+      }
+    },
+    "Readiness" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagesform"
+          }
+        }
+      }
+    },
+    "Readiness %lld · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagesform %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Readiness %lld, %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagesform %1$lld, %2$@"
+          }
+        }
+      }
+    },
     "Readiness · %@" : {
-      "comment" : "Widget, under the orbit: the readiness band, e.g. Readiness · High. Keep the no-break space before the dot."
+      "comment" : "Widget, under the orbit: the readiness band, e.g. Readiness · High. Keep the no-break space before the dot.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tagesform · %@"
+          }
+        }
+      }
     },
     "Recovery" : {
-      "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”."
+      "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung"
+          }
+        }
+      }
     },
     "Recovery %@ percent" : {
-      "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71."
+      "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung: %@ Prozent"
+          }
+        }
+      }
     },
     "Rest" : {
-      "comment" : "Dynamic Island and lock screen label of the rest timer."
+      "comment" : "Dynamic Island and lock screen label of the rest timer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruhe"
+          }
+        }
+      }
     },
-    "Scoring your night…" : {},
+    "Scoring your night…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht wird ausgewertet …"
+          }
+        }
+      }
+    },
     "Sleep" : {
-      "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”."
+      "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf"
+          }
+        }
+      }
     },
     "Sleep %@ percent" : {
-      "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88."
+      "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf: %@ Prozent"
+          }
+        }
+      }
     },
-    "Snoozing" : {},
-    "Start or resume workout" : {},
-    "Start workout" : {},
-    "Starts a strength workout in RYFT, or resumes the one in progress." : {},
+    "Snoozing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummern aktiv"
+          }
+        }
+      }
+    },
+    "Start or resume workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training starten oder fortsetzen"
+          }
+        }
+      }
+    },
+    "Start workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training starten"
+          }
+        }
+      }
+    },
+    "Starts a strength workout in RYFT, or resumes the one in progress." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet ein Krafttraining in RYFT oder setzt das aktuelle Training fort."
+          }
+        }
+      }
+    },
     "Strain" : {
-      "comment" : "Widget VoiceOver: the Strain score's name, before “no data”."
+      "comment" : "Widget VoiceOver: the Strain score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung"
+          }
+        }
+      }
     },
     "Strain %@ of 21" : {
-      "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6."
+      "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung: %@ von 21"
+          }
+        }
+      }
     },
-    "Today's readiness, or how far scoring your night is." : {},
-    "Waiting for last night" : {},
-    "Your alarm rings again" : {},
-    "Workout" : {}
+    "Today's readiness, or how far scoring your night is." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt deine Tagesform oder den Stand der Nachtauswertung."
+          }
+        }
+      }
+    },
+    "Waiting for last night" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet auf die letzte Nacht"
+          }
+        }
+      }
+    },
+    "Your alarm rings again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Wecker klingelt erneut"
+          }
+        }
+      }
+    },
+    "Workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training"
+          }
+        }
+      }
+    }
   },
   "version" : "1.3"
 }

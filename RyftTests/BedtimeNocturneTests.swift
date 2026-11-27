@@ -28,7 +28,10 @@ private let tonightsPlan = SleepPlan(wake: at(6, 30, add: 1), needMin: 498, inBe
 private func makeState(api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true) -> (AppState, TestClock) {
     let clock = TestClock()
     clock.set(Calendar.current.date(bySettingHour: 17, minute: 42, second: 0, of: clock.now()) ?? clock.now())
-    return (AppState(env: .test(api: api, clock: clock, flags: [.sleepPlanner: true], online: online)), clock)
+    let state = AppState(env: .test(api: api, clock: clock, flags: [.sleepPlanner: true], online: online))
+    // Notifications allowed: bedtime's reminders reach iOS only then (review S3).
+    (state.env.notifier as? MockNotifier)?.status = .authorized
+    return (state, clock)
 }
 
 // MARK: - Tonight's board
@@ -682,6 +685,7 @@ struct BedtimePassTests {
     @Test("Offline with no plan ever: no reminder at an old bedtime, the page says they resume; online, they're set")
     func offlineWithoutAPlanWaits() async throws {
         let notifier = MockNotifier()
+        notifier.status = .authorized
         let clock = TestClock()
         clock.set(Calendar.current.date(bySettingHour: 17, minute: 42, second: 0, of: clock.now()) ?? clock.now())
         let state = AppState(env: .test(clock: clock, notifier: notifier, flags: [.sleepPlanner: true], online: false))
@@ -1044,6 +1048,8 @@ struct BedtimeHostedTests {
     @Test("Turn off asks first: the dialog from the row, Turn off destructive, Cancel; what goes in the footer; the tap alone turns nothing off")
     func turnOffAsksFirst() async throws {
         let (state, _) = BedtimeShotScreen.state()
+        // Notifications allowed: bedtime's reminders reach iOS only then (review S3).
+        (state.env.notifier as? MockNotifier)?.status = .authorized
         let alarms = MockWakeAlarms()
         let planner = BedtimePlanner(state: state, alarms: alarms)
         var schedule = SleepSchedule.default

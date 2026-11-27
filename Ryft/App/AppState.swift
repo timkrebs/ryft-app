@@ -38,7 +38,19 @@ final class AppState {
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
     var syncStatus: SyncStatus? {
-        didSet { repository.todayStatus = syncStatus?.today }
+        didSet {
+            repository.todayStatus = syncStatus?.today
+            syncStatusAskedAt = nil
+        }
+    }
+    /// When `syncStatus`'s flight was asked for, when the one who stored it said (`setSyncStatus(_:askedAt:)`): the
+    /// scoring wait reads its gate by then (R2, `LiveSyncSteps.scoringGate`; code review round 2, 9). Nil otherwise.
+    private(set) var syncStatusAskedAt: Date?
+
+    /// `status`, with when its flight was asked for (nil: not known).
+    func setSyncStatus(_ status: SyncStatus, askedAt: Date?) {
+        syncStatus = status
+        syncStatusAskedAt = askedAt
     }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
@@ -53,6 +65,17 @@ final class AppState {
 
     let env: AppEnvironment
     let repository: Repository
+    /// RYFT's local notifications (ADR 0024): bedtime's wind-down, the journal reminder and "not syncing". The one writer
+    /// of the account's local requests; it forgets with the other account-state forgetters.
+    @ObservationIgnored private(set) lazy var reminders: ReminderScheduler = {
+        let scheduler = ReminderScheduler(env: env, inputs: ReminderInputs(user: { [weak self] in self?.repository.user() },
+                                                                           journal: { nil },
+                                                                           observeUser: { [weak self] in
+                                                                               _ = self?.repository.userRevision
+                                                                           }))
+        forgetsAccountState { [weak scheduler] in scheduler?.forget() }
+        return scheduler
+    }()
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
     private var defaults: UserDefaults { env.defaults }
@@ -202,14 +225,22 @@ final class AppState {
     /// and 3 belong to this object, so a cancelled `.refreshable` cancels neither. Offline, or
     /// without a data source, nothing is sent.
     func pullToRefresh(coordinator: SyncCoordinator) async {
+        await pullToRefreshRun(coordinator: coordinator)
+    }
+
+    /// `pullToRefresh`, returning the coordinator's run (phase 1) it started or joined: its `Outcome` is how the
+    /// sync ended (Profile's Sync now reports it as `sync_completed`). nil when nothing started (offline, no data
+    /// source). Returns at the same moment as `pullToRefresh`; the run goes on.
+    @discardableResult
+    func pullToRefreshRun(coordinator: SyncCoordinator) async -> Task<SyncCoordinator.Outcome, Never>? {
         pullUploaded = nil
-        guard hasDataSource, isDemo || env.connectivity.isOnline else { return }
+        guard hasDataSource, isDemo || env.connectivity.isOnline else { return nil }
         let signposts = Signposts.reads
         let spinner = signposts.beginInterval("pull", id: signposts.makeSignpostID())
         let clock = env.clock, account = env.auth.accountID
         let (uploaded, upload) = AsyncStream<Void>.makeStream()
         let (uploadEnded, endUpload) = AsyncStream<Void>.makeStream()
-        Task {
+        let run = Task { () -> SyncCoordinator.Outcome in
             await coordinator.run(.userInitiated, afterUpload: {
                 upload.yield()
                 upload.finish()
@@ -258,6 +289,7 @@ final class AppState {
         pullPhases = phases
         await Self.firstOf({ for await _ in settled {} }, { try? await clock.sleep(for: Self.spinnerCap) })
         signposts.endInterval("pull", spinner)
+        return run
     }
 
     private func refreshToday(_ now: Date) async {
@@ -408,7 +440,7 @@ final class AppState {
 
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
-    /// session and the purge's save leaves the other account's rows, and a kill after an unpark leaves none parked.
+    /// session and the purge's save leaves the other account's rows (and journal reminder settings), and a kill after an unpark leaves none parked.
     /// `apiStatus`: whose requests the wipe forgets (`APIStatus.forgetRequests`; the app's shared one by default).
     func bindAccountHooks(_ auth: AuthService, apiStatus: APIStatus? = nil) {
         let apiStatus = apiStatus ?? .shared
@@ -426,17 +458,20 @@ final class AppState {
         if let account = auth.accountID {
             env.activities.purge(notBelongingTo: account)
             env.activities.unpark(account: account)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: account)
         }
     }
 
     /// Before the new session (or none) is published, so before the first upload and My Day's first read: another
     /// account's activities, nights and chunks go, parked or not, purged by the incoming id (never
     /// `activities.account`, which is demo data's while it's on); the same account's parked rows come back; and
-    /// nothing in flight or cached of the previous account survives (`forgetActivityState`).
+    /// nothing in flight or cached of the previous account survives (`forgetActivityState`). The journal reminder's
+    /// setting a session expiry parked goes the same way: only the incoming account's stays (review N-4).
     func accountWillChange(from old: String?, to new: String?, reason: AuthService.SignOutReason?) {
         if let new {
             env.activities.purge(notBelongingTo: new)
             env.activities.unpark(account: new)
+            JournalReminderStore.wipe(defaults: env.defaults, keeping: new)
         }
         forgetActivityState()
     }

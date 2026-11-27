@@ -96,6 +96,104 @@ struct APIClientStatusTests {
         #expect(tokens.refreshes == 0)
     }
 
+    @MainActor
+    @Test func nutritionReusesFreshReadsAndReloadsAfterInvalidation() async throws {
+        let daily = NutritionDiaryFixtures.daily.trimmingCharacters(in: .whitespacesAndNewlines)
+        let combined = daily.dropLast() + #","meals":[],"next_offset":null}"#
+        let diaryReply = StubURLProtocol.Reply(status: 200, body: Data(combined.utf8))
+        let searchReply = StubURLProtocol.Reply(status: 200, body: Data(NutritionCatalogFixtures.search.utf8))
+        StubURLProtocol.script([diaryReply, diaryReply, diaryReply, diaryReply, searchReply, searchReply])
+        let clock = TestClock()
+        let env = AppEnvironment.test(clock: clock, flags: [.nutritionEnabled: true])
+        let account = try #require(env.auth.accountID)
+        let model = NutritionDiaryModel(env: env, api: client(), account: account, timezone: "UTC")
+        await model.load()
+        #expect(model.daily?.mealCount == 1)
+        await model.load()
+        #expect(StubURLProtocol.requests.count == 2)
+        await model.reload()
+        #expect(StubURLProtocol.requests.count == 4)
+
+        let query = NutritionFoodSearch(query: "Hähnchenbrust", language: "de")
+        _ = try await model.searchFoods(query)
+        _ = try await model.searchFoods(query)
+        #expect(StubURLProtocol.requests.count == 5)
+        clock.advance(by: .seconds(121))
+        _ = try await model.searchFoods(query)
+        #expect(StubURLProtocol.requests.count == 6)
+    }
+
+    @Test func liveFoodSearchDoesNotAutomaticallyRetryRateLimits() async throws {
+        StubURLProtocol.script([.init(status: 429, headers: ["Retry-After": "1"]), .init(status: 200)])
+        do {
+            _ = try await client().searchNutritionFoods(.init(query: "Apple"))
+            Issue.record("Expected the rate limit response")
+        } catch let error as APIError {
+            #expect(error.status == 429)
+        }
+        #expect(StubURLProtocol.requests.count == 1)
+        #expect(sleeps.waits.isEmpty)
+    }
+
+    @Test func nutritionCatalogUsesAuthenticatedAPIRoutes() async throws {
+        let id = try #require(UUID(uuidString: "a7e40c6e-bfb4-47eb-ad64-aea61136db01"))
+        let fixtures = NutritionCatalogFixtures.self
+        StubURLProtocol.script([
+            .init(status: 200, body: Data(fixtures.search.utf8)),
+            .init(status: 200, body: Data(fixtures.barcodeMiss.utf8)),
+            .init(status: 200, body: Data(fixtures.detail.utf8)),
+            .init(status: 200, body: Data("[\(fixtures.portion)]".utf8)),
+        ])
+        let api = client()
+        let page = try await api.searchNutritionFoods(.init(query: "Hähnchenbrust", language: "de"))
+        let barcode = try await api.lookupNutritionBarcode(.init(barcode: "012345678905"))
+        let food = try await api.nutritionFood(id: id, language: "de-AT")
+        let portions = try await api.nutritionFoodPortions(id: id, language: "en-GB")
+
+        #expect(page.foods.first?.name == "Hähnchenbrust")
+        #expect(barcode.gtin == "00012345678905")
+        #expect(food.id == id && portions == food.portions)
+        let requests = StubURLProtocol.requests
+        #expect(requests.map { $0.url?.host } == Array(repeating: "api.test", count: 4))
+        #expect(requests.map(\.httpMethod) == ["POST", "POST", "GET", "GET"])
+        let foodPath = "/v1/nutrition/foods/\(id.uuidString.lowercased())"
+        #expect(requests.map { $0.url?.path } == [
+            "/v1/nutrition/foods/search", "/v1/nutrition/foods/barcode", foodPath, foodPath + "/portions",
+        ])
+        // Search and barcode carry the language in the body; detail and portions ask for theirs (`?language=`, D284),
+        // reduced to the two catalog languages.
+        #expect(requests.map { $0.url?.query } == [nil, nil, "language=de", "language=en"])
+        #expect(requests.prefix(2).allSatisfy { $0.value(forHTTPHeaderField: "Content-Type") == "application/json" })
+        #expect(bearers == Array(repeating: "Bearer token-1", count: 4))
+    }
+
+    @Test func directConnectionsUseAuthenticatedRoutesAndKeepDisconnectOpen() async throws {
+        let catalog = #"{"connections":[],"available":[],"providers":[{"provider":"garmin","availability":"partner_onboarding"}]}"#
+        let start = #"{"authorize_url":"https://partner.example/auth","expires_at":"2026-11-24T17:00:00Z"}"#
+        let connected = """
+        {"provider":"garmin","status":"connected","connected_at":"2026-11-24T15:30:00Z",
+         "last_data_at":null,"provides":["sleep"],"history":"none","provider_user_id":null,"permissions":[]}
+        """
+        let deleted = #"{"status":"disconnected","deregistered":false,"data_deleted":true}"#
+        StubURLProtocol.script([catalog, start, connected, deleted].map { .init(status: 200, body: Data($0.utf8)) })
+        let api = client()
+        #expect(try await api.directConnections().providers.first?.availability == "partner_onboarding")
+        #expect(try await api.startDirectConnection("garmin").authorizeUrl.host == "partner.example")
+        #expect(try await api.confirmDirectConnection("garmin", ticket: String(repeating: "a1", count: 16)).status == "connected")
+        #expect(try await api.deleteDirectConnection("garmin").deregistered == false)
+
+        let root = "/v1/me/connections"
+        let provider = root + "/garmin"
+        let requests = StubURLProtocol.requests
+        #expect(requests.map { $0.url?.path } == [root, provider + "/start", provider + "/confirm", provider])
+        #expect(requests.map(\.httpMethod) == ["GET", "POST", "POST", "DELETE"])
+        #expect(bearers == Array(repeating: "Bearer token-1", count: 4))
+        #expect(APIClient.isOpenBehindInviteGate("DELETE", provider))
+        #expect(APIClient.isAppAttestExempt("DELETE", provider))
+        #expect(!APIClient.isOpenBehindInviteGate("POST", provider + "/start"))
+        #expect(!APIClient.isAppAttestExempt("DELETE", provider + "/other"))
+    }
+
     @Test func unauthorizedRefreshesOnceAndRetries() async throws {
         StubURLProtocol.script([.init(status: 401, headers: ["WWW-Authenticate": #"Bearer realm="ryft", error="invalid_token""#]),
                                 .init(status: 200)])
@@ -654,5 +752,19 @@ struct APIClientReviewFixTests {
         #expect(redactedPath("/v1/days/2026-10-21") == "/v1/days/2026-10-21")
         #expect(redactedPath("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
         #expect(redactedPath("/v1/me#x") == "/v1/me")
+    }
+
+    /// Security review S-1 (consent agree lag design.md §6.5): the signposts' route is a template, no day either.
+    @Test func signpostRoutesHaveNoDays() {
+        #expect(signpostRoute("/v1/journal/2026-11-22") == "/v1/journal/{day}")
+        #expect(signpostRoute("/v1/days/2026-10-21?tz=Europe/Berlin") == "/v1/days/{day}")
+        #expect(signpostRoute("/v1/sessions/3f2504e0-4f89-41d3-9a0c-0305e82c3301/complete") == "/v1/sessions/{id}/complete")
+        #expect(signpostRoute("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
+        #expect(signpostRoute("/v1/me/consent") == "/v1/me/consent")
+        // Only a whole day: a version or a name that looks a little like one stays.
+        #expect(signpostRoute("/v1/plans/2026-11") == "/v1/plans/2026-11")
+        #expect(signpostRoute("/v1/x/2026-11-22a") == "/v1/x/2026-11-22a")
+        // Sync details and Copy diagnostics still show the day.
+        #expect(redactedPath("/v1/journal/2026-11-22") == "/v1/journal/2026-11-22")
     }
 }

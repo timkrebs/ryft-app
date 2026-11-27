@@ -33,7 +33,7 @@ enum ProfileRow: String, CaseIterable, Hashable, Identifiable, Sendable {
     // Settings
     case notifications, journal, heroNumerals, bedtime
     // Privacy
-    case consent, reviewConsent, withdrawConsent, analytics
+    case consent, reviewConsent, checkConsent, withdrawConsent, nutritionPrivacy, analytics
     // Account
     case email, timezone, signInMethods, changePassword, deleteAccount, signedIn
     // About
@@ -63,6 +63,9 @@ struct ProfileRowFacts: Equatable, Sendable {
     var journalLive = false
     var bedtimeEnabled = true
     var consentIsCurrent = true
+    /// Given on this iPhone, RYFT's confirmation still out (`ProfileViewModel.consentAwaitsConfirmation`): Check with
+    /// RYFT and Withdraw, never Review and agree.
+    var consentAwaitsConfirmation = false
     /// "Share usage analytics" (`Analytics.showsToggle`): where the prompt could show, and while opted in.
     var showsAnalytics = false
     /// Demo data is on: the account's consent is neither known nor reachable (every consent call goes to the demo's
@@ -73,6 +76,8 @@ struct ProfileRowFacts: Equatable, Sendable {
     /// The account's email when the name is the title (it was the account card's second line).
     var showsEmail = false
     var canExport = true
+    /// Nutrition (diary or full) is available for the account: Privacy gets its Nutrition privacy row.
+    var nutritionAvailable = false
 }
 
 /// The page's buttons row (§P5-6.1 row 4), each only when it applies.
@@ -113,7 +118,9 @@ enum ProfileRows {
             guard f.isSignedIn else { return [] }
             let analytics: [ProfileRow] = f.showsAnalytics ? [.analytics] : []
             guard !f.isDemo else { return [.consent] + analytics }
-            return [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent] + analytics
+            let consent: [ProfileRow] = f.consentAwaitsConfirmation
+                ? [.consent, .checkConsent, .withdrawConsent] : [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
+            return consent + (f.nutritionAvailable ? [.nutritionPrivacy] : []) + analytics
         case .account:
             guard f.isSignedIn else { return [.signedIn] }
             return (f.showsEmail ? [.email] : []) + (f.hasTimezone ? [.timezone] : []) + [.signInMethods]
@@ -144,7 +151,7 @@ enum ProfileRows {
 
 /// Where a push row goes (`GroupedRow.push(route:)`; the page's `navigationDestination(for:)` builds it).
 enum ProfileRoute: Hashable, Sendable {
-    case devices, syncDetails, notifications, journal, bedtime, signInMethods, reportProblem, licences
+    case devices, syncDetails, notifications, journal, bedtime, signInMethods, reportProblem, licences, nutritionPrivacy
     #if DEBUG
     case catalog, flags
     #endif

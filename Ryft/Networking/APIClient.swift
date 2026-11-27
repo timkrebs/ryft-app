@@ -19,6 +19,7 @@
 // Every request but the three App Attest routes carries `X-RYFT-App-Token` once `AppAttestor` has one; a
 // `403 app_attest_required` gets one new token and one more try, next to the 401's (ADR 0023).
 import Foundation
+import os
 import zlib
 
 enum APIError: LocalizedError {
@@ -282,6 +283,11 @@ final class APIClient: RyftDataSource {
     static let maxUnavailableWait = 30
     static let maxRateLimitWait = 60
 
+    /// Instruments (docs/work/2026-11-22-consent-agree-lag/design.md §6.4): an event `attempt` per round trip (method,
+    /// the route, status or transport, duration) and the interval `retry-wait` while a `503` is waited out. The route is
+    /// public, as a template: no query, no IDs, no days (`signpostRoute`, security review S-1).
+    static let signposter = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "api")
+
     static let defaultConfiguration: URLSessionConfiguration = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 60
@@ -342,12 +348,13 @@ final class APIClient: RyftDataSource {
     /// are outside the beta gate (an invite-gated client needs a token to send its code under `on`).
     static let openBehindInviteGate: Set<String> = [
         "GET /v1/me", "GET /v1/me/sync", "GET /v1/config", "GET /v1/model", "POST /v1/me/invite",
+        "GET /v1/me/nutrition-export",
         "POST /v1/me/consent", "DELETE /v1/me/consent", "POST /v1/feedback", "DELETE /v1/me",
         "POST /v1/app-attest/challenge", "POST /v1/app-attest/keys", "POST /v1/app-attest/token",
     ]
 
     static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
-        openBehindInviteGate.contains("\(method) \(route(path))")
+        openBehindInviteGate.contains("\(method) \(route(path))") || isDirectConnectionDelete(method, path)
     }
 
     /// The host a request goes to: `POST /v1/sync` to `ingest` (`nil` when there's none: never the API
@@ -566,6 +573,7 @@ final class APIClient: RyftDataSource {
                     if case .transport(let inner) = e { return (inner as? URLError)?.code.name ?? "transport" }
                     return nil
                 } ?? "cancelled"
+                Self.signposter.emitEvent("attempt", "\(method, privacy: .public) \(signpostRoute(path), privacy: .public) 0 \(transport, privacy: .public)")
                 if error is CancellationError {
                     await status.cancelled(epoch: epoch)
                 } else {
@@ -578,6 +586,10 @@ final class APIClient: RyftDataSource {
             }
             let durationMs = Self.milliseconds(since: started)
             let code = response?.statusCode ?? 0
+            Self.signposter.emitEvent("attempt", """
+                \(method, privacy: .public) \(signpostRoute(path), privacy: .public) \(code, privacy: .public) \
+                \(durationMs, privacy: .public) ms
+                """)
             if (200..<300).contains(code) || accepting.contains(code) {
                 if unavailable > 0 { await status.finishedWaiting() }
                 // Served, but a gate in warn mode would have refused it: prompt for what's missing.
@@ -610,7 +622,7 @@ final class APIClient: RyftDataSource {
             case 429 where retriesRateLimit && !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
-                APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")
+                APIStatus.log.notice("429 on \(method, privacy: .public) \(signpostRoute(path), privacy: .public); retrying in \(wait) s")
                 try await retryStep { try await sleep(wait) }
                 continue
             case 503 where unavailable < unavailableRetries && !single:
@@ -618,6 +630,9 @@ final class APIClient: RyftDataSource {
                 unavailable += 1
                 let wait = min(retryAfter ?? 5, Self.maxUnavailableWait)
                 await status.waiting(seconds: wait)
+                let waited = Self.signposter.beginInterval("retry-wait", id: Self.signposter.makeSignpostID(),
+                                                           "503 \(wait, privacy: .public) s")
+                defer { Self.signposter.endInterval("retry-wait", waited) }
                 try await retryStep { try await sleep(wait) }
                 continue
             default:
@@ -629,7 +644,7 @@ final class APIClient: RyftDataSource {
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
             let error = APIError.http(code, message, requestID: requestID, code: body?.code, retryAfter: retryAfter)
-            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(redactedPath(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
+            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(signpostRoute(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
             if let gate = error.gate { await status.observe([gate], enforced: true, epoch: epoch) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
                                       code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs), epoch: epoch)
@@ -679,8 +694,14 @@ final class APIClient: RyftDataSource {
         return await APIStatus.shared
     }
 
-    /// The app is English only, so names and summaries come in English whatever the device's languages are.
-    static let acceptLanguage = "en"
+    /// Match translated Platform names to the app language. Unsupported languages fall back to English.
+    static var acceptLanguage: String {
+        languageCode(Bundle.main.preferredLocalizations.first ?? Locale.current.identifier)
+    }
+
+    static func languageCode(_ identifier: String) -> String {
+        Locale(identifier: identifier).language.languageCode?.identifier == "de" ? "de" : "en"
+    }
 
     static func dayString(_ d: Date) -> String {
         DayFormat.string(from: d)

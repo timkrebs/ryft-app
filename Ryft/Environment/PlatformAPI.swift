@@ -10,6 +10,8 @@ protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI, TrainImpor
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse
     /// `POST /v1/me/apple-authorization`, once after Sign in with Apple.
     func postAppleAuthorization(code: String) async throws
+    /// `GET /v1/me/nutrition-export`. Each page contains only the account's saved meal snapshots.
+    func nutritionMealExport(after cursor: UUID?) async throws -> NutritionMealExportPage
     /// `GET /v1/config`: feature flags evaluated for the caller.
     func config() async throws -> RemoteConfig
     /// `POST /v1/devices/{id}/push`.
@@ -142,6 +144,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var failure: Error?
     /// Thrown once by the next call.
     var failNext: Error?
+    /// Scripts saved-meal export pages for the account's data export tests.
+    var mealExportPage: (@Sendable (UUID?) async throws -> NutritionMealExportPage)?
     var syncResponse = SyncResponse(samples: 0, sleep: 0, workouts: 0, daysTouched: [])
     /// Demo data shows the features that ship dark for accounts: the tracker setup (`devices.setup`), My Day and
     /// activities.
@@ -201,6 +205,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
+    /// The calls made on the background session (`APIClient.runsInBackground`), by name.
+    private(set) var backgroundCalls: [String] = []
     private(set) var syncRequests: [SyncRequest] = []
     private(set) var pushRegistrations: [PushRegistration] = []
     private(set) var appleCodes: [String] = []
@@ -226,8 +232,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Records the call, then throws a scripted failure if there is one.
     private func enter(_ name: String) throws {
+        let background = APIClient.runsInBackground
         let error: Error? = lock.withLock {
             calls.append(name)
+            if background { backgroundCalls.append(name) }
             if let e = failNext { failNext = nil; return e }
             #if DEBUG
             if let rule = faults[name] {
@@ -248,6 +256,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     }
 
     func count(_ name: String) -> Int { lock.withLock { calls.filter { $0 == name }.count } }
+
+    func nutritionMealExport(after cursor: UUID?) async throws -> NutritionMealExportPage {
+        try enter("nutritionMealExport")
+        let page = lock.withLock { mealExportPage }
+        return try await page?(cursor) ?? NutritionMealExportPage(meals: [], nextAfter: nil)
+    }
 
     // MARK: services
 
@@ -273,6 +287,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
         let json = contentEncoding == "gzip" ? try Gzip.decompress(body) : body
         let req = try APIClient.jsonDecoder.decode(SyncRequest.self, from: json)
+        if let refusal = refuses?(req) { throw refusal }
         lock.withLock {
             syncRequests.append(req)
             syncBodySizes.append(body.count)
@@ -295,6 +310,9 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var enforcesConsent = false
     /// Runs after each accepted sync (tests change the world between pages with it).
     var afterSync: (@Sendable () -> Void)?
+    /// Ingest's `validate()` as a test states it, over the request as it arrived (dates in whole seconds): an error
+    /// answers the whole request, which is then neither stored nor in `syncRequests`.
+    var refuses: (@Sendable (SyncRequest) -> APIError?)?
     /// After a withdrawal every call fails (the re-check gets no answer).
     var failAfterRevoke = false
 
@@ -334,7 +352,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before `GET /v1/config` answers (tests hold the read open with it).
     var beforeConfig: (@Sendable () async -> Void)?
 
+    /// Runs before each `POST /v1/devices/{id}/push` is taken (tests hold one open with it, then script its answer).
+    var beforeRegisterPush: (@Sendable () async -> Void)?
+
     func registerPush(deviceID: UUID, _ registration: PushRegistration) async throws {
+        await beforeRegisterPush?()
         try enter("registerPush")
         lock.withLock { pushRegistrations.append(registration) }
     }
@@ -368,8 +390,20 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before each `GET /v1/me/sync` answers, after it was read (tests hold one open with it).
     var beforeSyncStatus: (@Sendable () async -> Void)?
 
+    #if DEBUG
+    /// Pins `GET /v1/me/sync`'s answer, as the platform's 10 s cache does (tests): its `gate` then isn't computed from the
+    /// account as it is now.
+    var syncStatusOverride: SyncStatus?
+    #endif
+
     func syncStatus() async throws -> SyncStatus {
         try enter("syncStatus")
+        #if DEBUG
+        if let pinned = lock.withLock({ syncStatusOverride }) {
+            await beforeSyncStatus?()
+            return pinned
+        }
+        #endif
         let gate = gate
         let status = lock.withLock {
             SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",

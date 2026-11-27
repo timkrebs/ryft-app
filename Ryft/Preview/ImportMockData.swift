@@ -149,17 +149,22 @@ enum ImportMockData {
 
     // MARK: Flows
 
-    /// A flow seeded to a step, on the preview library (MockTrain), "today" 28 Apr 2026 in Berlin.
+    /// A flow seeded to a step, on the preview library (MockTrain), "today" 28 Apr 2026 in Berlin. `pendingGate`:
+    /// onboarding's (`.some(nil)`: a gate hold no step answers); nil, no coordinator. `agreementUnsettled`: consent given
+    /// here, RYFT's word on it still out.
     @MainActor
     static func flow(_ step: ImportFlowModel.Step = .pick, files: [ImportPickedFile]? = nil, enrolled: Bool = true,
                      library: TrainLibrary? = nil, uploader: TrainImportUploader? = nil,
+                     pendingGate: OnboardingCoordinator.Step?? = nil, agreementUnsettled: Bool = false,
                      configure: (ImportFlowModel) -> Void = { _ in }) -> ImportFlowModel {
         let store = TrainStore(inMemory: true)
         let library = library ?? TrainLibrary.preview(store: store, outbox: .preview(store: store), enrolled: enrolled)
-        let deps = ImportFlowModel.Dependencies(
+        var deps = ImportFlowModel.Dependencies(
             library: library, mappings: ImportMappingStore(persistence: store) { "preview" },
             uploader: uploader ?? Self.uploader(nil), clock: TestClock(now: now), zone: zone, account: { "preview" }, isOnline: { true },
             readURLs: { _ in [] }, aliases: { ExerciseAliases.fallback }, scriptedFiles: nil, announce: { _ in })
+        deps.pendingGate = { pendingGate }
+        deps.agreementUnsettled = { agreementUnsettled }
         let flow = ImportFlowModel(deps: deps)
         let all = ImportFlowModel.Step.allCases
         flow.path = Array(all.filter { $0.rawValue > 1 && $0.rawValue <= step.rawValue })

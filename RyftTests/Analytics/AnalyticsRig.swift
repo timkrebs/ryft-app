@@ -38,6 +38,10 @@ final class AnalyticsRig {
     /// Whether anybody is signed in (`on`, the default). Off, the gate is closed.
     let signedIn = SignedInSwitch()
     let analytics: Analytics
+    private let refusalLog = RefusalLog()
+
+    /// What `Analytics` refused to hand to the sink (`onRefused`), in order. A test run never hits `assertionFailure`.
+    var refusals: [AnalyticsCatalog.Refusal] { refusalLog.all }
 
     /// `sink` and `defaults`: nil makes a fresh one (default arguments run outside the main actor).
     init(flags: FeatureFlagProvider, sink: FakeAnalyticsSink? = nil, defaults: UserDefaults? = nil, wired: Bool = true) {
@@ -48,8 +52,9 @@ final class AnalyticsRig {
         self.defaults = defaults
         let demo = demo
         let signedIn = signedIn
+        let refusalLog = refusalLog
         analytics = Analytics(sink: sink, flags: flags, defaults: defaults, isDemo: { demo.on },
-                              isSignedIn: { signedIn.on })
+                              isSignedIn: { signedIn.on }, onRefused: { refusalLog.record($0) })
         if wired { flags.onNewest = { [weak analytics] in analytics?.reevaluate() } }
     }
 

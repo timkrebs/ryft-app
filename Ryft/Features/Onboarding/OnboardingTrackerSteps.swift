@@ -5,7 +5,11 @@ import SwiftUI
 struct TrackerPickerView: View {
     let model: OnboardingCoordinator
     @State private var picked: [String]
+    @State private var showsDirectConnection = false
     @Environment(\.appEnvironment) private var env
+    #if DEBUG && targetEnvironment(simulator)
+    @State private var fixture = OnboardingConnectionsSimulatorFixture.requested()
+    #endif
 
     /// `picked`: previews start with a choice.
     init(model: OnboardingCoordinator, picked: [String] = []) {
@@ -14,18 +18,66 @@ struct TrackerPickerView: View {
     }
 
     var body: some View {
+        Group {
+            if showsDirectConnection, let api = directAPI, let account = directAccount {
+                TrackerDirectConnectionStep(providers: directProviders, account: account, api: api, browser: browser,
+                                            showsLockup: model.isFirstRun, back: { showsDirectConnection = false }) {
+                    showsDirectConnection = false
+                    model.answerWear(picked)
+                }
+                .id(account)
+            } else {
+                picker
+            }
+        }
+        .onChange(of: directAccount) { _, _ in
+            showsDirectConnection = false
+            picked = []
+        }
+    }
+
+    private var directProviders: [String] { picked.filter { $0 == "garmin" || $0 == "suunto" } }
+
+    private var directAccount: String? {
+        #if DEBUG && targetEnvironment(simulator)
+        if fixture != nil { return "onboarding-connections-fixture" }
+        #endif
+        return env.isDemo ? nil : env.auth.accountID
+    }
+
+    private var directAPI: (any DirectConnectionsAPI)? {
+        #if DEBUG && targetEnvironment(simulator)
+        if let fixture { return fixture }
+        #endif
+        return env.api as? any DirectConnectionsAPI
+    }
+
+    private func browser() -> any DirectConnectionBrowser {
+        #if DEBUG && targetEnvironment(simulator)
+        if let fixture { return fixture }
+        #endif
+        return DirectConnectionWebSession()
+    }
+
+    private var picker: some View {
         OnboardingScreen(title: Text("What do you wear?"),
-                         lead: Text("Pick your watch, tracker or ring. RYFT then shows how to get its data into Apple Health."),
+                         lead: Text("Pick your watch, tracker or ring to see the available ways to sync."),
                          showsLockup: model.isFirstRun) {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
-            Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")
+            Text("You can manage your trackers and connected accounts in Profile → Devices & sync.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, OnboardingSpec.actionGap)
         }
         .pinnedBar {
-            PillButton(Text("Continue")) { model.answerWear(picked) }
+            PillButton(Text("Continue")) {
+                if !directProviders.isEmpty, directAccount != nil, directAPI != nil {
+                    showsDirectConnection = true
+                } else {
+                    model.answerWear(picked)
+                }
+            }
                 .disabled(picked.isEmpty)
                 .accessibilityIdentifier("wear.continue")
             LaterButton(title: "Skip") { model.later(.wear) }

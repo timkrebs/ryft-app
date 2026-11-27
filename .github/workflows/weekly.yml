@@ -1,14 +1,14 @@
-# Mondays 07:00 Berlin: the newest processed build to the external TestFlight
-# group, with the week's changes as What to Test (docs/CI.md). No rebuild.
-name: Weekly external TestFlight
+# Explicitly select the physically tested build before the external environment approval (docs/CI.md).
+name: External TestFlight
+run-name: External TestFlight ${{ inputs.build }}
 
 on:
-  schedule:
-    # Cron is UTC: 05:00 is 07:00 in summer (CEST), 06:00 is 07:00 in winter (CET).
-    - cron: "0 5 * * 1"
-    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
+      build:
+        description: Physically tested build number (yyyyMMdd.HHmmss)
+        type: string
+        required: true
       notes:
         description: >-
           What to Test, replacing the commit list (max 4000 characters). It goes to en-US, the app's only language.
@@ -23,50 +23,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # No environment here, so the run that isn't 07:00 in Berlin never asks for approval.
-  when:
+  candidate:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      run: ${{ steps.hour.outputs.run }}
-    steps:
-      - name: Only at 07:00 Berlin
-        id: hour
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=Europe/Berlin date +%H)" = "07" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Not 07:00 in Berlin ($(TZ=Europe/Berlin date +%H:%M)); the other schedule entry runs."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  external:
-    needs: when
-    if: needs.when.outputs.run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
-    # The key is in this environment, which waits for your approval (docs/RELEASING.md).
-    environment: external-testflight
-    permissions:
-      contents: write   # the testflight-external tag
-    env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      build: ${{ steps.pin.outputs.build }}
+      commit: ${{ steps.pin.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Newest processed build
-        run: echo "BUILD=$(python3 scripts/testflight.py latest-build)" >> "$GITHUB_ENV"
+          persist-credentials: false
+      - name: Pin the build and its source before approval
+        id: pin
+        env:
+          BUILD_INPUT: ${{ inputs.build }}
+        run: |
+          build="$(python3 scripts/testflight.py validate-external-build "$BUILD_INPUT")"
+          commit="$(git rev-parse --verify "refs/tags/build/$build^{commit}")"
+          printf 'build=%s\ncommit=%s\n' "$build" "$commit" >> "$GITHUB_OUTPUT"
+          printf 'Approve external distribution of build `%s` from commit `%s`.\n' "$build" "$commit" >> "$GITHUB_STEP_SUMMARY"
+
+  external:
+    needs: candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    # Reviewers use the candidate summary and the physical test record before releasing credentials.
+    environment: external-testflight
+    permissions:
+      contents: write   # the testflight-external tag
+    env:
+      BUILD: ${{ needs.candidate.outputs.build }}
+      TO: ${{ needs.candidate.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Notes since the last external build
         env:
           NOTES_INPUT: ${{ inputs.notes }}
         run: |
-          to="build/$BUILD"
-          git rev-parse -q --verify "$to" >/dev/null || to=HEAD
-          from="$(git rev-parse -q --verify testflight-external || true)"
+          from="$(git rev-parse -q --verify 'refs/tags/testflight-external^{commit}' || true)"
           if [ -n "$NOTES_INPUT" ]; then
-            # Typed into a manual run: it replaces the commit list (text only, via the environment).
             len="$(printf '%s' "$NOTES_INPUT" | python3 -c 'import sys; print(len(sys.stdin.read().strip()))')"
             if [ "$len" -gt 4000 ]; then
               echo "::error::The notes are $len characters; App Store Connect takes 4000."
@@ -75,13 +74,15 @@ jobs:
             printf '%s\n' "$NOTES_INPUT" > "$RUNNER_TEMP/notes.txt"
           else
             {
-              echo "This week in RYFT (build $BUILD):"
-              git log --no-merges --pretty='- %s' -n 40 ${from:+$from..}$to
+              echo "RYFT build $BUILD:"
+              git log --no-merges --pretty='- %s' -n 40 "${from:+$from..}$TO"
             } > "$RUNNER_TEMP/notes.txt"
           fi
-          cat "$RUNNER_TEMP/notes.txt"
-          echo "TO=$to" >> "$GITHUB_ENV"
-      - name: Distribute to External
+      - name: Distribute the approved build to External
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
           python3 scripts/testflight.py distribute --build "$BUILD" --group External \
             --notes "$RUNNER_TEMP/notes.txt" --external

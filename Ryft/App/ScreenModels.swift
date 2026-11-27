@@ -38,6 +38,8 @@ final class ScreenModels {
     private let sync: SyncService
     /// Republishes the widget when the tracker choice or `devices.setup` changes.
     private let widgetSetupWatch: ObservationWatch
+    /// Registers with APNs when the invite gate opens (`PushRegistrar.refresh` held it back behind the gate).
+    private let inviteGateWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
     /// Train's plans and reads (the app's: `TrainLibrary.shared`, RyftApp's `trainLibrary`).
@@ -62,7 +64,8 @@ final class ScreenModels {
             _ = flags.isOn(.devicesSetup)
             _ = devices.selection?.trackers
         }, changed: { [repository = state.repository] in repository.publishWidget() })
-        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
+        let apiStatus = apiStatus ?? .shared
+        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus, devices: devices) {
             await coordinator.run(.userInitiated)
         }
         // Every upload waits for the same rule, per path and kind of write (ADR 0008): consent to the policy in force,
@@ -76,14 +79,26 @@ final class ScreenModels {
         }
         trainImport = TrainImportUploader(env: state.env, library: library, coordinator: coordinator)
         trainImport.gate = { [onboarding] in onboarding.uploadGate(for: .trainImport, write: $0) }
-        // The launch check's sync status reaches the sync (an operator's re-sync request).
-        onboarding.statusReceived = { [sync] in sync.receive($0) }
+        // The launch check's sync status reaches the sync (an operator's re-sync request), with when it was asked for: the
+        // sync's ledger counts from then (code review round 2, 9).
+        onboarding.statusReceived = { [sync] in sync.receive($0, requestedAt: $1) }
         // A step's failure, its sentence and request ID (Profile → Privacy shows them), is the side's: it goes with the
         // account-state forgetters, so the Demo data switch takes it both ways (an account change's `switchAccount` does too).
         state.forgetsAccountState { [weak onboarding] in onboarding?.clearError() }
-        push = PushRegistrar(env: state.env)
+        let push = PushRegistrar(env: state.env, apiStatus: apiStatus)
+        self.push = push
+        // `refresh` holds the registration while the invite gate is closed; an account that redeems its code has none
+        // until the next app active otherwise (review code should-fix, round 3).
+        inviteGateWatch = ObservationWatch(read: { _ = apiStatus.inviteBlocked }, changed: { [weak push] in
+            guard !apiStatus.inviteBlocked else { return }
+            Task { await push?.refresh() }
+        })
+        // Its APNs token goes with every side the state forgets: an account change, a wipe, a Demo switch (review S-2).
+        state.forgetsAccountState { [weak push] in push?.forgetAccount() }
         // The journal is the account's: it forgets the previous one's with the other account-state forgetters.
         journal = JournalStore(state: state)
+        // Its habits and answers decide the journal reminder; a day answered takes it away at once.
+        state.reminders.connect(journal: journal)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
@@ -109,6 +124,8 @@ final class ScreenModels {
         state.forgetsAccountState { [weak insights] in insights?.forget() }
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
+                                     pendingGate: { [onboarding] in onboarding.pendingGate },
+                                     awaitsConfirmation: { [onboarding] in onboarding.awaitsConfirmation },
                                      showStrain: { [state] in state.selectedTab = .strain },
                                      openRoute: { [state, strain] route in
                                          strain.requestedRoute = route

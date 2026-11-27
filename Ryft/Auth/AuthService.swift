@@ -7,6 +7,8 @@ import CryptoKit
 import Foundation
 import GameplayKit
 import Observation
+import UIKit
+import UserNotifications
 import Auth
 
 // MARK: - SDK seam
@@ -23,6 +25,7 @@ protocol AuthClientProtocol: Sendable {
     /// Refreshes regardless of expiry (after the platform answered 401).
     func refreshSession() async throws -> Session
     func signInWithApple(idToken: String, nonce: String) async throws -> Session
+    func googleAuthorizationURL(linking: Bool) async throws -> URL
     /// Stores the name as `user_metadata.full_name`.
     func setFullName(_ name: String) async throws
     /// `nil` session when the project requires email confirmation first.
@@ -35,7 +38,7 @@ protocol AuthClientProtocol: Sendable {
     func session(from url: URL) async throws -> Session
     /// Removes the local session first, then revokes it on the server.
     func signOut() async throws
-    /// The account's sign-in methods (Supabase identities: `apple`, `email`).
+    /// The account's linked Supabase identities.
     func identities() async throws -> [SignInMethod]
     /// Adds Sign in with Apple to the signed-in account (Supabase "Manual Linking" must be on).
     func linkApple(idToken: String, nonce: String) async throws -> Session
@@ -65,8 +68,10 @@ struct SignInMethod: Hashable, Identifiable, Sendable {
 
 struct SupabaseAuthClient: AuthClientProtocol {
     let client: AuthClient
+    private let authURL: URL
 
     init(config: SupabaseConfig) {
+        authURL = config.authURL
         client = AuthClient(url: config.authURL,
                             headers: ["apikey": config.publishableKey],
                             flowType: .pkce,                      // links come back as ryft://auth/callback?code=…
@@ -82,6 +87,19 @@ struct SupabaseAuthClient: AuthClientProtocol {
 
     func signInWithApple(idToken: String, nonce: String) async throws -> Session {
         try await client.signInWithIdToken(credentials: .init(provider: .apple, idToken: idToken, nonce: nonce))
+    }
+
+    func googleAuthorizationURL(linking: Bool) async throws -> URL {
+        let redirect = SupabaseConfig.oauthRedirectURL
+        let options: [(name: String, value: String?)] = [("prompt", "select_account")]
+        let url: URL
+        if linking {
+            url = try await client.getLinkIdentityURL(provider: .google, redirectTo: redirect, queryParams: options).url
+        } else {
+            url = try client.getOAuthSignInURL(provider: .google, redirectTo: redirect, queryParams: options)
+        }
+        guard GoogleOAuth.acceptsAuthorization(url, authURL: authURL) else { throw URLError(.badServerResponse) }
+        return url
     }
 
     func setFullName(_ name: String) async throws {
@@ -221,6 +239,8 @@ final class AuthService {
     /// The account `deleteAccount()` is deleting, while it runs. That account's session ending meanwhile (a
     /// concurrent final 401 or refresh failure) ends as the deletion: nothing of it is parked.
     private var deletingAccount: String?
+    // Account-bound requests can suspend before the API client obtains or refreshes their bearer.
+    @TaskLocal private static var requestAccountGeneration: Int?
     /// The signed-in account is being deleted: nothing more is uploaded for it. False for another account that
     /// signed in while an earlier one's deletion still runs.
     var isDeletingAccount: Bool { deletingAccount != nil && deletingAccount == accountID }
@@ -254,6 +274,8 @@ final class AuthService {
     /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes. False when the store may still hold
     /// the data: the ledger's entry then stays, and no session is published over it.
     private let wipeLocalData: @MainActor (Wipe) -> Bool
+    /// The notification step on its own (`liveNotificationStep`), for a wipe the launch leaves for after the first frame.
+    private let launchNotificationStep: @MainActor (Wipe) -> Void
     /// The wipe that was started and hasn't finished.
     private let ledger: WipeLedger
     /// Dates the ledger's entries.
@@ -277,16 +299,23 @@ final class AuthService {
     private let postAppleAuthorization: (String) async throws -> Void
     @ObservationIgnored private var observation: Task<Void, Never>?
     private var pendingNonce: String?
+    private var googleOAuthInFlight = false
+    @ObservationIgnored private var exchangingGoogleCode = false
+    @ObservationIgnored private var discardedGoogleAccount: UUID?
+    let authEntry: AuthEntry
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
          wipeLocalData: @escaping @MainActor (Wipe) -> Bool = AuthService.wipeSharedLocalData,
+         launchNotificationStep: @escaping @MainActor (Wipe) -> Void = AuthService.liveNotificationStep,
          deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
          postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) },
-         ledger: WipeLedger? = nil, now: @escaping () -> Date = { Date() }) {
+         ledger: WipeLedger? = nil, now: @escaping () -> Date = { Date() }, authEntry: AuthEntry = SupabaseConfig.entry) {
         self.client = client
+        self.authEntry = authEntry
         self.settings = settings
         self.defaults = defaults
         self.wipeLocalData = wipeLocalData
+        self.launchNotificationStep = launchNotificationStep
         self.deleteRemoteAccount = deleteRemoteAccount
         self.postAppleAuthorization = postAppleAuthorization
         self.ledger = ledger ?? WipeLedger(file: nil)
@@ -311,6 +340,11 @@ final class AuthService {
             }
             for await change in client.authStateChanges {
                 guard let self else { return }
+                if let id = change.session?.user.id {
+                    // The Google flow validates the exchange before publishing its SDK session.
+                    if self.exchangingGoogleCode { continue }
+                    if id == self.discardedGoogleAccount, client.currentSession?.user.id != id { continue }
+                }
                 if change.event == .initialSession {
                     // Only ends restoring: the stored session was resolved above, and a late initial event must not
                     // undo a sign-out that happened since. It publishes only what the Keychain didn't answer with then.
@@ -389,6 +423,7 @@ final class AuthService {
 
     /// `SignInWithAppleButton`'s completion hook.
     func complete(_ result: Result<ASAuthorization, Error>) async {
+        guard !googleOAuthInFlight else { return }
         errorMessage = nil
         switch result {
         case .failure(let error):
@@ -453,15 +488,69 @@ final class AuthService {
         return name.isEmpty ? nil : name
     }
 
+    // MARK: Google sign-in and authenticated linking
+
+    @discardableResult
+    func continueWithGoogle(linking: Bool = false, open: @MainActor (URL) async throws -> URL) async -> Bool {
+        guard authEntry.googleEnabled, !isWorking, let client else { return false }
+        let owner = session?.user.id
+        let generation = accountChanges
+        guard linking == (owner != nil), client.currentSession?.user.id == owner else { return false }
+        if linking { linkError = nil } else { errorMessage = nil }
+        googleOAuthInFlight = true
+        otherWork = true
+        defer {
+            exchangingGoogleCode = false
+            googleOAuthInFlight = false
+            otherWork = false
+        }
+        do {
+            let url = try await client.googleAuthorizationURL(linking: linking)
+            try checkGoogleOwner(owner, generation: generation, client: client)
+            let callback = try await open(url)
+            try checkGoogleOwner(owner, generation: generation, client: client)
+            guard GoogleOAuth.accepts(callback) else { throw GoogleSignInFailure.invalidCallback }
+            exchangingGoogleCode = true
+            let result = try await client.session(from: callback)
+            // The SDK stores its result before returning. Discard a callback that changed the
+            // account during linking or finished after the original account ended.
+            if (linking && result.user.id != owner) || accountChanges != generation || Task.isCancelled {
+                discardedGoogleAccount = result.user.id
+                if client.currentSession?.user.id == result.user.id { await signOut(reason: .sessionExpired) }
+                throw CancellationError()
+            }
+            try publish(result)
+            exchangingGoogleCode = false
+            if linking { await loadSignInMethods() }
+            return true
+        } catch {
+            if !error.isCancellation, accountChanges == generation {
+                if linking { linkError = AuthMessage.googleLinkText(for: error) }
+                else { errorMessage = AuthMessage.text(for: error, during: .signIn) }
+            }
+            return false
+        }
+    }
+
+    private func checkGoogleOwner(_ owner: UUID?, generation: Int, client: AuthClientProtocol) throws {
+        try Task.checkCancellation()
+        guard accountChanges == generation, session?.user.id == owner, client.currentSession?.user.id == owner else {
+            throw CancellationError()
+        }
+    }
+
+    private enum GoogleSignInFailure: Error { case invalidCallback }
+
     // MARK: sign-in methods (Profile → Account)
 
     /// The account's sign-in methods, once loaded.
     private(set) var signInMethods: [SignInMethod] = []
-    /// Why adding Sign in with Apple failed, in one sentence.
+    /// Why adding a sign-in method failed, in one sentence.
     private(set) var linkError: String?
     private var pendingLinkNonce: String?
 
     var hasAppleSignIn: Bool { signInMethods.contains { $0.provider == "apple" } || provider == "apple" }
+    var hasGoogleSignIn: Bool { signInMethods.contains { $0.provider == "google" } || provider == "google" }
 
     func loadSignInMethods() async {
         guard let client, let account = accountID else { return }
@@ -482,6 +571,7 @@ final class AuthService {
     /// Links the Apple ID to this account, so either sign-in opens the same data.
     @discardableResult
     func completeLink(_ result: Result<ASAuthorization, Error>) async -> Bool {
+        guard !googleOAuthInFlight else { return false }
         linkError = nil
         guard let client else { return false }
         switch result {
@@ -591,7 +681,10 @@ final class AuthService {
     /// Returns whether the URL was ours.
     @discardableResult
     func handle(_ url: URL) async -> Bool {
+        if GoogleOAuth.isReturnPath(url) { return true }
         guard SupabaseConfig.isAuthCallback(url) else { return false }
+        // The SDK has a single PKCE verifier. An unrelated link must not consume an active Google flow's verifier.
+        guard !googleOAuthInFlight, authEntry.emailEnabled else { return true }
         await run(.link) { client in
             let session = try await client.session(from: url)
             // Written first: a held link's session is published at a later launch, which `publish` tells by this.
@@ -629,7 +722,11 @@ final class AuthService {
     func signOut(reason: SignOutReason = .user) async {
         // Still authorised: let the app clean up remotely (the push registration).
         // An expired session can't; a deleted account took everything with it.
-        if reason == .user, isSignedIn { await beforeSignOut?() }
+        if reason == .user, isSignedIn {
+            let generation = accountChanges
+            await beforeSignOut?()
+            guard generation == accountChanges else { return }
+        }
         // Leave `signedIn` first, so the SDK's own `.signedOut` event isn't read as an expiry.
         machine.enter(reason == .sessionExpired ? .expired : .signedOut)
         signOutNotice = reason.notice
@@ -656,21 +753,24 @@ final class AuthService {
     /// that after `Retry-After`. On failure the account stays signed in.
     @discardableResult
     func deleteAccount() async -> Bool {
+        let account = session?.user.id.uuidString
+        let changesAtStart = accountChanges
         errorMessage = nil
         errorDetails = nil
         otherWork = true
-        await beforeSignOut?()
         defer { otherWork = false }
-        let account = session?.user.id.uuidString
+        await beforeSignOut?()
+        guard accountChanges == changesAtStart else { return false }
         // From here this account's session ending for any reason ends as this deletion (no parking), and its uploads
         // stop.
         deletingAccount = account
         defer { deletingAccount = nil }
-        let changesAtStart = accountChanges
         onAccountDeletionStart?()
         let result: AccountDeleted
         do {
-            result = try await deleteRemoteAccount()
+            result = try await Self.$requestAccountGeneration.withValue(changesAtStart) {
+                try await deleteRemoteAccount()
+            }
         } catch {
             // The account changed meanwhile, or the call was cancelled (a switch cuts its retries short): whoever is
             // here now didn't ask, so no message.
@@ -895,6 +995,10 @@ final class AuthService {
 
     @discardableResult
     private func perform(_ wipe: Wipe) -> Bool {
+        // A withdrawal sent with no answer is held per account in the defaults, outside the store: it ends with the account on
+        // this iPhone, by sign-out too, including a wipe a launch resumed before the coordinator ran (security review round 4;
+        // `ConsentState.withdrawalUnresolvedSince`). Not `withdrawnAt`: the same account signing in again hasn't agreed since.
+        if let account = wipe.account { defaults.removeObject(forKey: ConsentState.unresolvedWithdrawalKey(account)) }
         let wiped = wipeLocalData(wipe)
         onWipe?(wipe)
         return wiped
@@ -929,6 +1033,11 @@ final class AuthService {
             ledger.forStoreStep = owed
             resumedOwedWipe = true
             endingStoredSession = endSession
+            // The parked rows wait for the first frame; the notification step touches none of them, so it runs now,
+            // unless it ran before the kill (review N-1). A background launch shows no frame, and would otherwise keep
+            // the ended session's notifications and APNs registration until a foreground one. The retry after the frame
+            // runs the device steps again with the rest, this one included: it's idempotent.
+            if !owed.deviceStepsDone { launchNotificationStep(owed.wipe) }
             return (endSession ? nil : stored, endSession)
         case .wipeNow(let narrow, let endSession):
             if narrow { ledger.update { $0.wipe.reason = nil } }
@@ -951,6 +1060,11 @@ final class AuthService {
     func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
         guard finishOwedWipe() else { return }
         train.accountChanged()
+        // The resumed wipe's notification step (every notification, the owner key, APNs) has run: before the kill, or at
+        // this launch (`resumeOwedWipe`, review N-1). The retry just now ran any device step the kill left (it's
+        // `storeOnly` only when they had all run). The reminders drop this side's ledger and plan for whoever is
+        // current; the owner check takes anything another account's that's left (design.md §9.3).
+        await bedtime.reminders.accountChanged()
         await bedtime.accountChanged()
     }
 
@@ -976,6 +1090,7 @@ final class AuthService {
     /// re-syncs the full backfill) and per-user UserDefaults. False when the store may still hold the data.
     static func wipeSharedLocalData(_ wipe: Wipe) -> Bool {
         steps(of: wipe, before: {
+            HealthKitManager.shared.stopBodyMass()
             HealthKitManager.shared.resetAnchors()
             SyncEngineState.wipe(defaults: .standard)
             Settings.shared.clearPerUserState()
@@ -984,6 +1099,10 @@ final class AuthService {
             // The usage analytics answer is the person's: whoever signs in next is asked, with a new id. Here too, not
             // only in `AppState.wiped`, because a wipe resumed at launch runs before that hook is bound.
             Analytics.forgetAnswer(defaults: .standard)
+            liveNotificationStep(wipe)
+            #if canImport(AlarmKit)
+            if #available(iOS 26.0, *) { AlarmKitWake.cancelAll() }
+            #endif
         }, store: wipeStoreStep, after: {
             RestActivityController.shared.end()
             // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
@@ -997,6 +1116,28 @@ final class AuthService {
             // all of the account's data.
             DataExport.removeFiles()
         })
+    }
+
+    /// The wipe's notification step, for every reason (design.md §9.1): every notification of the account's, pending and
+    /// delivered (its server alerts in Notification Center too, its wake notifications below iOS 26), and whose they were
+    /// (`ReminderScheduler.wipe`), and the journal reminder's settings, but a session expiry's account keeps its own (review
+    /// S-4); then APNs: this iPhone gets no remote notification until the app registers again. That ends nothing on the
+    /// platform. A sign-out sent `DELETE /v1/devices/{id}/push` before this (a failure is ignored), and an expired session
+    /// can't, so the platform may still hold this iPhone's token for the account that left. iOS often hands the next
+    /// registration the same token, and the platform moves it only on an accepted `POST`: until then that account's
+    /// alerts can reach this iPhone again (review S-1, API_REQUESTS NT7). `PushRegistrar` doesn't register behind the
+    /// invite gate, and unregisters again after a refused `POST`. The accepted registration's record goes with the
+    /// store. AlarmKit's wake alarms go beside it (iOS 26).
+    static func notificationStep(_ wipe: Wipe, center: NotificationWiping, defaults: UserDefaults, unregister: () -> Void) {
+        ReminderScheduler.wipe(center, defaults: defaults, parking: wipe.parking)
+        unregister()
+    }
+
+    /// The step on the app's own centre and defaults: in every wipe's device step, and at launch for a wipe resumed after
+    /// the first frame. Never through `AppEnvironment.live` (ADR 0020).
+    static func liveNotificationStep(_ wipe: Wipe) {
+        notificationStep(wipe, center: UNUserNotificationCenter.current(), defaults: .standard,
+                         unregister: { UIApplication.shared.unregisterForRemoteNotifications() })
     }
 
     /// A retry (`storeOnly`) leaves the device steps alone, so it doesn't restart the backfill.
@@ -1097,6 +1238,16 @@ enum AuthMessage {
         }
     }
 
+    static func googleLinkText(for error: Error) -> String {
+        if case .api(_, .identityAlreadyExists, _, _) = error as? AuthError {
+            return String(localized: "This Google account is already linked to a RYFT account. Contact support if you need help keeping your data.")
+        }
+        if case .api(_, .manualLinkingDisabled, _, _) = error as? AuthError {
+            return String(localized: "Adding Google sign-in is unavailable. Try again later.")
+        }
+        return text(for: error, during: .signIn)
+    }
+
     enum Context { case signIn, signUp, emailLink, newPassword, link }
 
     static func text(for error: Error, during context: Context) -> String {
@@ -1156,12 +1307,31 @@ extension AuthService: AccessTokenProvider {
         await signOut(reason: .sessionExpired)
     }
 
+    func withBoundAccount<Result>(_ binding: AccountBinding, operation: () async throws -> Result) async throws -> Result {
+        guard !binding.demo, let account = binding.account, account == accountID, binding.changes == accountChanges else {
+            throw CancellationError()
+        }
+        return try await Self.$requestAccountGeneration.withValue(binding.changes) {
+            try await operation()
+        }
+    }
+
     private func token(_ fetch: (AuthClientProtocol) async throws -> Session) async throws -> String {
+        let generation = accountChanges
+        if let requiredGeneration = Self.requestAccountGeneration, requiredGeneration != generation {
+            throw CancellationError()
+        }
         if let staticBearer { return staticBearer }
-        guard let client, session != nil else { throw APIError.signedOut }
+        guard let client, let owner = session?.user.id else { throw APIError.signedOut }
+        // The SDK can store a new session before its event reaches the app.
+        if let storedOwner = client.currentSession?.user.id, storedOwner != owner { throw CancellationError() }
         do {
-            return try await fetch(client).accessToken
+            let fetched = try await fetch(client)
+            guard accountChanges == generation, fetched.user.id == owner else { throw CancellationError() }
+            return fetched.accessToken
         } catch let error as AuthError where error.endsSession {
+            guard accountChanges == generation else { throw CancellationError() }
+            if let storedOwner = client.currentSession?.user.id, storedOwner != owner { throw CancellationError() }
             await signOut(reason: .sessionExpired)
             throw APIError.signedOut
         }

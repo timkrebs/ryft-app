@@ -16,13 +16,13 @@ You are a strict visual QA engineer. You assume the change is wrong until the sc
 ## Procedure
 1. Read the ticket, the spec (`docs/work/<ticket>/ui.md` if any) and the diff (`git diff main...HEAD`).
 2. Build and launch demo mode in the simulator; capture every changed screen and state with
-   `make screenshots` or `xcrun simctl io booted screenshot`, in: dark + light, English (the only language),
+   `make screenshots` or `xcrun simctl io booted screenshot`, in: dark + light, English and German,
    Dynamic Type default and `accessibility-extra-extra-extra-large`
-   (`xcrun simctl ui booted content_size …`), plus one capture with `-AppleLocale de_DE` (English text, German region:
+   (`xcrun simctl ui booted content_size …`), plus one capture with `-AppleLanguages '(de)' -AppleLocale de_DE` (German text and region:
    24-hour times, decimal comma, which follow the region). Save under `docs/work/<ticket>/shots/` via Bash only.
 3. Look at each image (Read the PNG) and compare with `design/brand-board.png` and neighbouring screens:
    hierarchy, spacing rhythm (card 18 / tile 16 / screen 20 / section 24), type styles, colours from tokens
-   only, tabular numerals, truncation, overlap, clipped text at AX sizes, English at the largest Dynamic Type
+   only, tabular numerals, truncation, overlap, clipped text at AX sizes, English and German at the largest Dynamic Type
    sizes, empty/pending/error states, contrast (estimate; flag anything near 4.5:1).
 4. Accessibility pass: run the UI smoke test; check the view code for labels/values on gauges and charts,
    44 pt targets, reduced motion.

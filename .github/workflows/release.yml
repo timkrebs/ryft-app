@@ -1,5 +1,5 @@
 # A version release, second half: when a release PR (`make release`, scripts/release.sh) lands on main and raises
-# VERSION, tag vX.Y.Z on that commit, archive the tag and upload it to TestFlight's internal group. Submitting for App
+# VERSION, tag vX.Y.Z on that commit, archive the commit and upload it to TestFlight's internal group. Submitting for App
 # Review stays a person's decision in App Store Connect (docs/CI.md).
 #
 # The VERSION bump itself goes through a pull request: main's ruleset requires a PR, linear history and the required
@@ -24,7 +24,6 @@ jobs:
     permissions:
       contents: write   # the vX.Y.Z tag
     outputs:
-      version: ${{ steps.tag.outputs.version }}
       notes: ${{ steps.tag.outputs.notes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,7 +58,6 @@ jobs:
           last="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA~1" 2>/dev/null || true)"
           delim="NOTES_$(openssl rand -hex 8)"
           {
-            echo "version=$version"
             echo "notes<<$delim"
             echo "RYFT $version"
             git log --no-merges --pretty='- %s' -n 40 "${last:+$last..}$GITHUB_SHA~1"
@@ -72,7 +70,7 @@ jobs:
       contents: write   # the build/<number> tag
     uses: ./.github/workflows/_testflight.yml
     with:
-      ref: v${{ needs.tag.outputs.version }}
+      ref: ${{ github.sha }}
       environment: internal-testflight
       group: Internal
       notes: ${{ needs.tag.outputs.notes }}

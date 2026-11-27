@@ -1529,6 +1529,41 @@ struct SyncDetailsTests {
         #expect(model.queueText == String(localized: "Idle"))
     }
 
+    @Test("The diagnostics count the records the platform would have refused, per stream")
+    func diagnosticsCountTheInvalidRecords() async throws {
+        let start = Date(timeIntervalSince1970: 1_792_300_000)
+        func workout(_ minutes: Double) -> Workout {
+            Workout(id: UUID(), activity: "running", start: start, end: start.addingTimeInterval(minutes * 60), avgHr: nil,
+                    maxHr: nil, energyKcal: nil, distanceM: nil, source: "Tracker", strain: nil)
+        }
+        let health = MockHealthStore(streams: [.workouts, .quantity(.heartRate)], pages: [
+            .workouts: [HealthDelta(workouts: [workout(0), workout(30)])], // the first has no duration
+            .quantity(.heartRate): [HealthDelta(samples: [Sample(type: .heartRate, start: start, end: start, value: 60,
+                                                                 unit: "bpm", source: "Watch")])],
+        ])
+        let (_, state, _) = makeState(health: health)
+        let sync = SyncService.ungated(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        await sync.syncNow()
+
+        let lines = model.diagnostics.components(separatedBy: "\n")
+        let workoutsLine = lines.first { $0.hasPrefix("workouts: ") }
+        let heartRateLine = lines.first { $0.hasPrefix("heart_rate: ") }
+        let workouts = try #require(workoutsLine)
+        let heartRate = try #require(heartRateLine)
+        #expect(workouts.hasPrefix("workouts: 1 rec ") && workouts.hasSuffix(" ignored dup 0 out 0 unk 0 invalid 1"))
+        #expect(heartRate.hasSuffix(" ignored dup 0 out 0 unk 0 invalid 0"))
+        // A report's sync lines: only a stream that left records out says so.
+        let report = FeedbackPayload.syncLines(FeedbackSync(engine: sync.engineState, backlogBytes: nil, running: false,
+                                                            queued: false, streams: model.streams))
+        let reportWorkoutsLine = report.first { $0.hasPrefix("stream workouts · ") }
+        let reportHeartRateLine = report.first { $0.hasPrefix("stream heart_rate · ") }
+        let reportWorkouts = try #require(reportWorkoutsLine)
+        let reportHeartRate = try #require(reportHeartRateLine)
+        #expect(reportWorkouts.hasPrefix("stream workouts · 1 rec · 1 days · newest ") && reportWorkouts.hasSuffix(" · invalid 1"))
+        #expect(reportHeartRate.hasPrefix("stream heart_rate · 1 rec · ") && !reportHeartRate.contains("invalid"))
+    }
+
     @Test func syncingTheLastThreeDaysAgainRunsThePipeline() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [
             HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "x")])
@@ -1561,7 +1596,9 @@ struct SyncDetailsTests {
     }
 
     @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
-        let (_, state, clock) = makeState()
+        // Noon, so the 61 s below can't cross midnight and change the day the status names.
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now) ?? .now
+        let (_, state, clock) = makeState(now: noon)
         let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         #expect(model.scoringText == String(localized: "Nothing waiting") && !model.scoringIsSlow)

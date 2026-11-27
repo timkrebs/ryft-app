@@ -67,6 +67,8 @@
 		<string>oura</string>
 	</array>
 #if RYFT_LOCAL_NETWORKING
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RYFT connects to the Garmin test API on your Mac when you start a local test.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -75,14 +77,18 @@
 #endif
 	<key>NSAlarmKitUsageDescription</key>
 	<string>RYFT sets the wake-up alarm you choose in Bedtime &amp; wake, so it rings even in Silent mode and Focus.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>RYFT uses the camera to read a food barcode when you choose to scan it.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising.</string>
+	<string>RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. If you choose to share them, RYFT reads weigh-ins for coaching and blood glucose for meal response scores. The data is sent to your RYFT account and never used for advertising.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>RYFT saves your strength workouts to Apple Health, only if you turn it on. It writes nothing else.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>RyftAPIURL</key>
 	<string>$(RYFT_API_URL)</string>
+	<key>RyftAuthEntry</key>
+	<string>$(RYFT_AUTH_ENTRY)</string>
 	<key>RyftIngestURL</key>
 	<string>$(RYFT_INGEST_URL)</string>
 	<key>RyftSupabasePublishableKey</key>
@@ -95,6 +101,7 @@
 		<string>Satoshi-Regular.otf</string>
 		<string>Satoshi-Medium.otf</string>
 		<string>Satoshi-Bold.otf</string>
+		<string>GoogleSans-Medium.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

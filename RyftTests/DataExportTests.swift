@@ -113,6 +113,102 @@ struct DataExportAccountTests {
         #expect(exportFiles(in: s.folder).count == 1)
     }
 
+    private nonisolated static func meal(_ id: UUID = UUID()) -> NutritionMeal {
+        NutritionMeal(id: id, clientRequestId: UUID(), consumedAt: Date(timeIntervalSince1970: 1_790_000_000),
+                      timezone: "Europe/Berlin", localDate: "2026-09-21", mealType: "breakfast", inputMethod: "manual",
+                      name: "Fixture meal", notes: "", revision: 1,
+                      items: [NutritionMealItem(id: UUID(), foodId: nil, foodName: "Fixture food", brand: "", quantity: 100,
+                                                unit: "g", portionId: nil, weightG: 100, nutrients: [
+                                                    "protein_g": NutritionSnapshot(amount: 10, unit: "g", sourceId: UUID(),
+                                                                                   referenceAmount: 100, referenceUnit: "g"),
+                                                ], qualityProfile: nil, calculationVersion: 1)])
+    }
+
+    @Test func mealDiaryIncludesSavedSnapshotsAcrossPages() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        let first = Self.meal(), second = Self.meal()
+        let cursor = UUID()
+        s.api.mealExportPage = { after in
+            if let after {
+                #expect(after == cursor)
+                return NutritionMealExportPage(meals: [second], nextAfter: nil)
+            }
+            return NutritionMealExportPage(meals: [first], nextAfter: cursor)
+        }
+        await s.profile.export()
+        let file = try #require(s.profile.exported)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any]
+        let diary = try #require(raw?["nutrition_diary"] as? [String: Any])
+        let meals = try #require(diary["meals"] as? [[String: Any]])
+        #expect(file.nutritionDiaryStatus == .included && diary["status"] as? String == "included")
+        #expect(meals.compactMap { $0["id"] as? String } == [first.id.uuidString, second.id.uuidString])
+        let items = try #require(meals.first?["items"] as? [[String: Any]])
+        let nutrients = try #require(items.first?["nutrients"] as? [String: [String: Any]])
+        #expect(items.first?["weight_g"] as? Double == 100 && items.first?["calculation_version"] as? Int == 1)
+        #expect(nutrients["protein_g"]?["reference_amount"] as? Double == 100)
+        #expect(s.api.count("nutritionMealExport") == 2)
+    }
+
+    @Test func olderPlatformMarksTheDiaryUnavailableAndKeepsOtherData() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        s.api.mealExportPage = { _ in throw APIError.http(404, "not found") }
+        await s.profile.export()
+        let file = try #require(s.profile.exported)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any]
+        let diary = try #require(raw?["nutrition_diary"] as? [String: Any])
+        #expect(file.nutritionDiaryStatus == .unavailable && diary["status"] as? String == "unavailable")
+        #expect(diary["meals"] == nil && raw?["workouts"] != nil && s.profile.exportError == nil)
+    }
+
+    @Test func mealDiaryStopsAtARepeatedCursorInsteadOfSharingAnInvalidArchive() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        let cursor = UUID()
+        s.api.mealExportPage = { _ in NutritionMealExportPage(meals: [Self.meal()], nextAfter: cursor) }
+        await s.profile.export()
+        #expect(s.api.count("nutritionMealExport") == 2)
+        #expect(s.profile.exported == nil && s.profile.exportError != nil && exportFiles(in: s.folder).isEmpty)
+    }
+
+    @Test func unboundedMealDiaryIsExportedWithExplicitPartialCoverage() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        s.api.mealExportPage = { _ in NutritionMealExportPage(meals: [Self.meal()], nextAfter: UUID()) }
+        await s.profile.export()
+        let file = try #require(s.profile.exported)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any]
+        let diary = try #require(raw?["nutrition_diary"] as? [String: Any])
+        let meals = try #require(diary["meals"] as? [[String: Any]])
+        #expect(file.nutritionDiaryStatus == .partial && diary["status"] as? String == "partial")
+        #expect(s.api.count("nutritionMealExport") == 250 && meals.count == 250)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func mealDiaryClearsAnExportWhenTheAccountChangesDuringAPage() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        let clock = s.clock
+        s.api.mealExportPage = { _ in
+            try await clock.sleep(for: .seconds(1))
+            return NutritionMealExportPage(meals: [Self.meal()], nextAfter: UUID())
+        }
+        let exporting = Task { await s.profile.export() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let other = UUID()
+        s.client.emit(.signedIn, .preview(id: other))
+        #expect(await eventually { s.auth.accountID == other.uuidString })
+        clock.advance(by: .seconds(1))
+        await exporting.value
+        #expect(s.api.count("nutritionMealExport") == 1)
+        #expect(s.profile.exported == nil && s.profile.exportError == nil && exportFiles(in: s.folder).isEmpty)
+    }
+
+    @Test func savedMealsAreReadableBehindTheInviteGate() {
+        #expect(APIClient.isOpenBehindInviteGate("GET", "/v1/me/nutrition-export?limit=25"))
+        #expect(!APIClient.isOpenBehindInviteGate("POST", "/v1/me/nutrition-export?limit=25"))
+    }
+
     @Test(.timeLimit(.minutes(1))) func anArchiveThatFinishesForAnotherAccountIsDropped() async throws {
         let s = try setup()
         defer { try? FileManager.default.removeItem(at: s.folder) }

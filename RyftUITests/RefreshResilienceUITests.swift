@@ -115,7 +115,8 @@ final class RefreshResilienceUITests: XCTestCase {
     }
 
     /// The Details sheet's "Send to RYFT" (Report a problem is wired on the root view) is reachable at the
-    /// opening detent and opens Report a problem pre-filled: a bug report about today, its status and request ID.
+    /// opening detent and opens Report a problem pre-filled: a bug report about today and its status. Diagnostics are
+    /// opt-in, so the request ID joins the chip (and the report) only once "Include diagnostics" is on.
     @MainActor
     func testSendToRYFTOpensReportAProblemPrefilled() throws {
         let app = launch(fault: "/v1/days/today=503,/v1/days=503")
@@ -133,9 +134,18 @@ final class RefreshResilienceUITests: XCTestCase {
 
         let chip = element(app, "report.context")
         XCTAssertTrue(chip.waitForExistence(timeout: 5), "the context chip")
-        XCTAssertTrue(chip.label.hasPrefix("About: Today · 503"), chip.label)
-        XCTAssertTrue(chip.label.contains("fault-"), chip.label)
+        XCTAssertEqual(chip.label, "About: Today · 503", "no request ID while diagnostics are off")
         XCTAssertEqual(element(app, "report.message").value as? String, "Refreshing Today didn't work.")
         XCTAssertTrue(element(app, "report.category.bug").isSelected, "a bug report")
+
+        let diagnostics = app.switches["report.diagnostics"]
+        XCTAssertTrue(diagnostics.waitForExistence(timeout: 5), "Include diagnostics")
+        XCTAssertEqual(diagnostics.value as? String, "0", "diagnostics are opt-in")
+        for _ in 0..<5 where !diagnostics.isHittable { app.swipeUp() }
+        // The switch itself, at the row's trailing end (the middle is its label).
+        diagnostics.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        wait(for: "value == '1'", on: diagnostics, timeout: 5, "diagnostics on")
+        wait(for: "label BEGINSWITH 'About: Today · 503 · request fault-'", on: chip, timeout: 5,
+             "the chip carries the request ID once diagnostics are on")
     }
 }

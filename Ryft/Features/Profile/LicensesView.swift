@@ -36,6 +36,8 @@ struct LicensesView: View {
               url: "https://chromium.googlesource.com/webm/libwebp"),
         Entry(name: "Satoshi typeface (Light, Regular, Medium, Bold)", license: "ITF Free Font License", holder: "Indian Type Foundry (Fontshare)",
               url: "https://www.fontshare.com/fonts/satoshi"),
+        Entry(name: "Google Sans Medium", license: "SIL Open Font License 1.1", holder: "The Google Sans Project Authors",
+              url: "https://github.com/googlefonts/googlesans"),
     ]
 
     var body: some View {

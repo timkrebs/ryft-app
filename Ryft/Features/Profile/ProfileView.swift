@@ -16,7 +16,7 @@ struct ProfileView: View {
     /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
     @State private var unsentAtLogOut = 0
     @State private var sendsFirst = false
-    @State private var showDeleteConfirm = false
+    @State private var deleteConfirmation: AccountBinding?
     @State private var showChangePassword = false
     @State private var showWithdrawConfirm = false
     /// Demo data switched off while workouts logged in the demo exist: what the confirmation counts (ADR 0019).
@@ -41,7 +41,7 @@ struct ProfileView: View {
         .safariSheet($legal)
         // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
         .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
-            ShareSheet(items: [$0.url], completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
+            DataExportShareSheet(file: $0, completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
                 .presentedRoot()
         }
         .bodySettingSheet($editing, editor: model.bodySettings)
@@ -95,12 +95,14 @@ struct ProfileView: View {
                 Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
             }
         }
-        .alert("Delete your RYFT account?", isPresented: $showDeleteConfirm) {
+        .alert("Delete your RYFT account?",
+               isPresented: Binding(get: { deleteConfirmation != nil }, set: { if !$0 { deleteConfirmation = nil } }),
+               presenting: deleteConfirmation) { confirmation in
             Button("Delete account", role: .destructive) {
-                Task { await model.deleteAccount() }
+                Task { await model.deleteAccount(confirmedFor: confirmation) }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
+        } message: { _ in
             Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
         }
         .sheet(isPresented: $showChangePassword) {
@@ -113,7 +115,7 @@ struct ProfileView: View {
             if model.canExport {
                 Button("Export my data first") { Task { await model.export() } }
             }
-            Button("Delete account instead", role: .destructive) { showDeleteConfirm = true }
+            Button("Delete account instead", role: .destructive) { deleteConfirmation = AccountBinding(env) }
         } message: {
             Text("RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time.")
         }
@@ -238,7 +240,7 @@ struct ProfileView: View {
         case .syncNow:
             GroupedRow.action(Text("Sync now"), detail: model.isSyncing ? Text(verbatim: model.syncProgress) : nil,
                               systemImage: "arrow.triangle.2.circlepath", busy: model.isSyncing, identifier: id) {
-                Task { await model.syncNow() }
+                Task { await model.syncNowFromProfile() }
             }
             .disabled(!model.canSync && !model.isSyncing)
         case .syncDetails:
@@ -301,12 +303,25 @@ struct ProfileView: View {
             GroupedRow.action(Text("Review and agree"), systemImage: PillButton.Icon.forward, identifier: id) {
                 model.reviewConsent()
             }
+        case .checkConsent:
+            // Sync now's glyph: it asks RYFT again. Busy, the row ignores taps itself and its spinner stays bright (UI
+            // validation round 3, 1); offline it can't ask: dimmed, the hint says why, and the footer when it asks again.
+            GroupedRow.action(Text("Check with RYFT",
+                                   comment: "Profile → Privacy: asks RYFT again whether it has the consent given on this iPhone."),
+                              systemImage: "arrow.triangle.2.circlepath", busy: model.checkingConsent,
+                              hint: model.checkConsentHint.map { Text(verbatim: $0) }, identifier: id) {
+                Task { await model.checkConsent() }
+            }
+            .disabled(!model.canCheckConsent && !model.checkingConsent)
         case .withdrawConsent:
             GroupedRow.destructive(Text("Withdraw consent"), busy: model.withdrawingConsent, identifier: id) {
                 showWithdrawConfirm = true
             }
-            // Not while Log out runs: its sign-out would end the withdrawal unsent (the model refuses it too).
-            .disabled(model.loggingOut)
+            // Not while Log out runs: its sign-out would end the withdrawal unsent; nor while Check with RYFT asks (the model
+            // refuses both too).
+            .disabled(model.loggingOut || model.checkingConsent)
+        case .nutritionPrivacy:
+            GroupedRow.push(Text("Nutrition privacy"), identifier: id, route: ProfileRoute.nutritionPrivacy)
         case .analytics:
             AnalyticsOptInRow()
         // Account
@@ -323,7 +338,9 @@ struct ProfileView: View {
             // A sheet over the page, not a page of its own: an action, no chevron.
             GroupedRow.action(Text("Change password"), identifier: id) { showChangePassword = true }
         case .deleteAccount:
-            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) { showDeleteConfirm = true }
+            GroupedRow.destructive(Text("Delete account"), busy: model.isWorking, identifier: id) {
+                deleteConfirmation = AccountBinding(env)
+            }
         case .signedIn:
             GroupedRow.value(Text("Signed in"), value: Text("No"), identifier: id)
         // About
@@ -382,7 +399,7 @@ struct ProfileView: View {
             return model.syncNotice != nil || model.demoExitError != nil || !model.devices.isEnabled
                 || !model.devices.healthAccessSteps.isEmpty
         case .training: return WorkoutHealthExport.shared.needsAccess || model.showsSessionLayout
-        case .privacy: return model.consentError != nil || model.consentDetail != nil
+        case .privacy: return model.consentError != nil || model.consentCheckMessage != nil || model.consentDetail != nil
         case .account: return !model.isSignedIn || model.accountError != nil
         }
     }
@@ -442,6 +459,10 @@ struct ProfileView: View {
                 if let error = model.consentError {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.consentErrorDetails)
                 }
+                if let unanswered = model.consentCheckMessage {
+                    InlineMessage(message: unanswered, systemImage: "exclamationmark.circle", details: model.consentCheckDetails,
+                                  identifier: "privacy.checkUnanswered")
+                }
                 if let detail = model.consentDetail {
                     GroupFooter(consentFooter(detail))
                 }
@@ -462,8 +483,10 @@ struct ProfileView: View {
     /// "Agreed on 3 Nov 2026 · policy 2026-11. Read the policy": the policy in force beside Withdraw consent, in the in-app
     /// sheet (`safariSheet` catches its `LegalPage` URL); the link in the link ink, underlined (`InlineLink`).
     private func consentFooter(_ detail: String) -> Text {
-        var link = AttributedString(localized: "Read the policy",
-                                    comment: "Link at the end of Profile → Privacy's footer: opens the privacy policy in force in RYFT.")
+        let words = String(localized: "Read the policy",
+                           comment: "Link at the end of Profile → Privacy's footer: opens the privacy policy in force in RYFT.")
+        // One unit: the link wraps as a whole, never inside itself (UI validation round 3, 2).
+        var link = AttributedString(words.replacingOccurrences(of: " ", with: "\u{00A0}"))
         link.link = model.policyPage.url
         return Text(InlineLink.styled(AttributedString(detail + " ") + link))
     }
@@ -531,6 +554,7 @@ struct ProfileView: View {
         case .signInMethods: SignInMethodsView()
         case .reportProblem: ReportProblemView(model: model.report)
         case .licences: LicensesView()
+        case .nutritionPrivacy: NutritionPrivacyEntryView()
         #if DEBUG
         case .catalog: DebugComponentCatalog()
         case .flags: FeatureFlagsDebugView()
@@ -557,8 +581,10 @@ extension ProfileRowFacts {
         self.init(isSignedIn: model.isSignedIn, devicesEnabled: model.devices.isEnabled, canAskForHealth: model.canAskForHealth,
                   showsTraining: model.showsTraining, showsSessionLayout: model.showsSessionLayout,
                   showsNotifications: model.showsNotifications, journalLive: journalLive, bedtimeEnabled: bedtimeEnabled,
-                  consentIsCurrent: model.consentIsCurrent, showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
-                  hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport)
+                  consentIsCurrent: model.consentIsCurrent, consentAwaitsConfirmation: model.consentAwaitsConfirmation,
+                  showsAnalytics: showsAnalytics, isDemo: model.demoMode, canChangePassword: model.canChangePassword,
+                  hasTimezone: model.timezone != nil, showsEmail: model.showsEmailRow, canExport: model.canExport,
+                  nutritionAvailable: model.nutritionAvailable)
     }
 }
 
@@ -706,6 +732,15 @@ private enum ProfilePreview {
         case signedIn, noName, noStrain, signedOutDemo, signedInDemo, offline, consentOutdated
         /// A consent withdrawal on its way that never answers: Demo data, Log out and the overrides held (D6).
         case withdrawing
+        /// Agreed on this iPhone, RYFT's word on it never coming: Given, the footer on what this iPhone waits for; Check with
+        /// RYFT and Withdraw.
+        case consentUnconfirmed
+        /// The same, offline: Check with RYFT dimmed, and the footer says this iPhone asks again once back online.
+        case consentUnconfirmedOffline
+        /// The same, Check with RYFT tapped and its `/v1/me` never answering: the row busy, its spinner bright.
+        case consentChecking
+        /// The same, Check with RYFT answered `503`: RYFT's own words under Privacy, with Details.
+        case consentCheckFailed
     }
 
     static func page(_ kind: Case, ax3: Bool = false) -> some View {
@@ -718,14 +753,25 @@ private enum ProfilePreview {
         let withdrawing = kind == .withdrawing
         // Never answered while the preview is open; on a clock that stands still, so `SettingsWrite.deadline` never ends it.
         if withdrawing { api.beforeRevokeConsent = { try? await Task.sleep(for: .seconds(86_400)) } }
+        let checking = kind == .consentChecking, checkFailed = kind == .consentCheckFailed
+        let unconfirmed = kind == .consentUnconfirmed || kind == .consentUnconfirmedOffline || checking || checkFailed
+        // RYFT's word never comes, or comes back as a 503 past the read's Retry-After cap (it fails at once).
+        if checkFailed {
+            api.faults["me"] = .init(.status(503, retryAfter: 600))
+        } else if unconfirmed {
+            api.beforeMe = { try? await Task.sleep(for: .seconds(86_400)) }
+        }
         // Demo data on over a signed-in Apple account: the account's rows are the session's, never the demo's person.
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api,
                                  auth: .preview(signedIn: kind != .signedOutDemo, provider: kind == .signedInDemo ? "apple" : "email"),
                                  persistence: TrainStore(inMemory: true),
-                                 clock: withdrawing ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
-                                 flags: StaticFlags([.devicesSetup: true]), connectivity: .preview(online: kind != .offline),
+                                 clock: withdrawing || checking ? TestClock(now: .now) : SystemClock(), notifier: MockNotifier(),
+                                 flags: StaticFlags([.devicesSetup: true]),
+                                 connectivity: .preview(online: kind != .offline && kind != .consentUnconfirmedOffline),
                                  defaults: defaults, demoOverride: demo)
         env.uploader.gate = { _ in nil }
+        // The 204 on this iPhone, RYFT's own word on it still out (on the graph's clock: one after now is void).
+        if unconfirmed { env.consent.consented(to: MockData.policyVersion, at: env.clock.now()) }
         let state = AppState(env: env)
         state.history = MockData.history
         state.user = user(kind)
@@ -737,8 +783,11 @@ private enum ProfilePreview {
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                    store: TrainPreview.store, library: TrainPreview.library)
         return ProfileView()
-            // The confirmation's Withdraw consent, tapped.
-            .task { if withdrawing { await screens.profile.withdrawConsent() } }
+            // The confirmation's Withdraw consent, tapped; or Check with RYFT.
+            .task {
+                if withdrawing { await screens.profile.withdrawConsent() }
+                if checking || checkFailed { await screens.profile.checkConsent() }
+            }
             .environment(\.appEnvironment, env)
             .environment(screens)
             .environment(settings)
@@ -761,7 +810,7 @@ private enum ProfilePreview {
         case .noName:
             return User(id: u.id, name: "", email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, consent: u.consent, birthYear: u.birthYear)
-        case .consentOutdated:
+        case .consentOutdated, .consentUnconfirmed, .consentUnconfirmedOffline, .consentChecking, .consentCheckFailed:
             return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: u.tz, maxHr: u.maxHr,
                         sleepBaseMin: u.sleepBaseMin, birthYear: u.birthYear)
         default:
@@ -794,6 +843,12 @@ private struct ProfileButtonsPreview: View {
 #Preview("Profile · offline · AX3") { ProfilePreview.page(.offline, ax3: true) }
 #Preview("Profile · consent outdated") { ProfilePreview.page(.consentOutdated) }
 #Preview("Profile · consent outdated · AX3") { ProfilePreview.page(.consentOutdated, ax3: true) }
+#Preview("Profile · consent not confirmed yet") { ProfilePreview.page(.consentUnconfirmed) }
+#Preview("Profile · consent not confirmed yet · AX3") { ProfilePreview.page(.consentUnconfirmed, ax3: true) }
+#Preview("Profile · consent not confirmed yet · offline") { ProfilePreview.page(.consentUnconfirmedOffline) }
+#Preview("Profile · consent not confirmed yet · checking") { ProfilePreview.page(.consentChecking) }
+#Preview("Profile · consent not confirmed yet · check failed") { ProfilePreview.page(.consentCheckFailed) }
+#Preview("Profile · consent not confirmed yet · check failed · AX3") { ProfilePreview.page(.consentCheckFailed, ax3: true) }
 #Preview("Profile · withdrawing consent") { ProfilePreview.page(.withdrawing) }
 #Preview("Profile · withdrawing consent · AX3") { ProfilePreview.page(.withdrawing, ax3: true) }
 #Preview("Profile · exporting", traits: .sizeThatFitsLayout) { DarkPreview { ProfileButtonsPreview() } }
