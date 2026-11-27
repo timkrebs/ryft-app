@@ -96,6 +96,14 @@ enum SleepDialMath {
         return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 
+    /// The clock a stored check-in is shown and edited on: this iPhone's zone when it had the check-in's offset at the wake
+    /// time (so a DST night shows its bedtime on its own side of the change), else the check-in's fixed offset (another
+    /// time zone since: the times stay where they were, never moved to this zone's clock).
+    static func clock(ofCheckinOffset offset: Int, wakeTime: Date, current: TimeZone) -> TimeZone {
+        if current.secondsFromGMT(for: wakeTime) == offset { return current }
+        return TimeZone(secondsFromGMT: offset) ?? current
+    }
+
     static func wrapped(_ minutes: Int) -> Int {
         (minutes % dayMinutes + dayMinutes) % dayMinutes
     }

@@ -2,8 +2,22 @@
 
 ## 2026-11-27 · Recovery without a watch
 
-- Done in code: the Today check-in, sleep dial, account-bound retries, workout effort in Strain and Train, consent copy and interaction analytics.
-- Verification open: Xcode build, unit and UI test execution, and preview review. The implementation run excluded these steps.
+Behind `recovery.checkin` (off; contract: platform API.md "Recovery without a watch", platform #260). Plan and review:
+`docs/work/2026-11-27-recovery-checkin-ui/`.
+
+- **Done:** the Today check-in card and sheet (24-h sleep dial in 5-min steps with haptics and two VoiceOver-adjustable
+  handles, sleep quality, how recovered, soreness, Save/Skip), an account-bound outbox (offline, transient, `401`,
+  `404` and `consent_required` keep the answer; `422` shows inline), wearable wins (no check-in on a wearable or
+  superseded night), session RPE on the workout's detail (a prompt without heart rate) and after a Train session with a
+  `workout_id`, the consent copy naming what the user enters, `recovery_checkin` and `feature_used.session_rpe_saved`
+  (tokens only), English and German.
+- **Verified in the simulator only:** unit tests (dial math incl. Berlin DST, Kolkata, LA; store; RPE; decoding) and
+  the Demo UI test with the flag on. Nothing on a device yet.
+- **Open:** the Today ring's estimated fill from `RecoveryStatus.recovery_score`; `CoachingBriefing.recovery` /
+  `readiness_display`; history and delete UI; a device zone that differs from the account's (the sheet takes the
+  account's today as the wake day); a flag switched off mid-save ends that save.
+- **Blocked on the platform/operator:** the flag stays off until a published privacy version names the check-in
+  (#252) and the tester is on the allow-list.
 
 ## 2026-11-27 · Analytics: a typed allow-list and the nutrition and sync events
 

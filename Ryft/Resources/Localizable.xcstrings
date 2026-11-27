@@ -12237,6 +12237,17 @@
         }
       }
     },
+    "Saved on this iPhone. It will be sent once you've agreed to the privacy policy." : {
+      "comment" : "Today's morning check-in is waiting for the health data consent.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Dein Check-in wird gesendet, sobald du der Datenschutzerklärung zugestimmt hast."
+          }
+        }
+      }
+    },
     "Saved on this iPhone. It will be sent when you're online." : {
       "comment" : "Today's morning check-in is waiting to send.",
       "localizations" : {

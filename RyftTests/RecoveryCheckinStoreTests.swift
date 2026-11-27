@@ -140,6 +140,51 @@ struct RecoveryCheckinStoreTests {
         #expect(model.quality == 3 && model.freshness == 4 && !model.soreness && !model.canSkip)
     }
 
+    /// Review blocker: a check-in saved in Berlin (+01:00) and edited in New York keeps its times. Answers alone send the
+    /// stored instants; a moved handle is composed on the check-in's own clock, never on New York's.
+    @Test func editInAnotherTimeZoneKeepsTheTimes() async throws {
+        let rig = RecoveryRig(online: false)
+        let status = try Fixture.decode(RecoveryStatus.self, "recovery_status_checkin")
+        let stored = try #require(status.checkin)
+        let newYork = try #require(TimeZone(identifier: "America/New_York"))
+
+        let answersOnly = CheckinSheetModel(store: rig.store, status: status, canSkip: false, timeZone: newYork)
+        #expect(answersOnly.bed == 100 && answersOnly.wake == 400)
+        answersOnly.quality = 6
+        #expect(await answersOnly.save())
+        let first = try #require(rig.store.pending.first?.body)
+        #expect(first.bedtime == stored.bedtime && first.wakeTime == stored.wakeTime && first.tzOffsetSec == 3600)
+        #expect(first.perceivedSleepQuality == 6)
+
+        let moved = CheckinSheetModel(store: rig.store, status: status, canSkip: false, timeZone: newYork)
+        moved.wake += 5
+        #expect(await moved.save())
+        let second = try #require(rig.store.pending.first?.body)
+        #expect(second.wakeTime == stored.wakeTime.addingTimeInterval(5 * 60) && second.bedtime == stored.bedtime)
+        #expect(second.tzOffsetSec == 3600)
+    }
+
+    /// The clock rule: this iPhone's zone when it had the stored offset at the wake (a DST night keeps its bedtime on its
+    /// own side of the change), else the fixed offset.
+    @Test func checkinClockFollowsTheStoredOffset() throws {
+        let berlin = try #require(TimeZone(identifier: "Europe/Berlin"))
+        let wake = try #require(ISO8601DateFormatter().date(from: "2026-10-25T06:00:00Z")) // 07:00 CET, after the change
+        #expect(SleepDialMath.clock(ofCheckinOffset: 3600, wakeTime: wake, current: berlin) == berlin)
+        let bed = try #require(ISO8601DateFormatter().date(from: "2026-10-24T21:00:00Z")) // 23:00 CEST
+        #expect(SleepDialMath.minutes(of: bed, timeZone: berlin) == 23 * 60)
+        let other = SleepDialMath.clock(ofCheckinOffset: 3600, wakeTime: wake, current: .gmt)
+        #expect(other.secondsFromGMT(for: wake) == 3600 && other != .gmt)
+    }
+
+    /// A `404` on a save (the flag went off meanwhile) hides the feature but keeps the answer on this iPhone.
+    @Test func a404OnSaveKeepsTheAnswer() async throws {
+        let rig = RecoveryRig()
+        await rig.store.load()
+        rig.api.failNext = APIError.http(404, "")
+        #expect(try await rig.save() == .unavailable)
+        #expect(rig.store.availability == .notLive && rig.diskPending?.map(\.body) == [rig.answer])
+    }
+
     @Test func rejectedSaveStaysInlineAndNeverQueues() async throws {
         let rig = RecoveryRig()
         await rig.store.load()
@@ -186,6 +231,8 @@ struct RecoveryCheckinStoreTests {
         rig.api.failNext = APIError.http(403, "", code: .consentRequired)
         #expect(try await rig.save() == .consentRequired)
         #expect(rig.diskPending?.count == 1 && rig.apiStatus.gates.contains(.consentRequired))
+        // Online, so not "when you're online": it waits for the consent.
+        #expect(rig.store.card == .waitingForConsent)
         await rig.store.load()
         #expect(rig.api.count("putRecoveryCheckin") == 1)
         rig.apiStatus.resolved(.consentRequired)

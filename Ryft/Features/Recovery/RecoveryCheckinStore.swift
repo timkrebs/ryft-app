@@ -6,7 +6,8 @@ import Observation
 @Observable
 final class RecoveryCheckinStore {
     enum Availability: Equatable { case unknown, live, notLive }
-    enum CardState: Equatable { case due, skipped, done(RecoveryCheckin), waiting }
+    /// `waiting`: kept on this iPhone until it's online; `waitingForConsent`: online, but held until the consent is given.
+    enum CardState: Equatable { case due, skipped, done(RecoveryCheckin), waiting, waitingForConsent }
     enum SaveResult: Equatable { case saved, waiting, consentRequired, unavailable }
 
     struct Pending: Codable, Hashable, Sendable {
@@ -72,8 +73,9 @@ final class RecoveryCheckinStore {
 
     var card: CardState? {
         let day = wakeDay
-        return Self.card(flag: enabled && availability != .notLive, today: day, status: status,
-                         pending: pending.contains { $0.date == day }, skipped: skippedDate == day)
+        let state = Self.card(flag: enabled && availability != .notLive, today: day, status: status,
+                              pending: pending.contains { $0.date == day }, skipped: skippedDate == day)
+        return state == .waiting && online && consentBlocked ? .waitingForConsent : state
     }
 
     static func card(flag: Bool, today: String, status: RecoveryStatus?, pending: Bool, skipped: Bool) -> CardState? {
@@ -207,6 +209,8 @@ final class RecoveryCheckinStore {
         } catch {
             guard owns(owner), !error.isCancellation else { throw CancellationError() }
             if (error as? APIError)?.status == 404 {
+                // "Hide the feature", never "drop what the user entered": kept, sent once the status answers again.
+                if !env.isDemo { _ = queued(entry, tracks: false) }
                 availability = .notLive
                 return .unavailable
             }
@@ -276,11 +280,11 @@ final class RecoveryCheckinStore {
         return kind == .transient || kind == .signedOut || error is SettingsWrite.NoAnswer
     }
 
-    private func queued(_ entry: Pending) -> SaveResult {
+    private func queued(_ entry: Pending, tracks: Bool = true) -> SaveResult {
         pending.removeAll { $0.date == entry.date }
         pending.append(entry)
         persistPending()
-        if enabled { env.analytics.track(.recoveryCheckin(.saved)) }
+        if tracks, enabled { env.analytics.track(.recoveryCheckin(.saved)) }
         return .waiting
     }
 

@@ -28,11 +28,15 @@ final class CheckinSheetModel: Identifiable {
         owner = store.owner
         wakeDay = status.date
         self.canSkip = canSkip
-        self.timeZone = timeZone
         let checkin = status.checkin
         original = checkin
+        // An edit is shown, composed and sent on the check-in's own clock (`SleepDialMath.clock`): editing in another
+        // time zone never moves the times to this one's.
+        self.timeZone = checkin.map {
+            SleepDialMath.clock(ofCheckinOffset: $0.tzOffsetSec, wakeTime: $0.wakeTime, current: timeZone)
+        } ?? timeZone
         if let checkin {
-            let clock = TimeZone(secondsFromGMT: checkin.tzOffsetSec) ?? timeZone
+            let clock = self.timeZone
             initialBed = SleepDialMath.minutes(of: checkin.bedtime, timeZone: clock)
             initialWake = SleepDialMath.minutes(of: checkin.wakeTime, timeZone: clock)
         } else {
@@ -58,9 +62,8 @@ final class CheckinSheetModel: Identifiable {
     }
 
     private var times: (bedtime: Date, wakeTime: Date)? {
-        // Editing the answers alone preserves both instants, including the offset change across a DST night.
-        if let original, bed == initialBed, wake == initialWake,
-           SleepDialMath.tzOffset(for: original.wakeTime, timeZone: timeZone) == original.tzOffsetSec {
+        // Editing the answers alone keeps both instants as stored.
+        if let original, bed == initialBed, wake == initialWake {
             return (original.bedtime, original.wakeTime)
         }
         return SleepDialMath.compose(wakeDay: wakeDay, bed: bed, wake: wake, timeZone: timeZone)

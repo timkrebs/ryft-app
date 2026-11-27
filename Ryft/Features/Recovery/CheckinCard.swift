@@ -24,6 +24,9 @@ struct CheckinCard: View {
                 case .waiting:
                     detail(Text("Saved on this iPhone. It will be sent when you're online.",
                                 comment: "Today's morning check-in is waiting to send."))
+                case .waitingForConsent:
+                    detail(Text("Saved on this iPhone. It will be sent once you've agreed to the privacy policy.",
+                                comment: "Today's morning check-in is waiting for the health data consent."))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -38,7 +41,7 @@ struct CheckinCard: View {
     }
 
     private func summary(_ checkin: RecoveryCheckin) -> some View {
-        let offset = TimeZone(secondsFromGMT: checkin.tzOffsetSec) ?? .current
+        let offset = SleepDialMath.clock(ofCheckinOffset: checkin.tzOffsetSec, wakeTime: checkin.wakeTime, current: .current)
         let bed = clock(checkin.bedtime, offset: offset)
         let wake = clock(checkin.wakeTime, offset: offset)
         return VStack(alignment: .leading, spacing: Theme.Metrics.hairline) {
