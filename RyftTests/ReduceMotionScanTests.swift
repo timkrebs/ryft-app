@@ -54,8 +54,7 @@ struct ReduceMotionScanTests {
         Guarded(file: "Features/Profile/DebugComponentCatalog.swift", call: "TimelineView(.animation",
                 reason: "DEBUG only: the catalog's launch replay plays the variant its own Reduce Motion switch picks."),
         Guarded(file: "Features/Sleep/SleepView.swift", call: "withAnimation(Theme.ringAnimation",
-                reason: "`if reduceMotion { shown = target } else { withAnimation … }`."),
-    ]
+                reason: "`if reduceMotion { shown = target } else { withAnimation … }`."),    ]
 
     /// A file naming none of these starts no motion the scan knows; the rest are scanned.
     nonisolated static let triggers = ["withAnimation", ".animation", ".contentTransition", "withTransaction", ".transaction",

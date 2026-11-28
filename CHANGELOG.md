@@ -14,6 +14,7 @@ Store "What's New".
 - An account deletion stops if the signed-in account changes while the request is being prepared.
 
 ### Added
+- Today shows your sync status in the header. Tap to sync Apple Health or long press to see when each source last synced.
 - Nutrition search shows reusable portions and calories when the catalog supplies them. Tap plus to add a portion, or open the amount picker to choose a size, fraction or metric amount.
 - German Nutrition logging, with household portions and a preview of the selected amount. The diary rollout can leave coaching and optional health imports off.
 - Nutrition diary with food search and barcode lookup, meal editing, nutrient totals, and score details.
@@ -82,6 +83,8 @@ Store "What's New".
 - Optional usage analytics, off unless you opt in, never with health data (not active yet).
 
 ### Changed
+- Profile groups body settings, app preferences, data, resources and legal links. Account and Privacy and data both offer
+  account deletion. Nutrition settings groups targets, scoring and data.
 - Agree and continue moves on as soon as RYFT has your consent. Your data starts syncing once this iPhone hears back
   from RYFT; until then Devices & sync and a training import say Paused, and Profile → Privacy says your consent is
   given, with Check with RYFT and Withdraw consent. While a withdrawal is on its way, nothing syncs, and if RYFT

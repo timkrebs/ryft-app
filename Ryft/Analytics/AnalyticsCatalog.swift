@@ -36,11 +36,15 @@ enum AnalyticsCatalog {
             "is_fractional": bools,
         ],
         "nutrition_diary_reopened": ["has_preserved_portion_label": bools],
-        "sync_triggered": ["trigger_source": values(AnalyticsSyncTrigger.self)],
+        "sync_triggered": [
+            "trigger_source": values(AnalyticsSyncTrigger.self),
+            "previous_state": values(AnalyticsSyncPreviousState.self),
+        ],
         "sync_completed": [
             "trigger_source": values(AnalyticsSyncTrigger.self),
             "status": values(AnalyticsSyncStatus.self),
             "duration_ms": values(AnalyticsSyncDuration.self),
+            "connected_providers_count": values(AnalyticsConnectedProviders.self),
         ],
     ]
 

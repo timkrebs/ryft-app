@@ -7,6 +7,7 @@
 // SDK restores the session from the Keychain without UI, so background runs work too.
 import Foundation
 import GameplayKit
+import HealthKit
 import Observation
 import UIKit
 import os
@@ -45,6 +46,11 @@ final class SyncService {
     @ObservationIgnored private var machine: GKTableMachine<SyncPhase>!
     /// Reading or uploading HealthKit data.
     var isSyncing: Bool { phase == .reading || phase == .uploading }
+    private(set) var isPostingPage = false
+    private(set) var uploadFailure: SyncIndicatorState.UploadFailure?
+    private(set) var healthAccessDenied = false
+    private(set) var lastUploadReceipt: SyncUploadReceipt?
+    private(set) var pendingUploadReceipt: SyncUploadReceipt?
     /// What the run is doing right now, for the status line; `nil` between runs.
     private(set) var activity: SyncActivity?
     /// `activity` in words ("Syncing · sleep"), for Profile.
@@ -177,12 +183,17 @@ final class SyncService {
         scoringWaitStart = nil
         statusReadAt = nil
         lastDaysTouched = []
+        isPostingPage = false
+        uploadFailure = nil
+        healthAccessDenied = false
+        lastUploadReceipt = nil
         forgetScoringWords()
     }
 
     /// Demo data switched on or off (and every account change): neither side's word is the other's, nor the days a
     /// wait gave up on.
     func forgetScoringWords() {
+        pendingUploadReceipt = nil
         scoringLedger = [:]
         heardSinceWrite = []
         ledgerGeneration += 1
@@ -226,6 +237,7 @@ final class SyncService {
         // Only this run's outcome counts: an early return (offline, gated) leaves no backlog, and touched nothing.
         hasBacklog = false
         lastDaysTouched = []
+        lastScoring = nil
         // Demo data never opens the HealthKit path: the engine's client is the platform's whatever the switch says
         // (privacy review S1). Profile's re-sync and `syncNow` come through here too.
         guard !env.isDemo else { return [] }
@@ -281,7 +293,10 @@ final class SyncService {
         lastUploaded = 0
         hasBacklog = false
         waitingForUnlock = false
-        defer { activity = nil }
+        defer {
+            activity = nil
+            isPostingPage = false
+        }
         let context = SyncEngine.Context(account: account, deviceID: settings.deviceId,
                                          deviceName: UIDevice.current.name, appVersion: AppInfo.version,
                                          osVersion: AppInfo.osVersion, now: env.clock.now(),
@@ -312,7 +327,13 @@ final class SyncService {
                 advance(to: .idle)
                 return result.touched
             }
-            settings.lastSync = env.clock.now()
+            if auth.accountID == account {
+                // A whole pass is a sync, also one with nothing new to send (Profile's "Last sync" and the button's
+                // age, as before the button): the accepted pages moved it already, an empty pass moves it here.
+                settings.lastSync = env.clock.now()
+                healthAccessDenied = false
+                uploadFailure = nil
+            }
             return result.touched
         } catch is CancellationError {
             // Stopped from outside (sign-out, background time over): nothing to show. The pages accepted so far are
@@ -325,7 +346,13 @@ final class SyncService {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
             let soFar = await engine.touchedSoFar
-            if auth.accountID == account { lastDaysTouched = soFar }
+            if auth.accountID == account {
+                lastDaysTouched = soFar
+                if let healthError = error as? HKError,
+                   healthError.code == .errorAuthorizationDenied || healthError.code == .errorAuthorizationNotDetermined {
+                    healthAccessDenied = true
+                }
+            }
             advance(to: .failed)
             throw error
         }
@@ -344,7 +371,20 @@ final class SyncService {
         case .uploading(let stream, let records):
             advance(to: .uploading)
             activity = .uploading(stream, records: records)
+            isPostingPage = true
+        case .postEnded(let failure):
+            isPostingPage = false
+            if let failure { uploadFailure = failure }
         case .accepted(_, let response):
+            isPostingPage = false
+            uploadFailure = nil
+            let at = env.clock.now()
+            let receipt = SyncUploadReceipt(at: at, uptime: env.clock.uptime())
+            lastUploadReceipt = receipt
+            settings.lastSync = at
+            if pendingUploadReceipt != nil || !response.scoring.queuedDays.isEmpty || !response.daysTouched.isEmpty {
+                pendingUploadReceipt = receipt
+            }
             lastUploaded += response.samples + response.sleep + response.workouts
             accepted(response.daysTouched)
         case .state(let state):
@@ -413,6 +453,11 @@ final class SyncService {
     /// answered by it. Unknown (`nil`): the ledger stays.
     func receive(_ status: SyncStatus, requestedAt: Date? = nil) {
         if let requestedAt {
+            if let receipt = pendingUploadReceipt,
+               requestedAt.timeIntervalSince(receipt.at) >= SyncIndicatorState.minimumPollInterval,
+               status.effectiveFreshness(now: env.clock.now()) == .current {
+                pendingUploadReceipt = nil
+            }
             let open = scoringLedger.filter { !$0.value.isAnswered(byStatusRequestedAt: requestedAt) }
             if open.count != scoringLedger.count { scoringLedger = open }
         }
@@ -663,6 +708,7 @@ actor SyncEngine {
     enum Event: Sendable {
         case reading(HealthStream)
         case uploading(HealthStream, records: Int)
+        case postEnded(SyncIndicatorState.UploadFailure?)
         case accepted(HealthStream, SyncResponse)
         case state(SyncEngineState)
     }
@@ -974,7 +1020,6 @@ actor SyncEngine {
         guard !delta.isEmpty else { return true }
         // Consent withdrawn, a gate reported or the policy gone stale meanwhile: this page stays (its anchor too).
         if let gate = await gate() { throw HeldAtGate(gate: gate) }
-        await report(.uploading(stream, records: delta.count))
         let request = SyncRequest(deviceId: context.deviceID, deviceName: context.deviceName,
                                   appVersion: SyncScreen.version(context.appVersion),
                                   osVersion: SyncScreen.version(context.osVersion),
@@ -986,11 +1031,25 @@ actor SyncEngine {
         let upload = Signposts.sync.beginInterval("upload", id: Signposts.sync.makeSignpostID(),
                                                   "\(delta.count) records, \(body.count) bytes")
         defer { Signposts.sync.endInterval("upload", upload) }
+        await report(.uploading(stream, records: delta.count))
         do {
             (response, sent) = try await send(body, gzip: context.gzip && !gzipRefused)
         } catch let error as APIError where error.status == 413 && maxRecords > Self.minimumPageSize {
+            await report(.postEnded(nil))
             maxRecords = max(Self.minimumPageSize, min(maxRecords, delta.count) / 2)
             return false
+        } catch {
+            let failure: SyncIndicatorState.UploadFailure?
+            switch error {
+            case APIError.transport, is URLError: failure = .offline
+            // A gate's 403, a signed-out 401 and a 429 have their own surfaces (the gate card, sign-in, the retry);
+            // the button's amber is for an upload the platform failed or refused outright.
+            case APIError.http(let code, _, _, _, _) where code == 401 || code == 403 || code == 429: failure = nil
+            case APIError.http: failure = .server
+            default: failure = nil
+            }
+            await report(.postEnded(failure))
+            throw error
         }
         touched.formUnion(response.daysTouched)
         scoring = SyncScoring(queuedDays: Set(scoring?.queuedDays ?? []).union(response.scoring.queuedDays).sorted(),

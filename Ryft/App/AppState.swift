@@ -41,8 +41,21 @@ final class AppState {
         didSet {
             repository.todayStatus = syncStatus?.today
             syncStatusAskedAt = nil
+            if syncStatus?.effectiveFreshness(now: now) != .current
+                || oldValue?.effectiveFreshness(now: now) != .current
+                || oldValue?.lastSyncAt != syncStatus?.lastSyncAt
+                || oldValue?.today != syncStatus?.today
+                || oldValue?.gate != syncStatus?.gate {
+                syncStatusRevision += 1
+                syncTodayReloadedAt = nil
+            }
         }
     }
+    private var syncStatusRevision = 0
+    private(set) var syncTodayReloadedAt: Date?
+    private(set) var demoSyncAt: Date?
+    private(set) var demoSyncInFlight = false
+    @ObservationIgnored var activeNutritionBriefing: (id: UUID, reload: @MainActor () async -> Bool)?
     /// When `syncStatus`'s flight was asked for, when the one who stored it said (`setSyncStatus(_:askedAt:)`): the
     /// scoring wait reads its gate by then (R2, `LiveSyncSteps.scoringGate`; code review round 2, 9). Nil otherwise.
     private(set) var syncStatusAskedAt: Date?
@@ -51,6 +64,45 @@ final class AppState {
     func setSyncStatus(_ status: SyncStatus, askedAt: Date?) {
         syncStatus = status
         syncStatusAskedAt = askedAt
+    }
+
+    func simulateDemoSync() async throws {
+        let binding = AccountBinding(env)
+        demoSyncInFlight = true
+        defer { if binding.isCurrent(in: env) { demoSyncInFlight = false } }
+        try await env.clock.sleep(for: .seconds(1))
+        guard binding.isCurrent(in: env) else { throw CancellationError() }
+        demoSyncAt = now
+    }
+
+    /// Today was reloaded after a `current` status, today, and not before `upload` (the last page the platform accepted,
+    /// `SyncService.lastUploadReceipt`; demo data's simulated sync): the sync button may be green, and a sync's refresh
+    /// needn't read today again. A pass that sent nothing moves "Last sync" but changes nothing to reload.
+    func todayReloaded(sinceUpload upload: Date?) -> Bool {
+        guard let reloaded = syncTodayReloadedAt, Calendar.current.isDate(reloaded, inSameDayAs: now) else { return false }
+        let lastUpload = isDemo ? demoSyncAt : upload
+        return lastUpload.map { reloaded >= $0 } ?? true
+    }
+
+    /// Called when a status read confirms scoring is current. A cached day cannot satisfy this reload.
+    func reloadTodayAfterCurrent(uploadedAt: Date?, lastUpload: Date? = nil) async {
+        let date = now
+        guard syncStatus?.effectiveFreshness(now: date) == .current else { return }
+        if let uploadedAt {
+            guard let asked = syncStatusAskedAt,
+                  asked.timeIntervalSince(uploadedAt) >= SyncIndicatorState.minimumPollInterval else { return }
+        }
+        if todayReloaded(sinceUpload: lastUpload) { return }
+        let revision = syncStatusRevision
+        let binding = AccountBinding(env)
+        guard (try? await repository.refreshDay(date, mode: .changed(since: date), requireNetworkResult: true)) != nil,
+              binding.isCurrent(in: env), !Task.isCancelled else { return }
+        if let briefing = activeNutritionBriefing {
+            let loaded = await briefing.reload()
+            guard loaded || activeNutritionBriefing?.id != briefing.id else { return }
+        }
+        guard binding.isCurrent(in: env), !Task.isCancelled, revision == syncStatusRevision else { return }
+        syncTodayReloadedAt = date
     }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
@@ -170,6 +222,11 @@ final class AppState {
 
     var isDemo: Bool { env.isDemo }
 
+    var appleHealthLastSync: Date? {
+        if isDemo { return demoSyncAt }
+        return [settings.lastSync, syncStatus?.lastSyncAt].compactMap { $0 }.max()
+    }
+
     // MARK: loading
 
     /// The reads behind Today's numbers; one of them in flight is "Updating…".
@@ -232,7 +289,8 @@ final class AppState {
     /// sync ended (Profile's Sync now reports it as `sync_completed`). nil when nothing started (offline, no data
     /// source). Returns at the same moment as `pullToRefresh`; the run goes on.
     @discardableResult
-    func pullToRefreshRun(coordinator: SyncCoordinator) async -> Task<SyncCoordinator.Outcome, Never>? {
+    func pullToRefreshRun(coordinator: SyncCoordinator, homeTrigger: SyncCoordinator.Trigger? = nil) async
+        -> Task<SyncCoordinator.Outcome, Never>? {
         pullUploaded = nil
         guard hasDataSource, isDemo || env.connectivity.isOnline else { return nil }
         let signposts = Signposts.reads
@@ -241,11 +299,13 @@ final class AppState {
         let (uploaded, upload) = AsyncStream<Void>.makeStream()
         let (uploadEnded, endUpload) = AsyncStream<Void>.makeStream()
         let run = Task { () -> SyncCoordinator.Outcome in
-            await coordinator.run(.userInitiated, afterUpload: {
+            let finished: @Sendable () -> Void = {
                 upload.yield()
                 upload.finish()
                 endUpload.finish()
-            })
+            }
+            if let homeTrigger { return await coordinator.runHomeSync(homeTrigger, afterUpload: finished) }
+            return await coordinator.run(.userInitiated, afterUpload: finished)
         }
         pullUploaded = Task {
             await Self.firstOf({ for await _ in uploadEnded {} }, { try? await clock.sleep(for: Self.uploadWaitCap) })
@@ -257,7 +317,8 @@ final class AppState {
         let phase2 = Task { [self] in
             let interval = signposts.beginInterval("pull-now", id: signposts.makeSignpostID())
             async let today: Void = refreshToday(now)
-            async let status: Void = coordinator.refreshStatus()
+            // Home's status is owned by the coordinator: its first post-upload read waits for scoring.
+            async let status: Void = homeTrigger == nil ? coordinator.refreshStatus() : ()
             _ = await (today, status)
             signposts.endInterval("pull-now", interval)
             settle.finish()
@@ -335,14 +396,14 @@ final class AppState {
     /// After a sync (or a silent push): today, the touched days and the 90-day scores, newer than
     /// now, each on its own. A failed read is recorded per resource and never thrown; only a
     /// cancellation is (the coordinator then reports idle).
-    func refreshDays(_ touched: [String]) async throws {
+    func refreshDays(_ touched: [String], includeToday: Bool = true) async throws {
         guard hasDataSource else { return }
         let now = now
         let since = ReadMode.changed(since: now)
         let todayKey = DayFormat.string(from: now)
         let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { _ = try? await self.repository.refreshDay(now, mode: since) }
+            if includeToday { group.addTask { _ = try? await self.repository.refreshDay(now, mode: since) } }
             for key in Set(touched) where key != todayKey {
                 guard let date = DayFormat.date(from: key) else { continue }
                 group.addTask { _ = try? await self.repository.refreshDay(date, mode: since) }
@@ -404,6 +465,11 @@ final class AppState {
         env.reads.reset()
         repository.reset()
         lastNight = nil
+        syncTodayReloadedAt = nil
+        syncStatusRevision += 1
+        demoSyncAt = nil
+        demoSyncInFlight = false
+        activeNutritionBriefing = nil
         // The body-setting editors' words and the value on its way are the account's, or demo data's: on the other side of
         // the switch they go, and nothing waits for an answer meant for this side (C3 review 2, item 1).
         for forget in accountStateForgetters { forget() }

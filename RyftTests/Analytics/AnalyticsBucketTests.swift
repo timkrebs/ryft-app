@@ -218,13 +218,14 @@ struct AnalyticsBucketTests {
 
     @Test func syncTriggeredProperties() {
         #expect(AnalyticsEventFixture.syncTriggered.name == "sync_triggered")
-        #expect(AnalyticsEventFixture.syncTriggered.properties == ["trigger_source": "profile_button"])
+        #expect(AnalyticsEventFixture.syncTriggered.properties == ["trigger_source": "profile_button", "previous_state": "stale"])
     }
 
     @Test func syncCompletedProperties() {
         #expect(AnalyticsEventFixture.syncCompleted.name == "sync_completed")
         #expect(AnalyticsEventFixture.syncCompleted.properties == [
             "trigger_source": "profile_button", "status": "success", "duration_ms": "1000_4999",
+            "connected_providers_count": "1",
         ])
     }
 

@@ -21,13 +21,20 @@ final class DemoExitUITests: XCTestCase {
         return app
     }
 
-    /// Profile → the Demo data switch, scrolled until it sits above the tab bar: far down the page it reports itself
+    /// Profile → Devices and sync → the Demo data switch, scrolled until it sits above the tab bar: far down the page it reports itself
     /// hittable while still off screen (seen on 27.2, frame below the window), so its frame decides.
     private func demoSwitch(in app: XCUIApplication) -> XCUIElement {
         app.tab("Profile").tap()
         let toggle = app.switches["profile.demoMode"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: patience), "Profile → Demo data")
         let bottom = app.tabBar.frame.minY
+        // Returning from Strain keeps Profile's stack.
+        if !toggle.exists {
+            let devices = app.buttons["profile.devices"]
+            XCTAssertTrue(devices.waitForExistence(timeout: patience), "Profile → Devices and sync")
+            for _ in 0..<10 where !devices.isHittable || devices.frame.maxY >= bottom { app.swipeUp() }
+            devices.tap()
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: patience), "the Demo data switch")
         for _ in 0..<15 where !toggle.isHittable || toggle.frame.maxY >= bottom { app.swipeUp() }
         XCTAssertLessThan(toggle.frame.maxY, bottom, "the switch is above the tab bar")
         return toggle

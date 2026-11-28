@@ -64,8 +64,8 @@ Every value is one of the listed tokens. Bools are sent as `true` / `false`.
 | `nutrition_food_opened` | `rank_position`: 1 … 10, 10+ · `is_canonical_staple` (the catalogue's generic food, not branded or private) · `has_default_portion` · `has_last_used_portion` | a search result opens the food's detail |
 | `nutrition_food_logged` | `entry_point`: quick_add_button, detail_sheet, barcode, suggestion, private_food · `unit_mode`: curated_portion, last_used_portion, grams, ml · `is_fractional` (e.g. ½ or 1½ portions) | the meal is saved: one event per **distinct** combination among the foods added in that editor, so three quick-added gram foods send one event. The number of foods in a meal is never sent (a per-food event with timestamps would add up to a meal log) |
 | `nutrition_diary_reopened` | `has_preserved_portion_label` | a saved meal is opened again |
-| `sync_triggered` | `trigger_source`: profile_button | Profile → Sync now is tapped |
-| `sync_completed` | `trigger_source`: profile_button · `status`: success, failed, skipped (nothing started: offline or no data source), deferred (Apple Health locked) · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ | the sync run ends. `status` is the run's outcome; `duration_ms` runs from the tap to the end of the spinner phase the person waits for, not the platform's scoring afterwards |
+| `sync_triggered` | `trigger_source`: homescreen_top_right, homescreen_pull_to_refresh, profile_button, auto_foreground (the quiet sync at a foreground more than 5 minutes after the last, and the sync a released gate resumes). `homescreen_pull_to_refresh` is a pull on any tab, and Today's Try again · `previous_state`: up_to_date, stale, error (the sync button's state at the trigger) | a sync starts through `HomeSyncModel`: Today's sync button, pull to refresh, Profile → Sync now, a foreground. A trigger that joins a running sync sends nothing |
+| `sync_completed` | `trigger_source`: as above · `status`: success, failed, skipped (nothing started: offline or no data source), deferred (Apple Health locked), partial (uploaded, but the scores were still pending when the 3-minute wait ended) · `duration_ms`: lt_1000, 1000_4999, 5000_14999, 15000_59999, 60000+ · `connected_providers_count`: 0, 1, 2+ (direct connections listed by `GET /v1/me/sync` → `sources`, never which) | the sync run, its wait for scores included, ends. `duration_ms` runs from the trigger to the end of the spinner phase the person waits for, not the platform's scoring afterwards |
 | `Application Installed`, `Application Opened`, `Application Backgrounded` | the SDK's app version and build, OS name and version, device type, library version, session id | the SDK, only while started |
 
 Checked against rule 3 on 2026-11-27: no existing event carries a health value, a name or free text. `sleep_added` and
@@ -98,7 +98,7 @@ the policy.
 >
 > **Your consent.** Nothing is sent or stored for analytics until you agree. The legal basis is your consent
 > (Art. 6(1)(a) GDPR; for storing and reading the ID on your phone, § 25(1) TDDDG). You can withdraw it at any time in
-> Profile → Privacy → Share usage analytics. Sending stops at once, and events not yet sent are deleted from your
+> Profile → Privacy and data → Share usage analytics. Sending stops at once, and events not yet sent are deleted from your
 > phone. Withdrawing doesn't affect the lawfulness of what was sent before.
 >
 > **What is sent.** A random ID that RYFT creates for this installation. It isn't your account, email, name or Apple
@@ -114,7 +114,7 @@ the policy.
 >   food, and whether it had a default or last-used portion; when you save a meal, how you added its foods (quick add,
 >   the food's page, a barcode, a suggestion or a private food), whether in portions (catalogue or last-used), grams or
 >   millilitres, and whether a portion count was fractional, but not how many foods; and that you reopened a saved meal;
-> - for Profile → Sync now: that you tapped it, whether it worked, and a range for how long it took;
+> - for Profile → Devices and sync → Sync now: that you tapped it, whether it worked, and a range for how long it took;
 > - when the app was installed, opened or closed, with the app version and build, iOS version, device type, the
 >   analytics library's version and a session ID.
 >

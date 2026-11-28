@@ -8,23 +8,42 @@ struct NutritionSettingsView: View {
     var body: some View {
         SubpageScaffold(Text("Nutrition settings")) {
             VStack(spacing: GroupedListSpec.groupSpacing) {
-                menu
-                if model.hasFullAccess { NutritionWeightSharingView(model: model) }
+                targets
+                if model.hasFullAccess {
+                    scoring
+                    data
+                }
             }
         }
     }
 
-    private var menu: some View {
-        GroupedCard {
+    // MARK: - groups
+
+    private var targets: some View {
+        GroupedCard(Text("Targets", comment: "Nutrition settings group for nutrient targets and the training goal.")) {
             NutritionRouteRow(Text("Daily nutrient targets"), icon: "target") { NutritionTargetsEditor(model: model, api: api) }
             if model.hasFullAccess {
-                NutritionRouteRow(Text("Recovery profile"), icon: "moon.zzz") { NutritionRecoveryEditor(model: model, api: api) }
                 NutritionRouteRow(Text("Training goal"), icon: "figure.run") { NutritionGoalEditor(model: model, api: api) }
-                NutritionRouteRow(Text("Session and fueling feedback"), icon: "square.and.pencil") {
-                    NutritionFeedbackEditor(model: model, api: api)
-                }
+            }
+        }
+    }
+
+    private var scoring: some View {
+        GroupedCard(Text(LocalizedStringResource("nutrition.settings.scoring", defaultValue: "Scoring",
+                                                 comment: "Nutrition settings group for recovery and fueling feedback."))) {
+            NutritionRouteRow(Text("Recovery profile"), icon: "moon.zzz") { NutritionRecoveryEditor(model: model, api: api) }
+            NutritionRouteRow(Text("Session and fueling feedback"), icon: "square.and.pencil") {
+                NutritionFeedbackEditor(model: model, api: api)
+            }
+        }
+    }
+
+    private var data: some View {
+        VStack(spacing: GroupedListSpec.groupSpacing) {
+            GroupedCard(Text("Data", comment: "Nutrition settings group for glucose data and Apple Health weigh-ins.")) {
                 NutritionRouteRow(Text("Glucose data"), icon: "waveform.path") { NutritionGlucoseView(model: model, api: api) }
             }
+            NutritionWeightSharingView(model: model)
         }
     }
 }

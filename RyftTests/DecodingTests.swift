@@ -12,6 +12,42 @@ struct DecodingTests {
         #expect(r.daysTouched == ["2026-10-17", "2026-10-18"])
     }
 
+    @Test func currentSyncStatus() throws {
+        let status = try Fixture.decode(SyncStatus.self, "me_sync_current")
+        #expect(status.freshness == .current)
+        #expect(status.scoresPendingSince == nil)
+        #expect(status.sources?.map(\.source) == ["healthkit", "garmin"])
+        #expect(status.sources?.map(\.status) == [.ok, .ok])
+        #expect(status.sources?.first?.lastSyncAt == status.lastSyncAt)
+    }
+
+    @Test func pendingSyncStatus() throws {
+        let status = try Fixture.decode(SyncStatus.self, "me_sync_pending")
+        #expect(status.freshness == .scoresPending)
+        #expect(status.scoresPendingSince == status.lastSyncAt)
+        #expect(status.pendingDays == ["2026-11-27"])
+        #expect(status.sources?.last?.status == .pending)
+    }
+
+    @Test func errorSyncStatus() throws {
+        let status = try Fixture.decode(SyncStatus.self, "me_sync_error")
+        #expect(status.freshness == .current)
+        #expect(status.sources?.last?.status == .error)
+        #expect(status.sources?.last?.reason == "needs_reauth")
+    }
+
+    @Test func legacySyncStatus() throws {
+        let status = try Fixture.decode(SyncStatus.self, "me_sync_legacy")
+        #expect(status.sources == nil && status.freshness == nil && status.scoresPendingSince == nil)
+        #expect(status.pendingDays == ["2026-11-27"])
+    }
+
+    @Test func syncStatusRetainsUnknownSourceAndReason() throws {
+        let status = try Fixture.decode(SyncStatus.self, "me_sync_unknown")
+        #expect(status.sources?.last?.source == "future_provider")
+        #expect(status.sources?.first(where: { $0.source == "garmin" })?.reason == "future_reason")
+    }
+
     @Test func me() throws {
         let u = try Fixture.decode(User.self, "me")
         #expect(u.name == "Alex D")

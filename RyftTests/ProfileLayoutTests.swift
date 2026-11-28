@@ -23,7 +23,7 @@ struct ProfileLayoutTests {
         #expect(L.trackOpacity == 0.10)
     }
 
-    @Test("Spec 3: title → card 8, identity → first group 24, groups 18, card radius 22, rows ≥ 46, buttons 18 below / 52 / 12")
+    @Test("Spec 3: title → card 8, identity → first group 24, groups 18, card radius 22, rows ≥ 46, Log out 18 below / 52 high")
     func groupNumbers() {
         #expect(L.titleToCard == 8 && L.titleToCard == GroupedListSpec.titleGap)
         #expect(L.identityToFirstGroup == 24)
@@ -31,7 +31,7 @@ struct ProfileLayoutTests {
         #expect(L.cardRadius == 22 && L.cardRadius == GroupedListSpec.cardRadius)
         #expect(L.rowMinHeight == 46 && L.rowMinHeight == GroupedListSpec.rowMinHeight)
         #expect(L.buttonsTop == 18 && L.buttonsHeight == 52 && L.buttonsHeight == PillButton.minHeight)
-        #expect(L.buttonsGap == 12 && L.logOutPadding == 22)
+        #expect(L.buttonsToMessage == GroupedListSpec.footerGap)
     }
 
     @Test("The ring's end: on the ring's centre line, from 12 o'clock clockwise")
@@ -77,14 +77,11 @@ struct ProfileLayoutTests {
             #expect(abs(avatarTop - (title.frame.midY + L.header / 2 + L.headerToIdentity)) < 0.5, "\(title.frame) / \(identity.frame)")
             #expect(abs(identity.frame.minX - ringInset - Theme.Metrics.screenPadding) < 0.5, "\(identity.frame)")
             #expect(identity.frame.maxX <= 390 - Theme.Metrics.screenPadding + 0.5)
-            let aboutYou = try #require(w.node("About you", exactly: true), "the first group's title")
-            #expect(abs(aboutYou.frame.minY - (avatarTop + L.avatar + L.identityToFirstGroup)) < 0.5, "\(aboutYou.frame)")
-            // The card's first row 8 below the title's line (the title's text frame is 1 pt taller than its line).
-            let birthYear = try node(w, id: "profile.birthYear")
-            #expect(abs(birthYear.frame.minY - (aboutYou.frame.maxY + L.titleToCard)) <= 1.01, "\(aboutYou.frame) / \(birthYear.frame)")
-            // The menu row is the minimum 46 (its element reaches 1 pt into the next row): the next row starts 46 below it.
-            let maxHR = try node(w, id: "profile.maxHR")
-            #expect(abs(maxHR.frame.minY - birthYear.frame.minY - L.rowMinHeight) < 0.5, "\(birthYear.frame) / \(maxHR.frame)")
+            let you = try #require(w.node("You", exactly: true), "the first group's title")
+            #expect(abs(you.frame.minY - (avatarTop + L.avatar + L.identityToFirstGroup)) < 0.5, "\(you.frame)")
+            // The card's first row is 8 below the title's line (the title's text frame is 1 pt taller).
+            let body = try node(w, id: "profile.bodyAndBaselines")
+            #expect(abs(body.frame.minY - (you.frame.maxY + L.titleToCard)) <= 1.01, "\(you.frame) / \(body.frame)")
         }
     }
 
@@ -92,12 +89,11 @@ struct ProfileLayoutTests {
     func hostedRows() async throws {
         try await page { w in
             let nodes = w.nodes()
-            // B's import rows keep their own element (44 high inside the 46 row); the rest are `GroupedRow`s.
             let rows = nodes.filter { node in
                 guard let id = node.identifier, id.hasPrefix("profile.") else { return false }
-                return ProfileRow.allCases.contains { $0.identifier == id && !$0.setsOwnIdentifier }
+                return ProfileRow.allCases.contains { $0.identifier == id }
             }
-            #expect(rows.count >= 20, "\(rows.count) rows")
+            #expect(rows.count >= 11, "\(rows.count) rows")
             let card = 390 - 2 * Theme.Metrics.screenPadding
             for row in rows {
                 #expect(row.frame.height >= L.rowMinHeight - 0.5, "\(row.identifier ?? ""): \(row.frame)")
@@ -106,35 +102,28 @@ struct ProfileLayoutTests {
                         "\(row.identifier ?? ""): \(row.frame)")
                 #expect(row.frame.minX >= Theme.Metrics.screenPadding - 0.5 && row.frame.maxX <= 390 - Theme.Metrics.screenPadding + 0.5)
             }
-            // Training has no footer with Session layout off and write access given: its last row to Settings' title.
-            let save = try node(w, id: "profile.saveWorkouts")
-            let settings = try #require(w.node("Settings", exactly: true))
-            #expect(abs(settings.frame.minY - (save.frame.maxY + L.groupGap)) < 0.5, "\(save.frame) / \(settings.frame)")
-            // A footer to the next title: Settings' sentence, then Privacy.
-            let footer = try #require(w.node("Large numbers on Today, Sleep and Strain.", exactly: true))
-            let privacy = try #require(w.node("Privacy", exactly: true))
-            #expect(abs(privacy.frame.minY - (footer.frame.maxY + L.groupGap)) < 0.5, "\(footer.frame) / \(privacy.frame)")
+            let devices = try node(w, id: "profile.devices")
+            let privacy = try node(w, id: "profile.privacyAndData")
+            #expect(abs(privacy.frame.minY - devices.frame.minY - L.rowMinHeight) < 0.5)
+            let resources = try #require(w.node("Resources", exactly: true))
+            #expect(abs(resources.frame.minY - (privacy.frame.maxY + L.groupGap)) <= 1.01)
         }
     }
 
-    @Test("Hosted: the buttons 18 below the last group, 52 high, 12 apart; Log out its title + 22 a side, Export the rest")
+    @Test("Hosted: Log out spans the card width 18 below the last group")
     func hostedButtons() async throws {
         try await page { w in
-            let export = try node(w, id: "profile.export")
             let logOut = try node(w, id: "profile.logOut")
             let footer = try #require(w.node("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.",
                                              exactly: true))
-            #expect(abs(export.frame.minY - (footer.frame.maxY + L.buttonsTop)) < 0.5, "\(footer.frame) / \(export.frame)")
-            #expect(abs(export.frame.height - L.buttonsHeight) < 0.5 && abs(logOut.frame.height - L.buttonsHeight) < 0.5)
-            #expect(abs(export.frame.minY - logOut.frame.minY) < 0.5, "one row")
-            #expect(abs(logOut.frame.minX - (export.frame.maxX + L.buttonsGap)) < 0.5, "\(export.frame) / \(logOut.frame)")
-            #expect(abs(logOut.frame.maxX - (390 - Theme.Metrics.screenPadding)) < 0.5, "\(logOut.frame)")
-            #expect(logOut.frame.width > 90 && logOut.frame.width < 130, "about 108: \(logOut.frame.width)")
-            #expect(export.frame.width > logOut.frame.width)
+            #expect(abs(logOut.frame.minY - (footer.frame.maxY + L.buttonsTop)) < 0.5, "\(footer.frame) / \(logOut.frame)")
+            #expect(abs(logOut.frame.height - L.buttonsHeight) < 0.5)
+            #expect(abs(logOut.frame.width - (390 - 2 * Theme.Metrics.screenPadding)) < 0.5, "\(logOut.frame)")
+            #expect(!w.nodes().contains { $0.identifier == "profile.export" })
         }
     }
 
-    @Test("Hosted at AX3: the avatar over the name, nothing past the window, the buttons stacked")
+    @Test("Hosted at AX3: the avatar over the name, everything inside the window and Log out at full width")
     func hostedAX3() async throws {
         try await page(typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
             let identity = try node(w, id: "profile.identity")
@@ -142,10 +131,8 @@ struct ProfileLayoutTests {
             for node in w.nodes() where node.frame.width > 0 {
                 #expect(node.frame.minX >= -0.5 && node.frame.maxX <= 390.5, "\(node.label): \(node.frame)")
             }
-            let export = try node(w, id: "profile.export")
             let logOut = try node(w, id: "profile.logOut")
-            #expect(abs(logOut.frame.minY - (export.frame.maxY + L.buttonsGap)) < 0.5, "\(export.frame) / \(logOut.frame)")
-            #expect(abs(logOut.frame.width - export.frame.width) < 0.5, "both the full width")
+            #expect(abs(logOut.frame.width - (390 - 2 * Theme.Metrics.screenPadding)) < 0.5, "\(logOut.frame)")
         }
     }
 }

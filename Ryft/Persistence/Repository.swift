@@ -336,9 +336,10 @@ final class Repository {
     /// The day's detail: cached and fresh → no request (`.ifStale`). A failure with a cached
     /// copy keeps the copy (offline browsing); without one it throws.
     @discardableResult
-    func refreshDay(_ date: Date, mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws -> DayDetail? {
+    func refreshDay(_ date: Date, mode: ReadMode = .ifStale, userInitiated: Bool = false,
+                    requireNetworkResult: Bool = false) async throws -> DayDetail? {
         let key = DayFormat.string(from: date)
-        if mode == .ifStale, isDetailFresh(key) { return day(key) }
+        if !requireNetworkResult, mode == .ifStale, isDetailFresh(key) { return day(key) }
         let resource: ReadResource = key == DayFormat.string(from: now) ? .today : .day
         let binding = AccountBinding(env)
         do {
@@ -348,10 +349,11 @@ final class Repository {
             // The flight resolved for this account (`ReadScheduler.start`), but a sign-out or the Demo data switch may
             // have come before this caller resumed: then the answer is nobody's here.
             guard binding.isCurrent(in: env) else { return nil }
+            if requireNetworkResult { return fetched }
             // What the store has; the answer itself only if the store refused the save.
             return day(key) ?? fetched
         } catch {
-            if let cached = day(key) { return cached }
+            if !requireNetworkResult, let cached = day(key) { return cached }
             throw error
         }
     }
@@ -1180,6 +1182,8 @@ struct ResourceState: Codable, Equatable, Sendable {
 @MainActor
 @Observable
 final class ReadScheduler {
+    /// Scoring polls wait for their next interval before retrying a failed status read.
+    @TaskLocal static var automaticRetries = true
     /// Not observed: every read changes these (a journal's, config's or Train's too). Screens read
     /// what they need through `onChange` (AppState's stored summary) or `revision` (Sync details).
     @ObservationIgnored private(set) var states: [ReadResource: ResourceState] = [:]
@@ -1494,7 +1498,8 @@ final class ReadScheduler {
     /// The tries for one flight: single attempts through the budget, backoff between them.
     private func attempts<T: Sendable>(_ key: ReadKey, account: String?,
                                        _ fetch: @escaping @MainActor () async throws -> T) async throws -> T {
-        let policy: RetryPolicy = APIClient.runsInBackground ? .background : .foreground
+        var policy: RetryPolicy = APIClient.runsInBackground ? .background : .foreground
+        if !Self.automaticRetries { policy.maxRetries = 0 }
         var attempt = 0
         while true {
             try Task.checkCancellation()

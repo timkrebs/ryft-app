@@ -267,12 +267,45 @@
         }
       }
     },
+    "%@ · %@ · %@" : {
+      "comment" : "Sync menu source name, time it last synced, and its pending or error status.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@ · %3$@"
+          }
+        }
+      }
+    },
     "%@ · Partial" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · Teilwert"
+          }
+        }
+      }
+    },
+    "%@, never synced" : {
+      "comment" : "VoiceOver sync value: state followed by the absence of an Apple Health sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, noch kein Sync"
+          }
+        }
+      }
+    },
+    "%@, synced %@" : {
+      "comment" : "VoiceOver sync value: state followed by when Apple Health last synced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, letzter Sync %2$@"
           }
         }
       }
@@ -3404,16 +3437,6 @@
         }
       }
     },
-    "Add %@ g of %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ g %2$@ hinzufügen"
-          }
-        }
-      }
-    },
     "Add a habit" : {
       "comment" : "Journal settings: the header's button to add one of your own habits, and the title of that sheet.",
       "localizations" : {
@@ -3711,6 +3734,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zur nächsten Übung wechseln"
+          }
+        }
+      }
+    },
+    "Advanced" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweitert"
           }
         }
       }
@@ -4106,6 +4139,16 @@
         }
       }
     },
+    "Analytics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutzungsanalyse"
+          }
+        }
+      }
+    },
     "and %lld more" : {
       "comment" : "Training import, step 2: warnings not listed.",
       "localizations" : {
@@ -4145,6 +4188,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zugriff auf Apple Health"
+          }
+        }
+      }
+    },
+    "Apple Health access needed" : {
+      "comment" : "VoiceOver sync status when RYFT needs permission to read Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugriff auf Apple Health nötig"
           }
         }
       }
@@ -4281,6 +4335,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Höhengewinn"
+          }
+        }
+      }
+    },
+    "Asks iOS to show the App Store rating prompt" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bittet iOS, die Bewertung im App Store anzuzeigen"
           }
         }
       }
@@ -4747,6 +4811,16 @@
         }
       }
     },
+    "Bedtime and wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafen und Aufwachen"
+          }
+        }
+      }
+    },
     "Bedtime reminder" : {
       "localizations" : {
         "de" : {
@@ -4773,6 +4847,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blutsauerstoff"
+          }
+        }
+      }
+    },
+    "Body and baselines" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Körper und Grundwerte"
           }
         }
       }
@@ -5714,6 +5798,17 @@
         }
       }
     },
+    "Consent required" : {
+      "comment" : "Sync menu status when consent is required before this source can sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einwilligung erforderlich"
+          }
+        }
+      }
+    },
     "Consent withdrawn. Syncing has stopped." : {
       "comment" : "VoiceOver announcement when the consent withdrawal was confirmed; Profile's consent row changes at the same time.",
       "localizations" : {
@@ -6098,6 +6193,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Täglicher Trainingsplan"
+          }
+        }
+      }
+    },
+    "Data" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten"
           }
         }
       }
@@ -7857,6 +7962,17 @@
         }
       }
     },
+    "Garmin" : {
+      "comment" : "Garmin direct data source in Today's sync menu.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garmin"
+          }
+        }
+      }
+    },
     "Garmin Connect" : {
       "localizations" : {
         "de" : {
@@ -8240,6 +8356,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Körpergröße (cm)"
+          }
+        }
+      }
+    },
+    "Help and feedback" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hilfe und Feedback"
           }
         }
       }
@@ -9171,6 +9297,17 @@
         }
       }
     },
+    "Invite required" : {
+      "comment" : "Sync menu status when an invite is required before this source can sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einladung erforderlich"
+          }
+        }
+      }
+    },
     "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {
       "localizations" : {
         "de" : {
@@ -9478,6 +9615,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lass eine Menge leer, wenn sie unbekannt ist."
+          }
+        }
+      }
+    },
+    "Legal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechtliches"
           }
         }
       }
@@ -9886,16 +10033,6 @@
         }
       }
     },
-    "Measure" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einheit"
-          }
-        }
-      }
-    },
     "Measured cycle water offset (kg)" : {
       "localizations" : {
         "de" : {
@@ -10057,6 +10194,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlafbedarf für diese Nacht"
+          }
+        }
+      }
+    },
+    "Needs reconnecting" : {
+      "comment" : "Sync menu status for a provider that needs authorization again.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu verbinden"
           }
         }
       }
@@ -10562,6 +10710,22 @@
         }
       }
     },
+    "nutrition.settings.scoring" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bewertung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scoring"
+          }
+        }
+      }
+    },
     "Nuts and legumes" : {
       "localizations" : {
         "de" : {
@@ -10884,6 +11048,17 @@
         }
       }
     },
+    "Pending" : {
+      "comment" : "Sync menu status for a source whose data is still being processed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausstehend"
+          }
+        }
+      }
+    },
     "Pending meal" : {
       "localizations" : {
         "de" : {
@@ -11101,6 +11276,16 @@
         }
       }
     },
+    "Privacy and data" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datenschutz und Daten"
+          }
+        }
+      }
+    },
     "Progression · %@" : {
       "comment" : "A plan's page, under its description: how the weights move (\"Progression · Linear +2.5 kg\").",
       "localizations" : {
@@ -11170,6 +11355,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wettkampftag"
+          }
+        }
+      }
+    },
+    "Rate RYFT" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT bewerten"
           }
         }
       }
@@ -11587,6 +11782,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Meldungen"
+          }
+        }
+      }
+    },
+    "Resources" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ressourcen"
           }
         }
       }
@@ -12032,6 +12237,17 @@
         }
       }
     },
+    "Scores are still being calculated" : {
+      "comment" : "Sync status after scoring takes longer than three minutes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Werte werden noch berechnet"
+          }
+        }
+      }
+    },
     "SDNN" : {
       "comment" : "The HRV trend card's note: the kind of HRV the number is. Keep the abbreviation SDNN (a measure of heart-rate variability).",
       "localizations" : {
@@ -12205,17 +12421,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sätze mit Werten kannst du über die Liste löschen."
-          }
-        }
-      }
-    },
-    "Settings" : {
-      "comment" : "Profile: the group heading for notifications, the journal, hero numbers and bedtime.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einstellungen"
           }
         }
       }
@@ -12880,6 +13085,39 @@
         }
       }
     },
+    "Sync" : {
+      "comment" : "VoiceOver label for the Apple Health sync button in Today's header.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync"
+          }
+        }
+      }
+    },
+    "Sync needed" : {
+      "comment" : "VoiceOver sync status when Apple Health data is stale or unconfirmed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync nötig"
+          }
+        }
+      }
+    },
+    "Sync problem" : {
+      "comment" : "Generic sync status when a data source or upload reports an error.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Problem"
+          }
+        }
+      }
+    },
     "syncdetails.workouts.paused" : {
       "comment" : "Sync details → Waiting to send → Workouts: held at a gate with nothing to name (a withdrawal, the account not known yet).",
       "localizations" : {
@@ -12965,6 +13203,28 @@
         }
       }
     },
+    "Syncing" : {
+      "comment" : "VoiceOver sync status while Apple Health sends or scoring runs.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abgleich läuft"
+          }
+        }
+      }
+    },
+    "Syncs Apple Health now" : {
+      "comment" : "VoiceOver hint for tapping the sync button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gleicht Apple Health jetzt ab"
+          }
+        }
+      }
+    },
     "Tab %lld of %lld" : {
       "comment" : "VoiceOver value of a tab: its position. First %lld: this tab's position, second %lld: the number of tabs, e.g. \"Tab 2 of 5\".",
       "localizations" : {
@@ -13005,6 +13265,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zielgewicht (kg)"
+          }
+        }
+      }
+    },
+    "Targets" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele"
           }
         }
       }
@@ -15409,16 +15679,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vorschau"
-          }
-        }
-      }
-    },
-    "Privacy" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Datenschutz"
           }
         }
       }
@@ -19143,6 +19403,16 @@
         }
       }
     },
+    "Turn off Demo data in Devices and sync to log in or create an account." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiviere die Demodaten unter Geräte und Sync, um dich anzumelden oder ein Konto zu erstellen."
+          }
+        }
+      }
+    },
     "Turn off Demo data?" : {
       "comment" : "Profile → Demo data switched off while workouts logged in the demo exist",
       "localizations" : {
@@ -19223,6 +19493,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Einheit"
+          }
+        }
+      }
+    },
+    "Units and display" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einheiten und Anzeige"
           }
         }
       }
@@ -19969,6 +20249,16 @@
         }
       }
     },
+    "What's new" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neuigkeiten"
+          }
+        }
+      }
+    },
     "Where it is stored" : {
       "localizations" : {
         "de" : {
@@ -20294,6 +20584,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gestrige Ernährung für die Erholung"
+          }
+        }
+      }
+    },
+    "You" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du"
           }
         }
       }
@@ -20688,6 +20988,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein aktueller Plan ist pausiert. Wenn du diesen Plan aktivierst, löst er ihn ab."
+          }
+        }
+      }
+    },
+    "Your data" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten"
           }
         }
       }
@@ -22180,16 +22490,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein Supersatz braucht mindestens zwei Übungen."
-          }
-        }
-      }
-    },
-    "About" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Über RYFT"
           }
         }
       }
@@ -28572,18 +28872,6 @@
         }
       }
     },
-    "Turn off Demo data to log in or create an account." : {
-      "comment" : "A description of how to log in to the app.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deaktiviere die Demodaten, um dich anzumelden oder ein Konto zu erstellen."
-          }
-        }
-      }
-    },
     "Until" : {
       "comment" : "A label for the end time of quiet hours.",
       "isCommentAutoGenerated" : true,
@@ -29589,16 +29877,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Meldung konnte nicht gesendet werden. Versuche es erneut."
-          }
-        }
-      }
-    },
-    "%@ · %@ g" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · %@ g"
           }
         }
       }

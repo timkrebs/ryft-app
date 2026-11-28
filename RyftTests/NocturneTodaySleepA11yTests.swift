@@ -62,7 +62,7 @@ struct NocturneTodaySleepA11yTests {
 
     // MARK: Today: reading order (§P4-8, the table)
 
-    @Test("Today reads lock-up, Calendar, greeting, status, gauge, ruler, the attention card, three tiles, then the cards below",
+    @Test("Today reads lock-up, Calendar, Sync, greeting, status, gauge, ruler, the attention card, three tiles, then the cards below",
           arguments: [false, true])
     func todayReadsInTheTablesOrder(ax3: Bool) async throws {
         try await today(ax3: ax3) { w in
@@ -70,6 +70,7 @@ struct NocturneTodaySleepA11yTests {
             let order = positions(nodes, [
                 { $0.label == "RYFT" },
                 { $0.identifier == "today.header.calendar" },
+                { $0.identifier == "today.header.sync" },
                 { $0.label.hasPrefix("Good ") },
                 { $0.identifier == "today.syncLine.line" },
                 { $0.identifier == "today.readinessGauge" },
@@ -83,8 +84,8 @@ struct NocturneTodaySleepA11yTests {
             #expect(isAscending(order), "\(order) in \(nodes.map { $0.identifier ?? $0.label })")
             // Nothing else is read between the header and the ruler, nor between the tiles: the label row is hidden, the
             // gauge and the tiles are one element each.
-            #expect(order[5] - order[0] == 5, "lock-up … ruler: \(order)")
-            #expect(order[9] - order[7] == 2, "the three tiles follow each other: \(order)")
+            #expect(order[6] - order[0] == 6, "lock-up … ruler: \(order)")
+            #expect(order[10] - order[8] == 2, "the three tiles follow each other: \(order)")
         }
     }
 

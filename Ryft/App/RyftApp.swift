@@ -354,8 +354,8 @@ struct RyftApp: App {
                 state.repository.resumeWrites()
                 (env.flags as? FlagStore)?.applyPending()
                 Task {
-                    await coordinator.enterForeground()
-                    await coordinator.run(.appActive)
+                    // The quiet foreground sync (> 5 min since the last) or one status read: HomeSyncModel.
+                    await screens.homeSync.enterForeground(eligible: settings.healthIntroDone)
                 }
                 // After the first frame (at launch), concurrently and below the sync: Today
                 // shows the cache meanwhile. The sync and bootstrap's gate check don't wait.
@@ -449,6 +449,7 @@ struct RyftApp: App {
         guard auth.isSignedIn else { return }
         // Every start and sign-in: what the account still needs (invite, consent, about you).
         // This also creates the platform user and sets its timezone before anything syncs.
+        let checkedSince = env.clock.now()
         await screens.onboarding.check()
         // Behind an enforced invite gate nothing but onboarding answers; this reruns once
         // it's passed (`BootstrapKey.inviteBlocked`). A warning blocks nothing.
@@ -464,7 +465,9 @@ struct RyftApp: App {
         }
         try? await env.health.requestAuthorization()
         Self.observeHealthKit(env.health, coordinator: coordinator)
-        await coordinator.run(.appActive)
+        if scenePhase != .background {
+            await screens.homeSync.enterForeground(checkedSince: checkedSince)
+        }
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`

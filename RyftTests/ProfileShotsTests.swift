@@ -18,8 +18,9 @@ struct ProfileShotsTests {
                                            ("ax3", .accessibility3, .accessibilityExtraLarge)] {
             // A graph per size: the demo-exit refusal and the failed sync are each one step on fresh models.
             let graph = try await ProfileShotGraph.make(name)
+            let route: ProfileRoute? = ["sync-issue", "demo-exit-error"].contains(name) ? .devices : nil
             try await HostedWindow.run(width: 390, height: 844, bottomInset: 34, typeSize: typeSize, category: category,
-                                       graph.view) { w in
+                                       graph.page(route)) { w in
                 try await w.settle()
                 let image = try await PagedWindowShot.image(w)
                 let data = try #require(image.pngData())
@@ -52,8 +53,10 @@ struct ProfileShotGraph {
     /// The "withdrawing" state's `DELETE /v1/me/consent`, held open until `releaseWithdrawal()`.
     var withdrawal: Gate?
 
-    var view: AnyView {
-        AnyView(ProfileView()
+    var view: AnyView { page() }
+
+    func page(_ route: ProfileRoute? = nil) -> AnyView {
+        AnyView(ProfileView(initialRoute: route)
             .environment(\.appEnvironment, state.env)
             .environment(screens)
             .environment(settings)

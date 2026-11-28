@@ -352,10 +352,14 @@ struct AnalyticsAllowListTests {
             "is_fractional": bools,
         ])
         #expect(AnalyticsCatalog.events["nutrition_diary_reopened"] == ["has_preserved_portion_label": bools])
-        #expect(AnalyticsCatalog.events["sync_triggered"] == ["trigger_source": ["profile_button"]])
+        let triggers: Set<String> = ["profile_button", "homescreen_top_right", "homescreen_pull_to_refresh", "auto_foreground"]
+        #expect(AnalyticsCatalog.events["sync_triggered"] == [
+            "trigger_source": triggers, "previous_state": ["up_to_date", "stale", "error"],
+        ])
         #expect(AnalyticsCatalog.events["sync_completed"] == [
-            "trigger_source": ["profile_button"], "status": ["success", "failed", "skipped", "deferred"],
+            "trigger_source": triggers, "status": ["success", "failed", "skipped", "deferred", "partial"],
             "duration_ms": ["lt_1000", "1000_4999", "5000_14999", "15000_59999", "60000+"],
+            "connected_providers_count": ["0", "1", "2+"],
         ])
     }
 

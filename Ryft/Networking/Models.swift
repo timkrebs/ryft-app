@@ -1082,6 +1082,22 @@ struct TodayState: Codable, Hashable, Sendable {
     let modelVersion: String
 }
 
+enum SyncFreshness: String, Codable, Hashable, Sendable {
+    case current
+    case scoresPending = "scores_pending"
+}
+
+enum SyncSourceStatus: String, Codable, Hashable, Sendable {
+    case ok, pending, error
+}
+
+struct SyncSource: Codable, Hashable, Sendable {
+    let source: String
+    let lastSyncAt: Date?
+    let status: SyncSourceStatus
+    let reason: String?
+}
+
 /// `GET /v1/me/sync`: what the server has, and what scoring is doing with it.
 struct SyncStatus: Codable, Hashable, Sendable {
     /// The gate between this account and its scores, also while it only warns. `nil`: none.
@@ -1095,9 +1111,13 @@ struct SyncStatus: Codable, Hashable, Sendable {
     let pendingDays: [String]
     let expectedWithinSec: Int
     let resyncRequestedAt: Date?
+    let sources: [SyncSource]?
+    let freshness: SyncFreshness?
+    let scoresPendingSince: Date?
 
     init(gate: APIErrorCode?, lastSyncAt: Date?, lastSyncDevice: String?, latest: [String: Date], today: TodayState,
-         pendingDays: [String], expectedWithinSec: Int, resyncRequestedAt: Date?) {
+         pendingDays: [String], expectedWithinSec: Int, resyncRequestedAt: Date?,
+         sources: [SyncSource]? = nil, freshness: SyncFreshness? = nil, scoresPendingSince: Date? = nil) {
         self.gate = gate
         self.lastSyncAt = lastSyncAt
         self.lastSyncDevice = lastSyncDevice
@@ -1106,6 +1126,9 @@ struct SyncStatus: Codable, Hashable, Sendable {
         self.pendingDays = pendingDays
         self.expectedWithinSec = expectedWithinSec
         self.resyncRequestedAt = resyncRequestedAt
+        self.sources = sources
+        self.freshness = freshness
+        self.scoresPendingSince = scoresPendingSince
     }
 
     init(from decoder: Decoder) throws {
@@ -1119,6 +1142,23 @@ struct SyncStatus: Codable, Hashable, Sendable {
         pendingDays = try c.decodeIfPresent([String].self, forKey: .pendingDays) ?? []
         expectedWithinSec = try c.decode(Int.self, forKey: .expectedWithinSec)
         resyncRequestedAt = try c.decodeIfPresent(Date.self, forKey: .resyncRequestedAt)
+        sources = try c.decodeIfPresent([SyncSource].self, forKey: .sources)
+        freshness = try c.decodeIfPresent(SyncFreshness.self, forKey: .freshness)
+        scoresPendingSince = try c.decodeIfPresent(Date.self, forKey: .scoresPendingSince)
+    }
+
+    func effectiveFreshness(now: Date, calendar: Calendar = .current) -> SyncFreshness {
+        if let freshness { return freshness }
+        guard !pendingDays.isEmpty else { return .current }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let end = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -29, to: end) ?? end
+        let range = formatter.string(from: start)...formatter.string(from: end)
+        return pendingDays.contains(where: range.contains) ? .scoresPending : .current
     }
 }
 
