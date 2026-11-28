@@ -58,7 +58,7 @@ struct NutritionFoodPicker: View {
 
     @State private var query = ""
     @State private var barcode = ""
-    @State private var searchesBarcode = false
+    @State private var searchesBarcode: Bool
     @State private var scanner = false
     @State private var detail: FoodRoute?
     @State private var quickAddition: QuickAddition?
@@ -79,6 +79,18 @@ struct NutritionFoodPicker: View {
     @FocusState private var editing: Bool
     @Environment(\.locale) private var locale
     @Environment(\.appEnvironment) private var env
+
+    init(model: NutritionDiaryModel, api: APIClient, initialFood: Binding<NutritionFoodMatch?>,
+         items: Binding<[NutritionDraftItem]>, startsWithBarcode: Bool = false,
+         onBack: @escaping () -> Void, review: @escaping () -> Void) {
+        self.model = model
+        self.api = api
+        _initialFood = initialFood
+        _items = items
+        _searchesBarcode = State(initialValue: startsWithBarcode)
+        self.onBack = onBack
+        self.review = review
+    }
 
     private var catalogLocale: NutritionCatalogLocale { NutritionCatalogLocale(locale: locale) }
 

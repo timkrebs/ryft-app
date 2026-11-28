@@ -15,6 +15,7 @@ enum AnalyticsCatalog {
         "health_access_requested": [:],
         "first_sync_completed": [:],
         "screen_viewed": ["screen": values(AnalyticsScreen.self)],
+        "quick_log_action": ["action": values(AnalyticsQuickLogAction.self)],
         "feature_used": ["feature": values(AnalyticsFeature.self)],
         "error_shown": ["status": values(AnalyticsErrorStatus.self), "code": values(AnalyticsErrorCode.self)],
         "nutrition_search_completed": [

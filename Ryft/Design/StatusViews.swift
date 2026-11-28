@@ -13,6 +13,7 @@ struct ScreenScaffold<Content: View>: View {
     /// The centred `RyftHeader` above the content. Today and Sleep in Nocturne draw their own `ScreenHeader` as the
     /// content's first row and pass `false` (design.md §P4-1, §P4-2); the content then starts at the safe-area top.
     var showsHeader = true
+    var refresh: (() async -> Void)?
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -29,7 +30,9 @@ struct ScreenScaffold<Content: View>: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .refreshable { await screens.pullToRefresh() }
+        .refreshable {
+            if let refresh { await refresh() } else { await screens.pullToRefresh() }
+        }
         .toolbar(.hidden, for: .navigationBar)
     }
 }

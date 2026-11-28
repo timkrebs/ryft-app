@@ -66,11 +66,12 @@ struct RyftTabBarTests {
 
     @Test("The five tabs in order: titles, `tab.<rawValue>` identifiers, the bar's items")
     func appTabs() {
-        #expect(AppTab.allCases.map { String(localized: $0.title) } == Self.titles)
-        #expect(AppTab.allCases.map(\.identifier) == ["tab.today", "tab.sleep", "tab.strain", "tab.insights", "tab.profile"])
+        let tabs = AppTab.tabs(structureV2: false)
+        #expect(tabs.map { String(localized: $0.title) } == Self.titles)
+        #expect(tabs.map(\.identifier) == ["tab.today", "tab.sleep", "tab.strain", "tab.insights", "tab.profile"])
         let items = RyftTabBar.appTabs
-        #expect(items.map(\.tab) == AppTab.allCases.map(\.rawValue))
-        #expect(items.map(\.identifier) == AppTab.allCases.map(\.identifier))
+        #expect(items.map(\.tab) == tabs.map(\.rawValue))
+        #expect(items.map(\.identifier) == tabs.map(\.identifier))
         #expect(items.map { String(localized: $0.title) } == Self.titles)
     }
 
@@ -152,7 +153,7 @@ struct RyftTabBarTests {
             let tabs = items(w)
             #expect(tabs.map(\.label) == Self.titles)
             #expect(tabs.map(\.value) == (1...5).map { "Tab \($0) of 5" })
-            #expect(tabs.map(\.identifier) == AppTab.allCases.map(\.identifier))
+            #expect(tabs.map(\.identifier) == AppTab.tabs(structureV2: false).map(\.identifier))
             #expect(tabs.allSatisfy { $0.traits.contains(.button) })
             #expect(tabs.map(\.isSelected) == [false, false, false, true, false], "only Insights")
         }
@@ -233,7 +234,8 @@ struct RyftTabBarTests {
             #expect(tabs.map(\.isSelected) == [true, false, false, false, false])
             // VoiceOver: the content first, the bar last, left to right.
             let first = try #require(nodes.firstIndex { $0.identifier == "tab.today" })
-            #expect(nodes[first...].prefix(5).map(\.identifier) == AppTab.allCases.map(\.identifier), "the bar's items in order")
+            #expect(nodes[first...].prefix(5).map(\.identifier) == AppTab.tabs(structureV2: false).map(\.identifier),
+                    "the bar's items in order")
             let after = nodes[first...].filter { $0.identifier?.hasPrefix("tab.") != true && $0.label != "Tab bar" }
             #expect(after.isEmpty, "nothing after the bar: \(after.map(\.label))")
             // The viewport ends at the bar: scrolled to the end, nothing is under it.

@@ -13,11 +13,13 @@ struct ProfileView: View {
     @State private var showsSyncDetails = false
 
     private var model: ProfileViewModel { screens.profile }
+    private let onDone: (() -> Void)?
 
     private typealias L = ProfileLayout
 
     /// Previews and hosted tests can start with a page already on the stack.
-    init(initialRoute: ProfileRoute? = nil) {
+    init(initialRoute: ProfileRoute? = nil, onDone: (() -> Void)? = nil) {
+        self.onDone = onDone
         var path = NavigationPath()
         if let initialRoute { path.append(initialRoute) }
         _path = State(initialValue: path)
@@ -141,7 +143,22 @@ struct ProfileView: View {
     private var page: some View {
         let facts = ProfileRowFacts(model, journalLive: screens.journal.isLive, bedtimeEnabled: screens.bedtime.isEnabled)
         return VStack(alignment: .leading, spacing: 0) {
-            ScreenHeader(title: Text("Profile"))
+            if let onDone {
+                ScreenHeader(title: Text(AppTab.profile.title)) {
+                    Button(action: onDone) {
+                        Text("Done", comment: "A button title. Dismisses the keyboard or closes a sheet.")
+                            .font(.ryft(.label))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(minWidth: Theme.Metrics.minHitTarget, minHeight: Theme.Metrics.minHitTarget)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.done")
+                }
+                .padding(.top, SheetHeaderSpec.topInset)
+            } else {
+                ScreenHeader(title: Text("Profile"))
+            }
             ProfileIdentitySection(showsSyncDetails: $showsSyncDetails)
                 .padding(.top, L.headerToIdentity)
             // The RYFT Plus slot stays hidden until StoreKit ships (ProfileRowFacts.showsPlus).

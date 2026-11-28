@@ -2,20 +2,47 @@ import SwiftUI
 
 struct NutritionEntryView: View {
     var closeMealEditor: (() -> Void)?
+    var tabMealEditor: Binding<NutritionMealEditorRoute?>?
 
     @Environment(\.appEnvironment) private var env
     @Environment(AppState.self) private var state
+    @State private var tabDiary: (scope: Scope, model: NutritionDiaryModel)?
 
     private struct Scope: Hashable {
         let account: String
         let access: NutritionAccess
+        var accountChanges = 0
     }
 
     var body: some View {
         let access = env.flags.nutritionAccess
-        if let account = env.auth.accountID, let api = env.api as? APIClient, !env.isDemo, access != .unavailable {
-            let model = NutritionDiaryModel(env: env, api: api, account: account,
-                                            timezone: state.user?.tz ?? TimeZone.current.identifier)
+        if let tabMealEditor {
+            let scope = env.showsNutritionEntry ? env.auth.accountID.map {
+                Scope(account: $0, access: access, accountChanges: env.auth.accountChanges)
+            } : nil
+            let api = env.api as? APIClient
+            Group {
+                if let scope, let tabDiary, tabDiary.scope == scope {
+                    NutritionView(model: tabDiary.model, tabMealEditor: tabMealEditor)
+                        .id(scope)
+                } else {
+                    ScreenScaffold(showsHeader: false) {
+                        NutritionTab.header
+                        if scope == nil || api == nil {
+                            InlineMessage(message: unavailableMessage, systemImage: "fork.knife", announces: false)
+                        }
+                    }
+                }
+            }
+            .task(id: scope) {
+                if let scope, let api {
+                    tabDiary = (scope, makeDiary(account: scope.account, api: api))
+                } else {
+                    tabDiary = nil
+                }
+            }
+        } else if env.showsNutritionEntry, let account = env.auth.accountID, let api = env.api as? APIClient {
+            let model = makeDiary(account: account, api: api)
             Group {
                 if let closeMealEditor {
                     NutritionQuickLogView(model: model, api: api, closeMealEditor: closeMealEditor)
@@ -25,6 +52,18 @@ struct NutritionEntryView: View {
             }
             .id(Scope(account: account, access: access))
         }
+    }
+
+    private func makeDiary(account: String, api: APIClient) -> NutritionDiaryModel {
+        NutritionDiaryModel(env: env, api: api, account: account, timezone: state.user?.tz ?? TimeZone.current.identifier)
+    }
+
+    private var unavailableMessage: String {
+        if env.isDemo {
+            return String(localized: "Nutrition isn't part of Demo data.", comment: "Empty state of the Nutrition tab in Demo data.")
+        }
+        return String(localized: "Nutrition isn't available for this account yet.",
+                      comment: "Empty state of the Nutrition tab when the account cannot use Nutrition.")
     }
 }
 
@@ -55,26 +94,10 @@ struct NutritionView: View {
     @State private var editor: NutritionMealEditorRoute?
     @State private var confirmingDiscard = false
     @Environment(\.scenePhase) private var scenePhase
+    var tabMealEditor: Binding<NutritionMealEditorRoute?>?
 
     var body: some View {
-        SubpageScaffold(Text("Nutrition")) {
-            VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
-                dayPicker
-                if let error = model.error {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
-                    PillButton(Text("Try again"), style: .secondary, busy: model.loading) { await model.load(force: true) }
-                }
-                if let daily = model.daily { dayTotals(daily) }
-                if model.loading && model.daily == nil { ProgressView().accessibilityLabel(Text("Loading nutrition")) }
-                if model.pending != nil { pendingCard }
-                mealCard
-                if model.api != nil && model.pending == nil {
-                    PillButton(Text("Log meal"), systemImage: "plus") { editor = NutritionMealEditorRoute() }
-                        .accessibilityIdentifier("nutrition.logMeal")
-                }
-                if let api = model.api { details(api) }
-            }
-        }
+        page
         .task(id: model.day) { await model.load() }
         .refreshable { await model.load(force: true) }
         .onChange(of: scenePhase) { _, phase in
@@ -87,7 +110,7 @@ struct NutritionView: View {
             if let api = model.api {
                 // A write that finishes after Back closes only its own editor, never one opened since; the diary
                 // reloads either way.
-                NutritionMealEditor(model: model, api: api, meal: entry.meal,
+                NutritionMealEditor(model: model, api: api, meal: entry.meal, startsWithBarcode: entry.startsWithBarcode,
                                     onBack: { NutritionRoutes.close(&editor, startedBy: entry) }) {
                     NutritionRoutes.close(&editor, startedBy: entry)
                     Task { await model.reload() }
@@ -99,6 +122,43 @@ struct NutritionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("If a previous save reached RYFT, the meal will still be in your diary.")
+        }
+    }
+
+    @ViewBuilder private var page: some View {
+        if let tabMealEditor {
+            ScreenScaffold(showsHeader: false, refresh: { await model.load(force: true) }) {
+                NutritionTab.header
+                diary
+            }
+            .onChange(of: tabMealEditor.wrappedValue, initial: true) { _, opening in
+                guard let opening else { return }
+                tabMealEditor.wrappedValue = nil
+                // A saved draft takes precedence, as when opening the editor from Today's Quick log; so does a meal
+                // already being edited (the tab shows it as it was).
+                if model.pending == nil, editor == nil { editor = opening }
+            }
+        } else {
+            SubpageScaffold(Text("Nutrition")) { diary }
+        }
+    }
+
+    private var diary: some View {
+        VStack(alignment: .leading, spacing: GroupedListSpec.groupSpacing) {
+            dayPicker
+            if let error = model.error {
+                InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                PillButton(Text("Try again"), style: .secondary, busy: model.loading) { await model.load(force: true) }
+            }
+            if let daily = model.daily { dayTotals(daily) }
+            if model.loading && model.daily == nil { ProgressView().accessibilityLabel(Text("Loading nutrition")) }
+            if model.pending != nil { pendingCard }
+            mealCard
+            if model.api != nil && model.pending == nil {
+                PillButton(Text("Log meal"), systemImage: "plus") { editor = NutritionMealEditorRoute() }
+                    .accessibilityIdentifier("nutrition.logMeal")
+            }
+            if let api = model.api { details(api) }
         }
     }
 
@@ -217,6 +277,7 @@ struct NutritionSuggestedMealRoute: Identifiable, Hashable {
 struct NutritionMealEditorRoute: Identifiable, Hashable {
     let id = UUID()
     var meal: NutritionMeal?
+    var startsWithBarcode = false
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }

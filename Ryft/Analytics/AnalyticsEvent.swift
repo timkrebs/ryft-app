@@ -14,6 +14,7 @@ enum AnalyticsEvent: Hashable, Sendable {
     case healthAccessRequested
     case firstSyncCompleted
     case screenViewed(AnalyticsScreen)
+    case quickLogAction(AnalyticsQuickLogAction)
     case featureUsed(AnalyticsFeature)
     case errorShown(AnalyticsErrorStatus, AnalyticsErrorCode)
     /// A food search's first page, or a barcode's result, arrived (a failure and Load more aren't one). Only the
@@ -37,6 +38,7 @@ enum AnalyticsEvent: Hashable, Sendable {
         case .healthAccessRequested: return "health_access_requested"
         case .firstSyncCompleted: return "first_sync_completed"
         case .screenViewed: return "screen_viewed"
+        case .quickLogAction: return "quick_log_action"
         case .featureUsed: return "feature_used"
         case .errorShown: return "error_shown"
         case .nutritionSearchCompleted: return "nutrition_search_completed"
@@ -53,6 +55,7 @@ enum AnalyticsEvent: Hashable, Sendable {
         case .onboardingStep(let step): return ["step": step.rawValue]
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed(let screen): return ["screen": screen.rawValue]
+        case .quickLogAction(let action): return ["action": action.rawValue]
         case .featureUsed(let feature): return ["feature": feature.rawValue]
         case .errorShown(let status, let code): return ["status": status.rawValue, "code": code.rawValue]
         case .nutritionSearchCompleted(let lookup, let queryLength, let results, let latency):
@@ -134,7 +137,8 @@ enum AnalyticsEvent: Hashable, Sendable {
                 }
             }
         }
-        return existing + searches + opened + logged + reopened + triggered + completed
+        let quickLog = AnalyticsQuickLogAction.allCases.map(AnalyticsEvent.quickLogAction)
+        return existing + searches + opened + logged + reopened + triggered + completed + quickLog
     }
 
     /// An error card's failure (`RefreshIssueCard`): its status bucket and code, nothing else of it.
@@ -175,6 +179,9 @@ enum OnboardingStepName: String, AnalyticsToken {
 /// `screen_viewed` → `screen`.
 enum AnalyticsScreen: String, AnalyticsToken {
     case today, sleep, strain, insights, profile
+    case nutrition
+    case quickLog = "quick_log"
+    case profileSheet = "profile_sheet"
     case myDay = "my_day"
     case sleepSchedule = "sleep_schedule"
     case workoutDetail = "workout_detail"
@@ -197,8 +204,19 @@ enum AnalyticsScreen: String, AnalyticsToken {
         case .strain: self = .strain
         case .insights: self = .insights
         case .profile: self = .profile
+        case .nutrition: self = .nutrition
         }
     }
+}
+
+/// `quick_log_action` → `action`.
+enum AnalyticsQuickLogAction: String, AnalyticsToken {
+    case logMeal = "log_meal"
+    case scanBarcode = "scan_barcode"
+    case startWorkout = "start_workout"
+    case addActivity = "add_activity"
+    case journal
+    case addSleep = "add_sleep"
 }
 
 /// `feature_used` → `feature`.

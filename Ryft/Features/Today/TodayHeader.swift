@@ -4,13 +4,15 @@ import SwiftUI
 
 struct TodayHeader: View {
     @Environment(ScreenModels.self) private var screens
+    @Environment(\.appEnvironment) private var env
     /// My Day, pushed on Today's stack (as its card does).
     @State private var showsMyDay = false
 
     var body: some View {
         let myDay = screens.myDay
         let sync = screens.homeSync
-        let nextChange = sync.nextStateChange
+        let structureV2 = env.flags.isOn(.structureV2)
+        let nextChange = structureV2 ? nil : sync.nextStateChange
         ScreenHeader(handOff: true) {
             HStack(spacing: ScreenHeaderSpec.minGap) {
                 if myDay.isEnabled {
@@ -22,12 +24,16 @@ struct TodayHeader: View {
                     .accessibilityHint(Text("Opens My Day", comment: "VoiceOver hint of Today's Calendar button."))
                     .accessibilityIdentifier("today.header.calendar")
                 }
-                SyncStatusButton(state: sync.state, sources: sync.sources, now: sync.now,
-                                 scoresTakingLonger: sync.scoresTakingLonger, enabled: sync.canSync) {
-                    await sync.sync(trigger: .homescreenTopRight) == .success
+                if structureV2 {
+                    HeaderActions()
+                } else {
+                    SyncStatusButton(state: sync.state, sources: sync.sources, now: sync.now,
+                                     scoresTakingLonger: sync.scoresTakingLonger, enabled: sync.canSync) {
+                        await sync.sync(trigger: .homescreenTopRight) == .success
+                    }
                 }
             }
-            .task(id: nextChange) { await sync.updateState(at: nextChange) }
+            .task(id: nextChange) { if !structureV2 { await sync.updateState(at: nextChange) } }
         }
         .navigationDestination(isPresented: $showsMyDay) { MyDayView(model: myDay) }
     }

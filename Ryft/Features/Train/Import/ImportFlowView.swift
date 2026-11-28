@@ -6,9 +6,16 @@ extension View {
     /// The training import over the tabs (`RootView`): one cover for My Plans, Profile → Data and "Open in" (ui.md §2), and
     /// E10's sheet when `train.import` is off. Each content ends with `presentedRoot()`: the root's toggle style doesn't
     /// reach a cover on iOS 27 (`PresentedRootTests` presents step 3 through here).
-    func importPresentations(_ importer: ImportCoordinator) -> some View {
-        fullScreenCover(item: Bindable(importer).flow) { ImportFlowView(model: $0).presentedRoot() }
-            .sheet(isPresented: Bindable(importer).showsUnavailable) { ImportUnavailableSheet().presentedRoot() }
+    ///
+    /// `active` false: this presenter steps aside (the root's while the Profile sheet, `app.structure_v2`, is up and
+    /// presents them itself); the coordinator's state stays, so the other presenter shows it.
+    func importPresentations(_ importer: ImportCoordinator, active: Bool = true) -> some View {
+        fullScreenCover(item: Binding(get: { active ? importer.flow : nil },
+                                      set: { if active { importer.flow = $0 } })) { ImportFlowView(model: $0).presentedRoot() }
+            .sheet(isPresented: Binding(get: { active && importer.showsUnavailable },
+                                        set: { if active { importer.showsUnavailable = $0 } })) {
+                ImportUnavailableSheet().presentedRoot()
+            }
     }
 }
 

@@ -57,7 +57,8 @@ Every value is one of the listed tokens. Bools are sent as `true` / `false`.
 | `onboarding_step` | `step`: invite, consent, about_you, wear, health, tracker_setup, done | an onboarding step shows (after the yes) |
 | `health_access_requested` | none | the Apple Health permission sheet is asked for (not what was granted) |
 | `first_sync_completed` | none | the first sync of the install finishes (no counts) |
-| `screen_viewed` | `screen`: the tabs and 14 pushed screens (`AnalyticsScreen`) | a screen appears |
+| `screen_viewed` | `screen`: the tabs (including `nutrition`), `quick_log`, `profile_sheet`, and 14 other screens (`AnalyticsScreen`) | a screen or sheet appears |
+| `quick_log_action` | `action`: log_meal, scan_barcode, start_workout, add_activity, journal, add_sleep | a row is chosen in the header's Quick log sheet |
 | `feature_used` | `feature`: train_session_started, activity_added, sleep_added, journal_saved, sleep_schedule_saved, train_import_finished, data_exported, problem_reported, notifications_allowed, full_resync | the action succeeded (only a session's start: start plus finish would give a workout's duration) |
 | `error_shown` | `status`: a status bucket · `code`: the platform's error code token | an error card or inline failure shows (never its message or request id) |
 | `nutrition_search_completed` | `lookup`: name, barcode · `query_length`: 1_2, 3_5, 6_10, 11_20, 21+ · `results_count`: 0, 1, 2_5, 6_10, 11_20, 21+ · `has_results` · `latency_ms`: lt_250, 250_499, 500_999, 1000_1999, 2000_4999, 5000+ | a food search or barcode lookup returns its first page: once per search, not again when the page reappears, not for a failure or "Load more". Pages and barcode results hold at most 20, so `11_20` includes a full page |
@@ -108,6 +109,7 @@ the policy.
 >   allowed);
 > - that the first sync finished;
 > - which features you used, for example that you saved a journal entry or started a training session;
+> - which action you chose in Quick log, such as opening the meal editor or the manual sleep form;
 > - that an error was shown, by its type (for example "offline" or "500");
 > - for food logging: whether a search found anything, a range for how many characters it had, how many results it had
 >   and how long the results took; how high up the list the food you opened was, whether it's a generic or a branded

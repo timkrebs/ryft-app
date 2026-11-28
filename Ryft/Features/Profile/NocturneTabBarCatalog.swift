@@ -5,25 +5,29 @@ import SwiftUI
 /// AX3, where the labels stop at `xxLarge`. Taps move the selection; a tap on the selected tab does nothing here. The bars
 /// run edge to edge of the catalog's column, without a home-indicator inset (44 high).
 struct NocturneTabBarCatalog: View {
+    @Environment(\.appEnvironment) private var env
     @State private var tapped: AppTab = .today
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
+        let structureV2 = env.flags.isOn(.structureV2)
+        let selection = AppTab.visible(tapped, structureV2: structureV2)
+        let items = RyftTabBar.appTabs(structureV2: structureV2)
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach(AppTab.tabs(structureV2: structureV2), id: \.self) { tab in
                 caption("selected · \(tab.rawValue)")
-                bar(tab)
+                bar(tab, items: items)
             }
             caption("AX3 · the labels capped at xxLarge")
-            bar(.insights)
+            bar(.insights, items: items)
                 .dynamicTypeSize(.accessibility3)
-            caption("tap to select · \(tapped.rawValue)")
-            RyftTabBar(items: RyftTabBar.appTabs, selection: tapped.rawValue,
+            caption("tap to select · \(selection.rawValue)")
+            RyftTabBar(items: items, selection: selection.rawValue,
                        select: { tapped = AppTab(rawValue: $0) ?? tapped })
         }
     }
 
-    private func bar(_ selected: AppTab) -> some View {
-        RyftTabBar(items: RyftTabBar.appTabs, selection: selected.rawValue, select: { _ in })
+    private func bar(_ selected: AppTab, items: [RyftTabBar.Item]) -> some View {
+        RyftTabBar(items: items, selection: selected.rawValue, select: { _ in })
     }
 
     private func caption(_ text: String) -> some View {

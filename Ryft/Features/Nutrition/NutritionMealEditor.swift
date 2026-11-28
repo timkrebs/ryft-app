@@ -22,6 +22,7 @@ struct NutritionMealEditor: View {
     let api: APIClient
     let onBack: () -> Void
     let finished: () -> Void
+    private let startsWithBarcode: Bool
 
     @Environment(\.locale) private var locale
     @Environment(\.appEnvironment) private var env
@@ -43,10 +44,11 @@ struct NutritionMealEditor: View {
     @State private var request: NutritionMealWrite?
 
     init(model: NutritionDiaryModel, api: APIClient, meal: NutritionMeal?, suggested: NutritionFoodMatch? = nil,
-         onBack: @escaping () -> Void, finished: @escaping () -> Void) {
+         startsWithBarcode: Bool = false, onBack: @escaping () -> Void, finished: @escaping () -> Void) {
         self.model = model
         self.api = api
         self.onBack = onBack
+        self.startsWithBarcode = startsWithBarcode
         _suggestion = State(initialValue: suggested)
         self.finished = finished
         _saved = State(initialValue: meal)
@@ -63,6 +65,7 @@ struct NutritionMealEditor: View {
         Group {
             if isAdding {
                 NutritionFoodPicker(model: model, api: api, initialFood: $suggestion, items: $items,
+                                    startsWithBarcode: startsWithBarcode && !hasReviewed,
                                     onBack: hasReviewed ? { isAdding = false } : onBack) {
                     hasReviewed = true
                     isAdding = false
