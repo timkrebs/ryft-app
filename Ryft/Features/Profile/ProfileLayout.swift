@@ -20,14 +20,11 @@ enum ProfileLayout {
     nonisolated static let titleToCard: CGFloat = 8
     /// The card (`GroupedCard`): the card radius, 22 (`Theme.Metrics.neutralTileRadius`); rows at least 46 high.
     nonisolated static let cardRadius = Theme.Metrics.neutralTileRadius, rowMinHeight: CGFloat = 46
-    /// The last group to the buttons row, and the buttons row (or its message) to the Developer group (Debug builds).
-    nonisolated static let buttonsTop: CGFloat = 18, buttonsToDeveloper: CGFloat = 18
-    /// The buttons row: two pills 52 high (`PillButton.minHeight`), 12 apart; Log out is as wide as its title plus 22 a
-    /// side (about 108 at the default size), Export takes the rest.
-    nonisolated static let buttonsHeight: CGFloat = 52, buttonsGap: CGFloat = 12, logOutPadding: CGFloat = 22
-    /// The buttons row to an export error under it.
-    nonisolated static let buttonsToMessage: CGFloat = 8
-    /// The brand lock-up above the About group: 18 above it (a group's gap), 18 under it to the group's title.
+    /// The last group to the Log out pill.
+    nonisolated static let buttonsTop: CGFloat = 18
+    /// The pill's height (`PillButton.minHeight`) and the gap to the hold reason beneath it.
+    nonisolated static let buttonsHeight: CGFloat = 52, buttonsToMessage: CGFloat = 8
+    /// The brand lock-up above Legal: 18 above it (a group's gap), 18 under it to the group's title.
     nonisolated static let lockUpToGroup: CGFloat = 18
 
     // MARK: the identity row (§P5-6.1 row 2)

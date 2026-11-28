@@ -43,14 +43,12 @@ struct AnalyticsOptInRowCapture: View {
 }
 #endif
 
-/// Profile's Privacy group around the row (Nocturne: consent, Withdraw, then this row), for the previews.
+/// Privacy and data's Analytics card around the row (since P1 it has a card of its own), for the previews.
 private struct PrivacyCardPreview<Row: View>: View {
     @ViewBuilder var row: () -> Row
 
     var body: some View {
-        GroupedCard(ProfileGroup.privacy.title) {
-            GroupedRow.value(Text("Health-data consent"), value: Text(verbatim: "Agreed"))
-            GroupedRow.destructive(Text("Withdraw consent")) {}
+        GroupedCard(ProfilePage.Section(.analytics, [.analytics]).title) {
             row()
         }
         .toggleStyle(.ryft)

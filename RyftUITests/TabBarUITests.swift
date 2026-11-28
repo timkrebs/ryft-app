@@ -17,7 +17,7 @@ final class TabBarUITests: XCTestCase {
         switch tab {
         case "Today": return app.buttons["today.tile.sleep"]
         case "Sleep": return app.buttons["sleep.header.previous"]
-        case "Profile": return app.staticTexts["Demo data"]
+        case "Profile": return app.buttons["profile.bodyAndBaselines"]
         default: return app.staticTexts[tab]
         }
     }
@@ -100,6 +100,10 @@ final class TabBarUITests: XCTestCase {
         let field = app.textFields["profile.dev.ingestURL"]
         XCTAssertTrue(app.tabBar.waitForExistence(timeout: wait), "the tab bar")
         let barTop = app.tabBar.frame.minY
+        let devices = app.buttons["profile.devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: wait))
+        for _ in 0..<12 where !devices.isHittable || devices.frame.maxY >= barTop { app.swipeUp(velocity: .slow) }
+        devices.tap()
         for _ in 0..<12 where !(field.exists && field.isHittable && field.frame.maxY < barTop) { app.swipeUp(velocity: .slow) }
         XCTAssertTrue(field.isHittable, "the developer field")
         field.tap()

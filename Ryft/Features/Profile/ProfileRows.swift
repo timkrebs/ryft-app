@@ -1,28 +1,24 @@
-// Profile's groups and rows in Nocturne (docs/work/2026-11-16-nocturne/design.md §P5-6.2): which rows each group holds, in
-// order, and when they show. Pure, so test 33 asserts the inventory (every row of the page before Nocturne has a place)
-// without a view; `ProfileView` draws exactly these, each with its identifier.
+// Profile's groups and subpages: which rows they hold, in order, and when they show.
 import SwiftUI
 
-/// The page's groups, top to bottom (the Developer group of Debug builds comes after the buttons row, outside this list).
+/// The groups on Profile's main page, top to bottom.
 enum ProfileGroup: String, CaseIterable, Identifiable, Sendable {
-    case aboutYou, devicesAndSync, training, settings, privacy, account, about
+    case you, general, data, resources, legal
 
     var id: String { rawValue }
 
     var title: Text {
         switch self {
-        case .aboutYou: return Text("About you")
-        case .devicesAndSync: return Text("Devices and sync", comment: "Profile: the group with what you wear, Apple Health, the sync and Demo data.")
-        case .training: return Text("Training")
-        case .settings: return Text("Settings", comment: "Profile: the group with notifications, the journal, hero numbers and bedtime.")
-        case .privacy: return Text("Privacy")
-        case .account: return Text("Account")
-        case .about: return Text("About")
+        case .you: return Text("You", comment: "Profile group for body settings and baselines.")
+        case .general: return Text("General", comment: "Profile group for account and app preferences.")
+        case .data: return Text("Data", comment: "Profile group for sync and data privacy.")
+        case .resources: return Text("Resources", comment: "Profile group for version, support and App Store rating.")
+        case .legal: return Text("Legal", comment: "Profile group for policies, terms and licences.")
         }
     }
 }
 
-/// One row of the page. The case is the identifier's last part: `profile.<case>` (UI tests find rows by it).
+/// One row of Profile, with its accessibility identifier.
 enum ProfileRow: String, CaseIterable, Hashable, Identifiable, Sendable {
     // About you
     case birthYear, maxHR, sleepBase, rescore
@@ -30,34 +26,40 @@ enum ProfileRow: String, CaseIterable, Hashable, Identifiable, Sendable {
     case devices, appleHealth, allowHealth, openHealth, lastSync, deviceID, syncNow, syncDetails, importTraining, demoMode
     // Training
     case jumpToNext, sessionLayout, saveWorkouts
-    // Settings
+    // Display and existing destinations
     case notifications, journal, heroNumerals, bedtime
     // Privacy
     case consent, reviewConsent, checkConsent, withdrawConsent, nutritionPrivacy, analytics
     // Account
     case email, timezone, signInMethods, changePassword, deleteAccount, signedIn
-    // About
+    // Resources and legal
     case version, reportProblem, privacyPolicy, terms, appleHealthPrivacy, garminHealth, licences
+
+    // Since P1: the rows that open a page, Rate RYFT, Account's Log out and Your data's Export. `devices` is the top
+    // "Devices and sync" row and `reportProblem` the "Help and feedback" row: the pre-P1 rows, their identifiers kept.
+    case bodyAndBaselines, account, display, training, privacyAndData, whatsNew, rateApp, logOutRow
+    case export
 
     var id: String { rawValue }
 
-    /// `profile.<case>`.
+    /// `profile.<case>` (UI tests find rows by it).
     var identifier: String { "profile.\(rawValue)" }
-
-    /// The training import's rows carry their own identifiers (`profile.importTraining`, `profile.clearMatches`,
-    /// `ImportProfileRows`): the page adds none around them.
-    var setsOwnIdentifier: Bool { self == .importTraining }
 }
 
 /// What decides the page's rows: the account, the flags and the screens' switches (`ProfileViewModel` and the shared
 /// stores give them; tests set them).
 struct ProfileRowFacts: Equatable, Sendable {
     var isSignedIn = true
-    /// `devices.setup`: the Devices & sync page, and its Health steps instead of the Garmin sentence.
+    /// The slot stays hidden until StoreKit ships.
+    var showsPlus: Bool { false }
+    /// `devices.setup`: the tracker sections and the catalog’s Apple Health steps.
     var devicesEnabled = false
     /// RYFT may still ask for Health access: "Allow access" before "Open Health".
     var canAskForHealth = false
     var showsTraining = true
+    /// `train.import`: the import and Clear remembered matches rows (`ImportProfileRows`). Independent of `train.enabled`, as
+    /// before P1, so imported data can still be managed with Train switched off.
+    var showsImport = false
     var showsSessionLayout = false
     var showsNotifications = true
     var journalLive = false
@@ -73,61 +75,145 @@ struct ProfileRowFacts: Equatable, Sendable {
     var isDemo = false
     var canChangePassword = false
     var hasTimezone = true
-    /// The account's email when the name is the title (it was the account card's second line).
+    /// The account has an email to show on its own page.
     var showsEmail = false
     var canExport = true
     /// Nutrition (diary or full) is available for the account: Privacy gets its Nutrition privacy row.
     var nutritionAvailable = false
 }
 
-/// The page's buttons row (§P5-6.1 row 4), each only when it applies.
+/// The pages whose rows come from the Profile inventory.
+enum ProfilePage: CaseIterable, Hashable, Sendable {
+    case body, account, display, training, devicesAndSync, privacyAndData, whatsNew
+
+    struct Section: Identifiable, Equatable, Sendable {
+        enum ID: Hashable, Sendable {
+            case body, account, display, training, healthAccess, sync, healthWrites, advanced, syncDetails
+            case consent, analytics, nutritionPrivacy, yourData, version
+        }
+
+        let id: ID
+        let rows: [ProfileRow]
+
+        init(_ id: ID, _ rows: [ProfileRow]) {
+            self.id = id
+            self.rows = rows
+        }
+
+        var title: Text? {
+            switch id {
+            case .healthAccess:
+                return Text("Apple Health", comment: "Devices and sync card for Apple Health read access.")
+            case .sync:
+                return Text("Sync", comment: "Devices and sync card for the last sync, manual sync and device ID.")
+            case .healthWrites:
+                return Text("Apple Health", comment: "Devices and sync card for writing workouts to Apple Health.")
+            case .advanced:
+                return Text("Advanced", comment: "Devices and sync card for rescoring and Demo data.")
+            case .consent:
+                return Text("Health-data consent", comment: "Privacy and data card for managing consent to health-data processing.")
+            case .analytics:
+                return Text("Analytics", comment: "Privacy and data card for the usage analytics preference.")
+            case .yourData:
+                return Text("Your data", comment: "Privacy and data card for data export and account deletion.")
+            default:
+                return nil
+            }
+        }
+    }
+
+    var title: Text {
+        switch self {
+        case .body: return Text("Body and baselines", comment: "Profile row and page title for birth year, heart rate and sleep need.")
+        case .account: return Text("Account", comment: "Profile row and page title for account details and sign-in.")
+        case .display: return Text("Units and display", comment: "Profile row and page title for display preferences.")
+        case .training: return Text("Training", comment: "Profile row and page title for training preferences and import.")
+        case .devicesAndSync: return Text("Devices and sync", comment: "Profile row that opens the page for trackers, Apple Health and sync.")
+        case .privacyAndData: return Text("Privacy and data", comment: "Profile row and page title for consent, analytics and personal data.")
+        case .whatsNew: return Text("What's new", comment: "Profile row and page title for the installed app version.")
+        }
+    }
+
+    /// The cards on a subpage. An empty card stays out of the page.
+    static func sections(_ page: ProfilePage, _ f: ProfileRowFacts) -> [Section] {
+        switch page {
+        case .body:
+            // C1: Add sex, weight and goal here when Profile has those settings.
+            return [.init(.body, [.birthYear, .maxHR, .sleepBase])]
+        case .account:
+            let account: [ProfileRow] = (f.showsEmail ? [.email] : []) + (f.hasTimezone ? [.timezone] : []) + [.signInMethods]
+                + (f.canChangePassword ? [.changePassword] : []) + [.logOutRow, .deleteAccount]
+            return [.init(.account, f.isSignedIn ? account : [.signedIn])]
+        case .display:
+            return [.init(.display, [.heroNumerals])]
+        case .training:
+            let train: [ProfileRow] = f.showsTraining
+                ? [.jumpToNext] + (f.showsSessionLayout ? [.sessionLayout] : []) + [.saveWorkouts] : []
+            return [.init(.training, train + (f.showsImport ? [.importTraining] : []))].filter { !$0.rows.isEmpty }
+        case .devicesAndSync:
+            // With tracker setup on, DevicesAndSyncView draws RYFT's read access and Sync details itself (its own
+            // `devices.*` controls), so these two cards are only Profile's without it.
+            let own = !f.devicesEnabled
+            return [
+                .init(.healthAccess, own ? [.appleHealth] + (f.canAskForHealth ? [.allowHealth] : []) + [.openHealth] : []),
+                .init(.sync, [.lastSync, .syncNow, .deviceID]),
+                .init(.healthWrites, f.showsTraining ? [.saveWorkouts] : []),
+                .init(.advanced, [.rescore, .demoMode]),
+                .init(.syncDetails, own ? [.syncDetails] : []),
+            ].filter { !$0.rows.isEmpty }
+        case .privacyAndData:
+            return [
+                .init(.consent, consentRows(f)),
+                .init(.analytics, f.isSignedIn && f.showsAnalytics ? [.analytics] : []),
+                .init(.nutritionPrivacy, f.isSignedIn && !f.isDemo && f.nutritionAvailable ? [.nutritionPrivacy] : []),
+                .init(.yourData, (f.canExport ? [.export] : []) + (f.isSignedIn ? [.deleteAccount] : [])),
+            ].filter { !$0.rows.isEmpty }
+        case .whatsNew:
+            return [.init(.version, [.version])]
+        }
+    }
+
+    private static func consentRows(_ f: ProfileRowFacts) -> [ProfileRow] {
+        guard f.isSignedIn else { return [] }
+        // In demo mode, consent actions would reach the demo's platform.
+        if f.isDemo { return [.consent] }
+        if f.consentAwaitsConfirmation { return [.consent, .checkConsent, .withdrawConsent] }
+        return [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
+    }
+}
+
+/// The Log out pill at the end of Profile.
 enum ProfileButton: String, Hashable, Identifiable, Sendable {
-    case export, logOut
+    case logOut
 
     var id: String { rawValue }
     var identifier: String { "profile.\(rawValue)" }
 }
 
 enum ProfileRows {
-    /// The Log out dialog's buttons (unchanged) and the Demo data dialog's.
+    /// The Log out dialog's buttons and the Demo data dialog's.
     static let logOutSendFirst = "profile.logOut.sendFirst", logOutAnyway = "profile.logOut.anyway"
     static let demoDiscard = "profile.demo.discard", demoKeep = "profile.demo.keep"
-    /// The Developer group's push rows (Debug builds).
+    /// The Advanced card's push rows (Debug builds).
     static let devCatalog = "dev.catalog", devFlags = "dev.flags"
-    /// The Developer group's platform overrides (text fields) and API key mode, held while a consent withdrawal is on its way.
+    /// The Developer group's platform overrides and API key mode, held while a consent withdrawal is on its way.
     static let devAPIURL = "profile.dev.apiURL", devIngestURL = "profile.dev.ingestURL", devAPIKeyMode = "profile.dev.apiKeyMode"
 
-    /// A group's rows in order; empty when the group doesn't show.
+    /// A top group's rows in order.
     static func rows(_ group: ProfileGroup, _ f: ProfileRowFacts) -> [ProfileRow] {
         switch group {
-        case .aboutYou:
-            return [.birthYear, .maxHR, .sleepBase, .rescore]
-        case .devicesAndSync:
-            return (f.devicesEnabled ? [.devices] : [])
-                + [.appleHealth] + (f.canAskForHealth ? [.allowHealth] : [])
-                + [.openHealth, .lastSync, .deviceID, .syncNow, .syncDetails, .importTraining, .demoMode]
-        case .training:
-            guard f.showsTraining else { return [] }
-            return [.jumpToNext] + (f.showsSessionLayout ? [.sessionLayout] : []) + [.saveWorkouts]
-        case .settings:
-            return (f.showsNotifications ? [.notifications] : []) + (f.journalLive ? [.journal] : []) + [.heroNumerals]
-                + (f.bedtimeEnabled ? [.bedtime] : [])
-        case .privacy:
-            // Consent is an account's: none signed out. In demo mode the row only says why it isn't shown; Review and
-            // Withdraw would reach the demo's platform (`AppEnvironment.api`), never the account.
-            guard f.isSignedIn else { return [] }
-            let analytics: [ProfileRow] = f.showsAnalytics ? [.analytics] : []
-            guard !f.isDemo else { return [.consent] + analytics }
-            let consent: [ProfileRow] = f.consentAwaitsConfirmation
-                ? [.consent, .checkConsent, .withdrawConsent] : [.consent, f.consentIsCurrent ? .withdrawConsent : .reviewConsent]
-            return consent + (f.nutritionAvailable ? [.nutritionPrivacy] : []) + analytics
-        case .account:
-            guard f.isSignedIn else { return [.signedIn] }
-            return (f.showsEmail ? [.email] : []) + (f.hasTimezone ? [.timezone] : []) + [.signInMethods]
-                + (f.canChangePassword ? [.changePassword] : []) + [.deleteAccount]
-        case .about:
-            return [.version, .reportProblem, .privacyPolicy, .terms, .appleHealthPrivacy]
-                + (f.devicesEnabled ? [] : [.garminHealth]) + [.licences]
+        case .you:
+            return [.bodyAndBaselines]
+        case .general:
+            return [.account] + (f.showsNotifications ? [.notifications] : []) + [.display]
+                + (f.showsTraining || f.showsImport ? [.training] : []) + (f.journalLive ? [.journal] : []) + (f.bedtimeEnabled ? [.bedtime] : [])
+        case .data:
+            return [.devices, .privacyAndData]
+        case .resources:
+            // How RYFT scores goes here once there are links to explain the scores.
+            return [.whatsNew, .reportProblem, .rateApp]
+        case .legal:
+            return [.privacyPolicy, .terms, .appleHealthPrivacy] + (f.devicesEnabled ? [] : [.garminHealth]) + [.licences]
         }
     }
 
@@ -138,19 +224,35 @@ enum ProfileRows {
         var id: ProfileGroup { group }
     }
 
-    /// The groups that show, in order, with their rows.
     static func groups(_ f: ProfileRowFacts) -> [Shown] {
-        ProfileGroup.allCases.map { Shown(group: $0, rows: rows($0, f)) }.filter { !$0.rows.isEmpty }
+        ProfileGroup.allCases.map { Shown(group: $0, rows: rows($0, f)) }
     }
 
-    /// The buttons row: Export data when there is something to export, Log out when signed in.
+    enum Home: Equatable, Sendable {
+        case top(ProfileGroup)
+        case page(ProfilePage, ProfilePage.Section.ID)
+        case multiple([Home])
+        case hidden
+    }
+
+    /// The visible home for these facts, including both homes of rows shared between pages.
+    static func home(of row: ProfileRow, _ f: ProfileRowFacts) -> Home {
+        var homes = groups(f).filter { $0.rows.contains(row) }.map { Home.top($0.group) }
+        for page in ProfilePage.allCases {
+            homes += ProfilePage.sections(page, f).filter { $0.rows.contains(row) }.map { .page(page, $0.id) }
+        }
+        if homes.count > 1 { return .multiple(homes) }
+        return homes.first ?? .hidden
+    }
+
     static func buttons(_ f: ProfileRowFacts) -> [ProfileButton] {
-        (f.canExport ? [.export] : []) + (f.isSignedIn ? [.logOut] : [])
+        f.isSignedIn ? [.logOut] : []
     }
 }
 
-/// Where a push row goes (`GroupedRow.push(route:)`; the page's `navigationDestination(for:)` builds it).
+/// Where a push row goes (`GroupedRow.push(route:)`; the stack builds its destination).
 enum ProfileRoute: Hashable, Sendable {
+    case body, account, display, training, privacyAndData, whatsNew
     case devices, syncDetails, notifications, journal, bedtime, signInMethods, reportProblem, licences, nutritionPrivacy
     #if DEBUG
     case catalog, flags
@@ -159,7 +261,7 @@ enum ProfileRoute: Hashable, Sendable {
 
 // MARK: - menu rows (§P5-6.2: birth year, session layout, hero numbers)
 
-/// Settings → Hero numbers: Dots or Thin, as a menu row (the choice applies at once, design.md §P4-6).
+/// Units and display → Hero numbers: Dots or Thin, as a menu row (the choice applies at once, design.md §P4-6).
 struct HeroNumbersMenuRow: View {
     @Binding var selection: HeroNumerals
 
@@ -191,7 +293,7 @@ struct SessionLayoutMenuRow: View {
     }
 }
 
-/// About you → Birth year: the editor's years, newest first, and "Not set" while there is none. Disabled while the editor
+/// Body and baselines → Birth year: the editor's years, newest first, and "Not set" while there is none. Disabled while the editor
 /// saves or rescores.
 struct BirthYearMenuRow: View {
     let editor: BodySettingsEditor

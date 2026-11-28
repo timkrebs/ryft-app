@@ -899,7 +899,7 @@ struct ConsentAgreeTests {
         #expect(profile.consentText == String(localized: "Given"))
         #expect(profile.consentDetail
             == String(localized: "RYFT has recorded your consent. This iPhone starts syncing once it hears back."))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+        #expect(ProfilePage.sections(.privacyAndData, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true)).first?.rows
             == [.consent, .checkConsent, .withdrawConsent])
         #expect(profile.canCheckConsent && profile.consentCheckMessage == nil)
 
@@ -909,7 +909,7 @@ struct ConsentAgreeTests {
         #expect(h.onboarding.sheetStep == nil, "nothing opened")
         #expect(!profile.consentAwaitsConfirmation && profile.consentIsCurrent)
         #expect(profile.consentText == String(localized: "Given"))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+        #expect(ProfilePage.sections(.privacyAndData, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true)).first?.rows
             == [.consent, .withdrawConsent])
     }
 
@@ -922,7 +922,7 @@ struct ConsentAgreeTests {
         await profile.checkConsent()
         #expect(!profile.consentAwaitsConfirmation && profile.consentNeedsAttention)
         #expect(profile.consentText == String(localized: "Not given"))
-        #expect(ProfileRows.rows(.privacy, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true))
+        #expect(ProfilePage.sections(.privacyAndData, ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true)).first?.rows
             == [.consent, .reviewConsent])
     }
 
@@ -934,11 +934,11 @@ struct ConsentAgreeTests {
         let profile = h.profile()
         await profile.checkConsent()
         let facts = { ProfileRowFacts(profile, journalLive: false, bedtimeEnabled: true) }
-        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent], "not available: as on main")
+        #expect(ProfilePage.sections(.privacyAndData, facts()).filter { $0.id != .yourData }.flatMap(\.rows) == [.consent, .withdrawConsent], "not available: as on main")
         (h.env.flags as? StaticFlags)?.overrides[flag] = true
-        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent, .nutritionPrivacy])
+        #expect(ProfilePage.sections(.privacyAndData, facts()).filter { $0.id != .yourData }.flatMap(\.rows) == [.consent, .withdrawConsent, .nutritionPrivacy])
         (h.env.flags as? StaticFlags)?.overrides[flag] = false
-        #expect(ProfileRows.rows(.privacy, facts()) == [.consent, .withdrawConsent])
+        #expect(ProfilePage.sections(.privacyAndData, facts()).filter { $0.id != .yourData }.flatMap(\.rows) == [.consent, .withdrawConsent])
     }
 
     @Test("S2: Withdraw from a consent not confirmed yet: held while on its way, then Not given", .timeLimit(.minutes(1)))

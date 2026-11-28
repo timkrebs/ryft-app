@@ -23,8 +23,14 @@ final class HomeSyncIndicatorUITests: XCTestCase {
         XCTAssertFalse(age.isEmpty)
 
         app.buttons["tab.profile"].tap()
+        let devices = app.buttons["profile.devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 5))
+        let bottom = app.tabBar.frame.minY
+        for _ in 0..<4 where !devices.isHittable || devices.frame.maxY >= bottom { app.swipeUp() }
+        devices.tap()
         let lastSync = app.descendants(matching: .any)["profile.lastSync"].firstMatch
-        for _ in 0..<4 where !lastSync.isHittable { app.swipeUp() }
+        XCTAssertTrue(lastSync.waitForExistence(timeout: 5))
+        for _ in 0..<8 where !lastSync.isHittable || lastSync.frame.maxY >= bottom { app.swipeUp() }
         XCTAssertTrue(lastSync.exists)
         XCTAssertEqual(lastSync.value as? String, age)
     }

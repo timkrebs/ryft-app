@@ -45,8 +45,8 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Health permission requested in context. An explanation screen comes first, after sign-in, never on cold launch (5.1.1(iv), HIG HealthKit) | ok (fixed) | `Features/Onboarding/HealthPermissionView.swift`; `RyftApp.bootstrap` |
 | App fully usable when Health access is denied. Calm empty state with a way to the Health permissions (5.1.1(iv)) | ok (fixed) | `HealthAccessHint` on Today, Sleep and Strain |
 | Processors for the privacy policy: health data is processed by RYFT's own servers on AWS (eu-central-1) and by Supabase (EU) for authentication | user | privacy policy text (below) |
-| Privacy policy linked in the app (5.1.1(i)): Profile → About, Welcome, Create account | ok (fixed) | `ProfileView.about`, `WelcomeView`, `CreateAccountView` (in-app Safari) |
-| Terms of Use in Profile → About | ok (fixed) | same |
+| Privacy policy linked in the app (5.1.1(i)): Profile → Legal, Welcome, Create account | ok (fixed) | `ProfileRows` (`.legal`), `WelcomeView`, `CreateAccountView` (in-app Safari) |
+| Terms of Use in Profile → Legal | ok (fixed) | same |
 | Account deletion in the app, without contacting support (5.1.1(v)). Profile tab → **Delete account** → confirm (2 taps). Calls `DELETE /v1/me`; the platform revokes Apple with the code from `POST /v1/me/apple-authorization` | ok | `ProfileView.account`, `AuthService.deleteAccount`, `sendAppleAuthorization` |
 | Export my data (GDPR art. 20; not an Apple rule): JSON of `/v1/me`, `/v1/days`, `/v1/workouts`, `/v1/sessions` via the share sheet | ok (fixed) | `Features/Profile/DataExport.swift` |
 | Sign in with Apple wherever email sign-in is offered (4.8: an equivalent privacy-preserving login) | ok | `WelcomeView` |
@@ -64,7 +64,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Future "Healthspan / RYFT Age": the same wording review before it ships. No age-equivalent claim without a published methodology (1.4.1) | user | roadmap note |
 | SpO₂ is shown from Apple Health (written by Garmin), not measured by the phone's sensors (1.4.1 example) | ok | `SampleType.spo2` |
 | No placeholder, lorem ipsum, "beta", "coming soon" or broken features in Release (2.1(a)) | ok | grep. Every Train endpoint is served (`API.md` → Train) |
-| Demo data toggle in Release: labelled "Demo data", shows a realistic sample history, never mixed with an account's data | open (before submission) | Profile → Data. Today, Sleep, Strain, Insights, the journal and Train's lists, histories and plans switch sides (`TrainLibrary.demoModeChanged()`). Still shared, same person only: Train's exercise library, custom plans' details, the paused plan and workouts logged with the account (ADR 0019 follow-up: a demo Train store) |
+| Demo data toggle in Release: labelled "Demo data", shows a realistic sample history, never mixed with an account's data | open (before submission) | Profile → Devices and sync → Advanced. Today, Sleep, Strain, Insights, the journal and Train's lists, histories and plans switch sides (`TrainLibrary.demoModeChanged()`). Still shared, same person only: Train's exercise library, custom plans' details, the paused plan and workouts logged with the account (ADR 0019 follow-up: a demo Train store) |
 
 ## 3. Build and project hygiene
 
@@ -125,7 +125,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Network failure, 503 and offline: no crash | ok | `APIClient` status tests, `ConnectivityMonitor` |
 | Sign-out during a sync doesn't crash: `token()` throws `.signedOut` and the sync stops with a message | ok | `SyncService.run`, `AuthService.token` |
 | Memory: 90-day first sync, pages ≤ 20 000 samples. Record the Instruments peak | user | `HealthKitManager.pageSize = 20_000`; needs a device |
-| Pre-submission UI smoke: Welcome → Log in (demo account) → each tab → Profile → Delete account → Cancel | ok (fixed) / user | `RyftUITests/StoreSmokeUITests.swift`. `testDemoTabsWalkthrough` passes (simulator, demo data). `testReviewerWalkthroughCancelsDeletion` skips until the demo account exists: run it with `TEST_RUNNER_RYFT_DEMO_EMAIL` / `TEST_RUNNER_RYFT_DEMO_PASSWORD` (user) |
+| Pre-submission UI smoke: Welcome → Log in (demo account) → each tab → Profile → Account → Delete account → Cancel (also Profile → Privacy and data → Delete account) | ok (fixed) / user | `RyftUITests/StoreSmokeUITests.swift`. `testDemoTabsWalkthrough` passes (simulator, demo data). `testReviewerWalkthroughCancelsDeletion` skips until the demo account exists: run it with `TEST_RUNNER_RYFT_DEMO_EMAIL` / `TEST_RUNNER_RYFT_DEMO_PASSWORD` (user) |
 | Network Link Conditioner run (3G, 100 % loss) | user | device |
 
 ## 6. App Store Connect, TestFlight, submission (user)

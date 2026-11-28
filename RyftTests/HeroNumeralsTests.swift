@@ -71,10 +71,6 @@ struct NocturneSharedHostedTests {
 
     // MARK: 47. Profile
 
-    private func settings() -> Settings {
-        Settings(defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard)
-    }
-
     /// The menu: UIKit draws a menu picker, so it is not one of `HostedWindow`'s SwiftUI nodes; found by its identifier.
     private func menu(_ w: HostedWindow) -> NSObject? {
         var seen = Set<ObjectIdentifier>()
@@ -98,16 +94,16 @@ struct NocturneSharedHostedTests {
 
     @Test("Spec 47: Profile shows Hero numbers with the choice, and follows a change without a reload")
     func profileRow() async throws {
-        let s = settings()
-        try await HostedWindow.run(width: 390, height: 3200, ProfileView().environment(s)) { w in
+        let graph = try await ProfileShotGraph.make("signed-in")
+        defer { graph.tearDown() }
+        try await HostedWindow.run(width: 390, height: 3200, graph.page(.display)) { w in
             try await w.settle()
-            // Nocturne (T5.4): the row is in Settings, a menu row (`HeroNumbersMenuRow`).
-            #expect(w.node("Settings", exactly: true) != nil, "the group title")
+            #expect(w.node("Units and display", exactly: true) != nil, "the page title")
             #expect(w.node("Hero numbers", exactly: true) != nil, "the row's title")
             #expect(w.node("Large numbers on Today, Sleep and Strain.", exactly: true) != nil, "the footer")
             let picker = try #require(menu(w), "the menu")
             #expect(spoken(picker).contains("Dots"), "\(spoken(picker))")
-            s.heroNumerals = .thin
+            graph.settings.heroNumerals = .thin
             try await w.wait("the menu shows Thin") { spoken(menu(w)).contains("Thin") }
         }
     }

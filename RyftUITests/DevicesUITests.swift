@@ -8,12 +8,13 @@ final class DevicesUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(_ screen: String?, trackers: String? = nil, tab: String = "today") -> XCUIApplication {
+    private func launch(_ screen: String?, trackers: String? = nil, tab: String = "today", flags: String? = nil) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
         var arguments = ["-demoMode", "YES", "-coachMarks.today.done", "YES",
                          "-RyftTab", tab, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if let screen { arguments += ["-RyftScreen", screen] }
         if let trackers { arguments += ["-RyftTrackers", trackers] }
+        if let flags { arguments += ["-RyftFlags", flags] }
         app.launchArguments = arguments
         app.launch()
         return app
@@ -122,16 +123,10 @@ final class DevicesUITests: XCTestCase {
     /// Profile → Data's first row with `devices.setup` on (demo data's config): Devices & sync.
     @MainActor
     func testProfileLeadsToDevicesAndSync() throws {
-        let app = launch(nil, tab: "profile")
+        let app = launch(nil, tab: "profile", flags: "devices.setup")
         let row = app.buttons["profile.devices"]
-        for _ in 0..<6 where !row.exists { app.swipeUp() }
-        if !row.exists {
-            // A flag answer that arrived while Profile showed applies on the next tab change.
-            app.tab("Today").tap()
-            app.tab("Profile").tap()
-            for _ in 0..<6 where !row.exists { app.swipeUp() }
-        }
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices & sync row")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices and sync row")
+        for _ in 0..<6 where !row.isHittable || row.frame.maxY >= app.tabBar.frame.minY { app.swipeUp() }
         row.tap()
         XCTAssertTrue(app.buttons["subpage.back"].waitForExistence(timeout: 5), "the subpage frame's Back")
         XCTAssertTrue(header(app, "Devices & sync").exists, "its title")

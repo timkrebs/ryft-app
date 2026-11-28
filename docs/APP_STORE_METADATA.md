@@ -176,7 +176,7 @@ launch time, hang rate or energy use.
 | Notes (≤ 4000 bytes) | below |
 
 ```
-RYFT is a wellness app that reads heart rate, HRV, sleep and workouts from Apple Health and shows daily Readiness, Recovery, Strain and Sleep scores computed on our EU servers. It writes to Apple Health only if the user turns on "Save strength workouts to Apple Health" (Profile → Data, or the question after the first logged workout): one workout per logged strength session, no other data.
+RYFT is a wellness app that reads heart rate, HRV, sleep and workouts from Apple Health and shows daily Readiness, Recovery, Strain and Sleep scores computed on our EU servers. It writes to Apple Health only if the user turns on "Save strength workouts to Apple Health" (Profile → Training or Profile → Devices and sync, or the question after the first logged workout): one workout per logged strength session, no other data.
 
 Demo account: the credentials above sign in with email and password. The account already holds 60 days of sample data, so every screen has content without a watch or Health data on the review device. Sign in with Apple also works; a new Apple account starts with an empty calibration state.
 
