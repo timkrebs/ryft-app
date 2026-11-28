@@ -129,8 +129,14 @@ final class ScreenModels {
         importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
                                      pendingGate: { [onboarding] in onboarding.pendingGate },
                                      awaitsConfirmation: { [onboarding] in onboarding.awaitsConfirmation },
-                                     showStrain: { [state] in state.selectedTab = .strain },
+                                     // An import started in Profile → Data ends on Fitness: the Profile sheet
+                                     // (`app.structure_v2`) closes, so the plan isn't pushed behind it.
+                                     showStrain: { [state] in
+                                         state.showsProfile = false
+                                         state.selectedTab = .strain
+                                     },
                                      openRoute: { [state, strain] route in
+                                         state.showsProfile = false
                                          strain.requestedRoute = route
                                          state.selectedTab = .strain
                                      })
@@ -154,6 +160,10 @@ final class ScreenModels {
         state.forgetsAccountState { [weak trainToday] in trainToday?.forget() }
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads
+        // A gate or the import over the Profile sheet (`app.structure_v2`) keeps it open: a link waits for its Done.
+        router.holdsProfile = { [onboarding, importer] in
+            onboarding.sheetStep != nil || importer.flow != nil || importer.showsUnavailable
+        }
     }
 
     /// A path's data gate changed (RootView forwards each). When it opens, that path's queue goes: the activity

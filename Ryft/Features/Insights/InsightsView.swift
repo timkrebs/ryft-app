@@ -14,7 +14,8 @@ struct InsightsView: View {
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                InsightsPage(content: InsightsPageContent(model), range: Bindable(model).range, actions: actions)
+                InsightsPage(content: InsightsPageContent(model), range: Bindable(model).range, actions: actions,
+                             structureV2: state.structureV2)
                     // A deep link to a metric: open its card and scroll it into view.
                     .task(id: model.focusedMetric) {
                         guard let metric = model.openFocused() else { return }
@@ -127,6 +128,7 @@ struct InsightsPage: View {
     let content: InsightsPageContent
     @Binding var range: TrendRange
     var actions = InsightsPageActions()
+    var structureV2 = false
     /// Previews and tests; `nil` follows the system.
     var reduceTransparency: Bool?
 
@@ -161,14 +163,24 @@ struct InsightsPage: View {
 
     // MARK: row 1
 
-    private var header: some View {
-        ScreenHeader(title: Text("Insights"), trailingLayout: .wide) {
+    @ViewBuilder private var header: some View {
+        if structureV2 {
+            ScreenHeader(title: Text(AppTab.insights.title)) { HeaderActions() }
             if content.hasDataSource {
-                SegmentedPicker(selection: $range, options: TrendRange.allCases, look: .inkFill, width: .content,
-                                spokenTitle: InsightsViewModel.rangeTitle, title: InsightsViewModel.rangeShortTitle)
-                    .accessibilityIdentifier("insights.range")
+                rangePicker(width: .fill)
+                    .padding(.top, ScreenHeaderSpec.stackedGap)
+            }
+        } else {
+            ScreenHeader(title: Text("Insights"), trailingLayout: .wide) {
+                if content.hasDataSource { rangePicker(width: .content) }
             }
         }
+    }
+
+    private func rangePicker(width: SegmentedPickerSpec.Width) -> some View {
+        SegmentedPicker(selection: $range, options: TrendRange.allCases, look: .inkFill, width: width,
+                        spokenTitle: InsightsViewModel.rangeTitle, title: InsightsViewModel.rangeShortTitle)
+            .accessibilityIdentifier("insights.range")
     }
 
     // MARK: rows 2–6

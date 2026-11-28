@@ -7651,6 +7651,17 @@
         }
       }
     },
+    "Fitness" : {
+      "comment" : "Title of the Fitness tab and screen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fitness"
+          }
+        }
+      }
+    },
     "Fluids during workout (L)" : {
       "localizations" : {
         "de" : {
@@ -10596,6 +10607,17 @@
         }
       }
     },
+    "Nothing is available to log yet." : {
+      "comment" : "Empty state of the Quick log sheet.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst hier noch nichts erfassen."
+          }
+        }
+      }
+    },
     "Nothing is synced until you agree." : {
       "comment" : "Onboarding, consent: the line by the agreement. Nothing leaves the phone until the user agrees.",
       "localizations" : {
@@ -10666,6 +10688,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ernährungscoaching"
+          }
+        }
+      }
+    },
+    "Nutrition isn't available for this account yet." : {
+      "comment" : "Empty state of the Nutrition tab when the account cannot use Nutrition.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ernährung ist für dieses Konto noch nicht verfügbar."
+          }
+        }
+      }
+    },
+    "Nutrition isn't part of Demo data." : {
+      "comment" : "Empty state of the Nutrition tab in Demo data.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ernährung ist nicht Teil der Demodaten."
           }
         }
       }
@@ -10937,6 +10981,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet einen Link außerhalb der App"
+          }
+        }
+      }
+    },
+    "Opens Profile. Touch and hold for sync options." : {
+      "comment" : "VoiceOver hint for the header avatar.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet das Profil. Berühre und halte den Avatar für Sync-Optionen."
+          }
+        }
+      }
+    },
+    "Opens Quick log" : {
+      "comment" : "VoiceOver hint for the header's Quick log button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Schnellerfassung"
           }
         }
       }

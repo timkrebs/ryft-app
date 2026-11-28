@@ -43,7 +43,8 @@ struct SleepView: View {
 
     var body: some View {
         NavigationStack {
-            SleepPage(header: model.header, mode: Bindable(model).mode, modes: model.modes, step: step) {
+            SleepPage(header: model.header, mode: Bindable(model).mode, modes: model.modes, step: step,
+                      structureV2: state.structureV2) {
                 switch model.mode {
                 case .day:
                     SleepDay(board: model.board, sleep: model.sleep, score: model.score, night: model.date,
@@ -101,12 +102,24 @@ struct SleepPage<Content: View>: View {
     @Binding var mode: SleepMode
     let modes: [SleepMode]
     let step: (Int) -> Void
+    var structureV2 = false
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         ScreenScaffold(showsHeader: false) {
             VStack(spacing: 0) {
-                SleepHeader(content: header, step: step)
+                if structureV2 {
+                    VStack(spacing: 0) {
+                        HeaderActions()
+                            .headerEdgeButton()
+                            .frame(maxWidth: .infinity, minHeight: ScreenHeaderSpec.height, alignment: .trailing)
+                        SleepHeader(content: header, step: step)
+                            .accessibilitySortPriority(1)
+                    }
+                    .accessibilityElement(children: .contain)
+                } else {
+                    SleepHeader(content: header, step: step)
+                }
                 SleepModePicker(selection: $mode, modes: modes)
                     .padding(.top, SleepLayout.pickerGap)
                 content()

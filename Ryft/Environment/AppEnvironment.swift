@@ -59,6 +59,9 @@ final class AppEnvironment {
 
     /// Demo mode serves the realistic sample history instead of the account.
     var isDemo: Bool { demoOverride ?? settings.demoMode }
+    var showsNutritionEntry: Bool {
+        !isDemo && auth.accountID != nil && flags.nutritionAccess != .unavailable
+    }
     /// The live graph (previews and tests pin demo mode): only it writes what the widget reads.
     var sharesWithWidget: Bool { demoOverride == nil }
     /// `.live` itself, not a graph built like it (tests of the demo switch): previews' and tests' shortcuts check it.

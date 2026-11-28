@@ -15,6 +15,10 @@ struct SyncStatusButton: View {
     /// The rotate effect's speed: 1 is the system's own pace, about a turn a second.
     nonisolated static let rotationSpeed: Double = 1
 
+    private var statusText: SyncStatusText {
+        SyncStatusText(state: state, sources: sources, now: now, scoresTakingLonger: scoresTakingLonger)
+    }
+
     var body: some View {
         Button(action: syncNow) {
             // The arrows turn while syncing (continuous, about a turn a second): the common iOS "it's working" and
@@ -37,20 +41,13 @@ struct SyncStatusButton: View {
         }
         .disabled(!enabled)
         .accessibilityLabel(Text("Sync", comment: "VoiceOver label for the Apple Health sync button in Today's header."))
-        .accessibilityValue(Text(verbatim: accessibilityValue))
+        .accessibilityValue(Text(verbatim: statusText.accessibilityValue))
         .accessibilityHint(Text("Syncs Apple Health now", comment: "VoiceOver hint for tapping the sync button."))
         .accessibilityIdentifier("today.header.sync")
         .sensoryFeedback(.impact(weight: .light), trigger: impact)
         .sensoryFeedback(.success, trigger: success)
         .contextMenu {
-            ForEach(sources, id: \.source) { source in
-                Button {} label: { Text(verbatim: sourceSummary(source)) }
-                    .disabled(true)
-            }
-            Button(action: syncNow) {
-                Text("Sync now", comment: "Action in Today's sync button menu that starts an Apple Health sync.")
-            }
-            .disabled(!enabled)
+            statusText.menu(enabled: enabled, sync: syncNow)
         }
     }
 
@@ -62,7 +59,35 @@ struct SyncStatusButton: View {
         }
     }
 
-    private var accessibilityValue: String {
+    private func syncNow() {
+        impact += 1
+        Task {
+            if await sync() { success += 1 }
+        }
+    }
+}
+
+/// The spoken value and context menu shared by Today's sync button and the header avatar.
+@MainActor
+struct SyncStatusText {
+    let state: SyncIndicatorState
+    let sources: [SyncSource]
+    let now: Date
+    var scoresTakingLonger = false
+
+    @ViewBuilder
+    func menu(enabled: Bool, sync: @escaping () -> Void) -> some View {
+        ForEach(sources, id: \.source) { source in
+            Button {} label: { Text(verbatim: sourceSummary(source)) }
+                .disabled(true)
+        }
+        Button(action: sync) {
+            Text("Sync now", comment: "Action in Today's sync button menu that starts an Apple Health sync.")
+        }
+        .disabled(!enabled)
+    }
+
+    var accessibilityValue: String {
         let stateText: String
         switch state {
         case .syncing:
@@ -120,13 +145,6 @@ struct SyncStatusButton: View {
             default:
                 return String(localized: "Sync problem", comment: "Generic sync status when a data source or upload reports an error.")
             }
-        }
-    }
-
-    private func syncNow() {
-        impact += 1
-        Task {
-            if await sync() { success += 1 }
         }
     }
 }

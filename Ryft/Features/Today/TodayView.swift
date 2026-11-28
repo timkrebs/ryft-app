@@ -34,8 +34,10 @@ struct TodayView: View {
 
     private enum NutritionOpening: Hashable { case diary, meal }
 
+    private var structureV2: Bool { env.flags.isOn(.structureV2) }
+
     private var showsNutritionEntry: Bool {
-        !env.isDemo && env.auth.accountID != nil && env.flags.nutritionAccess != .unavailable
+        !structureV2 && env.showsNutritionEntry
     }
 
     private var quickLogActions: [TodayQuickLogAction] {
@@ -49,7 +51,7 @@ struct TodayView: View {
     private func openQuickLogSelection() {
         guard let action = quickLogSelection else { return }
         quickLogSelection = nil
-        guard quickLogActions.contains(action) else { return }
+        guard !structureV2, quickLogActions.contains(action) else { return }
         switch action {
         case .meal:
             nutritionOpening = .meal
@@ -95,7 +97,7 @@ struct TodayView: View {
     var body: some View {
         // The day's facts and decision, read once for the whole body.
         let day = model.content
-        let actions = quickLogActions
+        let actions = structureV2 ? [] : quickLogActions
         NavigationStack {
             ScrollViewReader { proxy in
                 ScreenScaffold(showsHeader: false) {
@@ -160,6 +162,7 @@ struct TodayView: View {
                 .onChange(of: showsNutritionEntry) { _, available in if !available { nutritionOpening = nil } }
                 .onChange(of: env.auth.accountID) { _, _ in resetLogging() }
                 .onChange(of: env.isDemo) { _, _ in resetLogging() }
+                .onChange(of: structureV2) { _, enabled in if enabled { resetLogging() } }
                 .sheet(isPresented: $showsQuickLog, onDismiss: openQuickLogSelection) {
                     TodayQuickLogSheet(actions: actions, workoutInProgress: train.active != nil) { action in
                         quickLogSelection = action

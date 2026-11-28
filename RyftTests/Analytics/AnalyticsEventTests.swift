@@ -58,6 +58,7 @@ struct AnalyticsNameRow: Sendable, CustomTestStringConvertible {
         AnalyticsNameRow(event: .healthAccessRequested, name: "health_access_requested"),
         AnalyticsNameRow(event: .firstSyncCompleted, name: "first_sync_completed"),
         AnalyticsNameRow(event: .screenViewed(.today), name: "screen_viewed"),
+        AnalyticsNameRow(event: .quickLogAction(.logMeal), name: "quick_log_action"),
         AnalyticsNameRow(event: .featureUsed(.dataExported), name: "feature_used"),
         AnalyticsNameRow(event: .errorShown(.s500, .none), name: "error_shown"),
         AnalyticsNameRow(event: AnalyticsEventFixture.searchCompleted, name: "nutrition_search_completed"),
@@ -87,7 +88,7 @@ struct AnalyticsEventTests {
         #expect(Set(AnalyticsEvent.everyCase.map(\.name)) == [
             "onboarding_step", "health_access_requested", "first_sync_completed", "screen_viewed", "feature_used", "error_shown",
             "nutrition_search_completed", "nutrition_food_opened", "nutrition_food_logged", "nutrition_diary_reopened",
-            "sync_triggered", "sync_completed",
+            "sync_triggered", "sync_completed", "quick_log_action",
         ])
     }
 
@@ -96,7 +97,7 @@ struct AnalyticsEventTests {
         #expect(raw(AnalyticsScreen.self) == [
             "today", "sleep", "strain", "insights", "profile", "my_day", "sleep_schedule", "workout_detail", "activity_detail",
             "train_session", "train_history", "train_plans", "plan_builder", "train_import", "journal", "notification_settings",
-            "devices_and_sync", "sync_details", "report_problem",
+            "devices_and_sync", "sync_details", "report_problem", "nutrition", "quick_log", "profile_sheet",
         ])
         #expect(raw(AnalyticsFeature.self) == [
             "train_session_started", "activity_added", "sleep_added", "journal_saved", "sleep_schedule_saved",
@@ -140,6 +141,7 @@ struct AnalyticsEventTests {
             .union(raw(AnalyticsNutritionEntryPoint.self)).union(raw(AnalyticsUnitMode.self))
             .union(raw(AnalyticsSyncTrigger.self)).union(raw(AnalyticsSyncStatus.self))
             .union(raw(AnalyticsSyncDuration.self))
+            .union(raw(AnalyticsQuickLogAction.self))
         for value in all {
             #expect(value.range(of: "^[a-z0-9_+]{1,40}$", options: .regularExpression) != nil, "\(value)")
             #expect(!AnalyticsCatalog.isUnsafeValue(value), "\(value)")
@@ -157,7 +159,7 @@ struct AnalyticsEventTests {
             + AnalyticsSyncStatus.allCases.count * AnalyticsSyncDuration.allCases.count * AnalyticsConnectedProviders.allCases.count)
         let expected = OnboardingStepName.allCases.count + 2 + AnalyticsScreen.allCases.count + AnalyticsFeature.allCases.count
             + AnalyticsErrorStatus.allCases.count * AnalyticsErrorCode.allCases.count
-            + searches + opens + logs + bools + syncs
+            + searches + opens + logs + bools + syncs + AnalyticsQuickLogAction.allCases.count
         #expect(cases.count == expected)
         #expect(Set(cases).count == cases.count)
     }
@@ -172,6 +174,7 @@ struct AnalyticsEventTests {
         case .onboardingStep: return ["step": raw(OnboardingStepName.self)]
         case .healthAccessRequested, .firstSyncCompleted: return [:]
         case .screenViewed: return ["screen": raw(AnalyticsScreen.self)]
+        case .quickLogAction: return ["action": raw(AnalyticsQuickLogAction.self)]
         case .featureUsed: return ["feature": raw(AnalyticsFeature.self)]
         case .errorShown: return ["status": raw(AnalyticsErrorStatus.self), "code": raw(AnalyticsErrorCode.self)]
         case .nutritionSearchCompleted:
@@ -278,6 +281,20 @@ struct AnalyticsEventTests {
         for tab in AppTab.allCases {
             #expect(AnalyticsScreen(tab).rawValue == tab.rawValue, "\(tab)")
         }
+    }
+
+    @Test func quickLogSendsOnlyTheChosenAction() {
+        let tokens = ["log_meal", "scan_barcode", "start_workout", "add_activity", "journal", "add_sleep"]
+        let events = QuickLogAction.allCases.map { AnalyticsEvent.quickLogAction($0.analytics) }
+        #expect(events.allSatisfy { $0.name == "quick_log_action" })
+        #expect(events.map(\.properties) == tokens.map { ["action": $0] })
+        #expect(AnalyticsCatalog.events["quick_log_action"] == ["action": Set(tokens)])
+    }
+
+    @Test func structureScreensHaveTheirOwnTokens() {
+        #expect(AnalyticsEvent.screenViewed(AnalyticsScreen(.nutrition)).properties == ["screen": "nutrition"])
+        #expect(AnalyticsEvent.screenViewed(.quickLog).properties == ["screen": "quick_log"])
+        #expect(AnalyticsEvent.screenViewed(.profileSheet).properties == ["screen": "profile_sheet"])
     }
 
     @Test func stepCoversEveryOnboardingStep() {

@@ -313,7 +313,9 @@ final class TodayViewModel {
         }
     }
 
-    func open(_ tab: AppTab) { state.selectedTab = tab }
+    func open(_ tab: AppTab) {
+        if tab == .profile { state.openProfile() } else { state.selectedTab = tab }
+    }
 
     /// "Review" / "Enter code": the gate's screen, again.
     func resolve(_ step: OnboardingCoordinator.Step) { onboarding?.show(step) }

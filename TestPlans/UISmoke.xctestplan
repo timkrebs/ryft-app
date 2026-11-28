@@ -48,7 +48,8 @@
         "NocturneGateKeyboardUITests\/testReportDoneAndSendRideTheKeyboard",
         "NocturneGateKeyboardUITests\/testReportDoneAndSendRideTheKeyboardAtAX3",
         "TabBarUITests\/testEachTabOpensUnderItsLaunchArgument",
-        "TabBarUITests\/testReTappingStrainReturnsAPushedWorkoutToTheRoot"
+        "TabBarUITests\/testReTappingStrainReturnsAPushedWorkoutToTheRoot",
+        "StructureV2UITests"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",

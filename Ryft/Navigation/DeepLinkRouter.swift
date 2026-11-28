@@ -16,6 +16,13 @@ final class DeepLinkRouter {
     /// Today's target: the journal sheet on this day (`/journal/<day>`, the journal reminder's tap). Today opens it and
     /// sets it back to nil (`journalOpened()`).
     private(set) var requestedJournalDay: String?
+    /// The Profile sheet (`app.structure_v2`) is on screen, from its appearance to its `onDismiss`.
+    @ObservationIgnored private var profileIsPresented = false
+    /// A link that arrived over the Profile sheet: routed once it has gone (Today's journal sheet can't open under it).
+    @ObservationIgnored private var afterProfileDismissal: AppRoute?
+    /// Something is over the Profile sheet that a link mustn't take away (a gate's sheet, the import): the sheet stays
+    /// and the link waits for the person's Done. `ScreenModels` connects it.
+    @ObservationIgnored var holdsProfile: @MainActor () -> Bool = { false }
 
     init(state: AppState, sleep: SleepViewModel, strain: StrainViewModel, insights: InsightsViewModel,
          onboarding: OnboardingCoordinator? = nil) {
@@ -24,8 +31,14 @@ final class DeepLinkRouter {
         self.strain = strain
         self.insights = insights
         self.onboarding = onboarding
-        // A journal day asked for (a notification's tap) is the account's: it doesn't open for the next one.
-        state.forgetsAccountState { [weak self] in self?.requestedJournalDay = nil }
+        // A journal day asked for (a notification's tap) is the account's: it doesn't open for the next one. Nor does
+        // the Profile sheet, or a link waiting for it to close.
+        state.forgetsAccountState { [weak self, weak state] in
+            self?.requestedJournalDay = nil
+            self?.afterProfileDismissal = nil
+            self?.profileIsPresented = false
+            state?.showsProfile = false
+        }
     }
 
     /// `false` when the URL isn't one of ours.
@@ -37,6 +50,7 @@ final class DeepLinkRouter {
     }
 
     func open(_ link: AppRoute) async {
+        // An auth callback navigates nowhere: the Profile sheet stays.
         if case .authCallback(let url) = link {
             _ = await state.env.auth.handle(url)
             return
@@ -62,7 +76,23 @@ final class DeepLinkRouter {
         requestedJournalDay = nil
     }
 
+    func profileAppeared() { profileIsPresented = true }
+
+    func profileDismissed() {
+        profileIsPresented = false
+        guard let link = afterProfileDismissal else { return }
+        afterProfileDismissal = nil
+        if canNavigate { route(link) } else { pending = link }
+    }
+
     private func route(_ link: AppRoute) {
+        // Over the Profile sheet: it closes (unless a gate or the import is over it) and the link waits for its
+        // dismissal, so the tab and Today's journal sheet show on top.
+        if state.showsProfile, !holdsProfile() { state.showsProfile = false }
+        if profileIsPresented {
+            afterProfileDismissal = link
+            return
+        }
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: state.env.clock.now())
         switch link {

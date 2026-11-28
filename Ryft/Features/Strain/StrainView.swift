@@ -17,7 +17,7 @@ struct StrainView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            StrainPage(content: content, actions: actions)
+            StrainPage(content: content, actions: actions, structureV2: state.structureV2)
                 .navigationDestination(for: Workout.self) { WorkoutDetailView(workout: $0) }
                 .navigationDestination(for: ActivityRoute.self) { ActivityDetailView(route: $0) }
                 .trainDestinations()
@@ -111,6 +111,7 @@ struct StrainActions {
 struct StrainPage: View {
     let content: StrainPageContent
     var actions = StrainActions()
+    var structureV2 = false
     /// Previews and tests; nil follows the system.
     var reduceTransparency: Bool?
 
@@ -157,16 +158,21 @@ struct StrainPage: View {
     }
 
     private var header: some View {
-        ScreenHeader(title: Text("Strain"), value: content.dayTitle.map { Text(verbatim: $0) }) {
-            CircleButton(systemImage: "plus", iconSize: 14, accessibilityLabel: Text("Add activity")) {
-                actions.add?()
+        ScreenHeader(title: structureV2 ? Text(AppTab.strain.title(structureV2: true)) : Text("Strain"),
+                     value: content.dayTitle.map { Text(verbatim: $0) }) {
+            if structureV2 {
+                HeaderActions()
+            } else {
+                CircleButton(systemImage: "plus", iconSize: 14, accessibilityLabel: Text("Add activity")) {
+                    actions.add?()
+                }
+                .accessibilityHint(Text("Opens the add-activity sheet",
+                                        comment: "VoiceOver hint on Strain's header button: it opens Add activity for the shown day."))
+                .accessibilityIdentifier("strain.header.add")
+                .opacity(actions.add == nil ? 0 : 1)
+                .disabled(actions.add == nil)
+                .accessibilityHidden(actions.add == nil)
             }
-            .accessibilityHint(Text("Opens the add-activity sheet",
-                                    comment: "VoiceOver hint on Strain's header button: it opens Add activity for the shown day."))
-            .accessibilityIdentifier("strain.header.add")
-            .opacity(actions.add == nil ? 0 : 1)
-            .disabled(actions.add == nil)
-            .accessibilityHidden(actions.add == nil)
         }
     }
 

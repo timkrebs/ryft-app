@@ -238,6 +238,8 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// gated): dark until N4's switches ship and the operator opens it (`docs/API_REQUESTS.md`, NT5). Known off removes
     /// what's scheduled; not known yet (no config for the account, a background launch) keeps it (`known`).
     case notificationsReminders = "notifications.reminders"
+    /// Fitness and Nutrition tabs, with Profile and Quick log in the tab headers.
+    case structureV2 = "app.structure_v2"
 
     var id: String { rawValue }
 
@@ -247,7 +249,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
         case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport, .focusedSession: return false
-        case .analyticsEnabled, .notificationsReminders, .nutritionEnabled, .nutritionDiaryEnabled: return false
+        case .analyticsEnabled, .notificationsReminders, .nutritionEnabled, .nutritionDiaryEnabled, .structureV2: return false
         }
     }
 }

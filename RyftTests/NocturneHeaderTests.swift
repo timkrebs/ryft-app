@@ -26,6 +26,8 @@ struct NocturneHeaderTests {
     nonisolated static let titledHeaderFiles: Set = [
         "Ryft/Design/ScreenHeader.swift", "Ryft/Features/Strain/StrainView.swift", "Ryft/Features/Insights/InsightsView.swift",
         "Ryft/Features/Profile/ProfileView.swift", "Ryft/Features/Profile/NocturneStructuresCatalog.swift",
+        // The Nutrition tab's root (`app.structure_v2`).
+        "Ryft/Features/Nutrition/NutritionTab.swift",
     ]
 
     /// The repository, symlinks resolved (the enumerator hands back resolved paths).

@@ -283,7 +283,9 @@ struct RyftApp: App {
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
-                .onChange(of: state.selectedTab) { _, tab in env.analytics.track(.screenViewed(AnalyticsScreen(tab))) }
+                .onChange(of: state.selectedTab) { _, tab in
+                    if tab == state.selectedTab { env.analytics.track(.screenViewed(AnalyticsScreen(tab))) }
+                }
                 // The first successful sync unlocks the push pre-prompt on Today.
                 .onChange(of: sync.phase) { _, phase in
                     if phase == .done, !screens.push.hasSynced { env.analytics.track(.firstSyncCompleted) }
@@ -535,6 +537,7 @@ struct RootView: View {
     private var presentsBesidesAnalytics: Bool {
         onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
             || screens.importer.flow != nil || screens.importer.showsUnavailable
+            || state.showsProfile || state.showsQuickLog || state.quickLogDestination != nil
     }
 
     /// The onboarding screen on show, for `onboarding_step`; nil on the tabs, Welcome and in demo mode.
@@ -602,8 +605,9 @@ struct RootView: View {
             guard needsHealthIntro else { return }
             if await env.health.accessStatus() == .asked { settings.healthIntroDone = true }
         }
-        // The live workout, from Today, Strain or the Live Activity.
-        .fullScreenCover(item: Bindable(train).live) { SessionView(controller: $0).presentedRoot() }
+        // The live workout, from Today, Strain or the Live Activity. While the Profile sheet is up (`app.structure_v2`)
+        // the sheet presents it: a Live Activity's or Siri's resume would otherwise set `live` under the sheet, unseen.
+        .liveSessionCover(train, active: !state.showsProfile)
         // A password-reset link signed the user in; ask for the new password now.
         .sheet(isPresented: Bindable(auth).needsNewPassword) {
             SetNewPasswordView(mode: .recovery).presentedRoot()
@@ -646,17 +650,35 @@ struct RootView: View {
 
     private var tabBar: some View {
         RootTabs()
-            // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
-            .importPresentations(screens.importer)
+            // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2). While the Profile
+            // sheet is up (`app.structure_v2`) it presents them itself: a presenter under a sheet can't.
+            .importPresentations(screens.importer, active: !state.showsProfile)
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
             // current screen, never a reset to Welcome.
-            .sheet(item: Bindable(onboarding).sheetStep) { step in
-                OnboardingStepView(step: step, model: onboarding)
-                    .interactiveDismissDisabled(!onboarding.canDefer(step))
-                    .presentedRoot()
-            }
+            .onboardingGateSheet(onboarding, active: !state.showsProfile)
+    }
+}
+
+extension View {
+    /// The live workout's cover. `active` false: this presenter steps aside (the root's while the Profile sheet is up,
+    /// which presents it itself); `live` stays, so the other presenter shows it.
+    func liveSessionCover(_ train: TrainCoordinator, active: Bool = true) -> some View {
+        fullScreenCover(item: Binding(get: { active ? train.live : nil }, set: { if active { train.live = $0 } })) {
+            SessionView(controller: $0).presentedRoot()
+        }
+    }
+
+    /// A gate after the first run, as a sheet. `active` false: this presenter steps aside (the root's while the Profile
+    /// sheet is up, which presents the gate itself); the gate stays missing, so the other presenter shows it.
+    func onboardingGateSheet(_ onboarding: OnboardingCoordinator, active: Bool = true) -> some View {
+        sheet(item: Binding(get: { active ? onboarding.sheetStep : nil },
+                            set: { if active { onboarding.sheetStep = $0 } })) { step in
+            OnboardingStepView(step: step, model: onboarding)
+                .interactiveDismissDisabled(!onboarding.canDefer(step))
+                .presentedRoot()
+        }
     }
 }
 
@@ -666,20 +688,73 @@ struct RootView: View {
 /// view so the hosted tests and shots draw the same host as the app.
 struct RootTabs: View {
     @Environment(AppState.self) private var state
+    @Environment(ScreenModels.self) private var screens
     @Environment(TrainCoordinator.self) private var train
+    @Environment(\.appEnvironment) private var env
+    @State private var quickLogSelection: (action: QuickLogAction, account: AccountBinding)?
+    @State private var nutritionMealEditor: NutritionMealEditorRoute?
+    /// `profile_sheet` was sent for the sheet on screen.
+    @State private var profileSheetTracked = false
 
     var body: some View {
+        let structureV2 = state.structureV2
         TabView(selection: Bindable(state).selectedTab) {
             tab(.today) { TodayView() }
             tab(.sleep) { SleepView() }
             tab(.strain) { StrainView() }
+            if structureV2 { tab(.nutrition) { NutritionTab(mealEditor: $nutritionMealEditor) } }
             tab(.insights) { InsightsView() }
-            tab(.profile) { ProfileView() }
+            if !structureV2 { tab(.profile) { ProfileView() } }
         }
-        .ryftTabBar(RyftTabBar(items: RyftTabBar.appTabs, selection: state.selectedTab.rawValue,
+        .ryftTabBar(RyftTabBar(items: RyftTabBar.appTabs(structureV2: structureV2), selection: state.selectedTab.rawValue,
                                select: { state.selectedTab = AppTab(rawValue: $0) ?? state.selectedTab },
                                reselect: { if let tab = AppTab(rawValue: $0) { state.reselect(tab) } }))
         .sheet(isPresented: Bindable(train).showsStart) { StartWorkoutSheet().presentedRoot() }
+        .sheet(isPresented: Bindable(state).showsProfile, onDismiss: {
+            profileSheetTracked = false
+            screens.router.profileDismissed()
+        }) {
+            ProfileView(onDone: { state.showsProfile = false })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.background)
+                // What starts over the tabs from Profile's rows (Review consent, a gate's step, Profile → Data →
+                // Import) or meanwhile (a Live Activity's resume) shows over the sheet; the root's presenters step aside.
+                .importPresentations(screens.importer)
+                .onboardingGateSheet(screens.onboarding)
+                .liveSessionCover(train)
+                .presentedRoot()
+                .onAppear {
+                    screens.router.profileAppeared()
+                    // Once per presentation: `onAppear` runs again when a cover over the sheet closes.
+                    guard !profileSheetTracked else { return }
+                    profileSheetTracked = true
+                    env.analytics.track(.screenViewed(.profileSheet))
+                }
+        }
+        .sheet(isPresented: Bindable(state).showsQuickLog, onDismiss: openQuickLogSelection) {
+            QuickLogSheet(actions: quickLogActions, workoutInProgress: train.active != nil, select: selectQuickLogAction)
+                .presentedRoot()
+                .onAppear { env.analytics.track(.screenViewed(.quickLog)) }
+                .task {
+                    if screens.journal.availability == .unknown { await screens.journal.load() }
+                }
+        }
+        .sheet(item: Bindable(state).quickLogDestination) { destination in
+            quickLogSheet(for: destination).presentedRoot()
+        }
+        .onChange(of: structureV2, initial: true) { _, enabled in
+            state.normalizeTabSelection()
+            if !enabled {
+                state.showsProfile = false
+                resetQuickLog()
+            }
+            #if DEBUG
+            state.openDebugProfileSheet()
+            #endif
+        }
+        .onChange(of: AccountBinding(env)) { _, _ in resetQuickLog() }
+        .onChange(of: env.showsNutritionEntry) { _, available in if !available { nutritionMealEditor = nil } }
     }
 
     private func tab<Content: View>(_ tab: AppTab, @ViewBuilder _ content: () -> Content) -> some View {
@@ -688,12 +763,72 @@ struct RootTabs: View {
             .ryftTab()
             .tag(tab)
     }
+
+    private var activityDay: Date {
+        QuickLogAction.activityDay(selectedTab: state.selectedTab, fitnessDay: screens.strain.date, today: screens.myDay.today)
+    }
+
+    private var quickLogActions: [QuickLogAction] {
+        let myDay = screens.myDay
+        // TODO(recovery.checkin): route Add sleep to the morning check-in when it lands.
+        let offersAddSleep = myDay.isEnabled && myDay.addsManually && myDay.offersAddSleep(on: myDay.today, content: myDay.card)
+        return QuickLogAction.available(nutrition: env.showsNutritionEntry, train: screens.today.showsTrain,
+                                        myDay: myDay.isEnabled, canAddActivity: myDay.canAdd(on: activityDay),
+                                        journal: screens.journal.isLive, offersAddSleep: offersAddSleep)
+    }
+
+    private func selectQuickLogAction(_ action: QuickLogAction) {
+        guard state.structureV2 else { return }
+        env.analytics.track(.quickLogAction(action.analytics))
+        quickLogSelection = (action, AccountBinding(env))
+        state.showsQuickLog = false
+    }
+
+    private func openQuickLogSelection() {
+        guard let selection = quickLogSelection else { return }
+        quickLogSelection = nil
+        guard state.structureV2, selection.account.isCurrent(in: env), quickLogActions.contains(selection.action) else { return }
+        switch selection.action {
+        case .meal, .barcode:
+            // Never `reselect`: that rebuilds the stack and drops a meal being edited. The diary opens the editor only
+            // when none is open and no draft waits (`NutritionView`).
+            state.selectedTab = .nutrition
+            nutritionMealEditor = NutritionMealEditorRoute(startsWithBarcode: selection.action == .barcode)
+        case .workout:
+            if train.active != nil { train.resume() } else { train.showsStart = true }
+        case .activity:
+            state.quickLogDestination = .activity(screens.myDay.addActivityModel(on: activityDay))
+        case .journal:
+            state.quickLogDestination = .journal(JournalSheetModel(store: screens.journal))
+        case .sleep:
+            state.quickLogDestination = .sleep(screens.myDay.addSleepModel(on: screens.myDay.today))
+        }
+    }
+
+    private func resetQuickLog() {
+        quickLogSelection = nil
+        state.showsQuickLog = false
+        state.quickLogDestination = nil
+        nutritionMealEditor = nil
+    }
+
+    @ViewBuilder private func quickLogSheet(for destination: QuickLogDestination) -> some View {
+        switch destination {
+        case .activity(let model): AddActivitySheet(model: model)
+        case .journal(let model): JournalSheet(model: model)
+        case .sleep(let model): AddSleepSheet(model: model)
+        }
+    }
 }
 
 extension RyftTabBar {
-    /// The app's five tabs, in `AppTab` order, identified `tab.<rawValue>`.
-    static var appTabs: [Item] {
-        AppTab.allCases.map { Item(tab: $0.rawValue, title: $0.title, identifier: $0.identifier) }
+    static var appTabs: [Item] { appTabs(structureV2: false) }
+
+    /// The app's visible tabs, identified `tab.<rawValue>`.
+    static func appTabs(structureV2: Bool) -> [Item] {
+        AppTab.tabs(structureV2: structureV2).map { tab in
+            Item(tab: tab.rawValue, title: tab.title(structureV2: structureV2), identifier: tab.identifier)
+        }
     }
 }
 
@@ -1013,4 +1148,8 @@ private final class NextFrame: NSObject {
 
 #Preview("Tabs · Today · AX3") {
     RootTabs().previewEnvironment().environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Tabs · Fitness and Nutrition") {
+    RootTabs().previewEnvironment(.preview(flags: [.structureV2: true]))
 }

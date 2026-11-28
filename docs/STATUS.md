@@ -1,5 +1,17 @@
 # Status — 2026-11-24
 
+## 2026-11-28 · App navigation (P2)
+
+- **Done (behind `app.structure_v2`, default off):** tabs Today · Sleep · Fitness · Nutrition · Insights; + (Quick log)
+  and the avatar (Profile sheet, #151's sync state as a badge, long-press sync menu) on every tab's header; one Quick
+  log sheet with six actions; the analytics tokens. Plan, decisions and review: `docs/work/2026-11-28-structure-p2/`.
+- **Verified (simulator only):** #155's CI is green: Unit plan and UI smoke, i.e. the flag-off smoke unchanged plus
+  `StructureV2UITests` with the flag on. Zero warnings, `make lint` (en + de complete). Code review: flag off == main.
+- **Open:** the device checklist in #155, never run on a device. #153's morning check-in plugs into Add sleep once
+  merged (`TODO(recovery.checkin)`).
+- **Needs the platform:** `app.structure_v2` in the config's flag list (off), and the privacy-text line for
+  `quick_log_action` in the next privacy version.
+
 ## 2026-11-27 · Profile groups (P1)
 
 - **Done:**

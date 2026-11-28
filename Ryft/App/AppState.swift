@@ -10,16 +10,28 @@ import Observation
 import os
 
 enum AppTab: String, CaseIterable, Hashable {
-    case today, sleep, strain, insights, profile
+    case today, sleep, strain, insights, profile, nutrition
+
+    static func tabs(structureV2: Bool) -> [AppTab] {
+        structureV2 ? [.today, .sleep, .strain, .nutrition, .insights] : [.today, .sleep, .strain, .insights, .profile]
+    }
+
+    static func visible(_ tab: AppTab, structureV2: Bool) -> AppTab {
+        tabs(structureV2: structureV2).contains(tab) ? tab : .today
+    }
 
     /// The tab's name in the tab bar and for VoiceOver (`RyftTabBar`).
-    var title: LocalizedStringResource {
+    var title: LocalizedStringResource { title(structureV2: false) }
+
+    func title(structureV2: Bool) -> LocalizedStringResource {
         switch self {
         case .today: return LocalizedStringResource("Today", comment: "Tab bar: the Today tab.")
         case .sleep: return LocalizedStringResource("Sleep", comment: "Tab bar: the Sleep tab.")
+        case .strain where structureV2: return LocalizedStringResource("Fitness", comment: "Title of the Fitness tab and screen.")
         case .strain: return LocalizedStringResource("Strain", comment: "Tab bar: the Strain tab.")
         case .insights: return LocalizedStringResource("Insights", comment: "Tab bar: the Insights tab.")
         case .profile: return LocalizedStringResource("Profile", comment: "Tab bar: the Profile tab.")
+        case .nutrition: return LocalizedStringResource("Nutrition", comment: "Title of the Nutrition diary and its tab.")
         }
     }
 
@@ -31,7 +43,18 @@ enum AppTab: String, CaseIterable, Hashable {
 @Observable
 final class AppState {
     /// The tab on screen; the single source for the tab bar, deep links and `-RyftTab`.
-    var selectedTab: AppTab
+    var selectedTab: AppTab {
+        get { AppTab.visible(tabSelection, structureV2: structureV2) }
+        set { tabSelection = AppTab.visible(newValue, structureV2: structureV2) }
+    }
+    private var tabSelection: AppTab
+    var structureV2: Bool { env.flags.isOn(.structureV2) }
+    var showsProfile = false
+    var showsQuickLog = false
+    var quickLogDestination: QuickLogDestination?
+    #if DEBUG
+    private var openedDebugProfileSheet = false
+    #endif
     /// Each tab's stack identity (`RootTabs` puts it on the tab's root as `.id`). `reselect` bumps one: that tab's stack
     /// is rebuilt at its root with its scroll at the top, which is what tapping the selected tab did in the system bar.
     private(set) var tabStackIDs: [AppTab: Int] = [:]
@@ -136,7 +159,8 @@ final class AppState {
         self.env = env
         self.repository = repository ?? Repository(env: env)
         // `-RyftTab sleep` selects the initial tab (handy for screenshots).
-        selectedTab = UserDefaults.standard.string(forKey: "RyftTab").flatMap(AppTab.init(rawValue:)) ?? .today
+        let requestedTab = UserDefaults.standard.string(forKey: "RyftTab").flatMap(AppTab.init(rawValue:)) ?? .today
+        tabSelection = AppTab.visible(requestedTab, structureV2: env.flags.isOn(.structureV2))
         #if DEBUG
         // `-RyftScenario import` (or pending, calibrating, watch): screenshots and UI tests, demo mode only.
         if env.isDemo { todayScenario = UserDefaults.standard.string(forKey: "RyftScenario").flatMap(TodayScenario.init) }
@@ -149,6 +173,24 @@ final class AppState {
     }
 
     // MARK: tabs
+
+    func normalizeTabSelection() {
+        let visibleTab = selectedTab
+        if tabSelection != visibleTab { tabSelection = visibleTab }
+    }
+
+    func openProfile() {
+        if structureV2 { showsProfile = true } else { selectedTab = .profile }
+    }
+
+    #if DEBUG
+    /// `-RyftProfileSheet YES` opens Profile once when the new tabs are shown.
+    func openDebugProfileSheet() {
+        guard structureV2, !openedDebugProfileSheet, UserDefaults.standard.bool(forKey: "RyftProfileSheet") else { return }
+        openedDebugProfileSheet = true
+        openProfile()
+    }
+    #endif
 
     /// `tab`'s stack identity: 0 until its first `reselect`.
     func stackID(for tab: AppTab) -> Int { tabStackIDs[tab, default: 0] }
